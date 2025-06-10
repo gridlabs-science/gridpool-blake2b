@@ -286,7 +286,7 @@ public class DatumPrimeServer
     }
 
     // Utility to send a message
-    private void SendMessage(NetworkStream stream, byte[] payload, byte[] signature = null)
+    private void SendMessage(NetworkStream stream, byte[] payload, byte[]? signature = null)
     {
         DatumProtocolHeader header = new DatumProtocolHeader
         {
@@ -340,16 +340,16 @@ public class DatumPrimeServer
         }
     }
 
-    public static void Main(string[] args)
-    {
-        try
-        {
-            DatumPrimeServer server = new DatumPrimeServer(8080); // Listen on port 8080
-            server.Start();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Server failed: {ex.Message}");
-        }
-    }
+    // public static void Main(string[] args)
+    // {
+    //     try
+    //     {
+    //         DatumPrimeServer server = new DatumPrimeServer(8080); // Listen on port 8080
+    //         server.Start();
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         Console.WriteLine($"Server failed: {ex.Message}");
+    //     }
+    // }
 }
