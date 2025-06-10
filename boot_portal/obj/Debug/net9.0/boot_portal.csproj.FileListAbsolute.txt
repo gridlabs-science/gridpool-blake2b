@@ -1,0 +1,15 @@
+C:\Users\keegr\Documents\GitHub\boot-protocol\boot_portal\bin\Debug\net9.0\boot_portal.exe
+C:\Users\keegr\Documents\GitHub\boot-protocol\boot_portal\bin\Debug\net9.0\boot_portal.deps.json
+C:\Users\keegr\Documents\GitHub\boot-protocol\boot_portal\bin\Debug\net9.0\boot_portal.runtimeconfig.json
+C:\Users\keegr\Documents\GitHub\boot-protocol\boot_portal\bin\Debug\net9.0\boot_portal.dll
+C:\Users\keegr\Documents\GitHub\boot-protocol\boot_portal\bin\Debug\net9.0\boot_portal.pdb
+C:\Users\keegr\Documents\GitHub\boot-protocol\boot_portal\obj\Debug\net9.0\boot_portal.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\keegr\Documents\GitHub\boot-protocol\boot_portal\obj\Debug\net9.0\boot_portal.AssemblyInfoInputs.cache
+C:\Users\keegr\Documents\GitHub\boot-protocol\boot_portal\obj\Debug\net9.0\boot_portal.AssemblyInfo.cs
+C:\Users\keegr\Documents\GitHub\boot-protocol\boot_portal\obj\Debug\net9.0\boot_portal.csproj.CoreCompileInputs.cache
+C:\Users\keegr\Documents\GitHub\boot-protocol\boot_portal\obj\Debug\net9.0\boot_portal.sourcelink.json
+C:\Users\keegr\Documents\GitHub\boot-protocol\boot_portal\obj\Debug\net9.0\boot_portal.dll
+C:\Users\keegr\Documents\GitHub\boot-protocol\boot_portal\obj\Debug\net9.0\refint\boot_portal.dll
+C:\Users\keegr\Documents\GitHub\boot-protocol\boot_portal\obj\Debug\net9.0\boot_portal.pdb
+C:\Users\keegr\Documents\GitHub\boot-protocol\boot_portal\obj\Debug\net9.0\boot_portal.genruntimeconfig.cache
+C:\Users\keegr\Documents\GitHub\boot-protocol\boot_portal\obj\Debug\net9.0\ref\boot_portal.dll
