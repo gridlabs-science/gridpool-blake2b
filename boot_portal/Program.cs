@@ -1,6 +1,5 @@
 ﻿// Program.cs
 
-using System;
 using System.Buffers.Binary;
 using System.CommandLine;
 using System.Net;
@@ -8,6 +7,9 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using NSec.Cryptography;
+using Org.BouncyCastle.Crypto;
+using Org.BouncyCastle.Crypto.Engines;
+using Org.BouncyCastle.Crypto.Parameters;
 
 // =================================================================================
 // 1. MAIN PROGRAM ENTRY POINT
@@ -193,11 +195,20 @@ public class ClientHandler
             // NSec requires an explicit export/import of the key seed to perform this conversion.
             var serverEd25519Seed = _serverLongTermKey.Export(KeyBlobFormat.RawPrivateKey);
             using var serverX25519PrivateKey = Key.Import(KeyAgreementAlgorithm.X25519, serverEd25519Seed, KeyBlobFormat.RawPrivateKey);
+            
+            // Create a BouncyCastle XSalsa20-Poly1305 engine
+            ICipherParameters keyParamWithIv = new Ed25519PrivateKeyParameters(serverEd25519Seed);
+            
+            var cipher = new XSalsa20Engine();
+            cipher.Init(false, keyParamWithIv);
+            var plainTextData = new byte[encryptedBody.Length];
 
-            // CORRECTION 2: The correct method is AeadAlgorithm.OpenSealedBox, not TryOpenSealedBox.
-            // It throws a CryptographicException on failure, so we use a try-catch block.
-            plaintext = AeadAlgorithm.OpenSealedBox(serverX25519PrivateKey, encryptedBody);
-            plaintext = XChaCha20Poly1305.OpenSealedBox(serverX25519PrivateKey, encryptedBody);
+            for (var j = 0; j < encryptedBody.Length; j++)
+            {
+                plainTextData[j] = cipher.ReturnByte(encryptedBody[j]);
+            }
+
+            plaintext = plainTextData;
         }
         catch (CryptographicException ex)
         {
@@ -251,7 +262,7 @@ public class ClientHandler
         
         // CORRECTION 3: A SharedSecret must be imported into a Key object before use.
         // We use a `using` block for proper disposal of the sensitive key material.
-        using var symmetricKey = Key.Import(aead, _channelSharedSecret.Export(), KeyBlobFormat.RawSymmetricKey);
+        using var symmetricKey = Key.Import(aead, _channelSharedSecret.Export(SharedSecretBlobFormat.RawSharedSecret), KeyBlobFormat.RawSymmetricKey);
 
         var nonce = encryptedBody.Take(aead.NonceSize).ToArray();
         var ciphertext = encryptedBody.Skip(aead.NonceSize).ToArray();
@@ -313,7 +324,7 @@ public class ClientHandler
         var aead = AeadAlgorithm.XChaCha20Poly1305;
         
         // CORRECTION 3 (applied to sending): A SharedSecret must be imported into a Key object.
-        using var symmetricKey = Key.Import(aead, _channelSharedSecret.Export(), KeyBlobFormat.RawSymmetricKey);
+        using var symmetricKey = Key.Import(aead, _channelSharedSecret.Export(SharedSecretBlobFormat.RawSharedSecret), KeyBlobFormat.RawSymmetricKey);
         
         var nonce = new byte[aead.NonceSize];
         RandomNumberGenerator.Fill(nonce);

@@ -1,5 +1,3 @@
-using System;
-using System.IO;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -18,7 +16,7 @@ public class DatumPrimeServer
         public uint CmdLen
         {
             get => _cmd_len_reserved_is_signed_encrypted_cmd & 0x3FFFFF; // 22 bits
-            set => _cmd_len_reserved_is_signed_encrypted_cmd = (_cmd_len_reserved_is_signed_encrypted_cmd & ~0x3FFFFF) | (value & 0x3FFFFF);
+            set => _cmd_len_reserved_is_signed_encrypted_cmd = (uint)(_cmd_len_reserved_is_signed_encrypted_cmd & ~0x3FFFFF) | (value & 0x3FFFFF); // TODO: not sure if this cast is in the right place
         }
 
         public byte Reserved
