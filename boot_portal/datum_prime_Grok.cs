@@ -1,5 +1,3 @@
-using System;
-using System.IO;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -18,7 +16,7 @@ public class DatumPrimeServer
         public uint CmdLen
         {
             get => _cmd_len_reserved_is_signed_encrypted_cmd & 0x3FFFFF; // 22 bits
-            set => _cmd_len_reserved_is_signed_encrypted_cmd = (_cmd_len_reserved_is_signed_encrypted_cmd & ~0x3FFFFF) | (value & 0x3FFFFF);
+            set => _cmd_len_reserved_is_signed_encrypted_cmd = (uint)(_cmd_len_reserved_is_signed_encrypted_cmd & ~0x3FFFFF) | (value & 0x3FFFFF); // TODO: not sure if this cast is in the right place
         }
 
         public byte Reserved
@@ -288,7 +286,7 @@ public class DatumPrimeServer
     }
 
     // Utility to send a message
-    private void SendMessage(NetworkStream stream, byte[] payload, byte[] signature = null)
+    private void SendMessage(NetworkStream stream, byte[] payload, byte[]? signature = null)
     {
         DatumProtocolHeader header = new DatumProtocolHeader
         {
@@ -342,16 +340,16 @@ public class DatumPrimeServer
         }
     }
 
-    public static void Main(string[] args)
-    {
-        try
-        {
-            DatumPrimeServer server = new DatumPrimeServer(8080); // Listen on port 8080
-            server.Start();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Server failed: {ex.Message}");
-        }
-    }
+    // public static void Main(string[] args)
+    // {
+    //     try
+    //     {
+    //         DatumPrimeServer server = new DatumPrimeServer(8080); // Listen on port 8080
+    //         server.Start();
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         Console.WriteLine($"Server failed: {ex.Message}");
+    //     }
+    // }
 }
