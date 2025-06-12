@@ -10,6 +10,7 @@ using NSec.Cryptography;
 using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.Crypto.Engines;
 using Org.BouncyCastle.Crypto.Parameters;
+using Sodium;
 
 // =================================================================================
 // 1. MAIN PROGRAM ENTRY POINT
@@ -19,70 +20,105 @@ using Org.BouncyCastle.Crypto.Parameters;
 // =================================================================================
 public class Program
 {
-    // The default port for the DATUM protocol.
     private const int DatumPort = 3008;
 
-    // Async Main method allows us to use 'await' for network operations.
+    // Utility function to convert bytes to hex string
+    private static string ToHexString(byte[] bytes)
+    {
+        return Convert.ToHexString(bytes).ToLower();
+    }
+
     public static async Task Main(string[] args)
     {
-        // --- Command-Line Argument Setup ---
-        // We use System.CommandLine to define and parse arguments.
         var rootCommand = new RootCommand("DATUM Prime C# Server");
-        var privateKeyOption = new Option<string?>(
-            name: "--private-key",
-            description: "The Base64 encoded private key for the server. If not provided, a new key pair will be generated."
+        var ed25519PrivateKeyOption = new Option<string?>(
+            name: "--ed25519-private-key",
+            description: "The Base64 encoded Ed25519 private key for the server. If not provided, a new key pair will be generated."
         );
-        rootCommand.AddOption(privateKeyOption);
+        var x25519PrivateKeyOption = new Option<string?>(
+            name: "--x25519-private-key",
+            description: "The Base64 encoded X25519 private key for the server. If not provided, a new key pair will be generated."
+        );
+        rootCommand.AddOption(ed25519PrivateKeyOption);
+        rootCommand.AddOption(x25519PrivateKeyOption);
 
-        // This handler is executed when the program is run.
-        rootCommand.SetHandler(async (privateKeyBase64) =>
+        rootCommand.SetHandler(async (ed25519PrivateKeyBase64, x25519PrivateKeyBase64) =>
         {
-            Key serverKey;
+            Key ed25519Key;
+            Key x25519Key;
 
-            // --- Key Management ---
-            // The server needs a long-term Ed25519 key pair. This is used to sign critical
-            // messages and prove the server's identity.
-            if (!string.IsNullOrEmpty(privateKeyBase64))
+            var signatureAlgorithm = SignatureAlgorithm.Ed25519;
+            var keyExchangeAlgorithm = KeyAgreementAlgorithm.X25519;
+
+            // Handle Ed25519 key
+            if (!string.IsNullOrEmpty(ed25519PrivateKeyBase64))
             {
-                // If a private key is provided, import it.
-                // This allows the server to maintain a persistent identity across restarts.
                 try
                 {
-                    var privateKeyBytes = Convert.FromBase64String(privateKeyBase64);
-                    serverKey = Key.Import(SignatureAlgorithm.Ed25519, privateKeyBytes, KeyBlobFormat.RawPrivateKey);
-                    Console.WriteLine("✅ Successfully loaded server key from command line argument.");
+                    var privateKeyBytes = Convert.FromBase64String(ed25519PrivateKeyBase64);
+                    ed25519Key = Key.Import(signatureAlgorithm, privateKeyBytes, KeyBlobFormat.RawPrivateKey);
+                    Console.WriteLine("✅ Successfully loaded Ed25519 server key.");
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"❌ Failed to load private key: {ex.Message}");
+                    Console.WriteLine($"❌ Failed to load Ed25519 private key: {ex.Message}");
                     return;
                 }
             }
             else
             {
-                // If no key is provided, generate a new one.
-                // This is useful for testing or initial setup. The public key must be
-                // given to the client (DATUM Gateway) to allow it to connect.
-                serverKey = Key.Create(SignatureAlgorithm.Ed25519, new KeyCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextExport });
-                Console.WriteLine("⚠️ No private key provided. Generated a new temporary key pair.");
-                
-                // Export the keys in Base64 format for easy copying.
-                var pubKeyBytes = serverKey.PublicKey.Export(KeyBlobFormat.RawPublicKey);
-                var privKeyBytes = serverKey.Export(KeyBlobFormat.RawPrivateKey);
-                
-                Console.WriteLine("\n====================== IMPORTANT ======================");
-                Console.WriteLine("Copy this public key into your DATUM Gateway's config.json:");
-                Console.WriteLine($"🔑 Server Public Key (Base64): {Convert.ToBase64String(pubKeyBytes)}");
-                Console.WriteLine("\nSave this private key to reuse this server identity later:");
-                Console.WriteLine($"🔒 Server Private Key (Base64): {Convert.ToBase64String(privKeyBytes)}");
-                Console.WriteLine("=======================================================\n");
+                ed25519Key = Key.Create(signatureAlgorithm, new KeyCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextExport });
+                Console.WriteLine("⚠️ No Ed25519 private key provided. Generated a new temporary Ed25519 key pair.");
             }
-            
-            // --- Start the Server ---
-            var server = new DatumServer(IPAddress.Any, DatumPort, serverKey);
+
+            // Handle X25519 key
+            if (!string.IsNullOrEmpty(x25519PrivateKeyBase64))
+            {
+                try
+                {
+                    var privateKeyBytes = Convert.FromBase64String(x25519PrivateKeyBase64);
+                    x25519Key = Key.Import(keyExchangeAlgorithm, privateKeyBytes, KeyBlobFormat.RawPrivateKey);
+                    Console.WriteLine("✅ Successfully loaded X25519 server key.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"❌ Failed to load X25519 private key: {ex.Message}");
+                    return;
+                }
+            }
+            else
+            {
+                x25519Key = Key.Create(keyExchangeAlgorithm, new KeyCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextExport });
+                Console.WriteLine("⚠️ No X25519 private key provided. Generated a new temporary X25519 key pair.");
+            }
+
+            // Export public keys
+            var ed25519PubKeyBytes = ed25519Key.PublicKey.Export(KeyBlobFormat.RawPublicKey); // 32 bytes
+            var x25519PubKeyBytes = x25519Key.PublicKey.Export(KeyBlobFormat.RawPublicKey); // 32 bytes
+            var ed25519PrivKeyBytes = ed25519Key.Export(KeyBlobFormat.RawPrivateKey); // 64 bytes
+            var x25519PrivKeyBytes = x25519Key.Export(KeyBlobFormat.RawPrivateKey); // 32 bytes
+
+            // Concatenate Ed25519 and X25519 public keys
+            var combinedPubKey = new byte[ed25519PubKeyBytes.Length + x25519PubKeyBytes.Length];
+            Buffer.BlockCopy(ed25519PubKeyBytes, 0, combinedPubKey, 0, ed25519PubKeyBytes.Length);
+            Buffer.BlockCopy(x25519PubKeyBytes, 0, combinedPubKey, ed25519PubKeyBytes.Length, x25519PubKeyBytes.Length);
+
+            // Convert to hex for client
+            var combinedPubKeyHex = ToHexString(combinedPubKey); // 128 hex characters
+
+            Console.WriteLine("\n====================== IMPORTANT ======================");
+            Console.WriteLine("Copy this combined public key (Ed25519 + X25519, hex-encoded) into your DATUM Gateway's config.json:");
+            Console.WriteLine($"🔑 Server Public Key (Hex): {combinedPubKeyHex}");
+            Console.WriteLine("\nSave these private keys to reuse this server identity later:");
+            Console.WriteLine($"🔒 Ed25519 Private Key (Base64): {Convert.ToBase64String(ed25519PrivKeyBytes)}");
+            Console.WriteLine($"🔒 X25519 Private Key (Base64): {Convert.ToBase64String(x25519PrivKeyBytes)}");
+            Console.WriteLine("=======================================================\n");
+
+            // Start the server
+            var server = new DatumServer(IPAddress.Any, DatumPort, ed25519Key);
             await server.StartAsync();
 
-        }, privateKeyOption);
+        }, ed25519PrivateKeyOption, x25519PrivateKeyOption);
 
         await rootCommand.InvokeAsync(args);
     }
@@ -126,6 +162,7 @@ public class DatumServer
     }
 }
 
+
 // =================================================================================
 // 3. CLIENT HANDLER CLASS (REVISED WITH CORRECT NSEC API USAGE)
 // =================================================================================
@@ -134,17 +171,23 @@ public class ClientHandler
     private readonly TcpClient _client;
     private readonly NetworkStream _stream;
     private readonly Key _serverLongTermKey; // The server's main Ed25519 key.
+    //private readonly Key _ed25519KeyLongTerm; // The server's long-term Ed25519 key.
+    //private readonly Key _x25519KeyLongTerm; // The server's long-term x25519 key.
 
     // --- Per-Session State ---
     private PublicKey? _clientSessionPubKey;
     private Key? _serverSessionKey;
     private SharedSecret? _channelSharedSecret; // The key for symmetric encryption (AEAD).
+    private UInt32 _sendingHeaderKey;
 
     public ClientHandler(TcpClient client, Key serverLongTermKey)
     {
         _client = client;
         _stream = client.GetStream();
         _serverLongTermKey = serverLongTermKey;
+        _sendingHeaderKey = 0xDC871829; // initial send header key ... changed by handshake function
+        //_ed25519KeyLongTerm = serverLongTermEdKey;
+        //_x25519KeyLongTerm = serverLongTermXKey;
     }
 
     public async Task HandleClientAsync()
@@ -153,19 +196,163 @@ public class ClientHandler
         {
             while (_client.Connected)
             {
+                //TODO:  I just realized that the client code sets an initial, hard coded value for the header key on the hello message:
+                // Step 1: Read the 4-byte header
                 var headerBuffer = new byte[4];
                 int bytesRead = await _stream.ReadAsync(headerBuffer, 0, headerBuffer.Length);
-                if (bytesRead == 0) break;
+                if (bytesRead == 0)
+                {
+                    Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} disconnected (no data).");
+                    break;
+                }
+                if (bytesRead < 4)
+                {
+                    Console.WriteLine($"⚠️ Partial header received ({bytesRead} bytes): {BitConverter.ToString(headerBuffer, 0, bytesRead)}");
+                    break;
+                }
+                Console.WriteLine($"📥 Received header bytes: {BitConverter.ToString(headerBuffer)}");
+                
 
-                var header = DatumHeader.FromBytes(headerBuffer);
+                //Console.WriteLine($"🔑 Extracted XOR key: 0x{xorKey:X8}");
+
+                // Step 1.2: Decode header with XOR key
+                uint headerValue = BitConverter.ToUInt32(headerBuffer, 0); // Read as little-endian
+                headerValue ^= _sendingHeaderKey; // XOR as 32-bit integer
+                var deXoredHeaderBytes = BitConverter.GetBytes(headerValue); // Convert back to bytes
+                Console.WriteLine($"📥 De-XORed header bytes: {BitConverter.ToString(deXoredHeaderBytes)}");
+
+                // Parse header
+                var header = DatumHeader.FromBytes(deXoredHeaderBytes);
+                Console.WriteLine($"📋 Parsed header: Cmd={header.ProtoCmd}, Len={header.CmdLen}, Signed={header.IsSigned}, Encrypted={header.IsEncryptedPubKey}");
+
+
+                // Step 2: Read up to max encrypted body length (798 bytes)
+                //const int maxBodyLength = 1024; // Max encrypted body length
                 var bodyBuffer = new byte[header.CmdLen];
-                await _stream.ReadExactlyAsync(bodyBuffer, 0, bodyBuffer.Length);
+                bytesRead = await _stream.ReadAsync(bodyBuffer, 0, bodyBuffer.Length);
+                if (bytesRead == 0)
+                {
+                    Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} disconnected (no body).");
+                    break;
+                }
+                Console.WriteLine($"📦 Received encrypted body ({bytesRead} bytes)");
+
+                // Step 3: Decrypt the body
+                byte[] decryptedBody = DecryptBody(bodyBuffer, bytesRead);
+                if (decryptedBody == null)
+                {
+                    Console.WriteLine($"❌ Failed to decrypt body for client {_client.Client.RemoteEndPoint}");
+                    break;
+                }
+                Console.WriteLine($"🔓 Decrypted body ({decryptedBody.Length} bytes)");
+
+                
+
+                // Verify cmd_len matches decrypted body length
+                if (header.CmdLen != decryptedBody.Length)
+                {
+                    Console.WriteLine($"⚠️ Header cmd_len ({header.CmdLen}) does not match decrypted body length ({decryptedBody.Length})");
+                    break;
+                }
+
+                // Step 5?: Extract XOR key (nk) from decrypted body
+                //TODO: I probably have other operations I need to do to this before it's good to use
+                //  see datum_protocol.c lines 1058 and 156
+                _sendingHeaderKey = ExtractXorKey(decryptedBody);
+
+                //Now we can send it to the appropriate command handler:
                 await ProcessMessageAsync(header, bodyBuffer);
+
+
             }
         }
         catch (IOException) { Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} disconnected."); }
         catch (Exception ex) { Console.WriteLine($"💥 An error occurred with client {_client.Client.RemoteEndPoint}: {ex.Message}\n{ex.StackTrace}"); }
         finally { _client.Close(); }
+    }
+
+    private byte[] DecryptBody(byte[] encryptedBody, int bytesRead)
+    {
+        try
+        {
+            const int CryptoBoxSealBytes = 32;
+            if (bytesRead < CryptoBoxSealBytes)
+            {
+                Console.WriteLine($"❌ Ciphertext too short: {bytesRead} bytes");
+                return null;
+            }
+
+            // Converting the server's Ed25519 key to an X25519 key for decryption.
+            // NSec requires an explicit export/import of the key seed to perform this conversion.
+            var serverEd25519Seed = _serverLongTermKey.Export(KeyBlobFormat.RawPrivateKey);
+            using var privateKeyBytes = Key.Import(KeyAgreementAlgorithm.X25519, serverEd25519Seed, KeyBlobFormat.RawPrivateKey);
+            var publicKeyBytes = _serverLongTermKey.Export(KeyBlobFormat.RawPublicKey);
+            KeyPair serverKeyPair = new KeyPair(publicKeyBytes, serverEd25519Seed);
+
+            //var privateKeyBytes = _x25519Key.Export(KeyBlobFormat.RawPrivateKey);
+            //var publicKeyBytes = _x25519Key.PublicKey.Export(KeyBlobFormat.RawPublicKey);
+
+            var decrypted = new byte[bytesRead - CryptoBoxSealBytes];
+            //int result = Sodium.SecretBox.Open(decrypted, encryptedBody, bytesRead, publicKeyBytes, privateKeyBytes);
+            decrypted = Sodium.SealedPublicKeyBox.Open(encryptedBody, serverKeyPair);
+            if (decrypted != null)
+            {
+                Console.WriteLine("❌ Decryption failed");
+                return null;
+            }
+
+            Console.WriteLine($"🔓 Decrypted {decrypted.Length} bytes");
+            return decrypted;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Decryption error: {ex.Message}");
+            return null;
+        }
+    }
+
+    private UInt32 ExtractXorKey(byte[] decryptedBody)
+    {
+        // Find 0xFE marker after version, '/', commit hash, and optional tag
+        int i = 0;
+        // Skip public keys (128 bytes)
+        i += 128;
+
+        // Find first null terminator (end of version)
+        while (i < decryptedBody.Length && decryptedBody[i] != 0) i++;
+        if (i >= decryptedBody.Length) return 0;
+        i++; // Skip null
+
+        // Skip '/' separator
+        if (i >= decryptedBody.Length || decryptedBody[i] != '/') return 0;
+        i++;
+
+        // Skip commit hash
+        while (i < decryptedBody.Length && decryptedBody[i] != 0) i++;
+        if (i >= decryptedBody.Length) return 0;
+        i++; // Skip null
+
+        // Check for optional tag
+        if (i < decryptedBody.Length && decryptedBody[i] == '(')
+        {
+            i++;
+            while (i < decryptedBody.Length && decryptedBody[i] != 0) i++;
+            if (i >= decryptedBody.Length) return 0;
+            i++; // Skip null
+            if (i < decryptedBody.Length && decryptedBody[i] == ')') i++;
+        }
+
+        // Check for final null
+        if (i >= decryptedBody.Length || decryptedBody[i] != 0) return 0;
+        i++;
+
+        // Check for 0xFE
+        if (i >= decryptedBody.Length || decryptedBody[i] != 0xFE) return 0;
+        i++;
+
+        // Extract 4-byte XOR key (nk)
+        if (i + 4 > decryptedBody.Length) return 0;
+        return BitConverter.ToUInt32(decryptedBody, i); // Assume little-endian
     }
 
     private async Task ProcessMessageAsync(DatumHeader header, byte[] body)
