@@ -103,7 +103,8 @@ public class DatumPrimeServer
         _listener.Start();
         Console.WriteLine("Server listening on port...");
 
-        while (true) {
+        while (true)
+        {
             try
             {
                 using TcpClient client = _listener.AcceptTcpClient();
@@ -115,9 +116,10 @@ public class DatumPrimeServer
             catch (Exception ex)
             {
                 Console.WriteLine($"Error handling client: {ex.Message}");
+                _listener.Stop();
+                break;
             }
         }
-
         _listener.Stop();
     }
 

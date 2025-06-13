@@ -6,11 +6,15 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using NSec.Cryptography;
 using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.Crypto.Engines;
 using Org.BouncyCastle.Crypto.Parameters;
 using Sodium;
+using System;
+using System.IO;
 
 // =================================================================================
 // 1. MAIN PROGRAM ENTRY POINT
@@ -18,9 +22,20 @@ using Sodium;
 // This class is responsible for parsing command-line arguments, managing the
 // server's primary cryptographic key, and starting the TCP server.
 // =================================================================================
+// JSON configuration class for boot_portal_config.json
+public class ServerConfig
+{
+    [JsonPropertyName("ed25519_private_key")]
+    public string? Ed25519PrivateKey { get; set; }
+
+    [JsonPropertyName("x25519_private_key")]
+    public string? X25519PrivateKey { get; set; }
+}
+
 public class Program
 {
     private const int DatumPort = 3008;
+    private const string ConfigFilePath = "boot_portal_config.json";
 
     // Utility function to convert bytes to hex string
     private static string ToHexString(byte[] bytes)
@@ -33,11 +48,11 @@ public class Program
         var rootCommand = new RootCommand("DATUM Prime C# Server");
         var ed25519PrivateKeyOption = new Option<string?>(
             name: "--ed25519-private-key",
-            description: "The Base64 encoded Ed25519 private key for the server. If not provided, a new key pair will be generated."
+            description: "The Base64 encoded Ed25519 private key for the server. If not provided, loads from config or generates a new key pair."
         );
         var x25519PrivateKeyOption = new Option<string?>(
             name: "--x25519-private-key",
-            description: "The Base64 encoded X25519 private key for the server. If not provided, a new key pair will be generated."
+            description: "The Base64 encoded X25519 private key for the server. If not provided, loads from config or generates a new key pair."
         );
         rootCommand.AddOption(ed25519PrivateKeyOption);
         rootCommand.AddOption(x25519PrivateKeyOption);
@@ -46,50 +61,93 @@ public class Program
         {
             Key ed25519Key;
             Key x25519Key;
+            bool keysGenerated = false;
 
             var signatureAlgorithm = SignatureAlgorithm.Ed25519;
             var keyExchangeAlgorithm = KeyAgreementAlgorithm.X25519;
 
-            // Handle Ed25519 key
-            if (!string.IsNullOrEmpty(ed25519PrivateKeyBase64))
+            // Load config from boot_portal_config.json if it exists
+            ServerConfig config = new ServerConfig();
+            if (File.Exists(ConfigFilePath))
             {
                 try
                 {
-                    var privateKeyBytes = Convert.FromBase64String(ed25519PrivateKeyBase64);
-                    ed25519Key = Key.Import(signatureAlgorithm, privateKeyBytes, KeyBlobFormat.RawPrivateKey);
+                    var json = await File.ReadAllTextAsync(ConfigFilePath);
+                    config = JsonSerializer.Deserialize<ServerConfig>(json) ?? new ServerConfig();
+                    Console.WriteLine($"✅ Loaded config from {ConfigFilePath}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"⚠️ Failed to load {ConfigFilePath}: {ex.Message}. Using default or command-line keys.");
+                }
+            }
+
+            // Handle Ed25519 key
+            string? ed25519KeySource = ed25519PrivateKeyBase64 ?? config.Ed25519PrivateKey;
+            if (!string.IsNullOrEmpty(ed25519KeySource))
+            {
+                try
+                {
+                    var privateKeyBytes = Convert.FromBase64String(ed25519KeySource);
+                    ed25519Key = Key.Import(signatureAlgorithm, privateKeyBytes, KeyBlobFormat.RawPrivateKey, new KeyCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextExport });
                     Console.WriteLine("✅ Successfully loaded Ed25519 server key.");
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"❌ Failed to load Ed25519 private key: {ex.Message}");
-                    return;
+                    Console.WriteLine($"❌ Failed to load Ed25519 private key: {ex.Message}. Generating new key.");
+                    ed25519Key = Key.Create(signatureAlgorithm, new KeyCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextExport });
+                    config.Ed25519PrivateKey = Convert.ToBase64String(ed25519Key.Export(KeyBlobFormat.RawPrivateKey));
+                    keysGenerated = true;
                 }
             }
             else
             {
                 ed25519Key = Key.Create(signatureAlgorithm, new KeyCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextExport });
+                config.Ed25519PrivateKey = Convert.ToBase64String(ed25519Key.Export(KeyBlobFormat.RawPrivateKey));
                 Console.WriteLine("⚠️ No Ed25519 private key provided. Generated a new temporary Ed25519 key pair.");
+                keysGenerated = true;
             }
 
             // Handle X25519 key
-            if (!string.IsNullOrEmpty(x25519PrivateKeyBase64))
+            string? x25519KeySource = x25519PrivateKeyBase64 ?? config.X25519PrivateKey;
+            if (!string.IsNullOrEmpty(x25519KeySource))
             {
                 try
                 {
-                    var privateKeyBytes = Convert.FromBase64String(x25519PrivateKeyBase64);
-                    x25519Key = Key.Import(keyExchangeAlgorithm, privateKeyBytes, KeyBlobFormat.RawPrivateKey);
+                    var privateKeyBytes = Convert.FromBase64String(x25519KeySource);
+                    //Key.Create(signatureAlgorithm, new KeyCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextExport });
+                    x25519Key = Key.Import(keyExchangeAlgorithm, privateKeyBytes, KeyBlobFormat.RawPrivateKey, new KeyCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextExport });
                     Console.WriteLine("✅ Successfully loaded X25519 server key.");
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"❌ Failed to load X25519 private key: {ex.Message}");
-                    return;
+                    Console.WriteLine($"❌ Failed to load X25519 private key: {ex.Message}. Generating new key.");
+                    x25519Key = Key.Create(keyExchangeAlgorithm, new KeyCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextExport });
+                    config.X25519PrivateKey = Convert.ToBase64String(x25519Key.Export(KeyBlobFormat.RawPrivateKey));
+                    keysGenerated = true;
                 }
             }
             else
             {
                 x25519Key = Key.Create(keyExchangeAlgorithm, new KeyCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextExport });
+                config.X25519PrivateKey = Convert.ToBase64String(x25519Key.Export(KeyBlobFormat.RawPrivateKey));
                 Console.WriteLine("⚠️ No X25519 private key provided. Generated a new temporary X25519 key pair.");
+                keysGenerated = true;
+            }
+
+            // Save config if keys were generated or file doesn't exist
+            if (keysGenerated || !File.Exists(ConfigFilePath))
+            {
+                try
+                {
+                    var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+                    await File.WriteAllTextAsync(ConfigFilePath, json);
+                    Console.WriteLine($"✅ Saved keys to {ConfigFilePath}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"❌ Failed to save {ConfigFilePath}: {ex.Message}");
+                }
             }
 
             // Export public keys
@@ -115,9 +173,8 @@ public class Program
             Console.WriteLine("=======================================================\n");
 
             // Start the server
-            var server = new DatumServer(IPAddress.Any, DatumPort, ed25519Key);
+            var server = new DatumServer(IPAddress.Any, DatumPort, ed25519Key, x25519Key);
             await server.StartAsync();
-
         }, ed25519PrivateKeyOption, x25519PrivateKeyOption);
 
         await rootCommand.InvokeAsync(args);
@@ -134,11 +191,13 @@ public class DatumServer
 {
     private readonly TcpListener _listener;
     private readonly Key _serverKey; // The server's long-term Ed25519 key.
+    private readonly Key _serverXKey; //The server's long-term x25519 key.
 
-    public DatumServer(IPAddress address, int port, Key serverKey)
+    public DatumServer(IPAddress address, int port, Key serverKey, Key serverXKey)
     {
         _listener = new TcpListener(address, port);
         _serverKey = serverKey;
+        _serverXKey = serverXKey;
     }
 
     public async Task StartAsync()
@@ -153,7 +212,7 @@ public class DatumServer
             Console.WriteLine($"\n🔗 Client connected from {client.Client.RemoteEndPoint}.");
             
             // Create a handler for the new client.
-            var clientHandler = new ClientHandler(client, _serverKey);
+            var clientHandler = new ClientHandler(client, _serverKey, _serverXKey);
 
             // Run the client handler on a background thread so the server
             // can immediately go back to listening for more connections.
@@ -172,7 +231,7 @@ public class ClientHandler
     private readonly NetworkStream _stream;
     private readonly Key _serverLongTermKey; // The server's main Ed25519 key.
     //private readonly Key _ed25519KeyLongTerm; // The server's long-term Ed25519 key.
-    //private readonly Key _x25519KeyLongTerm; // The server's long-term x25519 key.
+    private readonly Key _x25519KeyLongTerm; // The server's long-term x25519 key.
 
     // --- Per-Session State ---
     private PublicKey? _clientSessionPubKey;
@@ -180,14 +239,14 @@ public class ClientHandler
     private SharedSecret? _channelSharedSecret; // The key for symmetric encryption (AEAD).
     private UInt32 _sendingHeaderKey;
 
-    public ClientHandler(TcpClient client, Key serverLongTermKey)
+    public ClientHandler(TcpClient client, Key serverLongTermKey, Key serverLongTermXKey)
     {
         _client = client;
         _stream = client.GetStream();
         _serverLongTermKey = serverLongTermKey;
         _sendingHeaderKey = 0xDC871829; // initial send header key ... changed by handshake function
         //_ed25519KeyLongTerm = serverLongTermEdKey;
-        //_x25519KeyLongTerm = serverLongTermXKey;
+        _x25519KeyLongTerm = serverLongTermXKey;
     }
 
     public async Task HandleClientAsync()
@@ -238,7 +297,7 @@ public class ClientHandler
                 Console.WriteLine($"📦 Received encrypted body ({bytesRead} bytes)");
 
                 // Step 3: Decrypt the body
-                byte[] decryptedBody = DecryptBody(bodyBuffer, bytesRead);
+                byte[]? decryptedBody = DecryptBody(bodyBuffer, bytesRead);
                 if (decryptedBody == null)
                 {
                     Console.WriteLine($"❌ Failed to decrypt body for client {_client.Client.RemoteEndPoint}");
@@ -249,7 +308,7 @@ public class ClientHandler
                 
 
                 // Verify cmd_len matches decrypted body length
-                if (header.CmdLen != decryptedBody.Length)
+                if (header.CmdLen != decryptedBody.Length + 48)  //Modified to account for CryptoBoxSealBytes, the signature that is added to the encrypted payload.
                 {
                     Console.WriteLine($"⚠️ Header cmd_len ({header.CmdLen}) does not match decrypted body length ({decryptedBody.Length})");
                     break;
@@ -271,42 +330,49 @@ public class ClientHandler
         finally { _client.Close(); }
     }
 
-    private byte[] DecryptBody(byte[] encryptedBody, int bytesRead)
+    private byte[]? DecryptBody(byte[] encryptedBody, int bytesRead)
     {
+        Console.WriteLine($"📦 Ciphertext first 32 bytes: {BitConverter.ToString(encryptedBody, 0, 32)}");
         try
         {
-            const int CryptoBoxSealBytes = 32;
+            const int CryptoBoxSealBytes = 48; // 48 (32 ephemeral PK + 16 Poly1305 tag)
             if (bytesRead < CryptoBoxSealBytes)
             {
                 Console.WriteLine($"❌ Ciphertext too short: {bytesRead} bytes");
                 return null;
             }
 
-            // Converting the server's Ed25519 key to an X25519 key for decryption.
-            // NSec requires an explicit export/import of the key seed to perform this conversion.
-            var serverEd25519Seed = _serverLongTermKey.Export(KeyBlobFormat.RawPrivateKey);
-            using var privateKeyBytes = Key.Import(KeyAgreementAlgorithm.X25519, serverEd25519Seed, KeyBlobFormat.RawPrivateKey);
-            var publicKeyBytes = _serverLongTermKey.Export(KeyBlobFormat.RawPublicKey);
-            KeyPair serverKeyPair = new KeyPair(publicKeyBytes, serverEd25519Seed);
+            // Use the X25519 key pair directly
+            var privateKeyBytes = _x25519KeyLongTerm.Export(KeyBlobFormat.RawPrivateKey); // 32 bytes
+            var publicKeyBytes = _x25519KeyLongTerm.PublicKey.Export(KeyBlobFormat.RawPublicKey); // 32 bytes
+            var serverKeyPair = new Sodium.KeyPair(publicKeyBytes, privateKeyBytes);
 
-            //var privateKeyBytes = _x25519Key.Export(KeyBlobFormat.RawPrivateKey);
-            //var publicKeyBytes = _x25519Key.PublicKey.Export(KeyBlobFormat.RawPublicKey);
+            // Truncate input to actual length
+            var cipherText = encryptedBody.AsSpan(0, bytesRead).ToArray();
 
-            var decrypted = new byte[bytesRead - CryptoBoxSealBytes];
-            //int result = Sodium.SecretBox.Open(decrypted, encryptedBody, bytesRead, publicKeyBytes, privateKeyBytes);
-            decrypted = Sodium.SealedPublicKeyBox.Open(encryptedBody, serverKeyPair);
-            if (decrypted != null)
+            // Decrypt using crypto_box_seal_open
+            var decrypted = Sodium.SealedPublicKeyBox.Open(cipherText, serverKeyPair);
+            if (decrypted == null)
             {
-                Console.WriteLine("❌ Decryption failed");
+                Console.WriteLine("❌ Decryption failed: Sodium.SealedPublicKeyBox.Open returned null");
                 return null;
             }
 
             Console.WriteLine($"🔓 Decrypted {decrypted.Length} bytes");
+            //Console.WriteLine($"-> {BitConverter.ToString(decrypted)}");
+            Console.WriteLine($"🔓 Client signing public key:    {BitConverter.ToString(decrypted, 0, 16)}...");
+            Console.WriteLine($"🔓 Client encryption public key: {BitConverter.ToString(decrypted, 64, 16)}...");
+            //int i = 128; // Skip public keys
+            //string version = Encoding.ASCII.GetString(decrypted, i, Array.IndexOf(decrypted, (byte)0, i) - i);
+            //i += version.Length + 1; // Skip null
+            //if (decrypted[i] == '/') i++;
+            //string commitHash = Encoding.ASCII.GetString(decrypted, i, Array.IndexOf(decrypted, (byte)0, i) - i);
+            //Console.WriteLine($"🔓 Version: {version}, Commit Hash: {commitHash}");
             return decrypted;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Decryption error: {ex.Message}");
+            Console.WriteLine($"❌ Decryption error: {ex.Message}\n{ex.StackTrace}");
             return null;
         }
     }
@@ -370,7 +436,7 @@ public class ClientHandler
     /// Handles the initial handshake message from the client.
     /// This version contains the corrected NSec API calls.
     /// </summary>
-    private async Task HandleHelloAsync(DatumHeader header, byte[] encryptedBody)
+    private async Task HandleHelloAsync(DatumHeader header, byte[] decryptedBody)
     {
         Console.WriteLine("   -> Received HELLO (0x01). Decrypting and processing...");
 
@@ -380,22 +446,22 @@ public class ClientHandler
             // --- Decryption ---
             // CORRECTION 1: Converting the server's Ed25519 key to an X25519 key for decryption.
             // NSec requires an explicit export/import of the key seed to perform this conversion.
-            var serverEd25519Seed = _serverLongTermKey.Export(KeyBlobFormat.RawPrivateKey);
-            using var serverX25519PrivateKey = Key.Import(KeyAgreementAlgorithm.X25519, serverEd25519Seed, KeyBlobFormat.RawPrivateKey);
+            //var serverEd25519Seed = _serverLongTermKey.Export(KeyBlobFormat.RawPrivateKey);
+            //using var serverX25519PrivateKey = Key.Import(KeyAgreementAlgorithm.X25519, serverEd25519Seed, KeyBlobFormat.RawPrivateKey);
             
             // Create a BouncyCastle XSalsa20-Poly1305 engine
-            ICipherParameters keyParamWithIv = new Ed25519PrivateKeyParameters(serverEd25519Seed);
+            //ICipherParameters keyParamWithIv = new Ed25519PrivateKeyParameters(serverEd25519Seed);
             
-            var cipher = new XSalsa20Engine();
-            cipher.Init(false, keyParamWithIv);
-            var plainTextData = new byte[encryptedBody.Length];
+            //var cipher = new XSalsa20Engine();
+            //cipher.Init(false, keyParamWithIv);
+            //var plainTextData = new byte[encryptedBody.Length];
 
-            for (var j = 0; j < encryptedBody.Length; j++)
-            {
-                plainTextData[j] = cipher.ReturnByte(encryptedBody[j]);
-            }
+            //for (var j = 0; j < encryptedBody.Length; j++)
+            //{
+            //    plainTextData[j] = cipher.ReturnByte(encryptedBody[j]);
+            //}
 
-            plaintext = plainTextData;
+            plaintext = decryptedBody;
         }
         catch (CryptographicException ex)
         {
@@ -415,7 +481,7 @@ public class ClientHandler
 
         _clientSessionPubKey = PublicKey.Import(KeyAgreementAlgorithm.X25519, helloMsg.SessionPubKey, KeyBlobFormat.RawPublicKey);
         _serverSessionKey = Key.Create(KeyAgreementAlgorithm.X25519, new KeyCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextExport });
-        _channelSharedSecret = KeyAgreementAlgorithm.X25519.Agree(_serverSessionKey, _clientSessionPubKey);
+        _channelSharedSecret = KeyAgreementAlgorithm.X25519.Agree(_serverSessionKey, _clientSessionPubKey, new SharedSecretCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextExport});
 
         var responsePayload = new HandshakeResponseMessage { /* ... payload initialization ... */ };
         // (The rest of the response generation logic is unchanged, but the encryption call will be fixed in the helper method)
@@ -528,6 +594,9 @@ public class ClientHandler
             ProtoCmd = protoCmd
         };
 
+
+        Console.WriteLine($"📦 Ciphertext out to client: {BitConverter.ToString(header.ToBytes(), 0, 4)}...");
+        Console.WriteLine($"📦 Ciphertext first 32 bytes: {BitConverter.ToString(finalMessageBody, 0, 4)}...");
         await _stream.WriteAsync(header.ToBytes());
         await _stream.WriteAsync(finalMessageBody);
     }
