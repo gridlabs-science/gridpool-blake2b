@@ -4,6 +4,8 @@ using System.Buffers.Binary;
 using System.CommandLine;
 using System.Net;
 using System.Net.Sockets;
+using System.Numerics;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -17,6 +19,142 @@ using NSec.Cryptography;
 // server's primary cryptographic key, and starting the TCP server.
 // =================================================================================
 // JSON configuration class for boot_portal_config.json
+
+public static class Bech32
+{
+    private static readonly string Charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+    private static readonly uint[] Generator = { 0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3 };
+
+    public static (string hrp, int version, byte[] program) Decode(string address)
+    {
+        // Split HRP and data
+        int sepIndex = address.LastIndexOf('1');
+        if (sepIndex < 1) throw new FormatException("Invalid Bech32 address: no separator");
+        string hrp = address.Substring(0, sepIndex).ToLower();
+        if (hrp != "bc" && hrp != "tb") throw new FormatException($"Invalid HRP: {hrp}");
+
+        string dataPart = address.Substring(sepIndex + 1);
+        if (dataPart.Length < 6) throw new FormatException("Bech32 data too short");
+
+        // Decode data
+        byte[] data = new byte[dataPart.Length];
+        for (int i = 0; i < dataPart.Length; i++)
+        {
+            int index = Charset.IndexOf(dataPart[i]);
+            if (index == -1) throw new FormatException($"Invalid character in Bech32 address: {dataPart[i]}");
+            data[i] = (byte)index;
+        }
+
+        // Verify checksum
+        uint checksum = Polymod(ExpandHrp(hrp).Concat(data).ToArray());
+        if (checksum != 1) throw new FormatException("Invalid Bech32 checksum");
+
+        // Extract version and program
+        int version = data[0];
+        if (version > 16) throw new FormatException($"Invalid witness version: {version}");
+        byte[] program5bit = data.Skip(1).Take(data.Length - 7).ToArray(); // Skip version, exclude checksum
+        byte[] program = ConvertBits(program5bit, 5, 8, false);
+        if (program.Length < 2 || program.Length > 40) throw new FormatException($"Invalid program length: {program.Length}");
+        if (version == 0 && program.Length != 20 && program.Length != 32) throw new FormatException("Invalid program length for version 0");
+
+        return (hrp, version, program);
+    }
+
+    private static uint Polymod(byte[] values)
+    {
+        uint chk = 1;
+        foreach (byte v in values)
+        {
+            uint top = chk >> 25;
+            chk = (chk & 0x1ffffff) << 5 ^ v;
+            for (int i = 0; i < 5; i++)
+            {
+                if ((top >> i & 1) != 0)
+                    chk ^= Generator[i];
+            }
+        }
+        return chk;
+    }
+
+    private static byte[] ExpandHrp(string hrp)
+    {
+        byte[] ret = new byte[hrp.Length * 2 + 1];
+        for (int i = 0; i < hrp.Length; i++)
+        {
+            ret[i] = (byte)(hrp[i] >> 5);
+            ret[i + hrp.Length + 1] = (byte)(hrp[i] & 31);
+        }
+        return ret;
+    }
+
+    private static byte[] ConvertBits(byte[] data, int fromBits, int toBits, bool pad)
+    {
+        int acc = 0;
+        int bits = 0;
+        var ret = new List<byte>();
+        int maxv = (1 << toBits) - 1;
+        int max_acc = (1 << (fromBits + toBits - 1)) - 1;
+        foreach (byte value in data)
+        {
+            if (value < 0 || (value >> fromBits) != 0) throw new FormatException("Invalid Bech32 data");
+            acc = ((acc << fromBits) | value) & max_acc;
+            bits += fromBits;
+            while (bits >= toBits)
+            {
+                bits -= toBits;
+                ret.Add((byte)((acc >> bits) & maxv));
+            }
+        }
+        if (pad && bits > 0)
+        {
+            ret.Add((byte)((acc << (toBits - bits)) & maxv));
+        }
+        else if (bits >= fromBits || ((acc << (toBits - bits)) & maxv) != 0)
+        {
+            throw new FormatException("Invalid Bech32 padding");
+        }
+        return ret.ToArray();
+    }
+}
+
+public static class Base58Check
+{
+    private static readonly string Alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    private static readonly BigInteger AlphabetSize = 58;
+
+    public static byte[] Decode(string address)
+    {
+        BigInteger intData = 0;
+        foreach (char c in address)
+        {
+            int digit = Alphabet.IndexOf(c);
+            if (digit == -1) throw new FormatException($"Invalid character in Base58 address: {c}");
+            intData = intData * AlphabetSize + digit;
+        }
+
+        byte[] data = intData.ToByteArray(isUnsigned: true, isBigEndian: true);
+        // Handle leading zeros
+        int leadingZeros = address.TakeWhile(c => c == '1').Count();
+        byte[] result = new byte[leadingZeros + data.Length];
+        Array.Copy(data, 0, result, leadingZeros, data.Length);
+
+        // Verify checksum
+        if (result.Length < 4) throw new FormatException("Invalid Base58Check data length");
+        byte[] payload = result.Take(result.Length - 4).ToArray();
+        byte[] checksum = result.TakeLast(4).ToArray();
+        byte[] hash = DoubleSha256(payload).Take(4).ToArray();
+        if (!hash.SequenceEqual(checksum)) throw new FormatException("Invalid checksum");
+
+        return payload; // version (1) + hash (20)
+    }
+
+    private static byte[] DoubleSha256(byte[] data)
+    {
+        using var sha256 = SHA256.Create();
+        byte[] hash1 = sha256.ComputeHash(data);
+        return sha256.ComputeHash(hash1);
+    }
+}
 
 public static class CryptoUtils
 {
@@ -36,7 +174,7 @@ public static class CryptoUtils
 public class PoolConfig
 {
     [JsonPropertyName("pool_payout_script")]
-    public string PoolPayoutScript { get; set; } = "mpuPt3FvAfwQFxd6BmPrwuRBbdMgmDSGfH";
+    public string PoolPayoutScript { get; set; } = "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y"; //TODO: hard coded default address? 
 
     [JsonPropertyName("coinbase_tag")]
     public string CoinbaseTag { get; set; } = "Boot protocol";
@@ -314,6 +452,7 @@ public class ClientHandler
     private SharedSecret? _channelSharedSecret; // The key for symmetric encryption
     private byte[]? _channelSharedSecretBytes;
     private byte[]? _sessionNonceSender; // Server’s send nonce (client’s receive nonce)
+    private byte[]? _sessionNonceReceiver; // Server's receive nonce (client's send nonce)
     private UInt32 _sendingHeaderKey;
     private UInt32 _receivingHeaderKey;
     private HelloMessage? _helloMessage;
@@ -324,7 +463,8 @@ public class ClientHandler
         _client = client;
         _stream = client.GetStream();
         _ed25519LongTermKey = serverLongTermKey;
-        _sendingHeaderKey = 0xDC871829; // initial send header key ... changed by handshake function
+        _receivingHeaderKey = 0xDC871829; // initial send header key ... changed by handshake function
+        _sendingHeaderKey = 0;
         _x25519KeyLongTerm = serverLongTermXKey;
         _poolConfig = poolConfig;
     }
@@ -351,13 +491,15 @@ public class ClientHandler
                 //Console.WriteLine($"📥 Received header bytes: {BitConverter.ToString(headerBuffer)}")
                 // Step 1.2: Decode header with XOR key
                 uint headerValue = BitConverter.ToUInt32(headerBuffer, 0); // Read as little-endian
-                headerValue ^= _sendingHeaderKey; // XOR as 32-bit integer
+                headerValue ^= _receivingHeaderKey; // XOR as 32-bit integer
                 var deXoredHeaderBytes = BitConverter.GetBytes(headerValue); // Convert back to bytes
-                //Console.WriteLine($"📥 De-XORed header bytes: {BitConverter.ToString(deXoredHeaderBytes)}");
+                _receivingHeaderKey = DatumHeaderXorFeedback(_receivingHeaderKey);
+                Console.WriteLine($"📥 De-XORed header bytes: {BitConverter.ToString(deXoredHeaderBytes)}");
+
 
                 // Step 1.3: Parse header
                 var header = DatumHeader.FromBytes(deXoredHeaderBytes);
-                //Console.WriteLine($"📋 Parsed header: Cmd={header.ProtoCmd}, Len={header.CmdLen}, Signed={header.IsSigned}, EncryptedPubKey={header.IsEncryptedPubKey}, EncryptedChannel={header.IsEncryptedChannel}");
+                Console.WriteLine($"📋 Parsed header: Cmd={header.ProtoCmd}, Len={header.CmdLen}, Signed={header.IsSigned}, EncryptedPubKey={header.IsEncryptedPubKey}, EncryptedChannel={header.IsEncryptedChannel}");
 
                 // Step 2: Read in the message body
                 var bodyBuffer = new byte[header.CmdLen];
@@ -368,22 +510,41 @@ public class ClientHandler
                 // Step 3: Decrypt the body
                 byte[]? decryptedBody;
                 //TODO: This if-else could be more robust, and check header.isEncryptedChannel as well
-                if (header.IsEncryptedPubKey) { decryptedBody = DecryptSigned(bodyBuffer, bytesRead); }  //      We need to use a different decryption key depending on the header.protoCmmd
-                else { decryptedBody = DecryptStandard(bodyBuffer, bytesRead); }
-                if (decryptedBody == null) { Console.WriteLine($"❌ Failed to decrypt body for client {_client.Client.RemoteEndPoint}"); break; }
-                //Console.WriteLine($"🔓 Decrypted body ({decryptedBody.Length} bytes)");
-                // Verify cmd_len matches decrypted body length
-                //TODO: change "48" to actually reference the libsodium constant instead.
-                //Modified (+48) to account for CryptoBoxSealBytes, the signature that is added to the encrypted payload.
-                if (header.CmdLen != decryptedBody.Length + 48) { Console.WriteLine($"⚠️ Header cmd_len ({header.CmdLen}) does not match decrypted body length ({decryptedBody.Length})"); break;}
+                if (header.IsEncryptedPubKey)
+                {
+                    decryptedBody = DecryptSigned(bodyBuffer, bytesRead);
+                    // Verify cmd_len matches decrypted body length
+                    //TODO: change "48" to actually reference the libsodium constant instead.
+                    //Modified (+48) to account for CryptoBoxSealBytes, the signature that is added to the encrypted payload.
+                    if (header.CmdLen != decryptedBody.Length + 48) { Console.WriteLine($"⚠️ Header cmd_len ({header.CmdLen}) does not match decrypted body length ({decryptedBody.Length})"); break; }
+                }  //      We need to use a different decryption key depending on the header.protoCmmd
+                else
+                {
+                    decryptedBody = DecryptStandard(bodyBuffer, bytesRead);
+                    // Verify cmd_len matches decrypted body length
+                    //TODO: change "16" to actually reference the libsodium constant instead.
+                    //Modified (+16) to account for MAC bytes, the signature that is added to the encrypted payload.  I think.
+                    if (header.CmdLen != decryptedBody.Length + 16) { Console.WriteLine($"⚠️ Header cmd_len ({header.CmdLen}) does not match decrypted body length ({decryptedBody.Length})"); break;}
 
+                }
+                if (decryptedBody == null)
+                {
+                    Console.WriteLine(" Header info: Cmd=" + (header.ProtoCmd) + " / CmdLen=" + header.CmdLen + " / isSigned=" + header.IsSigned + " / isEncryptedPubKey=" + header.IsEncryptedPubKey + " / isEncryptedChannel=" + header.IsEncryptedChannel);
+                    Console.WriteLine($"❌ Failed to decrypt body for client {_client.Client.RemoteEndPoint}");
+                    break;
+                }
+                //Console.WriteLine($"🔓 Decrypted body ({decryptedBody.Length} bytes)");
+                
                 // Step 4: Parse the message appropriately.  Responses are generated in the appropriate "Handle" function.
                 Console.WriteLine($"[RECV] Command: 0x{header.ProtoCmd:X2}, Length: {header.CmdLen} bytes");
                 switch (header.ProtoCmd)
                 {
                     case 0x01: await HandleHelloAsync(header, decryptedBody); break;
                     case 0x05: await HandleMiningCommandAsync(header, decryptedBody); break;
-                    default: Console.WriteLine($"⚠️ Received unknown command: 0x{header.ProtoCmd:X2}"); break;
+                    default:
+                        Console.WriteLine("Header xor Key=" + _receivingHeaderKey);
+                        Console.WriteLine(" Header info: Cmd=" + (header.ProtoCmd) + " / CmdLen=" + header.CmdLen + " / isSigned=" + header.IsSigned + " / isEncryptedPubKey=" + header.IsEncryptedPubKey + " / isEncryptedChannel=" + header.IsEncryptedChannel);
+                        Console.WriteLine($"⚠️ Received unknown command: 0x{header.ProtoCmd:X2}"); break;
                 }
                 //Finally back to the top of the loop and await the next incoming message
             }
@@ -406,7 +567,6 @@ public class ClientHandler
             // Use the X25519 key pair directly
             //TODO: Switch these from NSec keys to whatever Span<T> thing LibSodium recommends
             var privateKeyBytes = _x25519KeyLongTerm.Export(KeyBlobFormat.RawPrivateKey); // 32 bytes
-            var publicKeyBytes = _x25519KeyLongTerm.PublicKey.Export(KeyBlobFormat.RawPublicKey); // 32 bytes
 
             // Truncate input to actual length
             var cipherText = encryptedBody.AsSpan(0, bytesRead).ToArray();
@@ -421,17 +581,6 @@ public class ClientHandler
             //Console.WriteLine($"-> {BitConverter.ToString(decrypted)}");
             //Console.WriteLine($"🔓 Client signing public key:    {BitConverter.ToString(decrypted, 0, 16)}...");
             //Console.WriteLine($"🔓 Client encryption public key: {BitConverter.ToString(decrypted, 32, 16)}...");
-            /*int i = 128; // Skip public keys
-            int j = i;
-            while (decrypted[j] != '/') j++;
-            string version = Encoding.ASCII.GetString(decrypted, i, j - i);
-            i += version.Length; // Skip null
-            j = i;
-            while (decrypted[j] != (byte)0) j++;
-            string commitHash = Encoding.ASCII.GetString(decrypted, i, j - i);
-            //TODO: The client spec has an optional Git tag field as well, which I don't check for here. 
-            Console.WriteLine($"🔓 Version: {version}, Commit Hash: {commitHash}");
-            */
             return decrypted;
         }
         catch (Exception ex)
@@ -443,15 +592,52 @@ public class ClientHandler
 
     private byte[]? DecryptStandard(byte[] encryptedBody, int bytesRead)
     {
-        //TODO NEXT: I guess I need to actually fill out this function huh.
-        return null;
+        try
+        {
+            const int CryptoBoxSealBytes = 48; // 48 (32 ephemeral PK + 16 Poly1305 tag)
+            if (bytesRead < CryptoBoxSealBytes) { Console.WriteLine($"❌ Ciphertext too short: {bytesRead} bytes"); return null; }
+
+            // Use the X25519 key pair directly
+            //TODO: Switch these from NSec keys to whatever Span<T> thing LibSodium recommends
+            //if (_channelSharedSecretBytes == null) { Console.WriteLine("_serverSessionEncryptKey is null!"); return null; }
+            //var privateKeyBytes = _channelSharedSecret.Export(KeyBlobFormat.RawPrivateKey);       //_x25519KeyLongTerm.Export(KeyBlobFormat.RawPrivateKey); // 32 bytes
+
+            // Truncate input to actual length
+            var cipherText = encryptedBody.AsSpan(0, bytesRead).ToArray();
+            byte[] combinedCiphertext = new byte[bytesRead + LibSodium.CryptoBox.NonceLen];
+            Array.Copy(_sessionNonceReceiver, 0, combinedCiphertext, 0, LibSodium.CryptoBox.NonceLen);
+            Array.Copy(encryptedBody, 0, combinedCiphertext, LibSodium.CryptoBox.NonceLen, bytesRead);
+
+
+            //Span<byte> decrypted = new Span<byte>();
+            byte[] plaintext = new byte[bytesRead - LibSodium.CryptoBox.MacLen];
+            LibSodium.CryptoBox.DecryptWithSharedKey(plaintext, combinedCiphertext, _channelSharedSecretBytes);
+            //LibSodium.CryptoBox.DecryptWithSharedKey(decrypted, cipherText, _channelSharedSecretBytes, null, _sessionNonceReceiver);  //Prolly need to add nonce and MAC, or something.  Need to see how client does it.
+            if (plaintext == null)
+            {
+                Console.WriteLine("❌ Decryption failed: Sodium.DecryptWithSharedKey returned null");
+                Console.WriteLine($"🔑 /// Session nonce sender: {Convert.ToBase64String(_sessionNonceSender)}");
+                Console.WriteLine($"🔑 /// Session nonce receiver: {Convert.ToBase64String(_sessionNonceReceiver)}");
+                return null;
+            }
+            _sessionNonceReceiver = IncrementNonce(_sessionNonceReceiver);
+
+            //Console.WriteLine($"🔓 Decrypted {decrypted.Length} bytes");
+            //Console.WriteLine($"-> {BitConverter.ToString(decrypted)}");            
+            return plaintext;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Decryption error: {ex.Message}\n{ex.StackTrace}");
+            return null;
+        }
     }
 
     private byte[] InitializeNonce(uint nk, byte[] clientSessionEd25519PubKey)
     {
-        var nonce = new byte[24]; // crypto_box_NONCEBYTES = 24
+        var nonce = new byte[24];
         nk -= 42;
-        nk ^= BitConverter.ToUInt32(clientSessionEd25519PubKey, 7); // Offset 7 (8th byte)
+        nk ^= BitConverter.ToUInt32(clientSessionEd25519PubKey, 7);
         for (int j = 0; j < 24; j += 4)
         {
             uint value = DatumHeaderXorFeedback(nk - 42);
@@ -465,13 +651,29 @@ public class ClientHandler
         return nonce;
     }
 
-    private void IncrementNonce(byte[] nonce)
+    private byte[] InitializeReceiverNonce(byte[] senderNonce)
+    {
+        var receiverNonce = new byte[24];
+        for (int j = 0; j < 24; j += 4)
+        {
+            uint senderValue = BitConverter.ToUInt32(senderNonce, j);
+            uint receiverValue = senderValue ^ 0x57575757;
+            receiverNonce[j] = (byte)(receiverValue);
+            receiverNonce[j + 1] = (byte)(receiverValue >> 8);
+            receiverNonce[j + 2] = (byte)(receiverValue >> 16);
+            receiverNonce[j + 3] = (byte)(receiverValue >> 24);
+        }
+        return receiverNonce;
+    }
+
+    private byte[] IncrementNonce(byte[] nonce)
     {
         // Increment nonce as a little-endian 192-bit integer
         for (int i = 0; i < nonce.Length; i++)
         {
             if (++nonce[i] != 0) break;
         }
+        return nonce;
     }
 
     /// Handles the initial 0x01 handshake message from the client.
@@ -528,9 +730,12 @@ public class ClientHandler
         else return;
         _sendingHeaderKey = DatumHeaderXorFeedback(~nk);        //Increment the header key for sending and recieving future message headers
         _receivingHeaderKey = DatumHeaderXorFeedback(nk);
-        //Console.WriteLine($"🔑 Updated XOR keys: Sending=0x{_sendingHeaderKey:X8}, Receiving=0x{_receivingHeaderKey:X8}");   
+        Console.WriteLine($"🔑 Updated XOR keys: Sending=0x{_sendingHeaderKey:X8}, Receiving=0x{_receivingHeaderKey:X8}");   
         if (nk == 0) throw new InvalidOperationException("Failed to extract XOR key");
         _sessionNonceSender = InitializeNonce(nk, _helloMessage.ClientSessionSigningPubKey);          // Initialize nonce     
+        _sessionNonceReceiver = InitializeReceiverNonce(_sessionNonceSender);
+        Console.WriteLine($"🔑 Initial Session nonce sender: {Convert.ToBase64String(_sessionNonceSender)}");
+        Console.WriteLine($"🔑 Initial Session nonce receiver: {Convert.ToBase64String(_sessionNonceReceiver)}");
 
         // Send response
         var responsePayload = new HandshakeResponseMessage { /* ... payload initialization ... */ };
@@ -568,8 +773,7 @@ public class ClientHandler
 
         // Pool payout script
         byte[] poolScriptBytes = Encoding.UTF8.GetBytes(config.PoolPayoutScript);
-        //TODO NEXT: Why is this limited to 255 bytes?  Is that a problem if we initialize using a full boot-protocol based team with 16+ coinbase payout addresses?
-        //      Or is this supposed to be the client payout script?  I'm confused
+        //TODO: What is the pool payout script sig?  I have no idea.
         if (poolScriptBytes.Length > 255)
         {
             Console.WriteLine($"⚠️ Pool payout script too long ({poolScriptBytes.Length} bytes), truncating to 255");
@@ -612,40 +816,16 @@ public class ClientHandler
         //Console.WriteLine($"📦 Signed payload: {BitConverter.ToString(signedPayload)}");
 
         // Send encrypted message (mining command 0x05, channel encryption)
+        Console.WriteLine("[SEND} Sending client configuration message 0x05/0x99");
         await SendEncryptedMessageAsync(0x05, signedPayload, isSigned: true, isEncryptedChannel: true, isEncryptedPubKey: false);
     }
 
     /// Handles all mining-related commands (sub-commands under 0x05).
-    /// TODO: Complete re-write of this.  Message is already decrypted.  Need to handle other mining messages gracefully.
-    private async Task HandleMiningCommandAsync(DatumHeader header, byte[] encryptedBody)
+    private async Task HandleMiningCommandAsync(DatumHeader header, byte[] decryptedBody)
     {
-        if (_channelSharedSecretBytes == null) { /* Error handling */ return; }
-
-        // --- Decryption ---
-        var aead = AeadAlgorithm.XChaCha20Poly1305;
-
-        // CORRECTION 3: A SharedSecret must be imported into a Key object before use.
-        // We use a `using` block for proper disposal of the sensitive key material.
-        //using var symmetricKey = Key.Import(aead, _channelSharedSecret.Export(SharedSecretBlobFormat.RawSharedSecret), KeyBlobFormat.RawSymmetricKey);
-
-        var nonce = encryptedBody.Take(aead.NonceSize).ToArray();
-        var ciphertext = encryptedBody.Skip(aead.NonceSize).ToArray();
-
-        // CORRECTION 4: The correct method is Decrypt, not TryDecrypt. It returns null on failure.
-        var plaintext = new byte[0];  //aead.Decrypt(symmetricKey, nonce, null, ciphertext);
-
-        if (plaintext == null)
-        {
-            Console.WriteLine("❌ MINING COMMAND DECRYPTION FAILED (authentication tag check failed).");
-            // Depending on protocol rules, you might want to close the connection here.
-            return;
-        }
-
-        byte subCmd = plaintext[0];
-        byte[] subCmdPayload = plaintext.Skip(1).ToArray();
-
-        Console.WriteLine($"   -> Received Mining Command (0x05), Sub-Command: 0x{subCmd:X2}");
-
+        byte subCmd = decryptedBody[0];
+        byte[] subCmdPayload = decryptedBody.Skip(1).ToArray();
+        Console.WriteLine($"[RECV] Mining Command (0x05), Sub-Command: 0x{subCmd:X2}");
         switch (subCmd)
         {
             case 0x10: await HandleCoinbaserFetchAsync(subCmdPayload); break;
@@ -654,7 +834,6 @@ public class ClientHandler
         }
     }
 
-    // TODO NEXT: This is completely untested right now
     private async Task HandleCoinbaserFetchAsync(byte[] payload)
     {
         var fetchRequest = CoinbaserFetchMessage.FromBytes(payload);
@@ -663,22 +842,39 @@ public class ClientHandler
         fetchResponse.Payouts.Add(new PayoutInfo
         {
             Value = fetchRequest.RewardValue,
-            Address = "mpuPt3FvAfwQFxd6BmPrwuRBbdMgmDSGfH"
+            Address = "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y"
         });
-        var responsePayload = new byte[] { 0x11 }.Concat(fetchResponse.ToBytes()).ToArray();
-        await SendEncryptedMessageAsync(0x05, responsePayload, true, true, false);
+
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream);
+        writer.Write((byte)0x11); // Sub-command
+        writer.Write(fetchRequest.RewardValue); // uint64_t v
+        var payoutBytes = fetchResponse.ToBytes();
+        writer.Write((uint)payoutBytes.Length); // uint32_t x
+        writer.Write(payoutBytes);
+        var responsePayload = stream.ToArray();
+
+        Console.WriteLine($"📦 Coinbase fetch response payload: {BitConverter.ToString(responsePayload)}");
+        await SendEncryptedMessageAsync(0x05, responsePayload, isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false);
         Console.WriteLine($"[SEND] Coinbaser Fetch Response (0x05, 0x11)");
     }
 
-    // TODO NEXT: This is completely untested right now
     private async Task HandlePowSubmitAsync(byte[] payload)
     {
         var powSubmit = PowSubmitMessage.FromBytes(payload);
         Console.WriteLine($"   -> ✅ Received Proof of Work submission with difficulty: {powSubmit.Difficulty}");
-        var shareResponse = new ShareResponseMessage { Status = 0x50 };
-        var responsePayload = new byte[] { 0x8F, shareResponse.Status };
-        await SendEncryptedMessageAsync(0x05, responsePayload, true, true, false);
-        Console.WriteLine($"[SEND] Share Response [ACCEPTED] (0x05, 0x8F)");
+        var shareResponse = new ShareResponseMessage
+        {
+            Status = 0x50, // Accepted
+            ReasonCode = 0, // No reason for accepted shares
+            Nonce = powSubmit.Nonce, // From submission
+            TargetPot = (byte)powSubmit.Difficulty, // Difficulty exponent
+            JobId = powSubmit.JobId // From submission
+        };
+        var responsePayload = shareResponse.ToBytes();
+        Console.WriteLine($"📦 Share response payload: {BitConverter.ToString(responsePayload)}");
+        await SendEncryptedMessageAsync(0x05, responsePayload, isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false);
+        Console.WriteLine($"[SEND] Share Response [ACCEPTED] (0x05, 0x50)");
     }
 
     /// Generic helper to encrypt and send a message using the client's public or (more likely) using the shared channel secret.
@@ -724,7 +920,8 @@ public class ClientHandler
         };
         // Debug header fields
         Console.WriteLine($"📋 Sending Header: Cmd=0x{protoCmd:X2}, Len={header.CmdLen}, Signed={header.IsSigned}, PubKey={header.IsEncryptedPubKey}, Channel={header.IsEncryptedChannel}");
-
+        Console.WriteLine($"🔑 current Session nonce sender: {Convert.ToBase64String(_sessionNonceSender)}");
+        Console.WriteLine($"🔑 current Session nonce receiver: {Convert.ToBase64String(_sessionNonceReceiver)}");
         // XOR header
         //Console.WriteLine($"📦 Plaintext header: {BitConverter.ToString(header.ToBytes())}");
         uint headerValue = BitConverter.ToUInt32(header.ToBytes(), 0);
@@ -739,9 +936,10 @@ public class ClientHandler
         await _stream.FlushAsync();
 
         // Increment nonce only for channel encryption
+        // TODO NEXT: Do I need to increment both recieve and send nonce's?
         if (isEncryptedChannel && _sessionNonceSender != null)
         {
-            IncrementNonce(_sessionNonceSender);
+            _sessionNonceSender = IncrementNonce(_sessionNonceSender);
         }
     }
 
@@ -1079,22 +1277,47 @@ public class CoinbaserFetchResponseMessage
     {
         using var stream = new MemoryStream();
         using var writer = new BinaryWriter(stream);
-        
-        // First, write the number of payouts.
-        writer.Write((byte)Payouts.Count);
-
-        // Then, write each payout struct.
+        writer.Write((byte)Payouts.Count); // 1 byte
         foreach (var payout in Payouts)
         {
-            writer.Write(payout.Value);
-            writer.Write(Encoding.UTF8.GetBytes(payout.Address));
-            writer.Write((byte)0); // Null terminator for the address string.
+            writer.Write(payout.Value); // 8 bytes
+            byte[] script;
+            if (payout.Address.StartsWith("bc1") || payout.Address.StartsWith("tb1"))
+            {
+                // Bech32 (SegWit) address
+                var (hrp, version, program) = Bech32.Decode(payout.Address);
+                if (version != 0 || program.Length != 20) // P2WPKH only
+                {
+                    throw new InvalidOperationException($"Unsupported Bech32 address: {payout.Address}");
+                }
+                script = new byte[2 + program.Length];
+                script[0] = 0x00; // Witness version 0
+                script[1] = (byte)program.Length; // Length (20)
+                Array.Copy(program, 0, script, 2, program.Length);
+            }
+            else
+            {
+                // P2PKH address
+                byte[] payload = Base58Check.Decode(payout.Address);
+                if (payload.Length != 21 || payload[0] != 0x00)
+                {
+                    throw new InvalidOperationException($"Invalid P2PKH address: {payout.Address}");
+                }
+                byte[] pubkeyHash = payload.Skip(1).Take(20).ToArray();
+                script = new byte[25];
+                script[0] = 0x76; // OP_DUP
+                script[1] = 0xA9; // OP_HASH160
+                script[2] = 0x14; // Length of hash (20)
+                Array.Copy(pubkeyHash, 0, script, 3, 20);
+                script[23] = 0x88; // OP_EQUALVERIFY
+                script[24] = 0xAC; // OP_CHECKSIG
+            }
+            writer.Write((byte)script.Length); // 1 byte script length
+            writer.Write(script); // Script bytes
         }
-        
         return stream.ToArray();
     }
 }
-
 public class PayoutInfo
 {
     public ulong Value { get; set; }
@@ -1104,26 +1327,18 @@ public class PayoutInfo
 // CLIENT: PoW Submit message (0x05, 0x27)
 public class PowSubmitMessage
 {
-    public ulong JobId { get; set; }
-    // ... other fields exist but we only care about difficulty
-    public double Difficulty { get; set; }
+    public uint Nonce { get; set; }
+    public byte Difficulty { get; set; }
+    public byte JobId { get; set; }
 
     public static PowSubmitMessage FromBytes(byte[] data)
     {
-        // Based on the C struct layout, we need to read past the initial fields
-        // to get to the difficulty.
-        // T_DATUM_POW_SUBMIT_CMD {
-        //   uint64_t job_id; // 8 bytes
-        //   uint64_t nonce; // 8 bytes
-        //   uint32_t time; // 4 bytes
-        //   uint32_t version; // 4 bytes
-        //   double difficulty; // 8 bytes
-        //   ...
-        // }
-        const int difficultyOffset = 8 + 8 + 4 + 4;
+        // Example parsing, adjust based on actual format
         return new PowSubmitMessage
         {
-            Difficulty = BinaryPrimitives.ReadDoubleLittleEndian(data.AsSpan(difficultyOffset, 8))
+            Nonce = BitConverter.ToUInt32(data, 0), // Adjust offsets
+            Difficulty = data[4],
+            JobId = data[5]
         };
     }
 }
@@ -1132,5 +1347,21 @@ public class PowSubmitMessage
 // TODO: This looks incomplete.  I think.
 public class ShareResponseMessage
 {
-    public byte Status { get; set; }
+    public byte Status { get; set; } // 0x50, 0x55, or 0x66
+    public ushort ReasonCode { get; set; } // For rejected shares
+    public uint Nonce { get; set; } // Share nonce
+    public byte TargetPot { get; set; } // Difficulty exponent
+    public byte JobId { get; set; } // Job ID
+
+    public byte[] ToBytes()
+    {
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream);
+        writer.Write(Status); // 1 byte
+        writer.Write(ReasonCode); // 2 bytes, little-endian
+        writer.Write(Nonce); // 4 bytes, little-endian
+        writer.Write(TargetPot); // 1 byte
+        writer.Write(JobId); // 1 byte
+        return stream.ToArray();
+    }
 }
