@@ -122,6 +122,7 @@ public class Program
             {
                 try
                 {
+                    ReadOnlySpan<byte> privateKey = Convert.FromBase64String(ed25519KeySource);
                     var privateKeyBytes = Convert.FromBase64String(ed25519KeySource);
                     ed25519Key = Key.Import(signatureAlgorithm, privateKeyBytes, KeyBlobFormat.RawPrivateKey, new KeyCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextExport });
                     Console.WriteLine("✅ Successfully loaded Ed25519 server key.");
@@ -416,7 +417,7 @@ public class ClientHandler
             byte[] decrypted = new byte[encryptedBody.Length - CryptoBoxSealBytes];
             LibSodium.CryptoBox.DecryptWithPrivateKey(decrypted, cipherText, privateKeyBytes);
             if (decrypted == null) { Console.WriteLine("❌ Decryption failed: Sodium.SealedPublicKeyBox.Open returned null"); return null; }
-
+            
             //Console.WriteLine($"🔓 Decrypted {decrypted.Length} bytes");
             //Console.WriteLine($"-> {BitConverter.ToString(decrypted)}");
             //Console.WriteLine($"🔓 Client signing public key:    {BitConverter.ToString(decrypted, 0, 16)}...");
