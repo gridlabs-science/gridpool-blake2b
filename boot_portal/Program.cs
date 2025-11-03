@@ -933,12 +933,14 @@ public class ClientHandler
 
     private async Task HandlePowSubmitAsync(byte[] payload)
     {
+        Console.WriteLine("-----------------------------------------------------------");
         var powSubmit = PowSubmitMessage.FromBytes(payload);
         //if (powSubmit.JobId == null) return;    
         if (powSubmit.PrevBlockHash == null)  //This is just a nonce update, does not include complete header info
         {
             //JobCache[powSubmit.JobId].Update(powSubmit);  //There's already job data stored here, so just update the new data
-            JobCache[powSubmit.JobId].CoinbaseId = powSubmit.CoinbaseId;  //maybe not required...
+            Console.WriteLine("No new merkle data, using stored");
+            JobCache[powSubmit.JobId].CoinbaseId = powSubmit.CoinbaseId;  
             JobCache[powSubmit.JobId].IsBlock = powSubmit.IsBlock;
             JobCache[powSubmit.JobId].SubsidyOnly = powSubmit.SubsidyOnly;
             JobCache[powSubmit.JobId].QuickDiff = powSubmit.QuickDiff;
@@ -952,6 +954,7 @@ public class ClientHandler
             //Now check if we got new coinbase data with this share:
             if (powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb1 != null)  // Got a new coinbase with this one
             {
+                Console.WriteLine("New coinbase data");
                 JobCache[powSubmit.JobId].CoinbasePairs[powSubmit.CoinbaseId] = powSubmit.CoinbasePairs[powSubmit.CoinbaseId];
             }
             powSubmit = JobCache[powSubmit.JobId];  //Copies back over the Merkle Branch info.
@@ -965,11 +968,11 @@ public class ClientHandler
         Console.WriteLine($"Coinb1: {BitConverter.ToString(Coinb1).Replace("-", "")}");
         Console.WriteLine($"Extranonce: {BitConverter.ToString(powSubmit.Extranonce).Replace("-", "")}");
         Console.WriteLine($"Coinb2: {BitConverter.ToString(Coinb2).Replace("-", "")}");
-        Console.WriteLine($"coinbaseTx: {BitConverter.ToString(coinbaseTx).Replace("-", "")}");
+        Console.WriteLine($"coinbaseTx(1): {BitConverter.ToString(coinbaseTx).Replace("-", "")}");
         Console.WriteLine($"Merkle Count: {powSubmit.MerkleBranchCount}");
         Console.WriteLine($"TargetByte: {powSubmit.TargetByte}");
         Console.WriteLine($"TargetByteIndex: {powSubmit.TargetByteIndex}");
-        
+
         //byte[] testCoinbase1 = Convert.FromHexString("020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff2303780b0e225075626c696320506f6f6c206f6e20556d6272656c2251cf70860019ccefffffffff");
         //byte[] testCoinbase2 = Convert.FromHexString("029c04b912000000001600145ea459e521b0d95d521f0dbc1596e9c54d29d9db0000000000000000266a24aa21a9ed46f10a6f564fcb1758d78fcf8d63cb82d6379e5ce53de187b7545589c1cac16a0120000000000000000000000000000000000000000000000000000000000000000000000000");
         //byte[] legacyPrefix = testCoinbase1.Take(4).ToArray();
@@ -991,7 +994,7 @@ public class ClientHandler
                 ushort magic = current == 0x5144 ? (ushort)0xAEBB : (ushort)0x5144;
 
                 byte[] magicBytes = BitConverter.GetBytes(magic);
-                if (BitConverter.IsLittleEndian) Array.Reverse(magicBytes);   // pk_u16le writes LE
+                if (!BitConverter.IsLittleEndian) Array.Reverse(magicBytes);   // pk_u16le writes LE
 
                 Array.Copy(magicBytes, 0, coinbaseTx, quickDiffOffset, 2);
             }
@@ -1021,14 +1024,15 @@ public class ClientHandler
                 int idx = powSubmit.TargetByteIndex.Value;
                 if (idx >= 0 && idx < coinbaseTx.Length)
                 {
-                    Console.WriteLine($"coinbaseTx[idx]: {coinbaseTx[idx]}");
-                    coinbaseTx[idx] = normalPot;
-                    Console.WriteLine($"coinbaseTx[idx]: {coinbaseTx[idx]}");
+                    Console.WriteLine($"coinbaseTx[idx](1): {coinbaseTx[idx]}");
+                    coinbaseTx[idx] = powSubmit.TargetByte;
+                    Console.WriteLine($"coinbaseTx[idx](2): {coinbaseTx[idx]}");
                 }
                 else
                     Console.WriteLine($"TargetByteIndex {idx} out of range (coinbase size {coinbaseTx.Length})");
             }
         }
+        Console.WriteLine($"coinbaseTx(2): {BitConverter.ToString(coinbaseTx).Replace("-", "")}");
 
         //var testCBHash = DoubleSha256(coinbaseTx);
         //var testMerkleRoot = ComputeMerkleRoot(testCBHash, powSubmit.MerkleBranches, powSubmit.MerkleBranchCount.Value);
@@ -1058,7 +1062,8 @@ public class ClientHandler
         {
             writer.Write(powSubmit.Version); // 4 bytes
             writer.Write(powSubmit.PrevBlockHash); // 32 bytes
-            writer.Write(powSubmit.MerkleRoot.Reverse().ToArray()); // 32 bytes  
+            //writer.Write(powSubmit.MerkleRoot.Reverse().ToArray()); // 32 bytes  
+            writer.Write(powSubmit.MerkleRoot);
             writer.Write(powSubmit.NTime); // 4 bytes
             writer.Write(powSubmit.NBits); // 4 bytes
             writer.Write(powSubmit.Nonce); // 4 bytes
@@ -1068,14 +1073,14 @@ public class ClientHandler
         if (powSubmit.SubsidyOnly) Console.WriteLine("*** Got subsidy only coinbase message!");
         Console.WriteLine($"PoW header: {BitConverter.ToString(header).Replace("-", "")}");
 
-        Console.Write($"{powSubmit.Version:X8} | ");
+        /*Console.Write($"{powSubmit.Version:X8} | ");
         Console.WriteLine($"Version (B32): 0b{powSubmit.Version:B32} | ");
         Console.Write($"{BitConverter.ToString(powSubmit.PrevBlockHash).Replace("-", "")} | ");
         Console.Write($"{BitConverter.ToString(powSubmit.MerkleRoot).Replace("-", "")} | ");
         Console.Write($"{BitConverter.ToString(BitConverter.GetBytes(powSubmit.NTime))} | ");
         Console.Write($"{BitConverter.ToString(powSubmit.NBits).Replace("-", "")} | ");
         Console.Write($"{BitConverter.ToString(BitConverter.GetBytes(powSubmit.Nonce))}\n");
-
+        */
 
 
         /*
@@ -1120,7 +1125,7 @@ public class ClientHandler
 
         // Achieved difficulty (hash-based)
         BigInteger hashInt = 0;
-        for (int i = 0; i < testHash.Length; i++)//(int i = testHash.Length - 1; i >= 0; i--)
+        for (int i = testHash.Length - 1; i >= 0; i--)//(int i = testHash.Length - 1; i >= 0; i--) int i = 0; i < testHash.Length; i++
         {
             hashInt = (hashInt << 8) | testHash[i];
         }
@@ -1329,26 +1334,22 @@ public class ClientHandler
 
     private byte[] ComputeMerkleRoot(byte[] coinbaseHash, byte[] merkleBranches, byte count)
     {
-        // The coinbaseHash is already BIG-ENDIAN from DoubleSha256.
-        byte[] current_BE = coinbaseHash; 
+        // coinbaseHash is raw 32-byte little-endian from DoubleSha256
+        byte[] current = coinbaseHash;
 
         for (int i = 0; i < count; i++)
         {
-            // 1. Get the branch from the list (it is LITTLE-ENDIAN)
-            byte[] branch_LE = merkleBranches.Skip(i * 32).Take(32).ToArray(); 
-            
-            // 2. Reverse it to BIG-ENDIAN for hashing
-            byte[] branch_BE = branch_LE.Reverse().ToArray();
-            
-            // 3. Concatenate (BIG-ENDIAN + BIG-ENDIAN)
-            byte[] combined = current_BE.Concat(branch_BE).ToArray();
-            
-            // 4. Hash it. The output is BIG-ENDIAN, ready for the next loop.
-            current_BE = DoubleSha256(combined); 
+            // Extract branch (already little-endian, as sent by client)
+            byte[] branch = merkleBranches.Skip(i * 32).Take(32).ToArray();
+
+            // DO NOT REVERSE — keep little-endian
+            byte[] combined = current.Concat(branch).ToArray();
+
+            // Hash → output is little-endian
+            current = DoubleSha256(combined);
         }
-        
-        // Return the final BIG-ENDIAN Merkle Root
-        return current_BE; 
+
+        return current; // little-endian Merkle root
     }
 
     private (bool isValid, List<(string Address, ulong Amount)> outputs) VerifyCoinbaseTransaction(byte[]? coinb1, byte[]? coinb2, ulong? coinbaseValue)
