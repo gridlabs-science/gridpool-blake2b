@@ -244,6 +244,9 @@ public class PoolConfig
     [JsonPropertyName("pool_payout_script")]
     public string PoolPayoutScript { get; set; } = "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y"; //TODO: hard coded default address? 
 
+    [JsonPropertyName("winners_list_size")]
+    public int WinnersListSize { get; set; } = 3;
+
     [JsonPropertyName("coinbase_tag")]
     public string CoinbaseTag { get; set; } = "Boot protocol";
 
@@ -271,6 +274,8 @@ public class Program
     // TODO: I should optionally load this from config, instead of hard-coded like this.
     private const int DatumPort = 3008;
     private const string ConfigFilePath = "boot_portal_config.json";
+
+    public static DatumServer server;
 
     //private PoolConfig? _poolConfig;
 
@@ -416,7 +421,7 @@ public class Program
             Console.WriteLine("=======================================================\n");
 
             // Start the DATUM server
-            var server = new DatumServer(IPAddress.Any, DatumPort, ed25519Key, x25519Key, _poolConfig);
+            server = new DatumServer(IPAddress.Any, DatumPort, ed25519Key, x25519Key, _poolConfig);
             await server.StartAsync();
 
             // TODO: Start the Stratum V1 and V2 servers as well, or with .config options just start the chosen servers.
@@ -467,18 +472,38 @@ public class DatumServer
 
     private PoolConfig _poolConfig;
 
+    public static List<PayoutInfo> WinnersList { get; set; } = new();
+    public static List<PayoutInfo> OnDeckList { get; set; } = new();
+
     public DatumServer(IPAddress address, int port, Key serverKey, Key serverXKey, PoolConfig poolConfig)
     {
         _listener = new TcpListener(address, port);
         _serverKey = serverKey;
         _serverXKey = serverXKey;
         _poolConfig = poolConfig;
+
     }
 
     public async Task StartAsync()
     {
         _listener.Start();
-        Console.WriteLine($"🚀 DATUM Prime Server started on port {_listener.LocalEndpoint}. Waiting for connections...");
+        Console.WriteLine($"🚀 DATUM Prime Server started on port {_listener.LocalEndpoint}. Waiting for connections...");        
+        if (false)
+        {
+            //TODO: If we can connect to a seed server, then get current Winners List data from them
+        }
+        else
+        {
+            //Otherwise, just load the _pool_config default solo address to start the WL with something
+            //TODO: This Value *should* get overwritten right away, but I'm not sure in all cases.  Hardcoded current subsidy for now.
+            // "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y"
+            WinnersList.Add(new PayoutInfo
+            {
+                Value = (ulong)3.125,
+                Address = _poolConfig.PoolPayoutScript
+            });
+        }
+        
 
         while (true)
         {
@@ -1194,8 +1219,38 @@ public class ClientHandler
         {
             //Console.WriteLine($"   -> Coinbase output: Address={output.Address}, Amount={output.Amount / 100_000_000.0} BTC");
         }
-        if (powSubmit.QuickDiff) Console.WriteLine("QuickDiff!!!");
+        //if (powSubmit.QuickDiff) Console.WriteLine("QuickDiff!!!");
         Console.WriteLine($"POW: {powSubmit.JobId}\t{powSubmit.CoinbaseId}\t{difficulty}\t{powSubmit.Username}\n");
+
+        //Evaluate how to credit this share, whether to add to on-deck or not
+        if (isHeaderValid)
+        {
+            if (isValidCoinbase) //i.e. did they put the right addresses into the coinbase to get on this team?
+            {
+                int j = 0;
+                for (int i = 0; i < DatumServer.OnDeckList.Count; i++) // This assumes the list is sorted by decreasing difficulty
+                {
+                    if (DatumServer.OnDeckList[i].Difficulty < difficulty) break;
+                    else j++;
+                }
+                if (j < _poolConfig.WinnersListSize)
+                {
+                    PayoutInfo newPayout = new PayoutInfo();
+                    newPayout.Address = powSubmit.Username;
+                    newPayout.Difficulty = difficulty;  //I'm not setting .Value here.  is that ok?
+                    DatumServer.OnDeckList.Insert(j, newPayout);  //insert the new share into the next winners list
+                }
+                if (DatumServer.OnDeckList.Count == _poolConfig.WinnersListSize + 1) DatumServer.WinnersList.Remove(DatumServer.WinnersList.Last()); //remove the lowest difficulty share
+                else if (DatumServer.OnDeckList.Count > _poolConfig.WinnersListSize) Console.WriteLine("we have a problem, OnDeckList got too big");
+            }
+        }
+
+        //For debugging, print the OnDeckList
+        for (int i = 0; i < DatumServer.OnDeckList.Count; i++)
+        {
+            Console.WriteLine($"{i}\t{DatumServer.OnDeckList[i].Difficulty}\t{DatumServer.OnDeckList[i].Address}");
+        }
+        Console.WriteLine("-----------------------------------------");
 
         // Respond
         //#define DATUM_POW_SHARE_RESPONSE_ACCEPTED 0x50
@@ -1881,6 +1936,7 @@ public class PayoutInfo
 {
     public ulong Value { get; set; }
     public string Address { get; set; } = string.Empty;
+    public double Difficulty { get; set; } = 0;
 }
 
 // CLIENT: PoW Submit message (0x05, 0x27)
