@@ -12,6 +12,128 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using NSec.Cryptography;
 
+using NetMQ;
+using NetMQ.Sockets;
+using System;
+using System.Text;
+using System.Threading.Tasks;
+using System.Reflection.Metadata;
+
+//stuff for the UI server
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.AspNetCore.SignalR;
+using System.Threading.Tasks;
+
+// Define your SignalR Hub
+// This class is the "channel" your webpage will listen to.
+public class PoolStatsHub : Hub
+{
+    // Clients can call this to get the current state when they load
+    public async Task GetInitialData()
+    {
+        // Send the current data *only to the caller*
+        await Clients.Caller.SendAsync("UpdateWinners", DatumServer.WinnersList);
+        await Clients.Caller.SendAsync("UpdateOnDeck", DatumServer.OnDeckList);
+    }
+}
+
+public class BitcoinZmqSubscriber
+{
+    private SubscriberSocket? _subscriber;
+    private readonly string _zmqEndpoint = "tcp://127.0.0.1:28332"; // From bitcoin.conf
+    private readonly string _topic = "hashblock"; // Subscribe to block hashes
+    private readonly IHubContext<PoolStatsHub> _hubContext;
+
+    // Constructor to receive the Hub Context
+    public BitcoinZmqSubscriber(IHubContext<PoolStatsHub> hubContext)
+    {
+        _hubContext = hubContext;
+        // ... other init ...
+    }
+
+    public async Task StartAsync()
+    {
+        _subscriber = new SubscriberSocket();
+        _subscriber.Connect(_zmqEndpoint);
+        _subscriber.Subscribe(_topic); // Subscribe to the topic
+
+        Console.WriteLine($"Subscribed to ZMQ at {_zmqEndpoint} for topic '{_topic}'");
+
+        while (true)
+        {
+            // Receive message (blocks until data arrives)
+            var topic = _subscriber.ReceiveFrameString(); // e.g., "hashblock"
+            var blockHash = _subscriber.ReceiveFrameBytes(); // 32-byte hash
+            var sequenceBytes = _subscriber.ReceiveFrameBytes();
+
+            if (topic == _topic && blockHash.Length == 32)
+            {
+                var hashHex = BitConverter.ToString(blockHash).Replace("-", "").ToLower();
+                Console.WriteLine($"New block detected: {hashHex}");
+                // Trigger your server logic (e.g., update job templates, notify miners)
+                await OnNewBlockAsync(hashHex);
+            }
+            else
+            {
+                Console.WriteLine($"Unexpected message: Topic={topic}, Length={blockHash.Length}");
+            }
+        }
+    }
+
+    private async Task OnNewBlockAsync(string blockHash)
+    {
+        // Your custom logic: e.g., fetch block details via RPC, update jobs
+        Console.WriteLine($"Processing block {blockHash}...");
+        // 1. Create the NEW list in a local variable.
+        //    Reader threads CANNOT see this variable.
+        //    They are all still happily reading the OLD static WinnersList.
+        var newWinnersList = new List<PayoutInfo>();
+
+        // 2. FULLY populate this new, private list.
+        var reward = Program.BLOCK_REWARD / ((ulong)DatumServer.OnDeckList.Count + 1);
+        foreach (var onDeckMiner in DatumServer.OnDeckList)
+        {
+            newWinnersList.Add(new PayoutInfo
+            {
+                Value = reward,
+                Address = onDeckMiner.Address,
+                Difficulty = onDeckMiner.Difficulty,
+                DiffString = onDeckMiner.DiffString
+            });
+            var lastAdded = newWinnersList.Last();
+            Console.WriteLine(lastAdded.Value.ToString(), lastAdded.Address);
+            onDeckMiner.Difficulty = 0;
+        }
+
+        // 3. The "Swap". This is a single, instantaneous, atomic operation.
+        //    All requests *after* this line will see the new list.
+        //    All requests *before* this line saw the old list.
+        //    No locks. No waiting.
+        DatumServer.WinnersList = newWinnersList;
+
+        // 4. Reset the OnDeckList for the next round.
+        //DatumServer.OnDeckList = new List<PayoutInfo>();
+
+
+        //Console.WriteLine($"{i}\t{DatumServer.WinnersList[i].Value}\t{DatumServer.WinnersList[i].Address}");
+        //DatumServer.OnDeckList[i].Difficulty = 0;
+        //Console.WriteLine($"{i}\t{DatumServer.OnDeckList[i].Difficulty}\t{DatumServer.OnDeckList[i].Address}");
+
+        await _hubContext.Clients.All.SendAsync("UpdateWinners", DatumServer.WinnersList);
+        await _hubContext.Clients.All.SendAsync("UpdateOnDeck", DatumServer.OnDeckList);
+        Console.WriteLine("Broadcasted new lists to web UI.");
+    }
+
+    public void Stop()
+    {
+        _subscriber?.Dispose();
+    }
+}
+
 
 // =================================================================================
 // 1. MAIN PROGRAM ENTRY POINT
@@ -274,6 +396,8 @@ public class Program
     // TODO: I should optionally load this from config, instead of hard-coded like this.
     private const int DatumPort = 3008;
     private const string ConfigFilePath = "boot_portal_config.json";
+    public static ulong BLOCK_REWARD = 312_500_000;  //TODO: Need to detect this from the blockchain, so it gracefully handles the next epoch
+    public static int TEAM_SIZE = 16;
 
     public static DatumServer server;
 
@@ -411,6 +535,7 @@ public class Program
 
             //Now load or setup the pool config options, like default payout address and coinbase tag
             PoolConfig _poolConfig = LoadPoolConfig(ConfigFilePath);
+            Program.TEAM_SIZE = _poolConfig.WinnersListSize;
 
             Console.WriteLine("\n====================== IMPORTANT ======================");
             Console.WriteLine("Copy this combined public key (Ed25519 + X25519, hex-encoded) into your DATUM Gateway's config.json:");
@@ -420,13 +545,93 @@ public class Program
             Console.WriteLine($"🔒 X25519 Private Key (Base64): {Convert.ToBase64String(x25519PrivKeyBytes)}"); //x25519Key.Export(KeyBlobFormat.RawPrivateKey); // 32 bytes
             Console.WriteLine("=======================================================\n");
 
+            //UI Server stuff:
+            var builder = WebApplication.CreateBuilder(args);
+            // 1. Add services for ASP.NET Core
+            builder.Services.AddRazorPages(); // For serving simple HTML pages
+            builder.Services.AddSignalR();    // For real-time updates
+            // ---- This is key for your server logic ----
+            // Add your ZMQ subscriber and DatumServer as services
+            // This lets them be managed and get access to the SignalR Hub
+            builder.Services.AddSingleton<BitcoinZmqSubscriber>();
+            builder.Services.AddSingleton<DatumServer>(serviceProvider =>
+            {
+                var hubContext = serviceProvider.GetRequiredService<IHubContext<PoolStatsHub>>();
+                // The 'serviceProvider' allows you to get other services if needed,
+                // but here we just use the local variables from Program.cs
+
+                // We pass in all the necessary constructor arguments here:
+                return new DatumServer(
+                    IPAddress.Any, 
+                    DatumPort, 
+                    ed25519Key, 
+                    x25519Key,
+                    _poolConfig,
+                    hubContext
+                );
+            });
+
+            var app = builder.Build();
+
+            // 2. Configure the web app
+            app.UseStaticFiles(); // Serve static files like CSS, JS, images
+            app.UseRouting();
+            app.MapRazorPages(); // Use a simple page system
+
+            // 3. Tell the app where your SignalR Hub lives
+            app.MapHub<PoolStatsHub>("/poolStatsHub"); // This is the URL your JS will use
+            app.RunAsync();
+
+            // 4. Start your background services (your server!)
+            // We use the app's lifetime to start/stop your services
+            var zmqSubscriber = app.Services.GetRequiredService<BitcoinZmqSubscriber>();
+            var datumServer = app.Services.GetRequiredService<DatumServer>();
+
+
             // Start the DATUM server
-            server = new DatumServer(IPAddress.Any, DatumPort, ed25519Key, x25519Key, _poolConfig);
-            await server.StartAsync();
+            //var zmqSubscriber = new BitcoinZmqSubscriber();
+            //var zmqTask = zmqSubscriber.StartAsync(); // Runs asynchronously
+            //server = new DatumServer(IPAddress.Any, DatumPort, ed25519Key, x25519Key, _poolConfig);
+            //var serverTask = server.StartAsync();
+            Task datumTask = Task.Run(() => datumServer.StartAsync());
+            Task zmqTask   = Task.Run(() => zmqSubscriber.StartAsync());
+
+            Console.WriteLine("Both Datum server and ZMQ listener are running.");
+            //Console.WriteLine("Datum server and ZMQ listener started. Press Ctrl+C to stop.");
+            await Task.WhenAll(datumTask, zmqTask);
 
             // TODO: Start the Stratum V1 and V2 servers as well, or with .config options just start the chosen servers.
             
             // TODO: Also start the peer to peer node so we can actually connect to the boot-protocol network
+
+            // -----------------------------------------------------------------
+            // 3. Graceful shutdown on Ctrl+C
+            // -----------------------------------------------------------------
+            /*var cts = new CancellationTokenSource();
+            Console.CancelKeyPress += (_, e) =>
+            {
+                e.Cancel = true;                 // don’t kill the process immediately
+                Console.WriteLine("\nShutting down…");
+                cts.Cancel();
+            };
+
+            // If your services expose a Stop() method, call it here:
+            server.Stop();   zmqSubscriber.Stop();
+
+            // -----------------------------------------------------------------
+            // 4. Wait for either service to exit (or cancellation)
+            // -----------------------------------------------------------------
+            Task completedTask = await Task.WhenAny(datumTask, zmqTask);
+
+            // If Ctrl+C was pressed, cancel the other one
+            if (cts.IsCancellationRequested)
+            {
+                // give them a moment to clean up
+                await Task.WhenAll(datumTask, zmqTask).ContinueWith(_ => { }, TaskContinuationOptions.OnlyOnFaulted);
+            }
+            */
+
+            Console.WriteLine("All services stopped.");
         }, ed25519PrivateKeyOption, x25519PrivateKeyOption);
 
         await rootCommand.InvokeAsync(args);
@@ -475,19 +680,29 @@ public class DatumServer
     public static List<PayoutInfo> WinnersList { get; set; } = new();
     public static List<PayoutInfo> OnDeckList { get; set; } = new();
 
-    public DatumServer(IPAddress address, int port, Key serverKey, Key serverXKey, PoolConfig poolConfig)
+    public static IHubContext<PoolStatsHub> _hubContext;
+
+    // Constructor to receive the Hub Context
+
+    public DatumServer(IPAddress address, int port, Key serverKey, Key serverXKey, PoolConfig poolConfig, IHubContext<PoolStatsHub> hubContext)
     {
         _listener = new TcpListener(address, port);
         _serverKey = serverKey;
         _serverXKey = serverXKey;
         _poolConfig = poolConfig;
+        _hubContext = hubContext;
+    }
 
+    public void Stop()
+    {
+        //_subscriber?.Dispose();
+        
     }
 
     public async Task StartAsync()
     {
         _listener.Start();
-        Console.WriteLine($"🚀 DATUM Prime Server started on port {_listener.LocalEndpoint}. Waiting for connections...");        
+        Console.WriteLine($"🚀 DATUM Prime Server started on port {_listener.LocalEndpoint}. Waiting for connections...");
         if (false)
         {
             //TODO: If we can connect to a seed server, then get current Winners List data from them
@@ -499,10 +714,14 @@ public class DatumServer
             // "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y"
             WinnersList.Add(new PayoutInfo
             {
-                Value = (ulong)3.125,
+                Value = Program.BLOCK_REWARD / 2,
                 Address = _poolConfig.PoolPayoutScript
             });
         }
+        PayoutInfo dummyShare = new PayoutInfo();
+        dummyShare.Address = _poolConfig.PoolPayoutScript;
+        dummyShare.Difficulty = 0;  //Just initializing the first "share" at 0 diff, so the other comparison logic works.
+        DatumServer.OnDeckList.Add(dummyShare);  //insert the new share into the next winners list
         
 
         while (true)
@@ -936,11 +1155,28 @@ public class ClientHandler
         var fetchRequest = CoinbaserFetchMessage.FromBytes(payload);
         //Console.WriteLine($"   -> Coinbase Fetch request with total reward: {fetchRequest.RewardValue / 100_000_000.0} BTC");
         var fetchResponse = new CoinbaserFetchResponseMessage();
-        fetchResponse.Payouts.Add(new PayoutInfo
+        fetchResponse.Payouts = DatumServer.WinnersList;
+        ulong mySats = fetchRequest.RewardValue - (DatumServer.WinnersList.Last().Value * (ulong)DatumServer.WinnersList.Count);
+        //Console.WriteLine($"mySats {mySats}, team {DatumServer.WinnersList.Last().Value} * {DatumServer.WinnersList.Count}");
+        ulong total = mySats + DatumServer.WinnersList.Last().Value * (ulong)DatumServer.WinnersList.Count;
+        //Console.WriteLine($"total = {total}");
+        //Console.WriteLine($"Reward= {fetchRequest.RewardValue}");
+        if (total > fetchRequest.RewardValue) Console.WriteLine("Reward too big!!!");
+        
+        var myPayout = new PayoutInfo
+        {
+            Value = mySats,
+            Address = _poolConfig.PoolPayoutScript
+        };
+        fetchResponse.Payouts = new List<PayoutInfo>(DatumServer.WinnersList);  //Insert my own "pools" payout address into the first slot.
+        fetchResponse.Payouts.Insert(0, myPayout);
+        
+        /*fetchResponse.Payouts.Add(new PayoutInfo
         {
             Value = fetchRequest.RewardValue,
             Address = "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y"
         });
+        */
 
         using var stream = new MemoryStream();
         using var writer = new BinaryWriter(stream);
@@ -958,13 +1194,13 @@ public class ClientHandler
 
     private async Task HandlePowSubmitAsync(byte[] payload)
     {
-        Console.WriteLine("-----------------------------------------------------------");
+        //Console.WriteLine("-----------------------------------------------------------");
         var powSubmit = PowSubmitMessage.FromBytes(payload);
         //if (powSubmit.JobId == null) return;    
         if (powSubmit.PrevBlockHash == null)  //This is just a nonce update, does not include complete header info
         {
             //JobCache[powSubmit.JobId].Update(powSubmit);  //There's already job data stored here, so just update the new data
-            Console.WriteLine("No new merkle data, using stored");
+            //Console.WriteLine("No new merkle data, using stored");
             JobCache[powSubmit.JobId].CoinbaseId = powSubmit.CoinbaseId;  
             JobCache[powSubmit.JobId].IsBlock = powSubmit.IsBlock;
             JobCache[powSubmit.JobId].SubsidyOnly = powSubmit.SubsidyOnly;
@@ -990,13 +1226,13 @@ public class ClientHandler
         byte[] Coinb1 = powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb1;
         byte[] Coinb2 = powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb2;
         byte[] coinbaseTx = Coinb1.Concat(powSubmit.Extranonce).Concat(Coinb2).ToArray();
-        Console.WriteLine($"Coinb1: {BitConverter.ToString(Coinb1).Replace("-", "")}");
-        Console.WriteLine($"Extranonce: {BitConverter.ToString(powSubmit.Extranonce).Replace("-", "")}");
-        Console.WriteLine($"Coinb2: {BitConverter.ToString(Coinb2).Replace("-", "")}");
-        Console.WriteLine($"coinbaseTx(1): {BitConverter.ToString(coinbaseTx).Replace("-", "")}");
-        Console.WriteLine($"Merkle Count: {powSubmit.MerkleBranchCount}");
-        Console.WriteLine($"TargetByte: {powSubmit.TargetByte}");
-        Console.WriteLine($"TargetByteIndex: {powSubmit.TargetByteIndex}");
+        //Console.WriteLine($"Coinb1: {BitConverter.ToString(Coinb1).Replace("-", "")}");
+        //Console.WriteLine($"Extranonce: {BitConverter.ToString(powSubmit.Extranonce).Replace("-", "")}");
+        //Console.WriteLine($"Coinb2: {BitConverter.ToString(Coinb2).Replace("-", "")}");
+        //Console.WriteLine($"coinbaseTx(1): {BitConverter.ToString(coinbaseTx).Replace("-", "")}");
+        //Console.WriteLine($"Merkle Count: {powSubmit.MerkleBranchCount}");
+        //Console.WriteLine($"TargetByte: {powSubmit.TargetByte}");
+        //Console.WriteLine($"TargetByteIndex: {powSubmit.TargetByteIndex}");
 
         //byte[] testCoinbase1 = Convert.FromHexString("020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff2303780b0e225075626c696320506f6f6c206f6e20556d6272656c2251cf70860019ccefffffffff");
         //byte[] testCoinbase2 = Convert.FromHexString("029c04b912000000001600145ea459e521b0d95d521f0dbc1596e9c54d29d9db0000000000000000266a24aa21a9ed46f10a6f564fcb1758d78fcf8d63cb82d6379e5ce53de187b7545589c1cac16a0120000000000000000000000000000000000000000000000000000000000000000000000000");
@@ -1006,7 +1242,7 @@ public class ClientHandler
 
         if (powSubmit.QuickDiff)
         {
-            Console.WriteLine("   using quickdiff");
+            //Console.WriteLine("   using quickdiff");
             // ----- quickdiff magic word (last 2 bytes of Coinb1) -----
             int quickDiffOffset = Coinb1.Length - 2;   // client: cb->coinb1_len - 2
             if (quickDiffOffset < 0)
@@ -1027,7 +1263,7 @@ public class ClientHandler
             // ----- quickdiff target byte -----
             // The client uses the *quick* difficulty that the miner was asked for
             byte quickPot = FloorPoT(powSubmit.TargetByte);   // you already have this helper
-            Console.WriteLine($"quickPot: {quickPot}");
+            //Console.WriteLine($"quickPot: {quickPot}");
             if (powSubmit.TargetByteIndex.HasValue)
             {
                 int idx = powSubmit.TargetByteIndex.Value;
@@ -1043,21 +1279,21 @@ public class ClientHandler
             // ----- normal (non-quickdiff) target byte -----
             // The client uses the difficulty that belongs to the current stratum job
             byte normalPot = FloorPoT(powSubmit.TargetByte);   // you must expose this value
-            Console.WriteLine($"normalPot: {normalPot:X1}");
+            //Console.WriteLine($"normalPot: {normalPot:X1}");
             if (powSubmit.TargetByteIndex.HasValue)
             {
                 int idx = powSubmit.TargetByteIndex.Value;
                 if (idx >= 0 && idx < coinbaseTx.Length)
                 {
-                    Console.WriteLine($"coinbaseTx[idx](1): {coinbaseTx[idx]}");
+                    //Console.WriteLine($"coinbaseTx[idx](1): {coinbaseTx[idx]}");
                     coinbaseTx[idx] = powSubmit.TargetByte;
-                    Console.WriteLine($"coinbaseTx[idx](2): {coinbaseTx[idx]}");
+                    //Console.WriteLine($"coinbaseTx[idx](2): {coinbaseTx[idx]}");
                 }
                 else
                     Console.WriteLine($"TargetByteIndex {idx} out of range (coinbase size {coinbaseTx.Length})");
             }
         }
-        Console.WriteLine($"coinbaseTx(2): {BitConverter.ToString(coinbaseTx).Replace("-", "")}");
+        //Console.WriteLine($"coinbaseTx(2): {BitConverter.ToString(coinbaseTx).Replace("-", "")}");
 
         //var testCBHash = DoubleSha256(coinbaseTx);
         //var testMerkleRoot = ComputeMerkleRoot(testCBHash, powSubmit.MerkleBranches, powSubmit.MerkleBranchCount.Value);
@@ -1096,7 +1332,7 @@ public class ClientHandler
         //Console.WriteLine($"Version (Byte): {Convert.ToByte(powSubmit.Version)}");
         //Console.WriteLine($"Version (String): {Convert.ToString(powSubmit.Version)}");
         if (powSubmit.SubsidyOnly) Console.WriteLine("*** Got subsidy only coinbase message!");
-        Console.WriteLine($"PoW header: {BitConverter.ToString(header).Replace("-", "")}");
+        //Console.WriteLine($"PoW header: {BitConverter.ToString(header).Replace("-", "")}");
 
         /*Console.Write($"{powSubmit.Version:X8} | ");
         Console.WriteLine($"Version (B32): 0b{powSubmit.Version:B32} | ");
@@ -1145,8 +1381,8 @@ public class ClientHandler
         // Compute hash
         byte[] testHash = DoubleSha256(header);  //testHeader
         byte[] reversedTestHash = testHash.Reverse().ToArray();
-        Console.WriteLine($"Test Hash (raw): {BitConverter.ToString(testHash).Replace("-", "")}");
-        Console.WriteLine($"Test Hash (reversed, explorer): {BitConverter.ToString(reversedTestHash).Replace("-", "")}");
+        //Console.WriteLine($"Test Hash (raw): {BitConverter.ToString(testHash).Replace("-", "")}");
+        //Console.WriteLine($"Test Hash (reversed, explorer): {BitConverter.ToString(reversedTestHash).Replace("-", "")}");
 
         // Achieved difficulty (hash-based)
         BigInteger hashInt = 0;
@@ -1220,14 +1456,15 @@ public class ClientHandler
             //Console.WriteLine($"   -> Coinbase output: Address={output.Address}, Amount={output.Amount / 100_000_000.0} BTC");
         }
         //if (powSubmit.QuickDiff) Console.WriteLine("QuickDiff!!!");
-        Console.WriteLine($"POW: {powSubmit.JobId}\t{powSubmit.CoinbaseId}\t{difficulty}\t{powSubmit.Username}\n");
+        //Console.WriteLine($"POW: {powSubmit.JobId}\t{powSubmit.CoinbaseId}\t{difficulty}\t{powSubmit.Username}\n");
 
         //Evaluate how to credit this share, whether to add to on-deck or not
         if (isHeaderValid)
         {
-            if (isValidCoinbase) //i.e. did they put the right addresses into the coinbase to get on this team?
+            if (true) // isValidCoinbase  i.e. did they put the right addresses into the coinbase to get on this team?
             {
                 int j = 0;
+                bool newWinner = false;
                 for (int i = 0; i < DatumServer.OnDeckList.Count; i++) // This assumes the list is sorted by decreasing difficulty
                 {
                     if (DatumServer.OnDeckList[i].Difficulty < difficulty) break;
@@ -1238,19 +1475,26 @@ public class ClientHandler
                     PayoutInfo newPayout = new PayoutInfo();
                     newPayout.Address = powSubmit.Username;
                     newPayout.Difficulty = difficulty;  //I'm not setting .Value here.  is that ok?
+                    newPayout.DiffString = FormatDifficulty(difficulty);
                     DatumServer.OnDeckList.Insert(j, newPayout);  //insert the new share into the next winners list
+                    newWinner = true;
                 }
-                if (DatumServer.OnDeckList.Count == _poolConfig.WinnersListSize + 1) DatumServer.WinnersList.Remove(DatumServer.WinnersList.Last()); //remove the lowest difficulty share
+                if (DatumServer.OnDeckList.Count == (_poolConfig.WinnersListSize + 1)) DatumServer.OnDeckList.Remove(DatumServer.OnDeckList.Last()); //remove the lowest difficulty share
                 else if (DatumServer.OnDeckList.Count > _poolConfig.WinnersListSize) Console.WriteLine("we have a problem, OnDeckList got too big");
+                if(newWinner)
+                {
+                    //For debugging, print the OnDeckList
+                    Console.WriteLine("-----------------------------------------------------------");
+                    for (int i = 0; i < DatumServer.OnDeckList.Count; i++)
+                    {
+                        Console.WriteLine($"{i}\t{DatumServer.OnDeckList[i].DiffString}\t{DatumServer.OnDeckList[i].Address}");
+                    }
+                }
             }
         }
 
-        //For debugging, print the OnDeckList
-        for (int i = 0; i < DatumServer.OnDeckList.Count; i++)
-        {
-            Console.WriteLine($"{i}\t{DatumServer.OnDeckList[i].Difficulty}\t{DatumServer.OnDeckList[i].Address}");
-        }
-        Console.WriteLine("-----------------------------------------");
+        
+        //Console.WriteLine("-----------------------------------------");
 
         // Respond
         //#define DATUM_POW_SHARE_RESPONSE_ACCEPTED 0x50
@@ -1271,6 +1515,7 @@ public class ClientHandler
         //Console.WriteLine($"📦 Share response payload: {BitConverter.ToString(responsePayload)}");
         //byte[] testPayload = new byte[] { 0x8F, 0x50, 0x00, 0x00, 0x32, 0x04, 0xCA, 0xC7, 0x0E, 0x02 };
         await SendEncryptedMessageAsync(0x05, responsePayload, isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false);
+        await DatumServer._hubContext.Clients.All.SendAsync("UpdateOnDeck", DatumServer.OnDeckList);
         //Console.WriteLine($"[SEND] Share Response [{(isHeaderValid && isValidCoinbase ? "ACCEPTED" : "REJECTED")}] (0x05, 0x{shareResponse.Status:X2})");
     }
     
@@ -1888,55 +2133,77 @@ public class CoinbaserFetchResponseMessage
     public List<PayoutInfo> Payouts { get; set; } = new();
 
     public byte[] ToBytes()
+{
+    using var stream = new MemoryStream();
+    using var writer = new BinaryWriter(stream);
+    
+    // Write the count of payouts (1 byte)
+    writer.Write((byte)Payouts.Count); 
+    
+    foreach (var payout in Payouts)
     {
-        using var stream = new MemoryStream();
-        using var writer = new BinaryWriter(stream);
-        writer.Write((byte)Payouts.Count); // 1 byte
-        foreach (var payout in Payouts)
+        writer.Write(payout.Value); // 8 bytes (amount)
+        
+        // --- MODIFICATION: Extract the actual address part ---
+        // Miners often provide addresses in the format "address.workerName".
+        // We only need the part before the first dot for script generation.
+        string address = payout.Address;
+        int dotIndex = address.IndexOf('.');
+        if (dotIndex != -1)
         {
-            writer.Write(payout.Value); // 8 bytes
-            byte[] script;
-            if (payout.Address.StartsWith("bc1") || payout.Address.StartsWith("tb1"))
-            {
-                // Bech32 (SegWit) address
-                var (hrp, version, program) = Bech32.Decode(payout.Address);
-                if (version != 0 || program.Length != 20) // P2WPKH only
-                {
-                    throw new InvalidOperationException($"Unsupported Bech32 address: {payout.Address}");
-                }
-                script = new byte[2 + program.Length];
-                script[0] = 0x00; // Witness version 0
-                script[1] = (byte)program.Length; // Length (20)
-                Array.Copy(program, 0, script, 2, program.Length);
-            }
-            else
-            {
-                // P2PKH address
-                byte[] payload = Base58Check.Decode(payout.Address);
-                if (payload.Length != 21 || payload[0] != 0x00)
-                {
-                    throw new InvalidOperationException($"Invalid P2PKH address: {payout.Address}");
-                }
-                byte[] pubkeyHash = payload.Skip(1).Take(20).ToArray();
-                script = new byte[25];
-                script[0] = 0x76; // OP_DUP
-                script[1] = 0xA9; // OP_HASH160
-                script[2] = 0x14; // Length of hash (20)
-                Array.Copy(pubkeyHash, 0, script, 3, 20);
-                script[23] = 0x88; // OP_EQUALVERIFY
-                script[24] = 0xAC; // OP_CHECKSIG
-            }
-            writer.Write((byte)script.Length); // 1 byte script length
-            writer.Write(script); // Script bytes
+            // Trim the string to include only the part before the dot
+            address = address.Substring(0, dotIndex);
         }
-        return stream.ToArray();
+        // --- END MODIFICATION ---
+
+        byte[] script;
+        
+        // Check if the address is Bech32 (SegWit) using the cleaned 'address'
+        if (address.StartsWith("bc1") || address.StartsWith("tb1"))
+        {
+            // Bech32 (SegWit) address
+            var (hrp, version, program) = Bech32.Decode(address); // Use cleaned 'address'
+            if (version != 0 || program.Length != 20) // P2WPKH only (adjust if P2WSH is supported)
+            {
+                // Use payout.Address for the error message to show the original input
+                throw new InvalidOperationException($"Unsupported Bech32 address: {payout.Address}");
+            }
+            script = new byte[2 + program.Length];
+            script[0] = 0x00; // Witness version 0
+            script[1] = (byte)program.Length; // Length (20)
+            Array.Copy(program, 0, script, 2, program.Length);
+        }
+        else
+        {
+            // P2PKH address
+            byte[] payload = Base58Check.Decode(address); // Use cleaned 'address'
+            if (payload.Length != 21 || payload[0] != 0x00)
+            {
+                // Use payout.Address for the error message to show the original input
+                throw new InvalidOperationException($"Invalid P2PKH address: {payout.Address}");
+            }
+            byte[] pubkeyHash = payload.Skip(1).Take(20).ToArray();
+            script = new byte[25];
+            script[0] = 0x76; // OP_DUP
+            script[1] = 0xA9; // OP_HASH160
+            script[2] = 0x14; // Length of hash (20)
+            Array.Copy(pubkeyHash, 0, script, 3, 20);
+            script[23] = 0x88; // OP_EQUALVERIFY
+            script[24] = 0xAC; // OP_CHECKSIG
+        }
+        
+        writer.Write((byte)script.Length); // 1 byte script length
+        writer.Write(script); // Script bytes
+    }
+    return stream.ToArray();
     }
 }
 public class PayoutInfo
 {
-    public ulong Value { get; set; }
+    public ulong Value { get; set; }  //in Satoshis, or 1/100,000,000 BTC
     public string Address { get; set; } = string.Empty;
     public double Difficulty { get; set; } = 0;
+    public string DiffString { get; set; } = "0";
 }
 
 // CLIENT: PoW Submit message (0x05, 0x27)
@@ -2040,7 +2307,7 @@ public class PowSubmitMessage
                 byte[] coinb1 = reader.ReadBytes(coinb1Len);
                 byte[] coinb2 = reader.ReadBytes(coinb2Len);
                 result.CoinbasePairs[result.CoinbaseId] = (coinb1, coinb2);
-                Console.WriteLine($"Stored CoinbaseId {result.CoinbaseId}: Coinb1={coinb1Len} bytes, Coinb2={coinb2Len} bytes");
+                //Console.WriteLine($"Stored CoinbaseId {result.CoinbaseId}: Coinb1={coinb1Len} bytes, Coinb2={coinb2Len} bytes");
             }
             else
             {
