@@ -1,8 +1,5 @@
-﻿// Program.cs
-
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.CommandLine;
-using System.Formats.Asn1;
 using System.Net;
 using System.Net.Sockets;
 using System.Numerics;
@@ -10,130 +7,11 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using LibSodium;
+using boot_portal;
+using boot_portal.HostedServices;
+using boot_portal.Utils;
 using NSec.Cryptography;
-
-using NetMQ;
-using NetMQ.Sockets;
-using System;
-using System.Text;
-using System.Threading.Tasks;
-using System.Reflection.Metadata;
-
-//stuff for the UI server
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.AspNetCore.SignalR;
-using System.Threading.Tasks;
-
-// Define your SignalR Hub
-// This class is the "channel" your webpage will listen to.
-public class PoolStatsHub : Hub
-{
-    // Clients can call this to get the current state when they load
-    public async Task GetInitialData()
-    {
-        // Send the current data *only to the caller*
-        await Clients.Caller.SendAsync("UpdateWinners", DatumServer.WinnersList);
-        await Clients.Caller.SendAsync("UpdateOnDeck", DatumServer.OnDeckList);
-    }
-}
-
-public class BitcoinZmqSubscriber
-{
-    private SubscriberSocket? _subscriber;
-    private readonly string _zmqEndpoint = "tcp://127.0.0.1:28332"; // From bitcoin.conf
-    private readonly string _topic = "hashblock"; // Subscribe to block hashes
-    private readonly IHubContext<PoolStatsHub> _hubContext;
-
-    // Constructor to receive the Hub Context
-    public BitcoinZmqSubscriber(IHubContext<PoolStatsHub> hubContext)
-    {
-        _hubContext = hubContext;
-        // ... other init ...
-    }
-
-    public async Task StartAsync()
-    {
-        _subscriber = new SubscriberSocket();
-        _subscriber.Connect(_zmqEndpoint);
-        _subscriber.Subscribe(_topic); // Subscribe to the topic
-
-        Console.WriteLine($"Subscribed to ZMQ at {_zmqEndpoint} for topic '{_topic}'");
-
-        while (true)
-        {
-            // Receive message (blocks until data arrives)
-            var topic = _subscriber.ReceiveFrameString(); // e.g., "hashblock"
-            var blockHash = _subscriber.ReceiveFrameBytes(); // 32-byte hash
-            var sequenceBytes = _subscriber.ReceiveFrameBytes();
-
-            if (topic == _topic && blockHash.Length == 32)
-            {
-                var hashHex = BitConverter.ToString(blockHash).Replace("-", "").ToLower();
-                Console.WriteLine($"New block detected: {hashHex}");
-                // Trigger your server logic (e.g., update job templates, notify miners)
-                await OnNewBlockAsync(hashHex);
-            }
-            else
-            {
-                Console.WriteLine($"Unexpected message: Topic={topic}, Length={blockHash.Length}");
-            }
-        }
-    }
-
-    private async Task OnNewBlockAsync(string blockHash)
-    {
-        // Your custom logic: e.g., fetch block details via RPC, update jobs
-        Console.WriteLine($"Processing block {blockHash}...");
-        // 1. Create the NEW list in a local variable.
-        //    Reader threads CANNOT see this variable.
-        //    They are all still happily reading the OLD static WinnersList.
-        var newWinnersList = new List<PayoutInfo>();
-
-        // 2. FULLY populate this new, private list.
-        var reward = Program.BLOCK_REWARD / ((ulong)DatumServer.OnDeckList.Count + 1);
-        foreach (var onDeckMiner in DatumServer.OnDeckList)
-        {
-            newWinnersList.Add(new PayoutInfo
-            {
-                Value = reward,
-                Address = onDeckMiner.Address,
-                Difficulty = onDeckMiner.Difficulty,
-                DiffString = onDeckMiner.DiffString
-            });
-            var lastAdded = newWinnersList.Last();
-            Console.WriteLine(lastAdded.Value.ToString(), lastAdded.Address);
-            onDeckMiner.Difficulty = 0;
-        }
-
-        // 3. The "Swap". This is a single, instantaneous, atomic operation.
-        //    All requests *after* this line will see the new list.
-        //    All requests *before* this line saw the old list.
-        //    No locks. No waiting.
-        DatumServer.WinnersList = newWinnersList;
-
-        // 4. Reset the OnDeckList for the next round.
-        //DatumServer.OnDeckList = new List<PayoutInfo>();
-
-
-        //Console.WriteLine($"{i}\t{DatumServer.WinnersList[i].Value}\t{DatumServer.WinnersList[i].Address}");
-        //DatumServer.OnDeckList[i].Difficulty = 0;
-        //Console.WriteLine($"{i}\t{DatumServer.OnDeckList[i].Difficulty}\t{DatumServer.OnDeckList[i].Address}");
-
-        await _hubContext.Clients.All.SendAsync("UpdateWinners", DatumServer.WinnersList);
-        await _hubContext.Clients.All.SendAsync("UpdateOnDeck", DatumServer.OnDeckList);
-        Console.WriteLine("Broadcasted new lists to web UI.");
-    }
-
-    public void Stop()
-    {
-        _subscriber?.Dispose();
-    }
-}
 
 
 // =================================================================================
@@ -143,209 +21,6 @@ public class BitcoinZmqSubscriber
 // server's primary cryptographic key, and starting the TCP server.
 // =================================================================================
 // JSON configuration class for boot_portal_config.json
-
-public static class Bech32
-{
-    private static readonly string Charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
-    private static readonly uint[] Generator = { 0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3 };
-
-    public static (string hrp, int version, byte[] program) Decode(string address)
-    {
-        int sepIndex = address.LastIndexOf('1');
-        if (sepIndex < 1) throw new FormatException("Invalid Bech32 address: no separator");
-        string hrp = address.Substring(0, sepIndex).ToLower();
-        if (hrp != "bc" && hrp != "tb") throw new FormatException($"Invalid HRP: {hrp}");
-
-        string dataPart = address.Substring(sepIndex + 1);
-        if (dataPart.Length < 6) throw new FormatException("Bech32 data too short");
-
-        byte[] data = new byte[dataPart.Length];
-        for (int i = 0; i < dataPart.Length; i++)
-        {
-            int index = Charset.IndexOf(dataPart[i]);
-            if (index == -1) throw new FormatException($"Invalid character in Bech32 address: {dataPart[i]}");
-            data[i] = (byte)index;
-        }
-
-        uint checksum = Polymod(ExpandHrp(hrp).Concat(data).ToArray());
-        if (checksum != 1) throw new FormatException("Invalid Bech32 checksum");
-
-        int version = data[0];
-        if (version > 16) throw new FormatException($"Invalid witness version: {version}");
-        byte[] program5bit = data.Skip(1).Take(data.Length - 7).ToArray();
-        byte[] program = ConvertBits(program5bit, 5, 8, false);
-        if (program.Length < 2 || program.Length > 40) throw new FormatException($"Invalid program length: {program.Length}");
-        if (version == 0 && program.Length != 20 && program.Length != 32) throw new FormatException("Invalid program length for version 0");
-
-        return (hrp, version, program);
-    }
-
-    public static string Encode(string hrp, int version, byte[] program)
-    {
-        if (hrp != "bc" && hrp != "tb") throw new ArgumentException($"Invalid HRP: {hrp}");
-        if (version < 0 || version > 16) throw new ArgumentException($"Invalid witness version: {version}");
-        if (program.Length < 2 || program.Length > 40) throw new ArgumentException($"Invalid program length: {program.Length}");
-        if (version == 0 && program.Length != 20 && program.Length != 32) throw new ArgumentException("Invalid program length for version 0");
-
-        // Convert program to 5-bit
-        byte[] data = ConvertBits(program, 8, 5, true);
-        byte[] values = new byte[data.Length + 1];
-        values[0] = (byte)version;
-        Array.Copy(data, 0, values, 1, data.Length);
-
-        // Compute checksum
-        byte[] expandedHrp = ExpandHrp(hrp);
-        byte[] checksum = new byte[6];
-        uint polymod = Polymod(expandedHrp.Concat(values).Concat(new byte[6]).ToArray()) ^ 1;
-        for (int i = 0; i < 6; i++)
-        {
-            checksum[i] = (byte)((polymod >> (5 * (5 - i))) & 31);
-        }
-
-        // Combine HRP, version, data, and checksum
-        var chars = new List<char>(hrp.Length + 1 + values.Length + checksum.Length);
-        chars.AddRange(hrp);
-        chars.Add('1');
-        chars.Add(Charset[version]);
-        foreach (byte b in data)
-        {
-            chars.Add(Charset[b]);
-        }
-        foreach (byte b in checksum)
-        {
-            chars.Add(Charset[b]);
-        }
-
-        return new string(chars.ToArray());
-    }
-
-    private static uint Polymod(byte[] values)
-    {
-        uint chk = 1;
-        foreach (byte v in values)
-        {
-            uint top = chk >> 25;
-            chk = (chk & 0x1ffffff) << 5 ^ v;
-            for (int i = 0; i < 5; i++)
-            {
-                if ((top >> i & 1) != 0)
-                    chk ^= Generator[i];
-            }
-        }
-        return chk;
-    }
-
-    private static byte[] ExpandHrp(string hrp)
-    {
-        byte[] ret = new byte[hrp.Length * 2 + 1];
-        for (int i = 0; i < hrp.Length; i++)
-        {
-            ret[i] = (byte)(hrp[i] >> 5);
-            ret[i + hrp.Length + 1] = (byte)(hrp[i] & 31);
-        }
-        return ret;
-    }
-
-    private static byte[] ConvertBits(byte[] data, int fromBits, int toBits, bool pad)
-    {
-        int acc = 0;
-        int bits = 0;
-        var ret = new List<byte>();
-        int maxv = (1 << toBits) - 1;
-        int max_acc = (1 << (fromBits + toBits - 1)) - 1;
-        foreach (byte value in data)
-        {
-            if (value < 0 || (value >> fromBits) != 0) throw new FormatException("Invalid Bech32 data");
-            acc = ((acc << fromBits) | value) & max_acc;
-            bits += fromBits;
-            while (bits >= toBits)
-            {
-                bits -= toBits;
-                ret.Add((byte)((acc >> bits) & maxv));
-            }
-        }
-        if (pad && bits > 0)
-        {
-            ret.Add((byte)((acc << (toBits - bits)) & maxv));
-        }
-        else if (bits >= fromBits || ((acc << (toBits - bits)) & maxv) != 0)
-        {
-            throw new FormatException("Invalid Bech32 padding");
-        }
-        return ret.ToArray();
-    }
-}
-
-public static class Base58Check
-{
-    private static readonly string Alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-    private static readonly BigInteger AlphabetSize = 58;
-
-    public static byte[] Decode(string address)
-    {
-        BigInteger intData = 0;
-        foreach (char c in address)
-        {
-            int digit = Alphabet.IndexOf(c);
-            if (digit == -1) throw new FormatException($"Invalid character in Base58 address: {c}");
-            intData = intData * AlphabetSize + digit;
-        }
-
-        byte[] data = intData.ToByteArray(isUnsigned: true, isBigEndian: true);
-        int leadingZeros = address.TakeWhile(c => c == '1').Count();
-        byte[] result = new byte[leadingZeros + data.Length];
-        Array.Copy(data, 0, result, leadingZeros, data.Length);
-
-        if (result.Length < 4) throw new FormatException("Invalid Base58Check data length");
-        byte[] payload = result.Take(result.Length - 4).ToArray();
-        byte[] checksum = result.TakeLast(4).ToArray();
-        byte[] hash = DoubleSha256(payload).Take(4).ToArray();
-        if (!hash.SequenceEqual(checksum)) throw new FormatException("Invalid checksum");
-
-        return payload; // version (1) + hash (20)
-    }
-
-    public static string Encode(byte[] payload)
-    {
-        // Calculate checksum: first 4 bytes of double SHA256
-        byte[] checksum = DoubleSha256(payload).Take(4).ToArray();
-        byte[] dataWithChecksum = payload.Concat(checksum).ToArray();
-
-        // Convert to BigInteger
-        BigInteger intData = 0;
-        foreach (byte b in dataWithChecksum)
-        {
-            intData = intData * 256 + b;
-        }
-
-        // Convert to Base58
-        var chars = new List<char>();
-        while (intData > 0)
-        {
-            int remainder = (int)(intData % AlphabetSize);
-            intData /= AlphabetSize;
-            chars.Add(Alphabet[remainder]);
-        }
-
-        // Add leading '1's for each leading zero in payload
-        int leadingZeros = payload.TakeWhile(b => b == 0).Count();
-        for (int i = 0; i < leadingZeros; i++)
-        {
-            chars.Add('1');
-        }
-
-        // Reverse to get correct order
-        chars.Reverse();
-        return new string(chars.ToArray());
-    }
-
-    private static byte[] DoubleSha256(byte[] data)
-    {
-        using var sha256 = SHA256.Create();
-        byte[] hash1 = sha256.ComputeHash(data);
-        return sha256.ComputeHash(hash1);
-    }
-}
 
 public static class CryptoUtils
 {
@@ -398,18 +73,7 @@ public class Program
     private const int DatumPort = 3008;
     private const string ConfigFilePath = "boot_portal_config.json";
     public static ulong BLOCK_REWARD = 312_500_000;  //TODO: Need to detect this from the blockchain, so it gracefully handles the next epoch
-    public static int TEAM_SIZE = 16;
-
-    public static DatumServer server;
-
-    //private PoolConfig? _poolConfig;
-
-    // Utility function to convert bytes to hex string
-    //TODO: This is silly.
-    private static string ToHexString(byte[] bytes)
-    {
-        return Convert.ToHexString(bytes).ToLower();
-    }
+    public static int TeamSize = 16;
 
     public static async Task Main(string[] args)
     {
@@ -533,11 +197,11 @@ public class Program
             Buffer.BlockCopy(x25519PubKeyBytes, 0, combinedPubKey, ed25519PubKeyBytes.Length, x25519PubKeyBytes.Length);
 
             // Convert to hex for client
-            var combinedPubKeyHex = ToHexString(combinedPubKey); // 128 hex characters
+            var combinedPubKeyHex = Convert.ToHexString(combinedPubKey).ToLower(); // 128 hex characters
 
             //Now load or setup the pool config options, like default payout address and coinbase tag
             PoolConfig _poolConfig = LoadPoolConfig(ConfigFilePath);
-            Program.TEAM_SIZE = _poolConfig.WinnersListSize;
+            Program.TeamSize = _poolConfig.WinnersListSize;
 
             Console.WriteLine("\n====================== IMPORTANT ======================");
             Console.WriteLine("Copy this combined public key (Ed25519 + X25519, hex-encoded) into your DATUM Gateway's config.json:");
@@ -549,28 +213,28 @@ public class Program
 
             //UI Server stuff:
             var builder = WebApplication.CreateBuilder(args);
-            // 1. Add services for ASP.NET Core
+
             builder.Services.AddRazorPages(); // For serving simple HTML pages
             builder.Services.AddSignalR();    // For real-time updates
-            // ---- This is key for your server logic ----
-            // Add your ZMQ subscriber and DatumServer as services
-            // This lets them be managed and get access to the SignalR Hub
-            builder.Services.AddSingleton<BitcoinZmqSubscriber>();
-            builder.Services.AddSingleton<DatumServer>(serviceProvider =>
+            
+            // Start your background services
+            builder.Services.AddHostedService<BitcoinZmqSubscriber>();
+            builder.Services.AddHostedService<DatumServer>(serviceProvider =>
             {
+                var logger = serviceProvider.GetRequiredService<ILogger<DatumServer>>();
                 var hubContext = serviceProvider.GetRequiredService<IHubContext<PoolStatsHub>>();
                 // The 'serviceProvider' allows you to get other services if needed,
                 // but here we just use the local variables from Program.cs
 
                 // We pass in all the necessary constructor arguments here:
                 return new DatumServer(
-                    IPAddress.Any, 
-                    DatumPort, 
-                    ed25519Key, 
+                    IPAddress.Any,
+                    DatumPort,
+                    ed25519Key,
                     x25519Key,
                     _poolConfig,
-                    hubContext
-                );
+                    hubContext,
+                    logger);
             });
 
             var app = builder.Build();
@@ -582,56 +246,14 @@ public class Program
 
             // 3. Tell the app where your SignalR Hub lives
             app.MapHub<PoolStatsHub>("/poolStatsHub"); // This is the URL your JS will use
-            app.RunAsync();
-
-            // 4. Start your background services (your server!)
-            // We use the app's lifetime to start/stop your services
-            var zmqSubscriber = app.Services.GetRequiredService<BitcoinZmqSubscriber>();
-            var datumServer = app.Services.GetRequiredService<DatumServer>();
-
-
-            // Start the DATUM server
-            //var zmqSubscriber = new BitcoinZmqSubscriber();
-            //var zmqTask = zmqSubscriber.StartAsync(); // Runs asynchronously
-            //server = new DatumServer(IPAddress.Any, DatumPort, ed25519Key, x25519Key, _poolConfig);
-            //var serverTask = server.StartAsync();
-            Task datumTask = Task.Run(() => datumServer.StartAsync());
-            Task zmqTask   = Task.Run(() => zmqSubscriber.StartAsync());
-
-            Console.WriteLine("Both Datum server and ZMQ listener are running.");
-            //Console.WriteLine("Datum server and ZMQ listener started. Press Ctrl+C to stop.");
-            await Task.WhenAll(datumTask, zmqTask);
+            
+            // Runs and blocks this thread while all other services run
+            // Graceful shutdown is handled by the "AddHostedService" call above
+            await app.RunAsync();
 
             // TODO: Start the Stratum V1 and V2 servers as well, or with .config options just start the chosen servers.
             
             // TODO: Also start the peer to peer node so we can actually connect to the boot-protocol network
-
-            // -----------------------------------------------------------------
-            // 3. Graceful shutdown on Ctrl+C
-            // -----------------------------------------------------------------
-            /*var cts = new CancellationTokenSource();
-            Console.CancelKeyPress += (_, e) =>
-            {
-                e.Cancel = true;                 // don’t kill the process immediately
-                Console.WriteLine("\nShutting down…");
-                cts.Cancel();
-            };
-
-            // If your services expose a Stop() method, call it here:
-            server.Stop();   zmqSubscriber.Stop();
-
-            // -----------------------------------------------------------------
-            // 4. Wait for either service to exit (or cancellation)
-            // -----------------------------------------------------------------
-            Task completedTask = await Task.WhenAny(datumTask, zmqTask);
-
-            // If Ctrl+C was pressed, cancel the other one
-            if (cts.IsCancellationRequested)
-            {
-                // give them a moment to clean up
-                await Task.WhenAll(datumTask, zmqTask).ContinueWith(_ => { }, TaskContinuationOptions.OnlyOnFaulted);
-            }
-            */
 
             Console.WriteLine("All services stopped.");
         }, ed25519PrivateKeyOption, x25519PrivateKeyOption);
@@ -669,78 +291,6 @@ public class Program
 // This class opens a TCP socket and listens for incoming connections. When a new
 // client connects, it spins up a dedicated 'ClientHandler' to manage it.
 // =================================================================================
-public class DatumServer
-{
-    private readonly TcpListener _listener;
-
-    // TODO: I should at least standardize the naming convention of these keys. Can they just be made readable to the client handler threads?
-    private readonly Key _serverKey; // The server's long-term Ed25519 key.
-    private readonly Key _serverXKey; //The server's long-term x25519 key.
-
-    private PoolConfig _poolConfig;
-
-    public static List<PayoutInfo> WinnersList { get; set; } = new();
-    public static List<PayoutInfo> OnDeckList { get; set; } = new();
-
-    public static IHubContext<PoolStatsHub> _hubContext;
-
-    // Constructor to receive the Hub Context
-
-    public DatumServer(IPAddress address, int port, Key serverKey, Key serverXKey, PoolConfig poolConfig, IHubContext<PoolStatsHub> hubContext)
-    {
-        _listener = new TcpListener(address, port);
-        _serverKey = serverKey;
-        _serverXKey = serverXKey;
-        _poolConfig = poolConfig;
-        _hubContext = hubContext;
-    }
-
-    public void Stop()
-    {
-        //_subscriber?.Dispose();
-        
-    }
-
-    public async Task StartAsync()
-    {
-        _listener.Start();
-        Console.WriteLine($"🚀 DATUM Prime Server started on port {_listener.LocalEndpoint}. Waiting for connections...");
-        if (false)
-        {
-            //TODO: If we can connect to a seed server, then get current Winners List data from them
-        }
-        else
-        {
-            //Otherwise, just load the _pool_config default solo address to start the WL with something
-            //TODO: This Value *should* get overwritten right away, but I'm not sure in all cases.  Hardcoded current subsidy for now.
-            // "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y"
-            WinnersList.Add(new PayoutInfo
-            {
-                Value = Program.BLOCK_REWARD / 2,
-                Address = _poolConfig.PoolPayoutScript
-            });
-        }
-        PayoutInfo dummyShare = new PayoutInfo();
-        dummyShare.Address = _poolConfig.PoolPayoutScript;
-        dummyShare.Difficulty = 0;  //Just initializing the first "share" at 0 diff, so the other comparison logic works.
-        DatumServer.OnDeckList.Add(dummyShare);  //insert the new share into the next winners list
-        
-
-        while (true)
-        {
-            // Asynchronously wait for a client to connect.
-            TcpClient client = await _listener.AcceptTcpClientAsync();
-            Console.WriteLine($"\n🔗 Client connected from {client.Client.RemoteEndPoint}.");
-            
-            // Create a handler for the new client.
-            var clientHandler = new ClientHandler(client, _serverKey, _serverXKey, _poolConfig);
-
-            // Run the client handler on a background thread so the server
-            // can immediately go back to listening for more connections.
-            _ = Task.Run(clientHandler.HandleClientAsync);
-        }
-    }
-}
 
 
 // =================================================================================
@@ -1517,7 +1067,7 @@ public class ClientHandler
         //Console.WriteLine($"📦 Share response payload: {BitConverter.ToString(responsePayload)}");
         //byte[] testPayload = new byte[] { 0x8F, 0x50, 0x00, 0x00, 0x32, 0x04, 0xCA, 0xC7, 0x0E, 0x02 };
         await SendEncryptedMessageAsync(0x05, responsePayload, isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false);
-        await DatumServer._hubContext.Clients.All.SendAsync("UpdateOnDeck", DatumServer.OnDeckList);
+        await DatumServer.HubContext.Clients.All.SendAsync("UpdateOnDeck", DatumServer.OnDeckList);
         //Console.WriteLine($"[SEND] Share Response [{(isHeaderValid && isValidCoinbase ? "ACCEPTED" : "REJECTED")}] (0x05, 0x{shareResponse.Status:X2})");
     }
     
