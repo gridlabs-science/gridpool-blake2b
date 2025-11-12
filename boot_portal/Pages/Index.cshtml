@@ -1,0 +1,99 @@
+@page
+<h1>Boot Protocol</h1>
+
+<div id="main-content">
+    <section>
+        <h2>Current Winners List</h2>
+        <div class="payout-note">
+            <strong>Finder's Reward (Index 0):</strong> 
+            [Miner's Own Address] + [TX Fees]
+        </div>
+        <table id="winners-list">
+            <thead>
+                <tr><th>Address</th><th>Value (BTC)</th><th>Difficulty</th></tr>
+            </thead>
+            <tbody>
+                </tbody>
+        </table>
+    </section>
+
+    <section>
+        <h2>On-Deck List</h2>
+        <table id="ondeck-list">
+            <thead>
+                <tr><th>Address</th><th>Value (BTC)</th><th>Difficulty</th></tr>
+            </thead>
+            <tbody>
+                </tbody>
+        </table>
+    </section>
+
+    <section class="static-info">
+        <h2>How to Join</h2>
+        <p>Use your DATUM client and point to the following:</p>
+        <pre>
+Server IP: 123.45.67.89
+Public Key (hex): 0621c032e583e1b3944b2217ced6d5ba0dab988199262b6eb086cced1db12b624053eb0e2587f6c8b0ed175e9fdbf9ea2faab8760885a88af92a995650f31c07
+        </pre>
+    </section>
+
+    <section class="static-info">
+        <h2>Records</h2>
+        <p>Highest Share Difficulty: 1,234,567.89</p>
+    </S>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+
+<script>
+    // Create the connection to your hub
+    const connection = new signalR.HubConnectionBuilder()
+        .withUrl("/poolStatsHub") // Must match MapHub() in C#
+        .withAutomaticReconnect()
+        .build();
+
+    // --- Helper function to update a table ---
+    function updateTable(tableId, list) {
+        const tableBody = document.querySelector(`#${tableId} tbody`);
+        tableBody.innerHTML = ''; // Clear the old data
+
+        if (!list) return;
+
+        list.forEach(payout => {
+            const btcValue = payout.value / 100000000.0;
+            const row = `<tr>
+                            <td>${payout.address}</td>
+                            <td>${btcValue.toFixed(8)}</td>
+                            <td>${payout.diffString}</td>
+                       </tr>`;
+            tableBody.innerHTML += row;
+        });
+    }
+
+    // --- Listen for "UpdateWinners" message from server ---
+    connection.on("UpdateWinners", (winnersList) => {
+        console.log("Got new WinnersList!", winnersList);
+        updateTable("winners-list", winnersList);
+    });
+
+    // --- Listen for "UpdateOnDeck" message from server ---
+    connection.on("UpdateOnDeck", (onDeckList) => {
+        console.log("Got new OnDeckList!", onDeckList);
+        updateTable("ondeck-list", onDeckList);
+    });
+
+    // --- Start the connection ---
+    async function start() {
+        try {
+            await connection.start();
+            console.log("SignalR Connected.");
+            // Ask for the initial data just after connecting
+            await connection.invoke("GetInitialData"); 
+        } catch (err) {
+            console.error(err);
+            setTimeout(start, 5000); // Retry in 5 seconds
+        }
+    };
+
+    start();
+</script>

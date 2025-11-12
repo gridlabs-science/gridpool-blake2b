@@ -2,6 +2,7 @@
 
 using System.Buffers.Binary;
 using System.CommandLine;
+using System.Formats.Asn1;
 using System.Net;
 using System.Net.Sockets;
 using System.Numerics;
@@ -11,6 +12,128 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using LibSodium;
 using NSec.Cryptography;
+
+using NetMQ;
+using NetMQ.Sockets;
+using System;
+using System.Text;
+using System.Threading.Tasks;
+using System.Reflection.Metadata;
+
+//stuff for the UI server
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.AspNetCore.SignalR;
+using System.Threading.Tasks;
+
+// Define your SignalR Hub
+// This class is the "channel" your webpage will listen to.
+public class PoolStatsHub : Hub
+{
+    // Clients can call this to get the current state when they load
+    public async Task GetInitialData()
+    {
+        // Send the current data *only to the caller*
+        await Clients.Caller.SendAsync("UpdateWinners", DatumServer.WinnersList);
+        await Clients.Caller.SendAsync("UpdateOnDeck", DatumServer.OnDeckList);
+    }
+}
+
+public class BitcoinZmqSubscriber
+{
+    private SubscriberSocket? _subscriber;
+    private readonly string _zmqEndpoint = "tcp://127.0.0.1:28332"; // From bitcoin.conf
+    private readonly string _topic = "hashblock"; // Subscribe to block hashes
+    private readonly IHubContext<PoolStatsHub> _hubContext;
+
+    // Constructor to receive the Hub Context
+    public BitcoinZmqSubscriber(IHubContext<PoolStatsHub> hubContext)
+    {
+        _hubContext = hubContext;
+        // ... other init ...
+    }
+
+    public async Task StartAsync()
+    {
+        _subscriber = new SubscriberSocket();
+        _subscriber.Connect(_zmqEndpoint);
+        _subscriber.Subscribe(_topic); // Subscribe to the topic
+
+        Console.WriteLine($"Subscribed to ZMQ at {_zmqEndpoint} for topic '{_topic}'");
+
+        while (true)
+        {
+            // Receive message (blocks until data arrives)
+            var topic = _subscriber.ReceiveFrameString(); // e.g., "hashblock"
+            var blockHash = _subscriber.ReceiveFrameBytes(); // 32-byte hash
+            var sequenceBytes = _subscriber.ReceiveFrameBytes();
+
+            if (topic == _topic && blockHash.Length == 32)
+            {
+                var hashHex = BitConverter.ToString(blockHash).Replace("-", "").ToLower();
+                Console.WriteLine($"New block detected: {hashHex}");
+                // Trigger your server logic (e.g., update job templates, notify miners)
+                await OnNewBlockAsync(hashHex);
+            }
+            else
+            {
+                Console.WriteLine($"Unexpected message: Topic={topic}, Length={blockHash.Length}");
+            }
+        }
+    }
+
+    private async Task OnNewBlockAsync(string blockHash)
+    {
+        // Your custom logic: e.g., fetch block details via RPC, update jobs
+        Console.WriteLine($"Processing block {blockHash}...");
+        // 1. Create the NEW list in a local variable.
+        //    Reader threads CANNOT see this variable.
+        //    They are all still happily reading the OLD static WinnersList.
+        var newWinnersList = new List<PayoutInfo>();
+
+        // 2. FULLY populate this new, private list.
+        var reward = Program.BLOCK_REWARD / ((ulong)DatumServer.OnDeckList.Count + 1);
+        foreach (var onDeckMiner in DatumServer.OnDeckList)
+        {
+            newWinnersList.Add(new PayoutInfo
+            {
+                Value = reward,
+                Address = onDeckMiner.Address,
+                Difficulty = onDeckMiner.Difficulty,
+                DiffString = onDeckMiner.DiffString
+            });
+            var lastAdded = newWinnersList.Last();
+            Console.WriteLine(lastAdded.Value.ToString(), lastAdded.Address);
+            onDeckMiner.Difficulty = 0;
+        }
+
+        // 3. The "Swap". This is a single, instantaneous, atomic operation.
+        //    All requests *after* this line will see the new list.
+        //    All requests *before* this line saw the old list.
+        //    No locks. No waiting.
+        DatumServer.WinnersList = newWinnersList;
+
+        // 4. Reset the OnDeckList for the next round.
+        //DatumServer.OnDeckList = new List<PayoutInfo>();
+
+
+        //Console.WriteLine($"{i}\t{DatumServer.WinnersList[i].Value}\t{DatumServer.WinnersList[i].Address}");
+        //DatumServer.OnDeckList[i].Difficulty = 0;
+        //Console.WriteLine($"{i}\t{DatumServer.OnDeckList[i].Difficulty}\t{DatumServer.OnDeckList[i].Address}");
+
+        await _hubContext.Clients.All.SendAsync("UpdateWinners", DatumServer.WinnersList);
+        await _hubContext.Clients.All.SendAsync("UpdateOnDeck", DatumServer.OnDeckList);
+        Console.WriteLine("Broadcasted new lists to web UI.");
+    }
+
+    public void Stop()
+    {
+        _subscriber?.Dispose();
+    }
+}
 
 
 // =================================================================================
@@ -28,7 +151,6 @@ public static class Bech32
 
     public static (string hrp, int version, byte[] program) Decode(string address)
     {
-        // Split HRP and data
         int sepIndex = address.LastIndexOf('1');
         if (sepIndex < 1) throw new FormatException("Invalid Bech32 address: no separator");
         string hrp = address.Substring(0, sepIndex).ToLower();
@@ -37,7 +159,6 @@ public static class Bech32
         string dataPart = address.Substring(sepIndex + 1);
         if (dataPart.Length < 6) throw new FormatException("Bech32 data too short");
 
-        // Decode data
         byte[] data = new byte[dataPart.Length];
         for (int i = 0; i < dataPart.Length; i++)
         {
@@ -46,19 +167,56 @@ public static class Bech32
             data[i] = (byte)index;
         }
 
-        // Verify checksum
         uint checksum = Polymod(ExpandHrp(hrp).Concat(data).ToArray());
         if (checksum != 1) throw new FormatException("Invalid Bech32 checksum");
 
-        // Extract version and program
         int version = data[0];
         if (version > 16) throw new FormatException($"Invalid witness version: {version}");
-        byte[] program5bit = data.Skip(1).Take(data.Length - 7).ToArray(); // Skip version, exclude checksum
+        byte[] program5bit = data.Skip(1).Take(data.Length - 7).ToArray();
         byte[] program = ConvertBits(program5bit, 5, 8, false);
         if (program.Length < 2 || program.Length > 40) throw new FormatException($"Invalid program length: {program.Length}");
         if (version == 0 && program.Length != 20 && program.Length != 32) throw new FormatException("Invalid program length for version 0");
 
         return (hrp, version, program);
+    }
+
+    public static string Encode(string hrp, int version, byte[] program)
+    {
+        if (hrp != "bc" && hrp != "tb") throw new ArgumentException($"Invalid HRP: {hrp}");
+        if (version < 0 || version > 16) throw new ArgumentException($"Invalid witness version: {version}");
+        if (program.Length < 2 || program.Length > 40) throw new ArgumentException($"Invalid program length: {program.Length}");
+        if (version == 0 && program.Length != 20 && program.Length != 32) throw new ArgumentException("Invalid program length for version 0");
+
+        // Convert program to 5-bit
+        byte[] data = ConvertBits(program, 8, 5, true);
+        byte[] values = new byte[data.Length + 1];
+        values[0] = (byte)version;
+        Array.Copy(data, 0, values, 1, data.Length);
+
+        // Compute checksum
+        byte[] expandedHrp = ExpandHrp(hrp);
+        byte[] checksum = new byte[6];
+        uint polymod = Polymod(expandedHrp.Concat(values).Concat(new byte[6]).ToArray()) ^ 1;
+        for (int i = 0; i < 6; i++)
+        {
+            checksum[i] = (byte)((polymod >> (5 * (5 - i))) & 31);
+        }
+
+        // Combine HRP, version, data, and checksum
+        var chars = new List<char>(hrp.Length + 1 + values.Length + checksum.Length);
+        chars.AddRange(hrp);
+        chars.Add('1');
+        chars.Add(Charset[version]);
+        foreach (byte b in data)
+        {
+            chars.Add(Charset[b]);
+        }
+        foreach (byte b in checksum)
+        {
+            chars.Add(Charset[b]);
+        }
+
+        return new string(chars.ToArray());
     }
 
     private static uint Polymod(byte[] values)
@@ -134,12 +292,10 @@ public static class Base58Check
         }
 
         byte[] data = intData.ToByteArray(isUnsigned: true, isBigEndian: true);
-        // Handle leading zeros
         int leadingZeros = address.TakeWhile(c => c == '1').Count();
         byte[] result = new byte[leadingZeros + data.Length];
         Array.Copy(data, 0, result, leadingZeros, data.Length);
 
-        // Verify checksum
         if (result.Length < 4) throw new FormatException("Invalid Base58Check data length");
         byte[] payload = result.Take(result.Length - 4).ToArray();
         byte[] checksum = result.TakeLast(4).ToArray();
@@ -147,6 +303,40 @@ public static class Base58Check
         if (!hash.SequenceEqual(checksum)) throw new FormatException("Invalid checksum");
 
         return payload; // version (1) + hash (20)
+    }
+
+    public static string Encode(byte[] payload)
+    {
+        // Calculate checksum: first 4 bytes of double SHA256
+        byte[] checksum = DoubleSha256(payload).Take(4).ToArray();
+        byte[] dataWithChecksum = payload.Concat(checksum).ToArray();
+
+        // Convert to BigInteger
+        BigInteger intData = 0;
+        foreach (byte b in dataWithChecksum)
+        {
+            intData = intData * 256 + b;
+        }
+
+        // Convert to Base58
+        var chars = new List<char>();
+        while (intData > 0)
+        {
+            int remainder = (int)(intData % AlphabetSize);
+            intData /= AlphabetSize;
+            chars.Add(Alphabet[remainder]);
+        }
+
+        // Add leading '1's for each leading zero in payload
+        int leadingZeros = payload.TakeWhile(b => b == 0).Count();
+        for (int i = 0; i < leadingZeros; i++)
+        {
+            chars.Add('1');
+        }
+
+        // Reverse to get correct order
+        chars.Reverse();
+        return new string(chars.ToArray());
     }
 
     private static byte[] DoubleSha256(byte[] data)
@@ -177,6 +367,9 @@ public class PoolConfig
     [JsonPropertyName("pool_payout_script")]
     public string PoolPayoutScript { get; set; } = "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y"; //TODO: hard coded default address? 
 
+    [JsonPropertyName("winners_list_size")]
+    public int WinnersListSize { get; set; } = 3;
+
     [JsonPropertyName("coinbase_tag")]
     public string CoinbaseTag { get; set; } = "Boot protocol";
 
@@ -204,6 +397,10 @@ public class Program
     // TODO: I should optionally load this from config, instead of hard-coded like this.
     private const int DatumPort = 3008;
     private const string ConfigFilePath = "boot_portal_config.json";
+    public static ulong BLOCK_REWARD = 312_500_000;  //TODO: Need to detect this from the blockchain, so it gracefully handles the next epoch
+    public static int TEAM_SIZE = 16;
+
+    public static DatumServer server;
 
     //private PoolConfig? _poolConfig;
 
@@ -340,6 +537,7 @@ public class Program
 
             //Now load or setup the pool config options, like default payout address and coinbase tag
             PoolConfig _poolConfig = LoadPoolConfig(ConfigFilePath);
+            Program.TEAM_SIZE = _poolConfig.WinnersListSize;
 
             Console.WriteLine("\n====================== IMPORTANT ======================");
             Console.WriteLine("Copy this combined public key (Ed25519 + X25519, hex-encoded) into your DATUM Gateway's config.json:");
@@ -349,13 +547,93 @@ public class Program
             Console.WriteLine($"🔒 X25519 Private Key (Base64): {Convert.ToBase64String(x25519PrivKeyBytes)}"); //x25519Key.Export(KeyBlobFormat.RawPrivateKey); // 32 bytes
             Console.WriteLine("=======================================================\n");
 
+            //UI Server stuff:
+            var builder = WebApplication.CreateBuilder(args);
+            // 1. Add services for ASP.NET Core
+            builder.Services.AddRazorPages(); // For serving simple HTML pages
+            builder.Services.AddSignalR();    // For real-time updates
+            // ---- This is key for your server logic ----
+            // Add your ZMQ subscriber and DatumServer as services
+            // This lets them be managed and get access to the SignalR Hub
+            builder.Services.AddSingleton<BitcoinZmqSubscriber>();
+            builder.Services.AddSingleton<DatumServer>(serviceProvider =>
+            {
+                var hubContext = serviceProvider.GetRequiredService<IHubContext<PoolStatsHub>>();
+                // The 'serviceProvider' allows you to get other services if needed,
+                // but here we just use the local variables from Program.cs
+
+                // We pass in all the necessary constructor arguments here:
+                return new DatumServer(
+                    IPAddress.Any, 
+                    DatumPort, 
+                    ed25519Key, 
+                    x25519Key,
+                    _poolConfig,
+                    hubContext
+                );
+            });
+
+            var app = builder.Build();
+
+            // 2. Configure the web app
+            app.UseStaticFiles(); // Serve static files like CSS, JS, images
+            app.UseRouting();
+            app.MapRazorPages(); // Use a simple page system
+
+            // 3. Tell the app where your SignalR Hub lives
+            app.MapHub<PoolStatsHub>("/poolStatsHub"); // This is the URL your JS will use
+            app.RunAsync();
+
+            // 4. Start your background services (your server!)
+            // We use the app's lifetime to start/stop your services
+            var zmqSubscriber = app.Services.GetRequiredService<BitcoinZmqSubscriber>();
+            var datumServer = app.Services.GetRequiredService<DatumServer>();
+
+
             // Start the DATUM server
-            var server = new DatumServer(IPAddress.Any, DatumPort, ed25519Key, x25519Key, _poolConfig);
-            await server.StartAsync();
+            //var zmqSubscriber = new BitcoinZmqSubscriber();
+            //var zmqTask = zmqSubscriber.StartAsync(); // Runs asynchronously
+            //server = new DatumServer(IPAddress.Any, DatumPort, ed25519Key, x25519Key, _poolConfig);
+            //var serverTask = server.StartAsync();
+            Task datumTask = Task.Run(() => datumServer.StartAsync());
+            Task zmqTask   = Task.Run(() => zmqSubscriber.StartAsync());
+
+            Console.WriteLine("Both Datum server and ZMQ listener are running.");
+            //Console.WriteLine("Datum server and ZMQ listener started. Press Ctrl+C to stop.");
+            await Task.WhenAll(datumTask, zmqTask);
 
             // TODO: Start the Stratum V1 and V2 servers as well, or with .config options just start the chosen servers.
             
             // TODO: Also start the peer to peer node so we can actually connect to the boot-protocol network
+
+            // -----------------------------------------------------------------
+            // 3. Graceful shutdown on Ctrl+C
+            // -----------------------------------------------------------------
+            /*var cts = new CancellationTokenSource();
+            Console.CancelKeyPress += (_, e) =>
+            {
+                e.Cancel = true;                 // don’t kill the process immediately
+                Console.WriteLine("\nShutting down…");
+                cts.Cancel();
+            };
+
+            // If your services expose a Stop() method, call it here:
+            server.Stop();   zmqSubscriber.Stop();
+
+            // -----------------------------------------------------------------
+            // 4. Wait for either service to exit (or cancellation)
+            // -----------------------------------------------------------------
+            Task completedTask = await Task.WhenAny(datumTask, zmqTask);
+
+            // If Ctrl+C was pressed, cancel the other one
+            if (cts.IsCancellationRequested)
+            {
+                // give them a moment to clean up
+                await Task.WhenAll(datumTask, zmqTask).ContinueWith(_ => { }, TaskContinuationOptions.OnlyOnFaulted);
+            }
+            */
+
+            Console.WriteLine("All services stopped.");
         }, ed25519PrivateKeyOption, x25519PrivateKeyOption);
 
         await rootCommand.InvokeAsync(args);
@@ -401,18 +679,52 @@ public class DatumServer
 
     private PoolConfig _poolConfig;
 
-    public DatumServer(IPAddress address, int port, Key serverKey, Key serverXKey, PoolConfig poolConfig)
+    public static List<PayoutInfo> WinnersList { get; set; } = new();
+    public static List<PayoutInfo> OnDeckList { get; set; } = new();
+
+    public static IHubContext<PoolStatsHub> _hubContext;
+
+    // Constructor to receive the Hub Context
+
+    public DatumServer(IPAddress address, int port, Key serverKey, Key serverXKey, PoolConfig poolConfig, IHubContext<PoolStatsHub> hubContext)
     {
         _listener = new TcpListener(address, port);
         _serverKey = serverKey;
         _serverXKey = serverXKey;
         _poolConfig = poolConfig;
+        _hubContext = hubContext;
+    }
+
+    public void Stop()
+    {
+        //_subscriber?.Dispose();
+        
     }
 
     public async Task StartAsync()
     {
         _listener.Start();
         Console.WriteLine($"🚀 DATUM Prime Server started on port {_listener.LocalEndpoint}. Waiting for connections...");
+        if (false)
+        {
+            //TODO: If we can connect to a seed server, then get current Winners List data from them
+        }
+        else
+        {
+            //Otherwise, just load the _pool_config default solo address to start the WL with something
+            //TODO: This Value *should* get overwritten right away, but I'm not sure in all cases.  Hardcoded current subsidy for now.
+            // "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y"
+            WinnersList.Add(new PayoutInfo
+            {
+                Value = Program.BLOCK_REWARD / 2,
+                Address = _poolConfig.PoolPayoutScript
+            });
+        }
+        PayoutInfo dummyShare = new PayoutInfo();
+        dummyShare.Address = _poolConfig.PoolPayoutScript;
+        dummyShare.Difficulty = 0;  //Just initializing the first "share" at 0 diff, so the other comparison logic works.
+        DatumServer.OnDeckList.Add(dummyShare);  //insert the new share into the next winners list
+        
 
         while (true)
         {
@@ -459,6 +771,10 @@ public class ClientHandler
     private UInt32 _receivingHeaderKey;
     private HelloMessage? _helloMessage;
     private PoolConfig _poolConfig;
+    private static readonly PowSubmitMessage?[] JobCache = new PowSubmitMessage?[8];
+    private static double BestDiff = 0; 
+    private static string BestDiffAddress = null;
+
 
     public ClientHandler(TcpClient client, Key serverLongTermKey, Key serverLongTermXKey, PoolConfig poolConfig)
     {
@@ -496,12 +812,12 @@ public class ClientHandler
                 headerValue ^= _receivingHeaderKey; // XOR as 32-bit integer
                 var deXoredHeaderBytes = BitConverter.GetBytes(headerValue); // Convert back to bytes
                 _receivingHeaderKey = DatumHeaderXorFeedback(_receivingHeaderKey);
-                Console.WriteLine($"📥 De-XORed header bytes: {BitConverter.ToString(deXoredHeaderBytes)}");
+                //Console.WriteLine($"📥 De-XORed header bytes: {BitConverter.ToString(deXoredHeaderBytes)}");
 
 
                 // Step 1.3: Parse header
                 var header = DatumHeader.FromBytes(deXoredHeaderBytes);
-                Console.WriteLine($"📋 Parsed header: Cmd={header.ProtoCmd}, Len={header.CmdLen}, Signed={header.IsSigned}, EncryptedPubKey={header.IsEncryptedPubKey}, EncryptedChannel={header.IsEncryptedChannel}");
+                //Console.WriteLine($"📋 Parsed header: Cmd={header.ProtoCmd}, Len={header.CmdLen}, Signed={header.IsSigned}, EncryptedPubKey={header.IsEncryptedPubKey}, EncryptedChannel={header.IsEncryptedChannel}");
 
                 // Step 2: Read in the message body
                 var bodyBuffer = new byte[header.CmdLen];
@@ -538,7 +854,7 @@ public class ClientHandler
                 //Console.WriteLine($"🔓 Decrypted body ({decryptedBody.Length} bytes)");
                 
                 // Step 4: Parse the message appropriately.  Responses are generated in the appropriate "Handle" function.
-                Console.WriteLine($"[RECV] Command: 0x{header.ProtoCmd:X2}, Length: {header.CmdLen} bytes");
+                //Console.WriteLine($"[RECV] Command: 0x{header.ProtoCmd:X2}, Length: {header.CmdLen} bytes");
                 switch (header.ProtoCmd)
                 {
                     case 0x01: await HandleHelloAsync(header, decryptedBody); break;
@@ -681,7 +997,7 @@ public class ClientHandler
     /// Handles the initial 0x01 handshake message from the client.
     private async Task HandleHelloAsync(DatumHeader header, byte[] decryptedBody)
     {
-        Console.WriteLine("   -> Received HELLO (0x01). Processing...");
+        //Console.WriteLine("   -> Received HELLO (0x01). Processing...");
         var bytesConsumed = 0;
         (_helloMessage, bytesConsumed) = HelloMessage.FromBytes(decryptedBody);
         if (_helloMessage == null || bytesConsumed < 0)
@@ -732,12 +1048,12 @@ public class ClientHandler
         else return;
         _sendingHeaderKey = DatumHeaderXorFeedback(~nk);        //Increment the header key for sending and recieving future message headers
         _receivingHeaderKey = DatumHeaderXorFeedback(nk);
-        Console.WriteLine($"🔑 Updated XOR keys: Sending=0x{_sendingHeaderKey:X8}, Receiving=0x{_receivingHeaderKey:X8}");   
+        //Console.WriteLine($"🔑 Updated XOR keys: Sending=0x{_sendingHeaderKey:X8}, Receiving=0x{_receivingHeaderKey:X8}");   
         if (nk == 0) throw new InvalidOperationException("Failed to extract XOR key");
         _sessionNonceSender = InitializeNonce(nk, _helloMessage.ClientSessionSigningPubKey);          // Initialize nonce     
         _sessionNonceReceiver = InitializeReceiverNonce(_sessionNonceSender);
-        Console.WriteLine($"🔑 Initial Session nonce sender: {Convert.ToBase64String(_sessionNonceSender)}");
-        Console.WriteLine($"🔑 Initial Session nonce receiver: {Convert.ToBase64String(_sessionNonceReceiver)}");
+        //Console.WriteLine($"🔑 Initial Session nonce sender: {Convert.ToBase64String(_sessionNonceSender)}");
+        //Console.WriteLine($"🔑 Initial Session nonce receiver: {Convert.ToBase64String(_sessionNonceReceiver)}");
 
         // Send response
         var responsePayload = new HandshakeResponseMessage { /* ... payload initialization ... */ };
@@ -758,7 +1074,7 @@ public class ClientHandler
         var signedPayload = responsePayloadBytes.Concat(signature).ToArray();
         //Console.WriteLine($"📦 Signed payload (corrected): {BitConverter.ToString(signedPayload)}");
         await SendEncryptedMessageAsync(0x02, signedPayload, true, false, true);
-        Console.WriteLine($"[SEND] Handshake Response (0x02), length " + signedPayload.Length);
+        //Console.WriteLine($"[SEND] Handshake Response (0x02), length " + signedPayload.Length);
         await SendClientConfigureAsync(_poolConfig);          // Send 0x99 client configure message
     }
 
@@ -827,7 +1143,7 @@ public class ClientHandler
     {
         byte subCmd = decryptedBody[0];
         byte[] subCmdPayload = decryptedBody.Skip(1).ToArray();
-        Console.WriteLine($"[RECV] Mining Command (0x05), Sub-Command: 0x{subCmd:X2}");
+        //Console.WriteLine($"[RECV] Mining Command (0x05), Sub-Command: 0x{subCmd:X2}");
         switch (subCmd)
         {
             case 0x10: await HandleCoinbaserFetchAsync(subCmdPayload); break;
@@ -839,13 +1155,30 @@ public class ClientHandler
     private async Task HandleCoinbaserFetchAsync(byte[] payload)
     {
         var fetchRequest = CoinbaserFetchMessage.FromBytes(payload);
-        Console.WriteLine($"   -> Coinbase Fetch request with total reward: {fetchRequest.RewardValue / 100_000_000.0} BTC");
+        //Console.WriteLine($"   -> Coinbase Fetch request with total reward: {fetchRequest.RewardValue / 100_000_000.0} BTC");
         var fetchResponse = new CoinbaserFetchResponseMessage();
-        fetchResponse.Payouts.Add(new PayoutInfo
+        fetchResponse.Payouts = DatumServer.WinnersList;
+        ulong mySats = fetchRequest.RewardValue - (DatumServer.WinnersList.Last().Value * (ulong)DatumServer.WinnersList.Count);
+        //Console.WriteLine($"mySats {mySats}, team {DatumServer.WinnersList.Last().Value} * {DatumServer.WinnersList.Count}");
+        ulong total = mySats + DatumServer.WinnersList.Last().Value * (ulong)DatumServer.WinnersList.Count;
+        //Console.WriteLine($"total = {total}");
+        //Console.WriteLine($"Reward= {fetchRequest.RewardValue}");
+        if (total > fetchRequest.RewardValue) Console.WriteLine("Reward too big!!!");
+        
+        var myPayout = new PayoutInfo
+        {
+            Value = mySats,
+            Address = _poolConfig.PoolPayoutScript
+        };
+        fetchResponse.Payouts = new List<PayoutInfo>(DatumServer.WinnersList);  //Insert my own "pools" payout address into the first slot.
+        fetchResponse.Payouts.Insert(0, myPayout);
+        
+        /*fetchResponse.Payouts.Add(new PayoutInfo
         {
             Value = fetchRequest.RewardValue,
             Address = "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y"
         });
+        */
 
         using var stream = new MemoryStream();
         using var writer = new BinaryWriter(stream);
@@ -856,27 +1189,553 @@ public class ClientHandler
         writer.Write(payoutBytes);
         var responsePayload = stream.ToArray();
 
-        Console.WriteLine($"📦 Coinbase fetch response payload: {BitConverter.ToString(responsePayload)}");
+        //Console.WriteLine($"📦 Coinbase fetch response payload: {BitConverter.ToString(responsePayload)}");
         await SendEncryptedMessageAsync(0x05, responsePayload, isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false);
-        Console.WriteLine($"[SEND] Coinbaser Fetch Response (0x05, 0x11)");
+        //Console.WriteLine($"[SEND] Coinbaser Fetch Response (0x05, 0x11)");
     }
 
     private async Task HandlePowSubmitAsync(byte[] payload)
     {
+        //Console.WriteLine("-----------------------------------------------------------");
         var powSubmit = PowSubmitMessage.FromBytes(payload);
-        Console.WriteLine($"   -> ✅ Received Proof of Work submission with difficulty: {powSubmit.Difficulty}");
+        //if (powSubmit.JobId == null) return;    
+        if (powSubmit.PrevBlockHash == null)  //This is just a nonce update, does not include complete header info
+        {
+            //JobCache[powSubmit.JobId].Update(powSubmit);  //There's already job data stored here, so just update the new data
+            //Console.WriteLine("No new merkle data, using stored");
+            JobCache[powSubmit.JobId].CoinbaseId = powSubmit.CoinbaseId;  
+            JobCache[powSubmit.JobId].IsBlock = powSubmit.IsBlock;
+            JobCache[powSubmit.JobId].SubsidyOnly = powSubmit.SubsidyOnly;
+            JobCache[powSubmit.JobId].QuickDiff = powSubmit.QuickDiff;
+            JobCache[powSubmit.JobId].TargetByte = powSubmit.TargetByte;
+            JobCache[powSubmit.JobId].NTime = powSubmit.NTime;
+            JobCache[powSubmit.JobId].Nonce = powSubmit.Nonce;
+            JobCache[powSubmit.JobId].Version = powSubmit.Version;
+            JobCache[powSubmit.JobId].ExtranonceSize = powSubmit.ExtranonceSize;  //Always 12, but whatever
+            JobCache[powSubmit.JobId].Extranonce = powSubmit.Extranonce;
+            JobCache[powSubmit.JobId].Username = powSubmit.Username;
+            //Now check if we got new coinbase data with this share:
+            if (powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb1 != null)  // Got a new coinbase with this one
+            {
+                Console.WriteLine("New coinbase data");
+                JobCache[powSubmit.JobId].CoinbasePairs[powSubmit.CoinbaseId] = powSubmit.CoinbasePairs[powSubmit.CoinbaseId];
+            }
+            powSubmit = JobCache[powSubmit.JobId];  //Copies back over the Merkle Branch info.
+        }
+        else JobCache[powSubmit.JobId] = powSubmit;  //New job, with complete header info.  
+        //TODO: Technically, there is the very edge case that a miner could reuse old coinbase info with a new job and merkle branches.  This case isn't handled right now.
+        // Now compute the latest Merkle Root.  We have to do this for every share submission, since the extranonce changes every time.
+        byte[] Coinb1 = powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb1;
+        byte[] Coinb2 = powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb2;
+        byte[] coinbaseTx = Coinb1.Concat(powSubmit.Extranonce).Concat(Coinb2).ToArray();
+        //Console.WriteLine($"Coinb1: {BitConverter.ToString(Coinb1).Replace("-", "")}");
+        //Console.WriteLine($"Extranonce: {BitConverter.ToString(powSubmit.Extranonce).Replace("-", "")}");
+        //Console.WriteLine($"Coinb2: {BitConverter.ToString(Coinb2).Replace("-", "")}");
+        //Console.WriteLine($"coinbaseTx(1): {BitConverter.ToString(coinbaseTx).Replace("-", "")}");
+        //Console.WriteLine($"Merkle Count: {powSubmit.MerkleBranchCount}");
+        //Console.WriteLine($"TargetByte: {powSubmit.TargetByte}");
+        //Console.WriteLine($"TargetByteIndex: {powSubmit.TargetByteIndex}");
+
+        //byte[] testCoinbase1 = Convert.FromHexString("020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff2303780b0e225075626c696320506f6f6c206f6e20556d6272656c2251cf70860019ccefffffffff");
+        //byte[] testCoinbase2 = Convert.FromHexString("029c04b912000000001600145ea459e521b0d95d521f0dbc1596e9c54d29d9db0000000000000000266a24aa21a9ed46f10a6f564fcb1758d78fcf8d63cb82d6379e5ce53de187b7545589c1cac16a0120000000000000000000000000000000000000000000000000000000000000000000000000");
+        //byte[] legacyPrefix = testCoinbase1.Take(4).ToArray();
+        //byte[] legacyBody = testCoinbase1.Skip(6).ToArray();
+        //byte[] testCoinbase = legacyPrefix.Concat(legacyBody).Concat(testCoinbase2).ToArray();
+
+        if (powSubmit.QuickDiff)
+        {
+            //Console.WriteLine("   using quickdiff");
+            // ----- quickdiff magic word (last 2 bytes of Coinb1) -----
+            int quickDiffOffset = Coinb1.Length - 2;   // client: cb->coinb1_len - 2
+            if (quickDiffOffset < 0)
+            {
+                Console.WriteLine("Coinb1 too short for quickdiff magic");
+            }
+            else
+            {
+                ushort current = BitConverter.ToUInt16(Coinb1, quickDiffOffset);
+                ushort magic = current == 0x5144 ? (ushort)0xAEBB : (ushort)0x5144;
+
+                byte[] magicBytes = BitConverter.GetBytes(magic);
+                if (!BitConverter.IsLittleEndian) Array.Reverse(magicBytes);   // pk_u16le writes LE
+
+                Array.Copy(magicBytes, 0, coinbaseTx, quickDiffOffset, 2);
+            }
+
+            // ----- quickdiff target byte -----
+            // The client uses the *quick* difficulty that the miner was asked for
+            byte quickPot = FloorPoT(powSubmit.TargetByte);   // you already have this helper
+            //Console.WriteLine($"quickPot: {quickPot}");
+            if (powSubmit.TargetByteIndex.HasValue)
+            {
+                int idx = powSubmit.TargetByteIndex.Value;
+                if (idx >= 0 && idx < Coinb1.Length)
+                    coinbaseTx[idx] = quickPot;
+                else
+                    Console.WriteLine($"QuickDiff TargetByteIndex {idx} out of range (coinbase size {coinbaseTx.Length})");
+            }
+            else Console.WriteLine($"QuickDiff TargetByteIndex has no value)");
+        }
+        else
+        {
+            // ----- normal (non-quickdiff) target byte -----
+            // The client uses the difficulty that belongs to the current stratum job
+            byte normalPot = FloorPoT(powSubmit.TargetByte);   // you must expose this value
+            //Console.WriteLine($"normalPot: {normalPot:X1}");
+            if (powSubmit.TargetByteIndex.HasValue)
+            {
+                int idx = powSubmit.TargetByteIndex.Value;
+                if (idx >= 0 && idx < coinbaseTx.Length)
+                {
+                    //Console.WriteLine($"coinbaseTx[idx](1): {coinbaseTx[idx]}");
+                    coinbaseTx[idx] = powSubmit.TargetByte;
+                    //Console.WriteLine($"coinbaseTx[idx](2): {coinbaseTx[idx]}");
+                }
+                else
+                    Console.WriteLine($"TargetByteIndex {idx} out of range (coinbase size {coinbaseTx.Length})");
+            }
+        }
+        //Console.WriteLine($"coinbaseTx(2): {BitConverter.ToString(coinbaseTx).Replace("-", "")}");
+
+        //var testCBHash = DoubleSha256(coinbaseTx);
+        //var testMerkleRoot = ComputeMerkleRoot(testCBHash, powSubmit.MerkleBranches, powSubmit.MerkleBranchCount.Value);
+        //Console.WriteLine($"testCBHash = {BitConverter.ToString(testCBHash)}");
+        //Console.WriteLine($"testMerkle = {BitConverter.ToString(testMerkleRoot)}");
+        byte[] coinbaseHash = DoubleSha256(coinbaseTx);
+        powSubmit.MerkleRoot = ComputeMerkleRoot(coinbaseHash, powSubmit.MerkleBranches, powSubmit.MerkleBranchCount.Value);
+        JobCache[powSubmit.JobId].MerkleRoot = powSubmit.MerkleRoot; //For completeness, I guess.
+
+        //Test merkle tree data from block 123482
+        //byte[] cb = Convert.FromHexString("28529fd87f187a4fdc7c70c0a12e86d4b32d398fd71343b2a51b952b6b238def"); //TXID (rev): ef8d236b2b951ba5b24313d78f392db3d4862ea1c0707cdc4f7a187fd89f5228
+        //byte[] tx1 = Convert.FromHexString("0fdbd6314800158e12e2699ede24b07a8fc2f00f0fca8fee6491bf690a2c57ea"); //TXID (rev): ea572c0a69bf9164ee8fca0f0ff0c28f7ab024de9e69e2128e15004831d6db0f
+        //byte[] final = DoubleSha256(cb.Concat(tx1).ToArray());
+        //byte[] actual = Convert.FromHexString("5509c987862865584458e44ab147d061168fdf666fbddb99b5134c73a66a0bb4");
+        //if (final == actual) Console.WriteLine("huzzah!!!!  They match!!!");
+        //else
+        //{
+        //Console.WriteLine(BitConverter.ToString(final).Replace("-", ""));
+        //Console.WriteLine(BitConverter.ToString(actual).Replace("-", ""));
+        //}         
+
+        // Reconstruct block header
+        //powSubmit.Version = 0x2f438000;  //For testing version logic
+        byte[] header = new byte[80];
+        using (var stream = new MemoryStream(header))
+        using (var writer = new BinaryWriter(stream))
+        {
+            writer.Write(powSubmit.Version); // 4 bytes
+            writer.Write(powSubmit.PrevBlockHash); // 32 bytes
+            //writer.Write(powSubmit.MerkleRoot.Reverse().ToArray()); // 32 bytes  
+            writer.Write(powSubmit.MerkleRoot);
+            writer.Write(powSubmit.NTime); // 4 bytes
+            writer.Write(powSubmit.NBits); // 4 bytes
+            writer.Write(powSubmit.Nonce); // 4 bytes
+        }
+        //Console.WriteLine($"Version (Byte): {Convert.ToByte(powSubmit.Version)}");
+        //Console.WriteLine($"Version (String): {Convert.ToString(powSubmit.Version)}");
+        if (powSubmit.SubsidyOnly) Console.WriteLine("*** Got subsidy only coinbase message!");
+        //Console.WriteLine($"PoW header: {BitConverter.ToString(header).Replace("-", "")}");
+
+        /*Console.Write($"{powSubmit.Version:X8} | ");
+        Console.WriteLine($"Version (B32): 0b{powSubmit.Version:B32} | ");
+        Console.Write($"{BitConverter.ToString(powSubmit.PrevBlockHash).Replace("-", "")} | ");
+        Console.Write($"{BitConverter.ToString(powSubmit.MerkleRoot).Replace("-", "")} | ");
+        Console.Write($"{BitConverter.ToString(BitConverter.GetBytes(powSubmit.NTime))} | ");
+        Console.Write($"{BitConverter.ToString(powSubmit.NBits).Replace("-", "")} | ");
+        Console.Write($"{BitConverter.ToString(BitConverter.GetBytes(powSubmit.Nonce))}\n");
+        */
+
+
+        /*
+                // Test Bitcoin block 756951
+                byte[] testHeader = new byte[80];
+                using (var stream = new MemoryStream(testHeader))
+                using (var writer = new BinaryWriter(stream))
+                {
+                    // Version: 0x20400000 (little-endian: 00004020)
+                    uint version = 0x20400000;
+                    writer.Write(version); // 4 bytes
+
+                    // PrevBlockHash: 000000000000000000050da0da9451c2e1306db4ddb5acc965fc1016678d9154 (big-endian)
+                    byte[] prevBlockHash = Convert.FromHexString("54918d671610fc65c9acb5ddb46d30e1c25194daa00d05000000000000000000");
+                    writer.Write(prevBlockHash); // 32 bytes
+
+                    // MerkleRoot: 62c46f1efadf6e39b7463e5362bb552cba98f74a80a58378ff5194c7b058005a (big-endian)
+                    byte[] merkleRoot = Convert.FromHexString("5a0058b0c79451ff7883a5804af798ba2c55bb62533e46b7396edffa1e6fc462");
+                    writer.Write(merkleRoot); // 32 bytes
+
+                    // NTime: 0x633b8c2d (little-endian: 2d8c3b63)
+                    uint nTime = 0x633b8c2d;
+                    writer.Write(nTime); // 4 bytes
+
+                    // NBits: 0x1708f9ae (big-endian: aef90817)
+                    byte[] nBits = Convert.FromHexString("aef90817");
+                    writer.Write(nBits); // 4 bytes
+
+                    // Nonce: 0xc1230f8c (little-endian: 8c0f23c1)
+                    uint nonce = 0xc1230f8c;
+                    writer.Write(nonce); // 4 bytes
+                }
+        */
+        // Verify header
+        //Console.WriteLine($"Test Header: {BitConverter.ToString(testHeader).Replace("-", "")}");
+
+        // Compute hash
+        byte[] testHash = DoubleSha256(header);  //testHeader
+        byte[] reversedTestHash = testHash.Reverse().ToArray();
+        //Console.WriteLine($"Test Hash (raw): {BitConverter.ToString(testHash).Replace("-", "")}");
+        //Console.WriteLine($"Test Hash (reversed, explorer): {BitConverter.ToString(reversedTestHash).Replace("-", "")}");
+
+        // Achieved difficulty (hash-based)
+        BigInteger hashInt = 0;
+        for (int i = testHash.Length - 1; i >= 0; i--)//(int i = testHash.Length - 1; i >= 0; i--) int i = 0; i < testHash.Length; i++
+        {
+            hashInt = (hashInt << 8) | testHash[i];
+        }
+        BigInteger maxTarget = BigInteger.Pow(2, 224) - 1;
+        BigInteger achievedDifficultyBig = hashInt == 0 ? 0 : maxTarget / hashInt;
+        //double achievedDifficulty = (double)achievedDifficultyBig;
+        //Console.WriteLine($"Achieved Difficulty: {achievedDifficulty} ({FormatDifficulty(achievedDifficulty)})");
+
+        // Required difficulty (nBits-based)
+        //BigInteger target = (ComputeTargetFromNBits(Convert.FromHexString("aef90817")));
+        //BigInteger requiredDifficultyBig = target == 0 ? 0 : maxTarget / target;
+        //double requiredDifficulty = (double)requiredDifficultyBig;
+        //Console.WriteLine($"Required Difficulty: {requiredDifficulty} ({FormatDifficulty(requiredDifficulty)})");
+
+        // Leading zero bits (for your preferred metric)
+        /*
+        ulong leadingZeroBits = 0;
+        bool foundNonZero = false;
+        foreach (byte b in reversedTestHash)
+        {
+            if (b == 0)
+            {
+                leadingZeroBits += 8;
+            }
+            else
+            {
+                int zeros = 0;
+                for (int i = 7; i >= 0; i--)
+                {
+                    if ((b & (1 << i)) == 0) zeros++;
+                    else break;
+                }
+                leadingZeroBits += (ulong)zeros;
+                foundNonZero = true;
+                break;
+            }
+        }
+        if (!foundNonZero) leadingZeroBits = 256;
+        */
+        //Console.WriteLine($"Leading Zero Bits: {leadingZeroBits}");
+
+        //Console.WriteLine($"   -> ✅ Received PoW submission: JobID={powSubmit.JobId}, CoinbaseID={powSubmit.CoinbaseId}, IsBlock={powSubmit.IsBlock}, SubsidyOnly={powSubmit.SubsidyOnly}, QuickDiff={powSubmit.QuickDiff}, Username={powSubmit.Username}");
+
+        // 1. Check Difficulty
+        //ulong difficulty = CalculateDifficulty(powSubmit.TargetByte, powSubmit.TargetByteIndex, powSubmit.NBits);
+        double difficulty = (double)achievedDifficultyBig;
+        if (difficulty > BestDiff)
+        {
+            BestDiff = difficulty;
+            BestDiffAddress = powSubmit.Username;
+        }
+
+
+        // 2. Verify Block Header
+        bool isHeaderValid = VerifyBlockHeader(powSubmit.Version, powSubmit.NTime, powSubmit.Nonce, powSubmit.PrevBlockHash, powSubmit.MerkleRoot, powSubmit.NBits);
+        //Console.WriteLine($"   -> Header valid: {isHeaderValid}");
+
+        // 3. Extract Username
+        string minerAddress = powSubmit.Username;  //TODO: ideally we extract this from the coinbase transaction
+        //Console.WriteLine($"   -> Miner address: {minerAddress}");
+
+        // 4. Verify Coinbase Transaction
+        var (isValidCoinbase, outputs) = VerifyCoinbaseTransaction(Coinb1, Coinb2, powSubmit.CoinbaseValue);
+        //Console.WriteLine($"   -> Coinbase valid: {isValidCoinbase}");
+        foreach (var output in outputs)
+        {
+            //Console.WriteLine($"   -> Coinbase output: Address={output.Address}, Amount={output.Amount / 100_000_000.0} BTC");
+        }
+        //if (powSubmit.QuickDiff) Console.WriteLine("QuickDiff!!!");
+        //Console.WriteLine($"POW: {powSubmit.JobId}\t{powSubmit.CoinbaseId}\t{difficulty}\t{powSubmit.Username}\n");
+
+        //Evaluate how to credit this share, whether to add to on-deck or not
+        if (isHeaderValid)
+        {
+            if (true) // isValidCoinbase  i.e. did they put the right addresses into the coinbase to get on this team?
+            {
+                int j = 0;
+                bool newWinner = false;
+                for (int i = 0; i < DatumServer.OnDeckList.Count; i++) // This assumes the list is sorted by decreasing difficulty
+                {
+                    if (DatumServer.OnDeckList[i].Difficulty < difficulty) break;
+                    else j++;
+                }
+                if (j < _poolConfig.WinnersListSize)
+                {
+                    PayoutInfo newPayout = new PayoutInfo();
+                    newPayout.Address = powSubmit.Username;
+                    newPayout.Difficulty = difficulty;  //I'm not setting .Value here.  is that ok?
+                    newPayout.DiffString = FormatDifficulty(difficulty);
+                    DatumServer.OnDeckList.Insert(j, newPayout);  //insert the new share into the next winners list
+                    newWinner = true;
+                }
+                if (DatumServer.OnDeckList.Count == (_poolConfig.WinnersListSize + 1)) DatumServer.OnDeckList.Remove(DatumServer.OnDeckList.Last()); //remove the lowest difficulty share
+                else if (DatumServer.OnDeckList.Count > _poolConfig.WinnersListSize) Console.WriteLine("we have a problem, OnDeckList got too big");
+                if(newWinner)
+                {
+                    //For debugging, print the OnDeckList
+                    Console.WriteLine("-----------------------------------------------------------");
+                    for (int i = 0; i < DatumServer.OnDeckList.Count; i++)
+                    {
+                        Console.WriteLine($"{i}\t{DatumServer.OnDeckList[i].DiffString}\t{DatumServer.OnDeckList[i].Address}");
+                    }
+                }
+            }
+        }
+
+        
+        //Console.WriteLine("-----------------------------------------");
+
+        // Respond
+        //#define DATUM_POW_SHARE_RESPONSE_ACCEPTED 0x50
+        //#define DATUM_POW_SHARE_RESPONSE_ACCEPTED_TENTATIVELY 0x55
+        //#define DATUM_POW_SHARE_RESPONSE_REJECTED 0x66
+
         var shareResponse = new ShareResponseMessage
         {
-            Status = 0x50, // Accepted
-            ReasonCode = 0, // No reason for accepted shares
-            Nonce = powSubmit.Nonce, // From submission
-            TargetPot = (byte)powSubmit.Difficulty, // Difficulty exponent
-            JobId = powSubmit.JobId // From submission
+            Status = 0x50, //(byte)(isHeaderValid && isValidCoinbase ? 0x50 : 0x66),
+            ReasonCode = (ushort)(isHeaderValid && isValidCoinbase ? 0 : 1),
+            Nonce = powSubmit.Nonce,
+            TargetPot = powSubmit.TargetByte,
+            JobId = powSubmit.JobId
         };
+
         var responsePayload = shareResponse.ToBytes();
-        Console.WriteLine($"📦 Share response payload: {BitConverter.ToString(responsePayload)}");
+
+        //Console.WriteLine($"📦 Share response payload: {BitConverter.ToString(responsePayload)}");
+        //byte[] testPayload = new byte[] { 0x8F, 0x50, 0x00, 0x00, 0x32, 0x04, 0xCA, 0xC7, 0x0E, 0x02 };
         await SendEncryptedMessageAsync(0x05, responsePayload, isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false);
-        Console.WriteLine($"[SEND] Share Response [ACCEPTED] (0x05, 0x50)");
+        await DatumServer._hubContext.Clients.All.SendAsync("UpdateOnDeck", DatumServer.OnDeckList);
+        //Console.WriteLine($"[SEND] Share Response [{(isHeaderValid && isValidCoinbase ? "ACCEPTED" : "REJECTED")}] (0x05, 0x{shareResponse.Status:X2})");
+    }
+    
+    private static byte FloorPoT(ulong x)
+    {
+        if (x == 0) return 0;
+
+        byte pos = 0;
+        while (x > 1)          // keep shifting while x > 1
+        {
+            x >>= 1;           // x = x >> 1
+            pos++;
+        }
+        return pos;
+    }
+
+    private ulong CalculateDifficulty(byte targetByte, ushort? targetByteIndex, byte[]? nBits)
+    {
+        if (nBits == null || targetByteIndex == null) return 0; // Minimal check
+        // Simplified: Assume target_byte is difficulty exponent
+        return 1UL << targetByte; // Adjust based on actual PoT logic
+    }
+
+    private bool VerifyBlockHeader(int version, uint nTime, uint nonce, byte[]? prevBlockHash, byte[]? merkleRoot, byte[]? nBits)
+    {
+        // Debug: Log input parameters
+        //Console.WriteLine($"VerifyBlockHeader Inputs:");
+        //Console.WriteLine($"  Version: 0x{version:X8}");
+        //Console.WriteLine($"  PrevBlockHash: {(prevBlockHash != null ? BitConverter.ToString(prevBlockHash).Replace("-", "") : "null")}");
+        //Console.WriteLine($"  MerkleRoot: {(merkleRoot != null ? BitConverter.ToString(merkleRoot).Replace("-", "") : "null")}");
+        //Console.WriteLine($"  nTime: 0x{nTime:X8} ({nTime})");
+        //Console.WriteLine($"  nBits: {(nBits != null ? BitConverter.ToString(nBits).Replace("-", "") : "null")}");
+        //Console.WriteLine($"  Nonce: 0x{nonce:X8}");
+
+        // Check for null inputs
+        if (prevBlockHash == null || merkleRoot == null || nBits == null)
+        {
+            Console.WriteLine("  Result: False (null input detected)");
+            return false;
+        }
+
+        // Validate input lengths
+        if (prevBlockHash.Length != 32 || merkleRoot.Length != 32 || nBits.Length != 4)
+        {
+            Console.WriteLine($"  Result: False (invalid lengths - PrevBlockHash: {prevBlockHash.Length}, MerkleRoot: {merkleRoot.Length}, nBits: {nBits.Length})");
+            return false;
+        }
+
+        // Reconstruct block header
+        byte[] header = new byte[80];
+        using (var stream = new MemoryStream(header))
+        using (var writer = new BinaryWriter(stream))
+        {
+            writer.Write(version); // 4 bytes, little-endian
+            writer.Write(prevBlockHash); // 32 bytes
+            writer.Write(merkleRoot); // 32 bytes
+            writer.Write(nTime); // 4 bytes, little-endian
+            writer.Write(nBits); // 4 bytes
+            writer.Write(nonce); // 4 bytes, little-endian
+        }
+
+        // Debug: Log constructed header
+        //Console.WriteLine($"  Constructed Header: {BitConverter.ToString(header).Replace("-", "")}");
+
+        // Compute double SHA256 hash
+        byte[] hash = DoubleSha256(header);
+        //Console.WriteLine($"  Block Hash: {BitConverter.ToString(hash).Replace("-", "")}");
+
+        // Compute target from nBits
+        //byte[] target = ComputeTargetFromNBits(nBits);  //This version is the target for a new block
+        //Console.WriteLine($"  Target: {BitConverter.ToString(target).Replace("-", "")}");
+
+        // Compare hash to target (Bitcoin: hash <= target in big-endian)
+        bool isValid = true; //CompareHashToTarget(hash, target);
+        //Console.WriteLine($"  Difficulty Check: Hash <= Target? {isValid}");
+
+        // Debug: Log result
+        //Console.WriteLine($"  Result: {isValid}");
+        return isValid;
+    }
+
+    private byte[] ComputeTargetFromNBits(byte[] nBits)
+    {
+        if (nBits.Length != 4) throw new ArgumentException("nBits must be 4 bytes");
+        uint nBitsValue = BitConverter.ToUInt32(nBits, 0);
+        int exponent = (int)(nBitsValue >> 24); // First byte is exponent
+        uint mantissa = nBitsValue & 0xFFFFFF; // Last 3 bytes are mantissa
+        if (exponent < 3) exponent = 3; // Minimum size to avoid overflow
+
+        // Target = mantissa * 2^(8*(exponent - 3))
+        byte[] target = new byte[32];
+        byte[] mantissaBytes = BitConverter.GetBytes(mantissa);
+        if (BitConverter.IsLittleEndian) Array.Reverse(mantissaBytes); // Convert to big-endian
+        int shift = 8 * (exponent - 3);
+        int mantissaLength = mantissaBytes.TakeWhile(b => b != 0).Count() + 1; // Non-zero bytes + 1
+        for (int i = 0; i < mantissaLength && i < 4; i++)
+        {
+            if (32 - mantissaLength + i >= 0 && 32 - mantissaLength + i < 32)
+                target[32 - mantissaLength + i] = mantissaBytes[i];
+        }
+
+        Console.WriteLine($"  ComputeTargetFromNBits: nBits=0x{nBitsValue:X8}, Exponent={exponent}, Mantissa=0x{mantissa:X6}, Target={BitConverter.ToString(target).Replace("-", "")}");
+        return target;
+    }
+
+    private bool CompareHashToTarget(byte[] hash, byte[] target)
+    {
+        // Bitcoin compares hash <= target in big-endian
+        for (int i = 0; i < 32; i++)
+        {
+            if (hash[i] < target[i]) return true;
+            if (hash[i] > target[i]) return false;
+        }
+        return true; // Equal
+    }
+
+    private byte[] ComputeMerkleRoot(byte[] coinbaseHash, byte[] merkleBranches, byte count)
+    {
+        // coinbaseHash is raw 32-byte little-endian from DoubleSha256
+        byte[] current = coinbaseHash;
+
+        for (int i = 0; i < count; i++)
+        {
+            // Extract branch (already little-endian, as sent by client)
+            byte[] branch = merkleBranches.Skip(i * 32).Take(32).ToArray();
+
+            // DO NOT REVERSE — keep little-endian
+            byte[] combined = current.Concat(branch).ToArray();
+
+            // Hash → output is little-endian
+            current = DoubleSha256(combined);
+        }
+
+        return current; // little-endian Merkle root
+    }
+
+    private (bool isValid, List<(string Address, ulong Amount)> outputs) VerifyCoinbaseTransaction(byte[]? coinb1, byte[]? coinb2, ulong? coinbaseValue)
+    {
+        if (coinb2 == null || coinbaseValue == null)
+            return (false, new List<(string, ulong)>());
+
+        var outputs = new List<(string Address, ulong Amount)>();
+        try
+        {
+            using var stream = new MemoryStream(coinb2);
+            using var reader = new BinaryReader(stream);
+            byte outputCount = reader.ReadByte(); // varint for output count
+            if (outputCount > 100) return (false, outputs); // Sanity check
+
+            ulong totalAmount = 0;
+            for (int i = 0; i < outputCount; i++)
+            {
+                if (stream.Position >= stream.Length) return (false, outputs);
+                ulong amount = reader.ReadUInt64(); // 8-byte amount
+                totalAmount += amount;
+                ulong scriptLen = ReadVarInt(reader);
+                if (scriptLen > 100 || stream.Position + (long)scriptLen > stream.Length) return (false, outputs);
+                byte[] script = reader.ReadBytes((int)scriptLen);
+                string address = ScriptToAddress(script);
+                outputs.Add((address, amount));
+            }
+
+            // Verify total amount does not exceed coinbase value
+            bool isValid = totalAmount <= coinbaseValue.Value;
+            return (isValid, outputs);
+        }
+        catch
+        {
+            return (false, outputs);
+        }
+    }
+
+    private ulong ReadVarInt(BinaryReader reader)
+    {
+        byte b = reader.ReadByte();
+        if (b < 0xFD) return b;
+        if (b == 0xFD) return reader.ReadUInt16();
+        if (b == 0xFE) return reader.ReadUInt32();
+        return reader.ReadUInt64();
+    }
+
+    private string ScriptToAddress(byte[] script)
+    {
+        // Simplified: Handle P2PKH and P2WPKH
+        if (script.Length == 25 && script[0] == 0x76 && script[1] == 0xA9 && script[2] == 0x14)
+        {
+            byte[] hash = script.Skip(3).Take(20).ToArray();
+            byte[] payload = new byte[25];
+            payload[0] = 0x00; // Mainnet P2PKH
+            Array.Copy(hash, 0, payload, 1, 20);
+            byte[] checksum = DoubleSha256(payload.Take(21).ToArray()).Take(4).ToArray();
+            Array.Copy(checksum, 0, payload, 21, 4);
+            return Base58Check.Encode(payload);
+        }
+        if (script.Length == 22 && script[0] == 0x00 && script[1] == 0x14)
+        {
+            byte[] program = script.Skip(2).Take(20).ToArray();
+            return Bech32.Encode("bc", 0, program);
+        }
+        return "UNKNOWN";
+    }
+
+    private static byte[] DoubleSha256(byte[] data)
+    {
+        using var sha256 = SHA256.Create();
+        byte[] hash1 = sha256.ComputeHash(data);
+        return sha256.ComputeHash(hash1);
+    }
+
+    public static string FormatDifficulty(double difficulty)
+    {
+        if (difficulty < 1000) return difficulty.ToString("F2"); // Less than 1k, show as is
+        if (difficulty < 1000000) return (difficulty / 1000).ToString("F2") + "k"; // Thousands
+        if (difficulty < 1000000000) return (difficulty / 1000000).ToString("F2") + "M"; // Millions
+        if (difficulty < 1000000000000) return (difficulty / 1000000000).ToString("F2") + "G"; // Billions
+        if (difficulty < 1000000000000000) return (difficulty / 1000000000000).ToString("F2") + "T"; // Trillions
+        if (difficulty < 1000000000000000000) return (difficulty / 1000000000000000).ToString("F2") + "P"; // Quadrillions
+        return (difficulty / 1000000000000000000).ToString("F2") + "E"; // Quintillions
     }
 
     /// Generic helper to encrypt and send a message using the client's public or (more likely) using the shared channel secret.
@@ -921,9 +1780,9 @@ public class ClientHandler
             ProtoCmd = protoCmd
         };
         // Debug header fields
-        Console.WriteLine($"📋 Sending Header: Cmd=0x{protoCmd:X2}, Len={header.CmdLen}, Signed={header.IsSigned}, PubKey={header.IsEncryptedPubKey}, Channel={header.IsEncryptedChannel}");
-        Console.WriteLine($"🔑 current Session nonce sender: {Convert.ToBase64String(_sessionNonceSender)}");
-        Console.WriteLine($"🔑 current Session nonce receiver: {Convert.ToBase64String(_sessionNonceReceiver)}");
+        //Console.WriteLine($"📋 Sending Header: Cmd=0x{protoCmd:X2}, Len={header.CmdLen}, Signed={header.IsSigned}, PubKey={header.IsEncryptedPubKey}, Channel={header.IsEncryptedChannel}");
+        //Console.WriteLine($"🔑 current Session nonce sender: {Convert.ToBase64String(_sessionNonceSender)}");
+        //Console.WriteLine($"🔑 current Session nonce receiver: {Convert.ToBase64String(_sessionNonceReceiver)}");
         // XOR header
         //Console.WriteLine($"📦 Plaintext header: {BitConverter.ToString(header.ToBytes())}");
         uint headerValue = BitConverter.ToUInt32(header.ToBytes(), 0);
@@ -1276,72 +2135,212 @@ public class CoinbaserFetchResponseMessage
     public List<PayoutInfo> Payouts { get; set; } = new();
 
     public byte[] ToBytes()
+{
+    using var stream = new MemoryStream();
+    using var writer = new BinaryWriter(stream);
+    
+    // Write the count of payouts (1 byte)
+    writer.Write((byte)Payouts.Count); 
+    
+    foreach (var payout in Payouts)
     {
-        using var stream = new MemoryStream();
-        using var writer = new BinaryWriter(stream);
-        writer.Write((byte)Payouts.Count); // 1 byte
-        foreach (var payout in Payouts)
+        writer.Write(payout.Value); // 8 bytes (amount)
+        
+        // --- MODIFICATION: Extract the actual address part ---
+        // Miners often provide addresses in the format "address.workerName".
+        // We only need the part before the first dot for script generation.
+        string address = payout.Address;
+        int dotIndex = address.IndexOf('.');
+        if (dotIndex != -1)
         {
-            writer.Write(payout.Value); // 8 bytes
-            byte[] script;
-            if (payout.Address.StartsWith("bc1") || payout.Address.StartsWith("tb1"))
-            {
-                // Bech32 (SegWit) address
-                var (hrp, version, program) = Bech32.Decode(payout.Address);
-                if (version != 0 || program.Length != 20) // P2WPKH only
-                {
-                    throw new InvalidOperationException($"Unsupported Bech32 address: {payout.Address}");
-                }
-                script = new byte[2 + program.Length];
-                script[0] = 0x00; // Witness version 0
-                script[1] = (byte)program.Length; // Length (20)
-                Array.Copy(program, 0, script, 2, program.Length);
-            }
-            else
-            {
-                // P2PKH address
-                byte[] payload = Base58Check.Decode(payout.Address);
-                if (payload.Length != 21 || payload[0] != 0x00)
-                {
-                    throw new InvalidOperationException($"Invalid P2PKH address: {payout.Address}");
-                }
-                byte[] pubkeyHash = payload.Skip(1).Take(20).ToArray();
-                script = new byte[25];
-                script[0] = 0x76; // OP_DUP
-                script[1] = 0xA9; // OP_HASH160
-                script[2] = 0x14; // Length of hash (20)
-                Array.Copy(pubkeyHash, 0, script, 3, 20);
-                script[23] = 0x88; // OP_EQUALVERIFY
-                script[24] = 0xAC; // OP_CHECKSIG
-            }
-            writer.Write((byte)script.Length); // 1 byte script length
-            writer.Write(script); // Script bytes
+            // Trim the string to include only the part before the dot
+            address = address.Substring(0, dotIndex);
         }
-        return stream.ToArray();
+        // --- END MODIFICATION ---
+
+        byte[] script;
+        
+        // Check if the address is Bech32 (SegWit) using the cleaned 'address'
+        if (address.StartsWith("bc1") || address.StartsWith("tb1"))
+        {
+            // Bech32 (SegWit) address
+            var (hrp, version, program) = Bech32.Decode(address); // Use cleaned 'address'
+            if (version != 0 || program.Length != 20) // P2WPKH only (adjust if P2WSH is supported)
+            {
+                // Use payout.Address for the error message to show the original input
+                throw new InvalidOperationException($"Unsupported Bech32 address: {payout.Address}");
+            }
+            script = new byte[2 + program.Length];
+            script[0] = 0x00; // Witness version 0
+            script[1] = (byte)program.Length; // Length (20)
+            Array.Copy(program, 0, script, 2, program.Length);
+        }
+        else
+        {
+            // P2PKH address
+            byte[] payload = Base58Check.Decode(address); // Use cleaned 'address'
+            if (payload.Length != 21 || payload[0] != 0x00)
+            {
+                // Use payout.Address for the error message to show the original input
+                throw new InvalidOperationException($"Invalid P2PKH address: {payout.Address}");
+            }
+            byte[] pubkeyHash = payload.Skip(1).Take(20).ToArray();
+            script = new byte[25];
+            script[0] = 0x76; // OP_DUP
+            script[1] = 0xA9; // OP_HASH160
+            script[2] = 0x14; // Length of hash (20)
+            Array.Copy(pubkeyHash, 0, script, 3, 20);
+            script[23] = 0x88; // OP_EQUALVERIFY
+            script[24] = 0xAC; // OP_CHECKSIG
+        }
+        
+        writer.Write((byte)script.Length); // 1 byte script length
+        writer.Write(script); // Script bytes
+    }
+    return stream.ToArray();
     }
 }
 public class PayoutInfo
 {
-    public ulong Value { get; set; }
+    public ulong Value { get; set; }  //in Satoshis, or 1/100,000,000 BTC
     public string Address { get; set; } = string.Empty;
+    public double Difficulty { get; set; } = 0;
+    public string DiffString { get; set; } = "0";
 }
 
 // CLIENT: PoW Submit message (0x05, 0x27)
 public class PowSubmitMessage
 {
-    public uint Nonce { get; set; }
-    public byte Difficulty { get; set; }
     public byte JobId { get; set; }
+    public byte CoinbaseId { get; set; }
+    public bool IsBlock { get; set; }
+    public bool SubsidyOnly { get; set; }
+    public bool QuickDiff { get; set; }
+    public byte TargetByte { get; set; }
+    public uint NTime { get; set; }
+    public uint Nonce { get; set; }
+    public int Version { get; set; }
+    public byte ExtranonceSize { get; set; }
+    public byte[] Extranonce { get; set; } = new byte[12];
+    public string Username { get; set; } = string.Empty;
+    public byte[] Reserved { get; set; } = new byte[4];
+    public byte[]? PrevBlockHash { get; set; }
+    public ushort? TargetByteIndex { get; set; }
+    public byte[]? NBits { get; set; }
+    public byte? CoinbaserId { get; set; }
+    public uint? Height { get; set; }
+    public ulong? CoinbaseValue { get; set; }
+    public uint? TransactionCount { get; set; }
+    public uint? TotalWeight { get; set; }
+    public uint? TotalSize { get; set; }
+    public uint? TotalSigops { get; set; }
+    public byte? MerkleBranchCount { get; set; }
+    public byte[]? MerkleBranches { get; set; }
+    
+    //public byte[,]? Coinb1 { get; set; }
+    //public byte[,]? Coinb2 { get; set; }
+    public (byte[] Coinb1, byte[] Coinb2)[] CoinbasePairs { get; set; } = new (byte[], byte[])[8];
+    public byte[]? SubsidyOnlyCoinb1 { get; set; }
+    public byte[]? SubsidyOnlyCoinb2 { get; set; }
+    public byte[]? MerkleRoot { get; set; } // Added
 
     public static PowSubmitMessage FromBytes(byte[] data)
     {
-        // Example parsing, adjust based on actual format
-        return new PowSubmitMessage
+        if (data.Length < 30) throw new ArgumentException("Invalid PoW submission length");
+        using var stream = new MemoryStream(data);
+        using var reader = new BinaryReader(stream);
+
+        var result = new PowSubmitMessage
         {
-            Nonce = BitConverter.ToUInt32(data, 0), // Adjust offsets
-            Difficulty = data[4],
-            JobId = data[5]
+            JobId = reader.ReadByte(), // offset 1
+            CoinbaseId = reader.ReadByte(), // offset 2
         };
+        byte flags = reader.ReadByte(); // offset 3
+        result.IsBlock = (flags & 0x01) != 0;
+        result.SubsidyOnly = (flags & 0x02) != 0;
+        result.QuickDiff = (flags & 0x04) != 0;
+        result.TargetByte = reader.ReadByte(); // offset 4
+        result.NTime = reader.ReadUInt32(); // offset 5
+        result.Nonce = reader.ReadUInt32(); // offset 9
+        result.Version = reader.ReadInt32(); // offset 13
+        result.ExtranonceSize = reader.ReadByte(); // offset 17
+        if (result.ExtranonceSize != 12) throw new ArgumentException($"Unsupported extranonce size: {result.ExtranonceSize}");
+        result.Extranonce = reader.ReadBytes(12); // offset 18
+        var usernameBytes = new List<byte>();
+        while (stream.Position < stream.Length)
+        {
+            byte b = reader.ReadByte();
+            if (b == 0) break;
+            usernameBytes.Add(b);
+        }
+        result.Username = Encoding.UTF8.GetString(usernameBytes.ToArray());
+        result.Reserved = reader.ReadBytes(4); // offset 30 + username.Length
+
+        // Process optional sections (0x01, 0x02) until 0xFE
+        bool hasMerkleData = false;
+        bool hasCoinbaseData = false;
+        while (stream.Position < stream.Length)
+        {
+            byte flag = reader.ReadByte();
+            if (flag == 0xFE) break; // Terminator
+            if (flag == 0x01) // Merkle branches
+            {
+                hasMerkleData = true;
+                result.PrevBlockHash = reader.ReadBytes(32);
+                result.TargetByteIndex = reader.ReadUInt16();
+                result.NBits = reader.ReadBytes(4);
+                result.CoinbaserId = reader.ReadByte();
+                result.Height = reader.ReadUInt32();
+                result.CoinbaseValue = reader.ReadUInt64();
+                result.TransactionCount = reader.ReadUInt32();
+                result.TotalWeight = reader.ReadUInt32();
+                result.TotalSize = reader.ReadUInt32();
+                result.TotalSigops = reader.ReadUInt32();
+                result.MerkleBranchCount = reader.ReadByte();
+                result.MerkleBranches = reader.ReadBytes((int)(result.MerkleBranchCount * 32));
+            }
+            else if (flag == 0x02) // Coinbase data
+            {
+                //TODO: Deal with subsidyOnly coinbases, which currently are not set.
+                hasCoinbaseData = true;
+                byte coinbaseType = reader.ReadByte();
+                ushort coinb1Len = reader.ReadUInt16();
+                ushort coinb2Len = reader.ReadUInt16();
+                byte[] coinb1 = reader.ReadBytes(coinb1Len);
+                byte[] coinb2 = reader.ReadBytes(coinb2Len);
+                result.CoinbasePairs[result.CoinbaseId] = (coinb1, coinb2);
+                //Console.WriteLine($"Stored CoinbaseId {result.CoinbaseId}: Coinb1={coinb1Len} bytes, Coinb2={coinb2Len} bytes");
+            }
+            else
+            {
+                throw new ArgumentException($"Unknown flag: 0x{flag:X2}");
+            }
+        }
+        if(hasCoinbaseData ^ hasMerkleData)
+        {
+            if (hasCoinbaseData) Console.WriteLine("*** Got coinbase without Merkle Data!!!");
+            if (hasMerkleData) Console.WriteLine("*** Got Merkle Data without Coinbase data!!");
+        }
+
+        return result;
+    }
+
+    private static byte[] DoubleSha256(byte[] data)
+    {
+        using var sha256 = SHA256.Create();
+        byte[] hash1 = sha256.ComputeHash(data);
+        return sha256.ComputeHash(hash1);
+    }
+
+    private static byte[] ComputeMerkleRoot(byte[] coinbaseHash, byte[] merkleBranches, byte count)
+    {
+        byte[] current = coinbaseHash;
+        for (int i = 0; i < count; i++)
+        {
+            byte[] branch = merkleBranches.Skip(i * 32).Take(32).ToArray();
+            current = DoubleSha256(current.Concat(branch).ToArray());
+        }
+        return current;
     }
 }
 
@@ -1359,6 +2358,7 @@ public class ShareResponseMessage
     {
         using var stream = new MemoryStream();
         using var writer = new BinaryWriter(stream);
+        writer.Write((byte)0x8F);
         writer.Write(Status); // 1 byte
         writer.Write(ReasonCode); // 2 bytes, little-endian
         writer.Write(Nonce); // 4 bytes, little-endian
@@ -1367,3 +2367,5 @@ public class ShareResponseMessage
         return stream.ToArray();
     }
 }
+
+// Helper functions:
