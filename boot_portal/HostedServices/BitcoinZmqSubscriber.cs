@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.SignalR;
 using NetMQ;
 using NetMQ.Sockets;
+using System.Text;
 
 namespace boot_portal.HostedServices;
 
@@ -20,45 +21,91 @@ public class BitcoinZmqSubscriber : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Subscribed to ZMQ at {ZmqEndpoint} for topic '{Topic}'", ZMQ_ENDPOINT, TOPIC);
-        
-        try
+        _logger.LogInformation("Starting ZMQ subscriber with Poller...");
+
+        // The 'using' blocks ensure everything is disposed when the service stops
+        using (_subscriber = new SubscriberSocket())
+        using (var poller = new NetMQPoller { _subscriber }) // Add the socket to the poller
         {
-            _subscriber = new SubscriberSocket();
             _subscriber.Connect(ZMQ_ENDPOINT);
-            _subscriber.Subscribe(TOPIC); // Subscribe to the topic
-            
-            while (!stoppingToken.IsCancellationRequested)
+            _subscriber.Subscribe(TOPIC);
+            _logger.LogInformation("Subscribed to ZMQ at {ZmqEndpoint} for topic '{Topic}'", ZMQ_ENDPOINT, TOPIC);
+
+            // 3. Attach to the ReceiveReady event.
+            // This event will fire on the Poller's dedicated thread when a message arrives.
+            _subscriber.ReceiveReady += (s, e) =>
             {
-                // Receive message (blocks until data arrives)
-                var topic = await new Task<string>(() => _subscriber.ReceiveFrameString(), stoppingToken);   // e.g., "hashblock"
-                var blockHash =
-                    await new Task<byte[]>(() => _subscriber.ReceiveFrameBytes(), stoppingToken); // 32-byte hash
-                //var sequenceBytes = _subscriber.ReceiveFrameBytes();
-
-                if (topic == TOPIC && blockHash.Length == 32)
+                try
                 {
-                    var hashHex = Convert.ToHexStringLower(blockHash);
+                    // We are inside the poller thread, so we can safely use
+                    // the synchronous, non-blocking TryReceive... methods.
+                    // We must read all 3 frames from the socket.
+                    
+                    // Use ReceiveFrameBytes and check for null (in case of a spurious event)
+                    var topicBytes = e.Socket.ReceiveFrameBytes(out bool more);
+                    if (!more || topicBytes == null) return; 
+                    
+                    var blockHash = e.Socket.ReceiveFrameBytes(out more);
+                    if (!more || blockHash == null) return;
+                    
+                    var sequenceBytes = e.Socket.ReceiveFrameBytes(out more);
+                    // We don't care about 'more' on the last frame
+                    
+                    // Now, process the message
+                    var topic = Encoding.UTF8.GetString(topicBytes);
 
-                    _logger.LogInformation("New block detected: {HashHex}", hashHex);
+                    if (topic == TOPIC && blockHash.Length == 32)
+                    {
+                        var hashHex = Convert.ToHexStringLower(blockHash);
+                        _logger.LogInformation("New block detected: {HashHex}", hashHex);
 
-                    // Trigger your server logic (e.g., update job templates, notify miners)
-                    await OnNewBlockAsync(hashHex, stoppingToken);
+                        // *** CRITICAL ***
+                        // We are on a synchronous poller thread. We CANNOT await OnNewBlockAsync.
+                        // We must dispatch the async work to the thread pool.
+                        // We "fire and forget" this task, logging any errors.
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                // Pass the service's stoppingToken
+                                await OnNewBlockAsync(hashHex, stoppingToken);
+                            }
+                            catch (Exception taskEx)
+                            {
+                                _logger.LogError(taskEx, "Error processing new block {HashHex}", hashHex);
+                            }
+                        }, stoppingToken);
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    _logger.LogInformation("Unexpected message: Topic={Topic}, Length={BlockHashLength}", topic,
-                        blockHash.Length);
+                    _logger.LogError(ex, "Error in ZMQ ReceiveReady event handler");
                 }
-            }
+            };
+
+            // *** THIS IS THE CORRECTED SECTION ***
+
+            // 1. Register a callback to stop the poller when cancellation is requested.
+            //    This is what breaks the poller.Run() loop.
+            stoppingToken.Register(() =>
+            {
+                _logger.LogInformation("Cancellation requested, stopping poller...");
+                poller.Stop(); // This is thread-safe and unblocks Run()
+            });
+
+            // 2. Run the poller's *blocking* Run() method on a background thread
+            //    and await its completion.
+            _logger.LogInformation("Poller starting...");
+            await Task.Run(() => poller.Run(), stoppingToken);
             
-            _subscriber?.Unsubscribe(TOPIC);
-            _subscriber?.Dispose();
-        }
-        catch (Exception e)
-        {
-            _logger.LogError(e, "Error receiving message from ZMQ");
-        }
+            // When poller.Stop() is called, poller.Run() will exit, 
+            // the Task completes, and this await will unblock.
+
+                
+            }
+
+        _logger.LogInformation("NetMQPoller stopped.");
+    // 'using' blocks will dispose poller and socket here.
     }
 
     private async Task OnNewBlockAsync(string blockHash, CancellationToken stoppingToken)
