@@ -5,7 +5,7 @@ using NSec.Cryptography;
 
 namespace boot_portal.HostedServices;
 
-public class DatumServer: IHostedService
+public class DatumServer: BackgroundService
 {
     private readonly TcpListener _listener;
 
@@ -30,8 +30,8 @@ public class DatumServer: IHostedService
         HubContext = hubContext;
         _logger = logger;
     }
-    
-    public async Task StartAsync(CancellationToken cancellationToken)
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _listener.Start();
         _logger.LogInformation("\ud83d\ude80 DATUM Prime Server started on port {ListenerLocalEndpoint}. Waiting for connections...", _listener.LocalEndpoint.Serialize());
@@ -59,11 +59,10 @@ public class DatumServer: IHostedService
         };
         OnDeckList.Add(dummyShare);  //insert the new share into the next winners list
         
-
-        while (!cancellationToken.IsCancellationRequested)
+        while (!stoppingToken.IsCancellationRequested)
         {
             // Asynchronously wait for a client to connect.
-            var client = await _listener.AcceptTcpClientAsync(cancellationToken);
+            var client = await _listener.AcceptTcpClientAsync(stoppingToken);
             _logger.LogInformation("\\n\ud83d\udd17 Client connected from {ClientRemoteEndPoint}", client.Client.RemoteEndPoint?.Serialize());
             
             // Create a handler for the new client.
@@ -71,15 +70,7 @@ public class DatumServer: IHostedService
 
             // Run the client handler on a background thread so the server
             // can immediately go back to listening for more connections.
-            _ = Task.Run(clientHandler.HandleClientAsync, cancellationToken);
+            _ = Task.Run(clientHandler.HandleClientAsync, stoppingToken);
         }
-    }
-    
-    public Task StopAsync(CancellationToken cancellationToken)
-    {
-        _listener.Stop();
-        _listener.Dispose();
-        
-        return Task.CompletedTask;
     }
 }

@@ -4,52 +4,64 @@ using NetMQ.Sockets;
 
 namespace boot_portal.HostedServices;
 
-public class BitcoinZmqSubscriber: IHostedService
+public class BitcoinZmqSubscriber : BackgroundService
 {
     private SubscriberSocket? _subscriber;
     private const string ZMQ_ENDPOINT = "tcp://127.0.0.1:28332"; // From bitcoin.conf
     private const string TOPIC = "hashblock"; // Subscribe to block hashes
     private readonly ILogger<BitcoinZmqSubscriber> _logger;
     private readonly IHubContext<PoolStatsHub> _hubContext;
-    
+
     public BitcoinZmqSubscriber(ILogger<BitcoinZmqSubscriber> logger, IHubContext<PoolStatsHub> hubContext)
     {
         _logger = logger;
         _hubContext = hubContext;
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _subscriber = new SubscriberSocket();
-        _subscriber.Connect(ZMQ_ENDPOINT);
-        _subscriber.Subscribe(TOPIC); // Subscribe to the topic
-
         _logger.LogInformation("Subscribed to ZMQ at {ZmqEndpoint} for topic '{Topic}'", ZMQ_ENDPOINT, TOPIC);
-
-        while (!cancellationToken.IsCancellationRequested)
+        
+        try
         {
-            // Receive message (blocks until data arrives)
-            var topic = _subscriber.ReceiveFrameString(); // e.g., "hashblock"
-            var blockHash = _subscriber.ReceiveFrameBytes(); // 32-byte hash
-            var sequenceBytes = _subscriber.ReceiveFrameBytes();
+            _subscriber = new SubscriberSocket();
+            _subscriber.Connect(ZMQ_ENDPOINT);
+            _subscriber.Subscribe(TOPIC); // Subscribe to the topic
+            
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                // Receive message (blocks until data arrives)
+                var topic = await new Task<string>(() => _subscriber.ReceiveFrameString(), stoppingToken);   // e.g., "hashblock"
+                var blockHash =
+                    await new Task<byte[]>(() => _subscriber.ReceiveFrameBytes(), stoppingToken); // 32-byte hash
+                //var sequenceBytes = _subscriber.ReceiveFrameBytes();
 
-            if (topic == TOPIC && blockHash.Length == 32)
-            {
-                var hashHex = Convert.ToHexStringLower(blockHash);
-                
-                _logger.LogInformation("New block detected: {HashHex}", hashHex);
-                
-                // Trigger your server logic (e.g., update job templates, notify miners)
-                await OnNewBlockAsync(hashHex);
+                if (topic == TOPIC && blockHash.Length == 32)
+                {
+                    var hashHex = Convert.ToHexStringLower(blockHash);
+
+                    _logger.LogInformation("New block detected: {HashHex}", hashHex);
+
+                    // Trigger your server logic (e.g., update job templates, notify miners)
+                    await OnNewBlockAsync(hashHex, stoppingToken);
+                }
+                else
+                {
+                    _logger.LogInformation("Unexpected message: Topic={Topic}, Length={BlockHashLength}", topic,
+                        blockHash.Length);
+                }
             }
-            else
-            {
-                _logger.LogInformation("Unexpected message: Topic={Topic}, Length={BlockHashLength}", topic, blockHash.Length);
-            }
+            
+            _subscriber?.Unsubscribe(TOPIC);
+            _subscriber?.Dispose();
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "Error receiving message from ZMQ");
         }
     }
 
-    private async Task OnNewBlockAsync(string blockHash)
+    private async Task OnNewBlockAsync(string blockHash, CancellationToken stoppingToken)
     {
         // Your custom logic: e.g., fetch block details via RPC, update jobs
         _logger.LogInformation("Processing block {BlockHash}...", blockHash);
@@ -70,7 +82,8 @@ public class BitcoinZmqSubscriber: IHostedService
                 DiffString = onDeckMiner.DiffString
             });
             var lastAdded = newWinnersList.Last();
-            _logger.LogInformation("Last added value: {Value} - Address: {Address}", lastAdded.Value.ToString("N0"), lastAdded.Address);
+            _logger.LogInformation("Last added value: {Value} - Address: {Address}", lastAdded.Value.ToString("N0"),
+                lastAdded.Address);
             onDeckMiner.Difficulty = 0;
         }
 
@@ -88,15 +101,8 @@ public class BitcoinZmqSubscriber: IHostedService
         //DatumServer.OnDeckList[i].Difficulty = 0;
         //Console.WriteLine($"{i}\t{DatumServer.OnDeckList[i].Difficulty}\t{DatumServer.OnDeckList[i].Address}");
 
-        await _hubContext.Clients.All.SendAsync("UpdateWinners", DatumServer.WinnersList);
-        await _hubContext.Clients.All.SendAsync("UpdateOnDeck", DatumServer.OnDeckList);
+        await _hubContext.Clients.All.SendAsync("UpdateWinners", DatumServer.WinnersList, stoppingToken);
+        await _hubContext.Clients.All.SendAsync("UpdateOnDeck", DatumServer.OnDeckList, stoppingToken);
         Console.WriteLine("Broadcasted new lists to web UI.");
-    }
-
-    public Task StopAsync(CancellationToken cancellationToken)
-    {
-        _subscriber?.Dispose();
-        
-        return Task.CompletedTask;
     }
 }
