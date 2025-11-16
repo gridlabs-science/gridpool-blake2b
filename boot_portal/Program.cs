@@ -213,12 +213,40 @@ public class Program
 
             //UI Server stuff:
             var builder = WebApplication.CreateBuilder(args);
+            builder.Configuration.AddJsonFile("boot_portal_config.json", optional: false, reloadOnChange: true);
+
+            builder.WebHost.UseUrls("http://0.0.0.0:5000", "https://0.0.0.0:5001");
 
             builder.Services.AddRazorPages(); // For serving simple HTML pages
             builder.Services.AddSignalR();    // For real-time updates
             
             // Start your background services
-            builder.Services.AddHostedService<BitcoinZmqSubscriber>();
+            //builder.Services.AddHostedService<BitcoinZmqSubscriber>();
+            // *** START CONFIGURABLE SERVICE SECTION ***
+
+            // 1. Read the source from appsettings.json
+            string notificationSource = builder.Configuration["NotificationSource"] ?? "MempoolSpace";
+
+            //Console.WriteLine("Using notification source: {Source}", notificationSource);
+
+            // 2. Conditionally register the correct hosted service
+            if (notificationSource.Equals("ZMQ", StringComparison.OrdinalIgnoreCase))
+            {
+                builder.Services.AddHostedService<BitcoinZmqSubscriber>();
+                Console.WriteLine("Block Notification source set to ZMQ");
+            }
+            else if (notificationSource.Equals("MempoolSpace", StringComparison.OrdinalIgnoreCase))
+            {
+                builder.Services.AddHostedService<MempoolSpaceSocketSubscriber>();
+                Console.WriteLine("Block Notification source set to Mempool.Space Web Socket API");
+            }
+            else
+            {
+                Console.WriteLine("Unknown NotificationSource.  Check the boot_portal_settings.json config file");
+                builder.Services.AddHostedService<MempoolSpaceSocketSubscriber>();
+            }
+
+            // *** END CONFIGURABLE SERVICE SECTION ***
             builder.Services.AddHostedService<DatumServer>(serviceProvider =>
             {
                 var logger = serviceProvider.GetRequiredService<ILogger<DatumServer>>();

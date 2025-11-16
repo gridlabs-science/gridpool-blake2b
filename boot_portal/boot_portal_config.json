@@ -1,4 +1,12 @@
 {
   "ed25519_private_key": "iAu\u002B2GGq\u002Bdp/kyR7fZ994wspGCdaCj/X1qwitWwk3Sg=",
-  "x25519_private_key": "DJaUNGGGz6rT0XMjYKcaZA2PsuKprNs8yco8KM8IImc="
+  "x25519_private_key": "DJaUNGGGz6rT0XMjYKcaZA2PsuKprNs8yco8KM8IImc=",
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*",
+  "NotificationSource": "MempoolSpace"
 }
