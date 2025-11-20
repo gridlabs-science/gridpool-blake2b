@@ -23,6 +23,12 @@
     {
       "Value": 0,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+      "Difficulty": 63617886,
+      "DiffString": "63.62M"
+    },
+    {
+      "Value": 0,
+      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Difficulty": 56554963,
       "DiffString": "56.55M"
     },
@@ -34,14 +40,20 @@
     },
     {
       "Value": 0,
-      "Address": "bc1q6derjsjmzhcvhgj9fp4qa9mexj8z9ev2r552na",
-      "Difficulty": 33676806,
-      "DiffString": "33.68M"
+      "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
+      "Difficulty": 2773847,
+      "DiffString": "2.77M"
+    },
+    {
+      "Value": 0,
+      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+      "Difficulty": 2687809,
+      "DiffString": "2.69M"
     }
   ],
   "BestShare": {
-    "Difficulty": 56554963,
+    "Difficulty": 63617886,
     "MinerAddress": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-    "Timestamp": "2025-11-20T06:40:17.8993979Z"
+    "Timestamp": "2025-11-20T15:59:47.6080133Z"
   }
 }

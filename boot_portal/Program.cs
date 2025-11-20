@@ -70,7 +70,7 @@ public class ServerConfig
 public class Program
 {
     // TODO: I should optionally load this from config, instead of hard-coded like this.
-    private const int DatumPort = 3008;
+    private static int DatumPort = 3008;  //Defaults to 3008.  Should get set by config file.
     private const string ConfigFilePath = "boot_portal_config.json";
     public static ulong BLOCK_REWARD = 312_500_000;  //TODO: Need to detect this from the blockchain, so it gracefully handles the next epoch
     public static int TeamSize = 16;
@@ -792,7 +792,7 @@ public class ClientHandler
             //Now check if we got new coinbase data with this share:
             if (powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb1 != null)  // Got a new coinbase with this one
             {
-                Console.WriteLine("New coinbase data");
+                //Console.WriteLine("New coinbase data");
                 JobCache[powSubmit.JobId].CoinbasePairs[powSubmit.CoinbaseId] = powSubmit.CoinbasePairs[powSubmit.CoinbaseId];
             }
             powSubmit = JobCache[powSubmit.JobId];  //Copies back over the Merkle Branch info.
@@ -1768,7 +1768,7 @@ public class PowSubmitMessage
         }
         if(hasCoinbaseData ^ hasMerkleData)
         {
-            if (hasCoinbaseData) Console.WriteLine("*** Got coinbase without Merkle Data!!!");
+            //if (hasCoinbaseData) Console.WriteLine("*** Got coinbase without Merkle Data!!!");
             if (hasMerkleData) Console.WriteLine("*** Got Merkle Data without Coinbase data!!");
         }
 
