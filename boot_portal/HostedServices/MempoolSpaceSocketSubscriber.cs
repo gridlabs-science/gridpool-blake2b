@@ -151,6 +151,7 @@ public class MempoolSpaceSocketSubscriber : BackgroundService
     {
         // Your custom logic: e.g., fetch block details via RPC, update jobs
         _logger.LogInformation("Processing block {BlockHash}...", blockHash);
+        return;
         // 1. Create the NEW list in a local variable.
         var newWinnersList = new List<PayoutInfo>();
 
@@ -166,8 +167,7 @@ public class MempoolSpaceSocketSubscriber : BackgroundService
                 DiffString = onDeckMiner.DiffString
             });
             var lastAdded = newWinnersList.Last();
-            _logger.LogInformation("Last added value: {Value} - Address: {Address}", lastAdded.Value.ToString("N0"),
-                lastAdded.Address);
+            //_logger.LogInformation("Last added value: {Value} - Address: {Address}", lastAdded.Value.ToString("N0"), lastAdded.Address);
             onDeckMiner.Difficulty = 0;
         }
 
@@ -176,9 +176,10 @@ public class MempoolSpaceSocketSubscriber : BackgroundService
 
         // 4. (Your comment noted resetting this, so I've left it commented)
         //DatumServer.OnDeckList = new List<PayoutInfo>();
+        DatumServer.SaveState();
 
         await _hubContext.Clients.All.SendAsync("UpdateWinners", DatumServer.WinnersList, stoppingToken);
         await _hubContext.Clients.All.SendAsync("UpdateOnDeck", DatumServer.OnDeckList, stoppingToken);
-        Console.WriteLine("Broadcasted new lists to web UI.");
+        //Console.WriteLine("Broadcasted new lists to web UI.");
     }
 }

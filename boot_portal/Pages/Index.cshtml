@@ -1,100 +1,222 @@
 @page
-<h1>Boot Protocol</h1>
-
-<div id="main-content">
-    <section>
-        <h2>Current Winners List</h2>
-        <div class="payout-note">
-            <strong>Finder's Reward (Index 0):</strong> 
-            [Miner's Own Address] + [TX Fees]
-        </div>
-        <table id="winners-list">
-            <thead>
-                <tr><th>Address</th><th>Value (BTC)</th><th>Difficulty</th></tr>
-            </thead>
-            <tbody>
-                </tbody>
-        </table>
-    </section>
-
-    <section>
-        <h2>On-Deck List</h2>
-        <table id="ondeck-list">
-            <thead>
-                <tr><th>Address</th><th>Value (BTC)</th><th>Difficulty</th></tr>
-            </thead>
-            <tbody>
-                </tbody>
-        </table>
-    </section>
-
-    <section class="static-info">
-        <h2>How to Join</h2>
-        <p>Use your DATUM client and point to the following:</p>
-        <pre>
-Pool Host: datum.gridlabs.science
-Pool Port: 3008
-Pool Pubkey: 0621c032e583e1b3944b2217ced6d5ba0dab988199262b6eb086cced1db12b624053eb0e2587f6c8b0ed175e9fdbf9ea2faab8760885a88af92a995650f31c07
-        </pre>
-    </section>
-
-    <section class="static-info">
-        <h2>Records</h2>
-        <p>Highest Share Difficulty: 1,234,567.89</p>
-    </section>
-</div>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
-
-<script>
-    // Create the connection to your hub
-    const connection = new signalR.HubConnectionBuilder()
-        .withUrl("/poolStatsHub") // Must match MapHub() in C#
-        .withAutomaticReconnect()
-        .build();
-
-    // --- Helper function to update a table ---
-    function updateTable(tableId, list) {
-        const tableBody = document.querySelector(`#${tableId} tbody`);
-        tableBody.innerHTML = ''; // Clear the old data
-
-        if (!list) return;
-
-        list.forEach(payout => {
-            const btcValue = payout.value / 100000000.0;
-            const row = `<tr>
-                            <td>${payout.address}</td>
-                            <td>${btcValue.toFixed(8)}</td>
-                            <td>${payout.diffString}</td>
-                       </tr>`;
-            tableBody.innerHTML += row;
-        });
-    }
-
-    // --- Listen for "UpdateWinners" message from server ---
-    connection.on("UpdateWinners", (winnersList) => {
-        console.log("Got new WinnersList!", winnersList);
-        updateTable("winners-list", winnersList);
-    });
-
-    // --- Listen for "UpdateOnDeck" message from server ---
-    connection.on("UpdateOnDeck", (onDeckList) => {
-        console.log("Got new OnDeckList!", onDeckList);
-        updateTable("ondeck-list", onDeckList);
-    });
-
-    // --- Start the connection ---
-    async function start() {
-        try {
-            await connection.start();
-            console.log("SignalR Connected.");
-            // Ask for the initial data just after connecting
-            await connection.invoke("GetInitialData"); 
-        } catch (err) {
-            console.error(err);
-            setTimeout(start, 5000); // Retry in 5 seconds
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Boot Protocol</title>
+    <style>
+        /* Move your CSS inside here or link to a stylesheet */
+        .key-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
         }
-    };
 
-    start();
-</script>
+        .copy-btn {
+            background: #e0e0e0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            cursor: pointer;
+            padding: 5px 10px;
+            font-size: 1.2em;
+            transition: background 0.2s;
+        }
+
+        .copy-btn:hover {
+            background: #d0d0d0;
+        }
+
+        .copy-btn:active {
+            background: #b0b0b0;
+        }
+
+        /* Optional: Make the static row look slightly distinct or just bold */
+        .static-row {
+            background-color: #fafafa; 
+            font-weight: 500;
+            color: #555;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Boot Protocol</h1>
+
+    <div id="main-content">
+        <section class="static-info">
+            <h2>Connection Info</h2>
+            <div class="info-box">
+                <p><strong>Pool Host:</strong> datum.gridlabs.science</p>
+                <p><strong>Pool Port:</strong> <span id="server-port">Loading...</span></p>
+                <p><strong>Pool Pubkey:</strong></p>
+                
+                <div class="key-container">
+                    <span id="server-pubkey-display">Loading key...</span>
+                    <button onclick="copyPubKey()" class="copy-btn" title="Copy full key to clipboard">📋</button>
+                </div>
+                <div id="copy-feedback" style="color: green; height: 20px; font-size: 0.8em;"></div>
+            </div>
+        </section>
+
+        <section class="static-info">
+            <h2>🏆 All-Time Best Share</h2>
+            <table id="record-table">
+                <tr>
+                    <td><strong>Difficulty:</strong></td>
+                    <td id="record-diff">0</td>
+                </tr>
+                <tr>
+                    <td><strong>Miner:</strong></td>
+                    <td id="record-miner">None</td>
+                </tr>
+                <tr>
+                    <td><strong>Time (UTC):</strong></td>
+                    <td id="record-time">--</td>
+                </tr>
+            </table>
+        </section>
+
+        <section>
+            <h2>Current Winners List</h2>
+            <table id="winners-list">
+                <thead><tr><th>Address</th><th>Value (BTC)</th><th>Difficulty</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </section>
+
+        <section>
+            <h2>On-Deck List</h2>
+            <table id="ondeck-list">
+                <thead><tr><th>Address</th><th>Value (BTC)</th><th>Difficulty</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </section>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+
+    <script>
+        let fullServerPubKey = ""; // Store the full key globally for the copy button
+
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("/poolStatsHub")
+            .withAutomaticReconnect()
+            .build();
+
+        // --- 1. Address Formatter Helper ---
+        function formatAddress(address) {
+            if (!address) return "Unknown";
+
+            // Check for "address.worker" format
+            const dotIndex = address.indexOf('.');
+            let mainPart = address;
+            let suffix = "";
+
+            if (dotIndex !== -1) {
+                mainPart = address.substring(0, dotIndex);
+                suffix = address.substring(dotIndex); // Includes the "."
+            }
+
+            // If the main address is short enough, just show it
+            if (mainPart.length <= 12) return address;
+
+            // Otherwise truncate: First 6 ... Last 6 + .worker
+            const first6 = mainPart.substring(0, 6);
+            const last6 = mainPart.substring(mainPart.length - 6);
+            
+            return `${first6}...${last6}${suffix}`;
+        }
+
+        // --- 2. Copy Button Logic ---
+        function copyPubKey() {
+            if (!fullServerPubKey) return;
+
+            navigator.clipboard.writeText(fullServerPubKey).then(() => {
+                const feedback = document.getElementById("copy-feedback");
+                feedback.innerText = "✅ Copied to clipboard!";
+                setTimeout(() => feedback.innerText = "", 2000);
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+            });
+        }
+
+        // --- 3. Table Updater with Static Row ---
+        function updateTable(tableId, list) {
+            const tableBody = document.querySelector(`#${tableId} tbody`);
+            tableBody.innerHTML = ''; 
+
+            // INJECTION: If this is the Winners List, add the static "Finder's Reward" row first
+            if (tableId === "winners-list") {
+                const staticRow = `
+                    <tr class="static-row">
+                        <td>[YourAddressHere]</td>
+                        <td>1 share + all TX fees</td>
+                        <td>&gt;NetworkDiff</td>
+                    </tr>`;
+                tableBody.innerHTML += staticRow;
+            }
+
+            if (!list) return;
+
+            list.forEach(payout => {
+                const btcValue = payout.value / 100000000.0;
+                // Use the new formatAddress helper
+                const formattedAddr = formatAddress(payout.address); 
+                const diffDisplay = payout.diffString || payout.difficulty || 0;
+
+                const row = `<tr>
+                    <td title="${payout.address}">${formattedAddr}</td>
+                    <td>${btcValue.toFixed(8)}</td>
+                    <td>${diffDisplay}</td>
+                </tr>`;
+                tableBody.innerHTML += row;
+            });
+        }
+
+        // --- SignalR Handlers ---
+
+        connection.on("UpdateWinners", (list) => updateTable("winners-list", list));
+        connection.on("UpdateOnDeck", (list) => updateTable("ondeck-list", list));
+
+        connection.on("UpdateRecord", (record) => {
+            if (record) {
+                document.getElementById("record-diff").innerText = record.difficulty.toLocaleString();
+                // Apply formatting to the miner address
+                document.getElementById("record-miner").innerText = formatAddress(record.minerAddress);
+                document.getElementById("record-time").innerText = record.timestamp ? new Date(record.timestamp).toLocaleString() : "--";
+            }
+        });
+
+        connection.on("UpdateServerInfo", (info) => {
+            fullServerPubKey = info.pubKey; // Store full key
+            document.getElementById("server-port").innerText = info.poolPort;
+            
+            // Display Truncated Key
+            if(info.pubKey && info.pubKey.length > 12) {
+                const first6 = info.pubKey.substring(0, 6);
+                const last6 = info.pubKey.substring(info.pubKey.length - 6);
+                document.getElementById("server-pubkey-display").innerText = `${first6}...${last6}`;
+            } else {
+                document.getElementById("server-pubkey-display").innerText = info.pubKey;
+            }
+        });
+
+        async function start() {
+            try {
+                await connection.start();
+                console.log("SignalR Connected.");
+                await connection.invoke("GetInitialData"); 
+            } catch (err) {
+                console.error(err);
+                setTimeout(start, 5000); 
+            }
+        };
+
+        start();
+    </script>
+</body>

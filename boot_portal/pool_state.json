@@ -1,0 +1,47 @@
+{
+  "WinnersList": [
+    {
+      "Value": 78125000,
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.heater",
+      "Difficulty": 492216,
+      "DiffString": "492.22k"
+    },
+    {
+      "Value": 78125000,
+      "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
+      "Difficulty": 290269,
+      "DiffString": "290.27k"
+    },
+    {
+      "Value": 78125000,
+      "Address": "bc1q6derjsjmzhcvhgj9fp4qa9mexj8z9ev2r552na",
+      "Difficulty": 0,
+      "DiffString": "217.59k"
+    }
+  ],
+  "OnDeckList": [
+    {
+      "Value": 0,
+      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+      "Difficulty": 56554963,
+      "DiffString": "56.55M"
+    },
+    {
+      "Value": 0,
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.heater",
+      "Difficulty": 45235416,
+      "DiffString": "45.24M"
+    },
+    {
+      "Value": 0,
+      "Address": "bc1q6derjsjmzhcvhgj9fp4qa9mexj8z9ev2r552na",
+      "Difficulty": 33676806,
+      "DiffString": "33.68M"
+    }
+  ],
+  "BestShare": {
+    "Difficulty": 56554963,
+    "MinerAddress": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+    "Timestamp": "2025-11-20T06:40:17.8993979Z"
+  }
+}

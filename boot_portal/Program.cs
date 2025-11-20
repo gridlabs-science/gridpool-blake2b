@@ -774,13 +774,10 @@ public class ClientHandler
 
     private async Task HandlePowSubmitAsync(byte[] payload)
     {
-        //Console.WriteLine("-----------------------------------------------------------");
         var powSubmit = PowSubmitMessage.FromBytes(payload);
-        //if (powSubmit.JobId == null) return;    
         if (powSubmit.PrevBlockHash == null)  //This is just a nonce update, does not include complete header info
         {
-            //JobCache[powSubmit.JobId].Update(powSubmit);  //There's already job data stored here, so just update the new data
-            //Console.WriteLine("No new merkle data, using stored");
+
             JobCache[powSubmit.JobId].CoinbaseId = powSubmit.CoinbaseId;  
             JobCache[powSubmit.JobId].IsBlock = powSubmit.IsBlock;
             JobCache[powSubmit.JobId].SubsidyOnly = powSubmit.SubsidyOnly;
@@ -806,19 +803,6 @@ public class ClientHandler
         byte[] Coinb1 = powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb1;
         byte[] Coinb2 = powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb2;
         byte[] coinbaseTx = Coinb1.Concat(powSubmit.Extranonce).Concat(Coinb2).ToArray();
-        //Console.WriteLine($"Coinb1: {BitConverter.ToString(Coinb1).Replace("-", "")}");
-        //Console.WriteLine($"Extranonce: {BitConverter.ToString(powSubmit.Extranonce).Replace("-", "")}");
-        //Console.WriteLine($"Coinb2: {BitConverter.ToString(Coinb2).Replace("-", "")}");
-        //Console.WriteLine($"coinbaseTx(1): {BitConverter.ToString(coinbaseTx).Replace("-", "")}");
-        //Console.WriteLine($"Merkle Count: {powSubmit.MerkleBranchCount}");
-        //Console.WriteLine($"TargetByte: {powSubmit.TargetByte}");
-        //Console.WriteLine($"TargetByteIndex: {powSubmit.TargetByteIndex}");
-
-        //byte[] testCoinbase1 = Convert.FromHexString("020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff2303780b0e225075626c696320506f6f6c206f6e20556d6272656c2251cf70860019ccefffffffff");
-        //byte[] testCoinbase2 = Convert.FromHexString("029c04b912000000001600145ea459e521b0d95d521f0dbc1596e9c54d29d9db0000000000000000266a24aa21a9ed46f10a6f564fcb1758d78fcf8d63cb82d6379e5ce53de187b7545589c1cac16a0120000000000000000000000000000000000000000000000000000000000000000000000000");
-        //byte[] legacyPrefix = testCoinbase1.Take(4).ToArray();
-        //byte[] legacyBody = testCoinbase1.Skip(6).ToArray();
-        //byte[] testCoinbase = legacyPrefix.Concat(legacyBody).Concat(testCoinbase2).ToArray();
 
         if (powSubmit.QuickDiff)
         {
@@ -843,7 +827,6 @@ public class ClientHandler
             // ----- quickdiff target byte -----
             // The client uses the *quick* difficulty that the miner was asked for
             byte quickPot = FloorPoT(powSubmit.TargetByte);   // you already have this helper
-            //Console.WriteLine($"quickPot: {quickPot}");
             if (powSubmit.TargetByteIndex.HasValue)
             {
                 int idx = powSubmit.TargetByteIndex.Value;
@@ -859,165 +842,57 @@ public class ClientHandler
             // ----- normal (non-quickdiff) target byte -----
             // The client uses the difficulty that belongs to the current stratum job
             byte normalPot = FloorPoT(powSubmit.TargetByte);   // you must expose this value
-            //Console.WriteLine($"normalPot: {normalPot:X1}");
             if (powSubmit.TargetByteIndex.HasValue)
             {
                 int idx = powSubmit.TargetByteIndex.Value;
                 if (idx >= 0 && idx < coinbaseTx.Length)
                 {
-                    //Console.WriteLine($"coinbaseTx[idx](1): {coinbaseTx[idx]}");
                     coinbaseTx[idx] = powSubmit.TargetByte;
-                    //Console.WriteLine($"coinbaseTx[idx](2): {coinbaseTx[idx]}");
                 }
                 else
                     Console.WriteLine($"TargetByteIndex {idx} out of range (coinbase size {coinbaseTx.Length})");
             }
         }
-        //Console.WriteLine($"coinbaseTx(2): {BitConverter.ToString(coinbaseTx).Replace("-", "")}");
 
-        //var testCBHash = DoubleSha256(coinbaseTx);
-        //var testMerkleRoot = ComputeMerkleRoot(testCBHash, powSubmit.MerkleBranches, powSubmit.MerkleBranchCount.Value);
-        //Console.WriteLine($"testCBHash = {BitConverter.ToString(testCBHash)}");
-        //Console.WriteLine($"testMerkle = {BitConverter.ToString(testMerkleRoot)}");
         byte[] coinbaseHash = DoubleSha256(coinbaseTx);
         powSubmit.MerkleRoot = ComputeMerkleRoot(coinbaseHash, powSubmit.MerkleBranches, powSubmit.MerkleBranchCount.Value);
         JobCache[powSubmit.JobId].MerkleRoot = powSubmit.MerkleRoot; //For completeness, I guess.
 
-        //Test merkle tree data from block 123482
-        //byte[] cb = Convert.FromHexString("28529fd87f187a4fdc7c70c0a12e86d4b32d398fd71343b2a51b952b6b238def"); //TXID (rev): ef8d236b2b951ba5b24313d78f392db3d4862ea1c0707cdc4f7a187fd89f5228
-        //byte[] tx1 = Convert.FromHexString("0fdbd6314800158e12e2699ede24b07a8fc2f00f0fca8fee6491bf690a2c57ea"); //TXID (rev): ea572c0a69bf9164ee8fca0f0ff0c28f7ab024de9e69e2128e15004831d6db0f
-        //byte[] final = DoubleSha256(cb.Concat(tx1).ToArray());
-        //byte[] actual = Convert.FromHexString("5509c987862865584458e44ab147d061168fdf666fbddb99b5134c73a66a0bb4");
-        //if (final == actual) Console.WriteLine("huzzah!!!!  They match!!!");
-        //else
-        //{
-        //Console.WriteLine(BitConverter.ToString(final).Replace("-", ""));
-        //Console.WriteLine(BitConverter.ToString(actual).Replace("-", ""));
-        //}         
-
         // Reconstruct block header
-        //powSubmit.Version = 0x2f438000;  //For testing version logic
         byte[] header = new byte[80];
         using (var stream = new MemoryStream(header))
         using (var writer = new BinaryWriter(stream))
         {
             writer.Write(powSubmit.Version); // 4 bytes
             writer.Write(powSubmit.PrevBlockHash); // 32 bytes
-            //writer.Write(powSubmit.MerkleRoot.Reverse().ToArray()); // 32 bytes  
             writer.Write(powSubmit.MerkleRoot);
             writer.Write(powSubmit.NTime); // 4 bytes
             writer.Write(powSubmit.NBits); // 4 bytes
             writer.Write(powSubmit.Nonce); // 4 bytes
         }
-        //Console.WriteLine($"Version (Byte): {Convert.ToByte(powSubmit.Version)}");
-        //Console.WriteLine($"Version (String): {Convert.ToString(powSubmit.Version)}");
         if (powSubmit.SubsidyOnly) Console.WriteLine("*** Got subsidy only coinbase message!");
-        //Console.WriteLine($"PoW header: {BitConverter.ToString(header).Replace("-", "")}");
 
-        /*Console.Write($"{powSubmit.Version:X8} | ");
-        Console.WriteLine($"Version (B32): 0b{powSubmit.Version:B32} | ");
-        Console.Write($"{BitConverter.ToString(powSubmit.PrevBlockHash).Replace("-", "")} | ");
-        Console.Write($"{BitConverter.ToString(powSubmit.MerkleRoot).Replace("-", "")} | ");
-        Console.Write($"{BitConverter.ToString(BitConverter.GetBytes(powSubmit.NTime))} | ");
-        Console.Write($"{BitConverter.ToString(powSubmit.NBits).Replace("-", "")} | ");
-        Console.Write($"{BitConverter.ToString(BitConverter.GetBytes(powSubmit.Nonce))}\n");
-        */
-
-
-        /*
-                // Test Bitcoin block 756951
-                byte[] testHeader = new byte[80];
-                using (var stream = new MemoryStream(testHeader))
-                using (var writer = new BinaryWriter(stream))
-                {
-                    // Version: 0x20400000 (little-endian: 00004020)
-                    uint version = 0x20400000;
-                    writer.Write(version); // 4 bytes
-
-                    // PrevBlockHash: 000000000000000000050da0da9451c2e1306db4ddb5acc965fc1016678d9154 (big-endian)
-                    byte[] prevBlockHash = Convert.FromHexString("54918d671610fc65c9acb5ddb46d30e1c25194daa00d05000000000000000000");
-                    writer.Write(prevBlockHash); // 32 bytes
-
-                    // MerkleRoot: 62c46f1efadf6e39b7463e5362bb552cba98f74a80a58378ff5194c7b058005a (big-endian)
-                    byte[] merkleRoot = Convert.FromHexString("5a0058b0c79451ff7883a5804af798ba2c55bb62533e46b7396edffa1e6fc462");
-                    writer.Write(merkleRoot); // 32 bytes
-
-                    // NTime: 0x633b8c2d (little-endian: 2d8c3b63)
-                    uint nTime = 0x633b8c2d;
-                    writer.Write(nTime); // 4 bytes
-
-                    // NBits: 0x1708f9ae (big-endian: aef90817)
-                    byte[] nBits = Convert.FromHexString("aef90817");
-                    writer.Write(nBits); // 4 bytes
-
-                    // Nonce: 0xc1230f8c (little-endian: 8c0f23c1)
-                    uint nonce = 0xc1230f8c;
-                    writer.Write(nonce); // 4 bytes
-                }
-        */
         // Verify header
-        //Console.WriteLine($"Test Header: {BitConverter.ToString(testHeader).Replace("-", "")}");
 
         // Compute hash
         byte[] testHash = DoubleSha256(header);  //testHeader
-        byte[] reversedTestHash = testHash.Reverse().ToArray();
-        //Console.WriteLine($"Test Hash (raw): {BitConverter.ToString(testHash).Replace("-", "")}");
-        //Console.WriteLine($"Test Hash (reversed, explorer): {BitConverter.ToString(reversedTestHash).Replace("-", "")}");
 
         // Achieved difficulty (hash-based)
         BigInteger hashInt = 0;
-        for (int i = testHash.Length - 1; i >= 0; i--)//(int i = testHash.Length - 1; i >= 0; i--) int i = 0; i < testHash.Length; i++
+        for (int i = testHash.Length - 1; i >= 0; i--)
         {
             hashInt = (hashInt << 8) | testHash[i];
         }
         BigInteger maxTarget = BigInteger.Pow(2, 224) - 1;
         BigInteger achievedDifficultyBig = hashInt == 0 ? 0 : maxTarget / hashInt;
-        //double achievedDifficulty = (double)achievedDifficultyBig;
-        //Console.WriteLine($"Achieved Difficulty: {achievedDifficulty} ({FormatDifficulty(achievedDifficulty)})");
-
-        // Required difficulty (nBits-based)
-        //BigInteger target = (ComputeTargetFromNBits(Convert.FromHexString("aef90817")));
-        //BigInteger requiredDifficultyBig = target == 0 ? 0 : maxTarget / target;
-        //double requiredDifficulty = (double)requiredDifficultyBig;
-        //Console.WriteLine($"Required Difficulty: {requiredDifficulty} ({FormatDifficulty(requiredDifficulty)})");
-
-        // Leading zero bits (for your preferred metric)
-        /*
-        ulong leadingZeroBits = 0;
-        bool foundNonZero = false;
-        foreach (byte b in reversedTestHash)
-        {
-            if (b == 0)
-            {
-                leadingZeroBits += 8;
-            }
-            else
-            {
-                int zeros = 0;
-                for (int i = 7; i >= 0; i--)
-                {
-                    if ((b & (1 << i)) == 0) zeros++;
-                    else break;
-                }
-                leadingZeroBits += (ulong)zeros;
-                foundNonZero = true;
-                break;
-            }
-        }
-        if (!foundNonZero) leadingZeroBits = 256;
-        */
-        //Console.WriteLine($"Leading Zero Bits: {leadingZeroBits}");
 
         //Console.WriteLine($"   -> ✅ Received PoW submission: JobID={powSubmit.JobId}, CoinbaseID={powSubmit.CoinbaseId}, IsBlock={powSubmit.IsBlock}, SubsidyOnly={powSubmit.SubsidyOnly}, QuickDiff={powSubmit.QuickDiff}, Username={powSubmit.Username}");
 
-        // 1. Check Difficulty
-        //ulong difficulty = CalculateDifficulty(powSubmit.TargetByte, powSubmit.TargetByteIndex, powSubmit.NBits);
         double difficulty = (double)achievedDifficultyBig;
-        if (difficulty > BestDiff)
-        {
-            BestDiff = difficulty;
-            BestDiffAddress = powSubmit.Username;
-        }
+
+        // Check against the global best record
+        // This handles saving to disk and updating the UI automatically
+        await DatumServer.UpdateBestShareIfNewRecord(difficulty, powSubmit.Username);
 
 
         // 2. Verify Block Header
@@ -1031,11 +906,7 @@ public class ClientHandler
         // 4. Verify Coinbase Transaction
         var (isValidCoinbase, outputs) = VerifyCoinbaseTransaction(Coinb1, Coinb2, powSubmit.CoinbaseValue);
         //Console.WriteLine($"   -> Coinbase valid: {isValidCoinbase}");
-        foreach (var output in outputs)
-        {
-            //Console.WriteLine($"   -> Coinbase output: Address={output.Address}, Amount={output.Amount / 100_000_000.0} BTC");
-        }
-        //if (powSubmit.QuickDiff) Console.WriteLine("QuickDiff!!!");
+
         //Console.WriteLine($"POW: {powSubmit.JobId}\t{powSubmit.CoinbaseId}\t{difficulty}\t{powSubmit.Username}\n");
 
         //Evaluate how to credit this share, whether to add to on-deck or not
@@ -1063,6 +934,7 @@ public class ClientHandler
                 else if (DatumServer.OnDeckList.Count > _poolConfig.WinnersListSize) Console.WriteLine("we have a problem, OnDeckList got too big");
                 if(newWinner)
                 {
+                    DatumServer.SaveState(); //Make sure to save the new list state to disk, in case the server reboots
                     //For debugging, print the OnDeckList
                     Console.WriteLine("-----------------------------------------------------------");
                     for (int i = 0; i < DatumServer.OnDeckList.Count; i++)

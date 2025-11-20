@@ -112,6 +112,7 @@ public class BitcoinZmqSubscriber : BackgroundService
     {
         // Your custom logic: e.g., fetch block details via RPC, update jobs
         _logger.LogInformation("Processing block {BlockHash}...", blockHash);
+        return;
         // 1. Create the NEW list in a local variable.
         //    Reader threads CANNOT see this variable.
         //    They are all still happily reading the OLD static WinnersList.
@@ -129,8 +130,7 @@ public class BitcoinZmqSubscriber : BackgroundService
                 DiffString = onDeckMiner.DiffString
             });
             var lastAdded = newWinnersList.Last();
-            _logger.LogInformation("Last added value: {Value} - Address: {Address}", lastAdded.Value.ToString("N0"),
-                lastAdded.Address);
+            //_logger.LogInformation("Last added value: {Value} - Address: {Address}", lastAdded.Value.ToString("N0"), lastAdded.Address);
             onDeckMiner.Difficulty = 0;
         }
 
@@ -143,6 +143,8 @@ public class BitcoinZmqSubscriber : BackgroundService
         // 4. Reset the OnDeckList for the next round.
         //DatumServer.OnDeckList = new List<PayoutInfo>();
 
+        DatumServer.SaveState();
+
 
         //Console.WriteLine($"{i}\t{DatumServer.WinnersList[i].Value}\t{DatumServer.WinnersList[i].Address}");
         //DatumServer.OnDeckList[i].Difficulty = 0;
@@ -150,6 +152,6 @@ public class BitcoinZmqSubscriber : BackgroundService
 
         await _hubContext.Clients.All.SendAsync("UpdateWinners", DatumServer.WinnersList, stoppingToken);
         await _hubContext.Clients.All.SendAsync("UpdateOnDeck", DatumServer.OnDeckList, stoppingToken);
-        Console.WriteLine("Broadcasted new lists to web UI.");
+        //Console.WriteLine("Broadcasted new lists to web UI.");
     }
 }
