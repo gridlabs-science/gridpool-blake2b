@@ -1,0 +1,410 @@
+@page "{addr?}"
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BOOT PROTOCOL</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        :root {
+            --bg-color: #111111;
+            --text-color: #eeeeee;
+            --text-muted: #888888;
+            --accent-color: #bd59ff; 
+            --highlight-color: #ffffff; 
+            --border-color: #333333;
+            --container-width: 900px;
+        }
+
+        body {
+            font-family: 'Roboto Mono', monospace;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 0;
+            line-height: 1.4;
+        }
+
+        .dev-banner {
+            background: repeating-linear-gradient(45deg, #d4af37, #d4af37 10px, #bfa030 10px, #bfa030 20px);
+            color: #000; text-align: center; font-weight: bold; padding: 5px; font-size: 0.8rem;
+            border-bottom: 2px solid #000; position: sticky; top: 0; z-index: 1000;
+        }
+
+        .logo-img {
+            position: absolute; top: 45px; left: 30px; width: 160px; height: auto;
+            opacity: 0.9; transition: opacity 0.3s;
+        }
+        .logo-img:hover { opacity: 1; }
+
+        .main-container { max-width: var(--container-width); margin: 0 auto; padding: 40px 20px 20px 20px; }
+
+        h1, h2, h3 { text-transform: uppercase; letter-spacing: 1px; margin-bottom: 1rem; font-weight: 700; }
+        h1 { color: var(--accent-color); text-align: center; margin-top: 0; }
+        h2 { font-size: 1.2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 5px; margin-top: 30px; display: flex; align-items: center; gap: 10px;}
+        a { color: var(--accent-color); text-decoration: none; cursor: pointer;}
+        a:hover { text-decoration: underline; }
+
+        .info-icon {
+            display: inline-block; width: 18px; height: 18px; border: 1px solid var(--text-muted);
+            border-radius: 50%; text-align: center; line-height: 16px; font-size: 12px;
+            color: var(--text-muted); cursor: help; position: relative;
+        }
+        .info-icon:hover::after {
+            content: attr(data-tooltip); position: absolute; bottom: 125%; left: 50%; transform: translateX(-50%);
+            background: #333; color: #fff; padding: 8px; border-radius: 4px; font-size: 12px; width: 200px;
+            text-transform: none; font-weight: normal; z-index: 10; border: 1px solid var(--accent-color);
+        }
+
+        .search-section { margin-bottom: 40px; text-align: center; }
+        .search-box-container { display: inline-flex; border: 1px solid var(--border-color); padding: 5px; background: #000; }
+        .search-input { background: transparent; border: none; color: var(--text-color); font-family: inherit; padding: 8px; width: 300px; outline: none; }
+        .search-btn { background: var(--accent-color); border: none; color: #000; font-family: inherit; padding: 8px 15px; font-weight: bold; cursor: pointer; }
+        .search-btn:hover { opacity: 0.9; }
+        
+        .search-results { margin-top: 15px; min-height: 20px; font-size: 0.9rem; color: var(--text-muted); }
+        .result-highlight { color: var(--highlight-color); font-weight: bold; }
+
+        .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .info-box { border: 1px solid var(--border-color); padding: 15px; }
+        .info-box h3 { font-size: 0.9rem; color: var(--text-muted); margin: 0 0 10px 0; }
+        .info-value { font-size: 1.1rem; word-break: break-all;}
+        .accent-value { color: var(--accent-color); }
+
+        .key-container { display: flex; align-items: center; justify-content: space-between; background: #000; padding: 5px; font-size: 0.85rem; border: 1px solid var(--border-color); }
+        .copy-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; }
+        .copy-btn:hover { color: var(--accent-color); }
+
+        .charts-section { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+        .chart-container { border: 1px solid var(--border-color); padding: 15px; height: 250px;}
+        
+        .table-container { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th { color: var(--text-muted); font-weight: normal; padding: 10px 5px; border-bottom: 1px solid var(--border-color); }
+        td { padding: 10px 5px; border-bottom: 1px solid #222; }
+        tr:hover td { background-color: #1a1a1a; }
+        .static-row td { color: var(--accent-color); font-style: italic;}
+        
+        tr.highlight-row td { background-color: rgba(189, 89, 255, 0.2); color: var(--highlight-color); font-weight: bold; border-bottom: 1px solid var(--highlight-color); }
+
+        footer { margin-top: 50px; text-align: center; font-size: 0.9rem; color: var(--text-muted); }
+        footer a { margin: 0 10px; }
+
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 2000; justify-content: center; align-items: center; }
+        .modal-content { background: var(--bg-color); border: 2px solid var(--accent-color); padding: 30px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; position: relative; }
+        .close-modal { position: absolute; top: 10px; right: 15px; font-size: 1.5rem; color: var(--accent-color); cursor: pointer; }
+
+        @@media (max-width: 1100px) {
+            .logo-img { position: relative; display: block; margin: 0 auto 20px auto; top: 0; left: 0; }
+            .charts-section { grid-template-columns: 1fr; } 
+        }
+    </style>
+</head>
+<body>
+    <div class="dev-banner">⚠️ DEVELOPER PREVIEW: SIMULATED FUNDS ONLY ⚠️</div>
+    <img src="logo.png" alt="Grid Labs" class="logo-img" />
+
+    <div class="main-container">
+        <h1>BOOT PROTOCOL</h1>
+
+        <div class="search-section">
+            <div class="search-box-container">
+                <input type="text" id="search-input" class="search-input" placeholder="Enter Wallet Address..." onkeypress="if(event.key === 'Enter') performSearch()">
+                <button class="search-btn" onclick="performSearch()">SEARCH</button>
+            </div>
+            <div id="search-results" class="search-results"></div>
+        </div>
+
+        <div class="info-grid">
+            <div class="info-box">
+                 <h3>🏆 All-Time Best Diff</h3>
+                 <div class="info-value accent-value" id="record-diff">0</div>
+                 <h3>Miner</h3>
+                 <div class="info-value" id="record-miner">None</div>
+                 <h3>Time (UTC)</h3>
+                 <div class="info-value" id="record-time">--</div>
+            </div>
+            <div class="info-box">
+                 <h3>📡 Connection Info</h3>
+                 <div>Host: <span class="accent-value">datum.gridlabs.science</span></div>
+                 <div>Port: <span class="accent-value" id="server-port">Loading...</span></div>
+                 <h3 style="margin-top: 10px;">Pool Pubkey</h3>
+                 <div class="key-container">
+                    <span id="server-pubkey-display">Loading...</span>
+                    <button onclick="copyPubKey()" class="copy-btn" title="Copy Key">📋</button>
+                </div>
+                <div id="copy-feedback" style="color: var(--accent-color); height: 15px; font-size: 0.7em;"></div>
+            </div>
+        </div>
+
+        <h2>Difficulty Distribution</h2>
+        <div class="charts-section">
+            <div class="chart-container"><canvas id="winnersChart"></canvas></div>
+            <div class="chart-container"><canvas id="onDeckChart"></canvas></div>
+        </div>
+
+        <div class="lists-container">
+            <section>
+                <h2>Current Winners List <span class="info-icon" data-tooltip="High difficulty shares eligible for block rewards.">i</span></h2>
+                <div class="table-container">
+                    <table id="winners-list"><thead><tr><th>Address</th><th>Value (BTC)</th><th>Difficulty</th></tr></thead><tbody></tbody></table>
+                </div>
+            </section>
+            <section style="margin-top: 30px;">
+                <h2>On-Deck List <span class="info-icon" data-tooltip="Shares waiting to move up.">i</span></h2>
+                <div class="table-container">
+                     <table id="ondeck-list"><thead><tr><th>Address</th><th>Value (BTC)</th><th>Difficulty</th></tr></thead><tbody></tbody></table>
+                </div>
+            </section>
+        </div>
+
+        <footer>
+            <a href="https://github.com/yourusername/boot-protocol" target="_blank">GITHUB</a> |
+            <a onclick="toggleModal('theory-modal')">THEORY</a> |
+            <a onclick="toggleModal('help-modal')">HELP</a>
+        </footer>
+    </div> 
+
+    <div id="theory-modal" class="modal-overlay" onclick="if(event.target === this) toggleModal('theory-modal')">
+        <div class="modal-content"><span class="close-modal" onclick="toggleModal('theory-modal')">&times;</span><h2>Pool Theory</h2><p>Boot Protocol operates differently than traditional pools...</p></div>
+    </div>
+    <div id="help-modal" class="modal-overlay" onclick="if(event.target === this) toggleModal('help-modal')">
+        <div class="modal-content"><span class="close-modal" onclick="toggleModal('help-modal')">&times;</span><h2>How to Connect</h2><p>Download the DATUM client and point it here.</p></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+    <script>
+        let fullServerPubKey = "";
+        let winnersChartInstance = null;
+        let onDeckChartInstance = null;
+        let globalWinnersList = [];
+        let globalOnDeckList = [];
+        let currentSearchTerm = "";
+
+        // --- INITIALIZE URL SEARCH ---
+        // Checks if the URL is like /bc1q... and pre-fills the search
+        window.addEventListener('DOMContentLoaded', () => {
+            const path = window.location.pathname.substring(1); // Remove leading '/'
+            // Simple check to ignore SignalR paths or empty paths
+            if (path && path.length > 15 && !path.includes("/")) {
+                const input = document.getElementById('search-input');
+                input.value = path;
+                currentSearchTerm = path; // Set immediate state
+            }
+        });
+
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("/poolStatsHub")
+            .withAutomaticReconnect()
+            .build();
+
+        function performSearch() {
+            const input = document.getElementById('search-input');
+            const rawTerm = input.value.trim();
+            
+            // Update URL without reloading (HTML5 History API)
+            if (rawTerm) {
+                window.history.pushState({}, "", "/" + rawTerm);
+            } else {
+                window.history.pushState({}, "", "/");
+            }
+
+            currentSearchTerm = rawTerm;
+            const resultDiv = document.getElementById('search-results');
+
+            if (!rawTerm) {
+                resultDiv.innerHTML = "";
+                refreshUI(); 
+                return;
+            }
+
+            const winnerMatches = globalWinnersList
+                .map((item, index) => ({ item, index: index + 1 })) 
+                .filter(x => x.item.address === rawTerm);
+            const winnerTotal = winnerMatches.reduce((sum, x) => sum + x.item.value, 0);
+
+            const deckMatches = globalOnDeckList
+                .map((item, index) => ({ item, index: index + 1 }))
+                .filter(x => x.item.address === rawTerm);
+            const deckTotal = deckMatches.reduce((sum, x) => sum + x.item.value, 0);
+
+            if (winnerMatches.length === 0 && deckMatches.length === 0) {
+                resultDiv.innerHTML = `This address does not have any shares on the lists yet. Keep hashing!`;
+            } else {
+                let msg = "";
+                if (deckMatches.length > 0) {
+                    msg += `<div><span class="result-highlight">On Deck List:</span> ${deckMatches.length} spots. Potential: ${(deckTotal/1e8).toFixed(8)} BTC</div>`;
+                }
+                if (winnerMatches.length > 0) {
+                    msg += `<div><span class="result-highlight">Winners List:</span> ${winnerMatches.length} spots. Locked: ${(winnerTotal/1e8).toFixed(8)} BTC</div>`;
+                }
+                resultDiv.innerHTML = msg;
+            }
+            refreshUI();
+        }
+
+        function refreshUI() {
+            updateTable("winners-list", globalWinnersList);
+            updateTable("ondeck-list", globalOnDeckList);
+            winnersChartInstance = updateChart("winnersChart", globalWinnersList, "Winners List Depth", winnersChartInstance);
+            onDeckChartInstance = updateChart("onDeckChart", globalOnDeckList, "On-Deck List Depth", onDeckChartInstance);
+        }
+
+        function formatAddress(address) {
+            if (!address) return "Unknown";
+            const dotIndex = address.indexOf('.');
+            let mainPart = address;
+            let suffix = "";
+            if (dotIndex !== -1) { mainPart = address.substring(0, dotIndex); suffix = address.substring(dotIndex); }
+            if (mainPart.length <= 12) return address;
+            return `${mainPart.substring(0, 6)}...${mainPart.substring(mainPart.length - 6)}${suffix}`;
+        }
+
+        function copyPubKey() {
+            if (!fullServerPubKey) return;
+            navigator.clipboard.writeText(fullServerPubKey).then(() => {
+                const feedback = document.getElementById("copy-feedback");
+                feedback.innerText = "COPIED!";
+                setTimeout(() => feedback.innerText = "", 2000);
+            });
+        }
+
+        function toggleModal(modalId) {
+            const modal = document.getElementById(modalId);
+            modal.style.display = modal.style.display === 'flex' ? 'none' : 'flex';
+        }
+
+        function updateTable(tableId, list) {
+            const tableBody = document.querySelector(`#${tableId} tbody`);
+            tableBody.innerHTML = '';
+            if (tableId === "winners-list") {
+                tableBody.innerHTML += `<tr class="static-row"><td>[YourAddressHere]</td><td>1 share + fees</td><td>>NetworkDiff</td></tr>`;
+            }
+            if (!list) return;
+            list.forEach(payout => {
+                let rowClass = (currentSearchTerm && payout.address === currentSearchTerm) ? "highlight-row" : "";
+                const btc = (payout.value / 1e8).toFixed(8);
+                const diff = payout.diffString || (payout.difficulty || 0).toLocaleString(undefined, {maximumFractionDigits: 2});
+                tableBody.innerHTML += `<tr class="${rowClass}"><td title="${payout.address}">${formatAddress(payout.address)}</td><td>${btc}</td><td>${diff}</td></tr>`;
+            });
+        }
+
+        // --- VERTICAL LINE PLUGIN ---
+        const verticalLinePlugin = {
+            id: 'verticalLinePlugin',
+            afterDatasetsDraw(chart) {
+                if (!currentSearchTerm) return;
+                const ctx = chart.ctx;
+                const xAxis = chart.scales.x;
+                const yAxis = chart.scales.y;
+                const rawList = chart.config._rawList || []; // Access raw data
+
+                ctx.save();
+                ctx.beginPath();
+                ctx.lineWidth = 2; // Thicker for visibility
+                ctx.strokeStyle = '#ffffff'; 
+                ctx.setLineDash([5, 3]);
+
+                rawList.forEach((item, originalIndex) => {
+                    if(item.address === currentSearchTerm) {
+                        // FIX: We reverse data for the chart (Lowest -> Highest).
+                        // So Index 0 (Top Winner) is visually at the far right (List Length - 1).
+                        const chartIndex = (rawList.length - 1) - originalIndex;
+                        const x = xAxis.getPixelForValue(chartIndex);
+                        
+                        ctx.moveTo(x, yAxis.top);
+                        ctx.lineTo(x, yAxis.bottom);
+                    }
+                });
+                ctx.stroke();
+                ctx.restore();
+            }
+        };
+
+        function updateChart(canvasId, list, chartTitle, chartInstanceRef) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            // Reverse data so the "peak" is on the right side
+            const plotData = list.map(x => x.difficulty).reverse(); 
+            const labels = list.map((_, index) => list.length - index); 
+
+            if (chartInstanceRef) chartInstanceRef.destroy();
+            const accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim();
+
+            return new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Difficulty',
+                        data: plotData,
+                        borderColor: accentColor,
+                        backgroundColor: accentColor + '33',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: true,
+                        tension: 0.2
+                    }]
+                },
+                plugins: [verticalLinePlugin],
+                _rawList: list, // Pass the un-reversed list for the plugin
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { display: false },
+                        title: { display: true, text: chartTitle, color: '#888' },
+                        tooltip: { callbacks: { label: (ctx) => `Diff: ${ctx.raw.toLocaleString()}` } }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: '#333', drawBorder: false },
+                            ticks: { color: '#888', callback: (val) => val > 1e6 ? (val/1e6).toFixed(1)+'M' : val > 1e3 ? (val/1e3).toFixed(0)+'K' : val }
+                        },
+                        x: { grid: { display: false }, ticks: { display: false } }
+                    }
+                }
+            });
+        }
+
+        connection.on("UpdateWinners", (list) => {
+            globalWinnersList = list || [];
+            if(currentSearchTerm) performSearch();
+            else refreshUI();
+        });
+        connection.on("UpdateOnDeck", (list) => {
+            globalOnDeckList = list || [];
+            if(currentSearchTerm) performSearch();
+            else refreshUI();
+        });
+        connection.on("UpdateRecord", (record) => {
+            if (record) {
+                document.getElementById("record-diff").innerText = record.difficulty.toLocaleString(undefined, {maximumFractionDigits: 2});
+                document.getElementById("record-miner").innerText = formatAddress(record.minerAddress);
+                document.getElementById("record-time").innerText = record.timestamp ? new Date(record.timestamp).toLocaleString() : "--";
+            }
+        });
+        connection.on("UpdateServerInfo", (info) => {
+            fullServerPubKey = info.pubKey;
+            document.getElementById("server-port").innerText = info.poolPort;
+            document.getElementById("server-pubkey-display").innerText = info.pubKey.length > 16 ? 
+                `${info.pubKey.substring(0, 8)}...${info.pubKey.substring(info.pubKey.length - 8)}` : info.pubKey;
+        });
+
+        async function start() {
+            try {
+                await connection.start();
+                await connection.invoke("GetInitialData");
+            } catch (err) {
+                console.error(err);
+                setTimeout(start, 5000);
+            }
+        };
+        start();
+    </script>
+</body>
+</html>
