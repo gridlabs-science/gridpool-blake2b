@@ -217,8 +217,8 @@
         </div>
 
         <footer>
-            <a href="https://github.com/gridlabs-science/boot-protocol" target="_blank">GITHUB</a> |
-            <a onclick="toggleModal('theory-modal')">THEORY</a> |
+            <a href="https://github.com/gridlabs-science/boot-protocol" target="_blank">SOURCE CODE</a> |
+            <a onclick="toggleModal('theory-modal')">ABOUT</a> |
             <a onclick="toggleModal('help-modal')">HELP</a>
         </footer>
 
@@ -229,9 +229,16 @@
         <div class="modal-content">
             <span class="close-modal" onclick="toggleModal('theory-modal')">&times;</span>
             <h2>Pool Theory</h2>
-            <p>Boot Protocol operates differently than traditional pools.</p>
-            <p>We maintain a competitive "Winners List". Only the highest difficulty shares submitted make it onto the list.</p>
-            <p>When a block is found, the reward is split among those currently on the list based on their position.</p>
+            <p>Boot Protocol operates differently than traditional pools.  It's more like a protocol for solo miners to split rewards in exchange for better odds.</p>
+            <p>Nodes maintain a "Winners List", which defines all the addresses for the shared coinbase payout. 
+            Miners make their own templates using this coinbase payout, and submit the highest difficulty shares to the nodes. 
+            Nodes keep track of top shares with the "On Deck List".  Once someone finds a golden nonce and the Winner's List is paid on the Bitcoin blockchain, 
+            the "On Deck List" becomes the new Winner's List.  </p>
+            <p>This model has some interesting attributes.  It should have scalable resistance to block withholding attacks, since a block witholding miner would usually hurt 
+            themselves more than the other miners.  It is trivial to run decentralized, and bandwidth requirements between nodes are very small.  It can be used by small 
+            lottery miners to increase their odds of a (smaller) jackpot, and by large pools to lower their variance in coordination with other pools while controlling their own templates.
+            It doesn't have the centralization pressure caused by fast block times.  </p>
+            <p>We hope it will be a useful option for Bitcoin miners who value decentralization.</p>
         </div>
     </div>
 
@@ -239,9 +246,16 @@
         <div class="modal-content">
             <span class="close-modal" onclick="toggleModal('help-modal')">&times;</span>
             <h2>How to Connect</h2>
+            <p>There are two options to join the Boot team and compete to get on the Winner's List:</p>
+            <h3>The easy way (start with this):</h3>
             <p>1. Download the DATUM client.</p>
             <p>2. Configure your client with the host, port, and public key listed above.</p>
             <p>3. Start mining. Your highest difficulty shares will automatically be submitted.</p>
+            <h3>The better way (after the above steps):</h3>
+            <p>4. Go to the Boot Protocol repository and choose an installation method (bare metal or Docker)</p>
+            <p>5. Start up the Boot Server, visit http://localhost:5000 and copy the public key</p>
+            <p>6. Edit your DATUM Config to point towards your new Datum Server</p>
+            <p>7. Get your friends to do the same!</p>
         </div>
     </div>
 
