@@ -1,59 +1,191 @@
 {
   "WinnersList": [
     {
-      "Value": 78125000,
-      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.heater",
-      "Difficulty": 492216,
-      "DiffString": "492.22k"
-    },
-    {
-      "Value": 78125000,
+      "Value": 19531250,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
-      "Difficulty": 290269,
-      "DiffString": "290.27k"
+      "Difficulty": 168010,
+      "DiffString": "168.01k"
     },
     {
-      "Value": 78125000,
+      "Value": 19531250,
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.heater",
+      "Difficulty": 75221,
+      "DiffString": "75.22k"
+    },
+    {
+      "Value": 19531250,
       "Address": "bc1q6derjsjmzhcvhgj9fp4qa9mexj8z9ev2r552na",
+      "Difficulty": 25942,
+      "DiffString": "25.94k"
+    },
+    {
+      "Value": 19531250,
+      "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
+      "Difficulty": 17407,
+      "DiffString": "17.41k"
+    },
+    {
+      "Value": 19531250,
+      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+      "Difficulty": 16503,
+      "DiffString": "16.50k"
+    },
+    {
+      "Value": 19531250,
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.heater",
+      "Difficulty": 13502,
+      "DiffString": "13.50k"
+    },
+    {
+      "Value": 19531250,
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.heater",
+      "Difficulty": 13413,
+      "DiffString": "13.41k"
+    },
+    {
+      "Value": 19531250,
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.heater",
+      "Difficulty": 11803,
+      "DiffString": "11.80k"
+    },
+    {
+      "Value": 19531250,
+      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+      "Difficulty": 9870,
+      "DiffString": "9.87k"
+    },
+    {
+      "Value": 19531250,
+      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
+      "Difficulty": 4474,
+      "DiffString": "4.47k"
+    },
+    {
+      "Value": 19531250,
+      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
+      "Difficulty": 4039,
+      "DiffString": "4.04k"
+    },
+    {
+      "Value": 19531250,
+      "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Difficulty": 0,
-      "DiffString": "217.59k"
+      "DiffString": "813.30k"
+    },
+    {
+      "Value": 19531250,
+      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+      "Difficulty": 0,
+      "DiffString": "387.02k"
+    },
+    {
+      "Value": 19531250,
+      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+      "Difficulty": 0,
+      "DiffString": "204.86k"
+    },
+    {
+      "Value": 19531250,
+      "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
+      "Difficulty": 0,
+      "DiffString": "163.56k"
     }
   ],
   "OnDeckList": [
     {
       "Value": 0,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-      "Difficulty": 63617886,
-      "DiffString": "63.62M"
-    },
-    {
-      "Value": 0,
-      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-      "Difficulty": 56554963,
-      "DiffString": "56.55M"
-    },
-    {
-      "Value": 0,
-      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.heater",
-      "Difficulty": 45235416,
-      "DiffString": "45.24M"
+      "Difficulty": 1930553,
+      "DiffString": "1.93M"
     },
     {
       "Value": 0,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
-      "Difficulty": 2773847,
-      "DiffString": "2.77M"
+      "Difficulty": 1603666,
+      "DiffString": "1.60M"
+    },
+    {
+      "Value": 0,
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.heater",
+      "Difficulty": 918843,
+      "DiffString": "918.84k"
+    },
+    {
+      "Value": 0,
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.heater",
+      "Difficulty": 352587,
+      "DiffString": "352.59k"
+    },
+    {
+      "Value": 0,
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.heater",
+      "Difficulty": 347925,
+      "DiffString": "347.93k"
     },
     {
       "Value": 0,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-      "Difficulty": 2687809,
-      "DiffString": "2.69M"
+      "Difficulty": 269088,
+      "DiffString": "269.09k"
+    },
+    {
+      "Value": 0,
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.heater",
+      "Difficulty": 243771,
+      "DiffString": "243.77k"
+    },
+    {
+      "Value": 0,
+      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+      "Difficulty": 240933,
+      "DiffString": "240.93k"
+    },
+    {
+      "Value": 0,
+      "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
+      "Difficulty": 229496,
+      "DiffString": "229.50k"
+    },
+    {
+      "Value": 0,
+      "Address": "bc1q6derjsjmzhcvhgj9fp4qa9mexj8z9ev2r552na",
+      "Difficulty": 222048,
+      "DiffString": "222.05k"
+    },
+    {
+      "Value": 0,
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.heater",
+      "Difficulty": 221309,
+      "DiffString": "221.31k"
+    },
+    {
+      "Value": 0,
+      "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
+      "Difficulty": 218915,
+      "DiffString": "218.91k"
+    },
+    {
+      "Value": 0,
+      "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
+      "Difficulty": 201283,
+      "DiffString": "201.28k"
+    },
+    {
+      "Value": 0,
+      "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
+      "Difficulty": 191961,
+      "DiffString": "191.96k"
+    },
+    {
+      "Value": 0,
+      "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
+      "Difficulty": 172810,
+      "DiffString": "172.81k"
     }
   ],
   "BestShare": {
-    "Difficulty": 63617886,
-    "MinerAddress": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-    "Timestamp": "2025-11-20T15:59:47.6080133Z"
+    "Difficulty": 6120190879,
+    "MinerAddress": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
+    "Timestamp": "2025-11-23T15:22:30.7735361Z"
   }
 }

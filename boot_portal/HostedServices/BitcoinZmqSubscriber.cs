@@ -8,7 +8,7 @@ namespace boot_portal.HostedServices;
 public class BitcoinZmqSubscriber : BackgroundService
 {
     private SubscriberSocket? _subscriber;
-    private const string ZMQ_ENDPOINT = "tcp://192.168.1.223:8332"; // From bitcoin.conf //TODO: Put this in the config file
+    private const string ZMQ_ENDPOINT = "tcp://127.0.0.1:28334"; // From bitcoin.conf //TODO: Put this in the config file
     private const string TOPIC = "hashblock"; // Subscribe to block hashes
     private readonly ILogger<BitcoinZmqSubscriber> _logger;
     private readonly IHubContext<PoolStatsHub> _hubContext;
@@ -112,7 +112,7 @@ public class BitcoinZmqSubscriber : BackgroundService
     {
         // Your custom logic: e.g., fetch block details via RPC, update jobs
         _logger.LogInformation("Processing block {BlockHash}...", blockHash);
-        return;
+        //return;                         
         // 1. Create the NEW list in a local variable.
         //    Reader threads CANNOT see this variable.
         //    They are all still happily reading the OLD static WinnersList.
