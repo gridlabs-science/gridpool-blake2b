@@ -8,13 +8,13 @@
     }
   },
   "AllowedHosts": "*",
-  "NotificationSource": "MempoolSpace",
+  "NotificationSource": "ZMQ",
   "Datum_Port": 3008,
   "WebUI_Port_http": 5000,
   "WebUI_Port_https": 5001,
 
   "pool_payout_script": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-  "winners_list_size": 5,
+  "winners_list_size": 15,
   "coinbase_tag": "Boot protocol",
   "prime_id": 21,
   "min_diff": 1024
