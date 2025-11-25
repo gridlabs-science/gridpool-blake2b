@@ -924,7 +924,7 @@ public class ClientHandler
                 if (j < _poolConfig.WinnersListSize)
                 {
                     PayoutInfo newPayout = new PayoutInfo();
-                    newPayout.Address = powSubmit.Username;
+                    newPayout.Address = powSubmit.Username; //TODO: should this actually be just the address?
                     newPayout.Difficulty = difficulty;  //I'm not setting .Value here.  is that ok?
                     newPayout.DiffString = FormatDifficulty(difficulty);
                     DatumServer.OnDeckList.Insert(j, newPayout);  //insert the new share into the next winners list

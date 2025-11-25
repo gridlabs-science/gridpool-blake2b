@@ -651,8 +651,12 @@
         const plotData = list.map(x => x.difficulty).reverse();
         const labels = list.map((_, index) => list.length - index);
 
+        //const bubbleData = currentSearchTerm && list.find(x => x.address === currentSearchTerm) ?
+        //    list.sort((a, b) => a.difficulty - b.difficulty).map(x => x.address === currentSearchTerm ? x.difficulty : NaN) : [];
+        
+        // FIX: Use [...list] to create a shallow copy before sorting
         const bubbleData = currentSearchTerm && list.find(x => x.address === currentSearchTerm) ?
-            list.sort((a, b) => a.difficulty - b.difficulty).map(x => x.address === currentSearchTerm ? x.difficulty : NaN) : [];
+            [...list].sort((a, b) => a.difficulty - b.difficulty).map(x => x.address === currentSearchTerm ? x.difficulty : NaN) : [];
 
         const accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim();
 
