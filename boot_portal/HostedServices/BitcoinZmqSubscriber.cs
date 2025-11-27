@@ -133,6 +133,7 @@ public class BitcoinZmqSubscriber : BackgroundService
             var lastAdded = newWinnersList.Last();
             //_logger.LogInformation("Last added value: {Value} - Address: {Address}", lastAdded.Value.ToString("N0"), lastAdded.Address);
             onDeckMiner.Difficulty = 0;
+            onDeckMiner.DiffString = "0";
         }
 
         // 3. The "Swap". This is a single, instantaneous, atomic operation.

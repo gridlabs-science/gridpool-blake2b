@@ -926,6 +926,7 @@ public class ClientHandler
                 lock (DatumServer._OnDeckListLock) 
                 {
                     int j = 0;                    
+                    int listSizeBefore = DatumServer.OnDeckList.Count;
                     
                     // 1. Find insertion point
                     for (int i = 0; i < DatumServer.OnDeckList.Count; i++) 
@@ -952,6 +953,16 @@ public class ClientHandler
                     while (DatumServer.OnDeckList.Count > _poolConfig.WinnersListSize)
                     {
                         DatumServer.OnDeckList.RemoveAt(DatumServer.OnDeckList.Count - 1);
+                    }
+
+                    int listSizeAfter = DatumServer.OnDeckList.Count;
+                    if(listSizeBefore != listSizeAfter)
+                    {
+                        var reward = Program.BLOCK_REWARD / ((ulong)DatumServer.OnDeckList.Count + 1);
+                        for (int i = 0; i < DatumServer.OnDeckList.Count; i++)
+                        {
+                            DatumServer.OnDeckList[i].Value = reward;
+                        }
                     }
 
                     
