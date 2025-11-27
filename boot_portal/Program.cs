@@ -352,6 +352,7 @@ public class ClientHandler
     private static readonly PowSubmitMessage?[] JobCache = new PowSubmitMessage?[8];
     private static double BestDiff = 0; 
     private static string BestDiffAddress = null;
+    private static string clientPayoutAddress = "";
 
 
     public ClientHandler(TcpClient client, Key serverLongTermKey, Key serverLongTermXKey, PoolConfig poolConfig)
@@ -363,6 +364,7 @@ public class ClientHandler
         _sendingHeaderKey = 0;
         _x25519KeyLongTerm = serverLongTermXKey;
         _poolConfig = poolConfig;
+        clientPayoutAddress = _poolConfig.PoolPayoutScript; //Temporary, just until we get the client's first PoW share, which has their address/username.  
     }
 
     public async Task HandleClientAsync()
@@ -712,7 +714,7 @@ public class ClientHandler
         //Console.WriteLine($"📦 Signed payload: {BitConverter.ToString(signedPayload)}");
 
         // Send encrypted message (mining command 0x05, channel encryption)
-        Console.WriteLine("[SEND} Sending client configuration message 0x05/0x99");
+        //Console.WriteLine("[SEND} Sending client configuration message 0x05/0x99");
         await SendEncryptedMessageAsync(0x05, signedPayload, isSigned: true, isEncryptedChannel: true, isEncryptedPubKey: false);
     }
 
@@ -746,7 +748,7 @@ public class ClientHandler
         var myPayout = new PayoutInfo
         {
             Value = mySats,
-            Address = _poolConfig.PoolPayoutScript
+            Address = clientPayoutAddress //this inserts the client's payout address into spot '0' in the coinbase TX
         };
         fetchResponse.Payouts = new List<PayoutInfo>(DatumServer.WinnersList);  //Insert my own "pools" payout address into the first slot.
         fetchResponse.Payouts.Insert(0, myPayout);
@@ -799,6 +801,8 @@ public class ClientHandler
         }
         else JobCache[powSubmit.JobId] = powSubmit;  //New job, with complete header info.  
         //TODO: Technically, there is the very edge case that a miner could reuse old coinbase info with a new job and merkle branches.  This case isn't handled right now.
+        clientPayoutAddress = powSubmit.Address;  //this stores the client's payout address once we get their first share, so we can stick this in the coinbaserFetch message
+
         // Now compute the latest Merkle Root.  We have to do this for every share submission, since the extranonce changes every time.
         byte[] Coinb1 = powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb1;
         byte[] Coinb2 = powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb2;
@@ -910,32 +914,56 @@ public class ClientHandler
         //Console.WriteLine($"POW: {powSubmit.JobId}\t{powSubmit.CoinbaseId}\t{difficulty}\t{powSubmit.Username}\n");
 
         //Evaluate how to credit this share, whether to add to on-deck or not
+        // ... inside HandlePowSubmitAsync ...
+
         if (isHeaderValid)
         {
-            if (true) // isValidCoinbase  i.e. did they put the right addresses into the coinbase to get on this team?
+            if (true) // isValidCoinbase
             {
-                int j = 0;
+                // 🔒 LOCK STARTS HERE
+                // Only one thread can enter this block at a time.
                 bool newWinner = false;
-                for (int i = 0; i < DatumServer.OnDeckList.Count; i++) // This assumes the list is sorted by decreasing difficulty
+                lock (DatumServer._OnDeckListLock) 
                 {
-                    if (DatumServer.OnDeckList[i].Difficulty < difficulty) break;
-                    else j++;
-                }
-                if (j < _poolConfig.WinnersListSize)
+                    int j = 0;                    
+                    
+                    // 1. Find insertion point
+                    for (int i = 0; i < DatumServer.OnDeckList.Count; i++) 
+                    {
+                        if (DatumServer.OnDeckList[i].Difficulty < difficulty) break;
+                        else j++;
+                    }
+
+                    // 2. Insert if qualified
+                    if (j < _poolConfig.WinnersListSize)
+                    {
+                        PayoutInfo newPayout = new PayoutInfo();
+                        newPayout.Address = powSubmit.Address; 
+                        newPayout.Username = powSubmit.Username;
+                        newPayout.Difficulty = difficulty;
+                        newPayout.DiffString = FormatDifficulty(difficulty);
+                        
+                        DatumServer.OnDeckList.Insert(j, newPayout);
+                        newWinner = true;
+                    }
+
+                    // 3. Trim the list (Robust Fix)
+                    // Changed 'if' to 'while' to auto-correct the list if it's already over-sized
+                    while (DatumServer.OnDeckList.Count > _poolConfig.WinnersListSize)
+                    {
+                        DatumServer.OnDeckList.RemoveAt(DatumServer.OnDeckList.Count - 1);
+                    }
+
+                    
+                } 
+                // 🔓 LOCK ENDS HERE
+                // 4. Save State (Assuming this is fast/synchronous)
+                if (newWinner)
                 {
-                    PayoutInfo newPayout = new PayoutInfo();
-                    newPayout.Address = powSubmit.Username; //TODO: should this actually be just the address?
-                    newPayout.Difficulty = difficulty;  //I'm not setting .Value here.  is that ok?
-                    newPayout.DiffString = FormatDifficulty(difficulty);
-                    DatumServer.OnDeckList.Insert(j, newPayout);  //insert the new share into the next winners list
-                    newWinner = true;
-                }
-                if (DatumServer.OnDeckList.Count == (_poolConfig.WinnersListSize + 1)) DatumServer.OnDeckList.Remove(DatumServer.OnDeckList.Last()); //remove the lowest difficulty share
-                else if (DatumServer.OnDeckList.Count > _poolConfig.WinnersListSize) Console.WriteLine("we have a problem, OnDeckList got too big");
-                if(newWinner)
-                {
-                    DatumServer.SaveState(); //Make sure to save the new list state to disk, in case the server reboots
-                    //For debugging, print the OnDeckList
+                    DatumServer.SaveState(); 
+                    
+                    // Console I/O can be slow, you might want to move this out of the lock
+                    // or keep it if debugging is critical.
                     Console.WriteLine("-----------------------------------------------------------");
                     for (int i = 0; i < DatumServer.OnDeckList.Count; i++)
                     {
@@ -943,6 +971,7 @@ public class ClientHandler
                     }
                 }
             }
+        
         }
 
         
@@ -1390,7 +1419,7 @@ public class HelloMessage
             }
             msg.version = new byte[versionIndex];
             Array.Copy(versionBuffer, msg.version, versionIndex);
-            Console.WriteLine($"🔓 Version: {Encoding.ASCII.GetString(msg.version)}");
+            //Console.WriteLine($"🔓 Version: {Encoding.ASCII.GetString(msg.version)}");
 
             // Step 3: Read commit hash (null-terminated, max 127 bytes)
             long commitStart = stream.Position;
@@ -1414,7 +1443,7 @@ public class HelloMessage
             }
             msg.commitHash = new byte[commitIndex];
             Array.Copy(commitBuffer, msg.commitHash, commitIndex);
-            Console.WriteLine($"🔓 Commit hash: {Encoding.ASCII.GetString(msg.commitHash, 0, commitIndex - 1)}");
+            //Console.WriteLine($"🔓 Commit hash: {Encoding.ASCII.GetString(msg.commitHash, 0, commitIndex - 1)}");
 
             // Step 4: Handle optional git tag (if present, wrapped in '()')
             long pos = stream.Position;
@@ -1450,7 +1479,7 @@ public class HelloMessage
                 Array.Copy(tagBuffer, 0, msg.commitHash, 1, tagIndex);
                 msg.commitHash[tagIndex + 1] = (byte)')';
                 Array.Copy(commitBuffer, 0, msg.commitHash, tagIndex + 2, commitIndex);
-                Console.WriteLine($"🔓 Git tag: {Encoding.ASCII.GetString(tagBuffer, 0, tagIndex - 1)}");
+                //Console.WriteLine($"🔓 Git tag: {Encoding.ASCII.GetString(tagBuffer, 0, tagIndex - 1)}");
             }
             else
             {
@@ -1481,7 +1510,7 @@ public class HelloMessage
             }
             reader.Read(msg.xorKey, 0, xorKeyLength);
             uint nk = BitConverter.ToUInt32(msg.xorKey, 0);
-            Console.WriteLine($"🔓 XOR key (nk): 0x{nk:X8} at offset {stream.Position - xorKeyLength}");
+            //Console.WriteLine($"🔓 XOR key (nk): 0x{nk:X8} at offset {stream.Position - xorKeyLength}");
 
             // Step 8: Skip padding (variable, 1–200 bytes)
             long paddingStart = stream.Position;
@@ -1501,7 +1530,7 @@ public class HelloMessage
                 Console.WriteLine($"❌ Padding too short (<1 byte) at offset {paddingStart}");
                 return (null, -1);
             }
-            Console.WriteLine($"🔓 Padding length: {paddingLength} bytes");
+            //Console.WriteLine($"🔓 Padding length: {paddingLength} bytes");
 
             // Step 9: Read signature (64 bytes)
             msg.cryptoSignBytes = new byte[cryptoSignBytes];
@@ -1511,11 +1540,11 @@ public class HelloMessage
                 return (null, -1);
             }
             reader.Read(msg.cryptoSignBytes, 0, cryptoSignBytes);
-            Console.WriteLine($"🔓 Signature: {BitConverter.ToString(msg.cryptoSignBytes, 0, 16)}...");
+            //Console.WriteLine($"🔓 Signature: {BitConverter.ToString(msg.cryptoSignBytes, 0, 16)}...");
 
             // Step 10: Handle cryptoBoxSealBytes (assuming placeholder or padding)
             msg.cryptoBoxSealBytes = new byte[0]; // Ignore for now, adjust if needed
-            Console.WriteLine($"🔓 Note: cryptoBoxSealBytes set to empty (adjust if needed)");
+            //Console.WriteLine($"🔓 Note: cryptoBoxSealBytes set to empty (adjust if needed)");
 
             // Return populated message and bytes consumed
             int bytesConsumed = (int)stream.Position;
@@ -1654,6 +1683,7 @@ public class PayoutInfo
 {
     public ulong Value { get; set; }  //in Satoshis, or 1/100,000,000 BTC
     public string Address { get; set; } = string.Empty;
+    public string Username {get; set; } = string.Empty;
     public double Difficulty { get; set; } = 0;
     public string DiffString { get; set; } = "0";
 }
@@ -1673,6 +1703,7 @@ public class PowSubmitMessage
     public byte ExtranonceSize { get; set; }
     public byte[] Extranonce { get; set; } = new byte[12];
     public string Username { get; set; } = string.Empty;
+    public string Address {get; set; } = string.Empty;
     public byte[] Reserved { get; set; } = new byte[4];
     public byte[]? PrevBlockHash { get; set; }
     public ushort? TargetByteIndex { get; set; }
@@ -1724,6 +1755,14 @@ public class PowSubmitMessage
             usernameBytes.Add(b);
         }
         result.Username = Encoding.UTF8.GetString(usernameBytes.ToArray());
+        string address = result.Username;
+        int dotIndex = address.IndexOf('.');
+        if (dotIndex != -1)
+        {
+            // Trim the string to include only the part before the dot
+            address = address.Substring(0, dotIndex);
+        }
+        result.Address = address;
         result.Reserved = reader.ReadBytes(4); // offset 30 + username.Length
 
         // Process optional sections (0x01, 0x02) until 0xFE

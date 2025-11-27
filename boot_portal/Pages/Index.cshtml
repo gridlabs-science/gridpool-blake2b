@@ -448,7 +448,7 @@
     </div>
 
         <footer>
-            <a href="https://github.com/gridlabs-science/boot-protocol" target="_blank">GITHUB</a> |
+            <a href="https://github.com/gridlabs-science/boot-protocol" target="_blank">SOURCE CODE</a> |
             <a onclick="toggleModal('theory-modal')">THEORY</a> |
             <a onclick="toggleModal('help-modal')">HELP</a>
         </footer>
@@ -536,18 +536,16 @@
         }
 
         // 1. Scan Winners
-        // Note: user might enter partial address, but typically search is exact match. 
-        // We'll do exact matching for counting, but strict "contains" for highlighting.
         const winnerMatches = globalWinnersList
             .map((item, index) => ({item, index: index + 1})) // 1-based index
-            .filter(x => x.item.address === rawTerm);
+            .filter(x => x.item.username.toLowerCase().includes(rawTerm.toLowerCase()));
 
         const winnerTotal = winnerMatches.reduce((sum, x) => sum + x.item.value, 0);
 
         // 2. Scan OnDeck
         const deckMatches = globalOnDeckList
             .map((item, index) => ({item, index: index + 1}))
-            .filter(x => x.item.address === rawTerm);
+            .filter(x => x.item.username.toLowerCase().includes(rawTerm.toLowerCase()));
 
         const deckTotal = deckMatches.reduce((sum, x) => sum + x.item.value, 0);
 
@@ -625,13 +623,13 @@
 
         list.forEach(payout => {
             const btcValue = payout.value / 100000000.0;
-            const formattedAddr = formatAddress(payout.address);
+            const formattedAddr = formatAddress(payout.username);
             const diffVal = payout.difficulty || 0;
             const diffDisplay = payout.diffString || diffVal.toLocaleString(undefined, {maximumFractionDigits: 2});
 
             // CHECK FOR SEARCH HIGHLIGHT
             let rowClass = "";
-            if (currentSearchTerm && payout.address === currentSearchTerm) {
+            if (currentSearchTerm && payout.username.toLowerCase().includes(currentSearchTerm.toLowerCase())) {
                 rowClass = "highlight-row";
             }
 
@@ -655,8 +653,8 @@
         //    list.sort((a, b) => a.difficulty - b.difficulty).map(x => x.address === currentSearchTerm ? x.difficulty : NaN) : [];
         
         // FIX: Use [...list] to create a shallow copy before sorting
-        const bubbleData = currentSearchTerm && list.find(x => x.address === currentSearchTerm) ?
-            [...list].sort((a, b) => a.difficulty - b.difficulty).map(x => x.address === currentSearchTerm ? x.difficulty : NaN) : [];
+        const bubbleData = currentSearchTerm && list.find(x => x.username.toLowerCase().includes(currentSearchTerm.toLowerCase())) ?
+            [...list].sort((a, b) => a.difficulty - b.difficulty).map(x => x.username.toLowerCase().includes(currentSearchTerm.toLowerCase()) ? x.difficulty : NaN) : [];
 
         const accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim();
 

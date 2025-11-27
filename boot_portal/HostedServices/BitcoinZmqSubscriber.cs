@@ -126,6 +126,7 @@ public class BitcoinZmqSubscriber : BackgroundService
             {
                 Value = reward,
                 Address = onDeckMiner.Address,
+                Username = onDeckMiner.Username,
                 Difficulty = onDeckMiner.Difficulty,
                 DiffString = onDeckMiner.DiffString
             });

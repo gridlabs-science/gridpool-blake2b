@@ -21,6 +21,7 @@ public class DatumServer : BackgroundService
     // State Data
     public static List<PayoutInfo> WinnersList { get; set; } = [];
     public static List<PayoutInfo> OnDeckList { get; set; } = [];
+    public static readonly object _OnDeckListLock = new object();
     public static BestShareRecord BestShare { get; set; } = new() { Difficulty = 0 };
     
     // Store the hex string for the UI
