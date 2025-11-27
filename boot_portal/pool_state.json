@@ -2,108 +2,108 @@
   "WinnersList": [
     {
       "Value": 19531250,
-      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-      "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 53331597,
-      "DiffString": "53.33M"
+      "Address": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq",
+      "Username": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq.bitaxeGamma2",
+      "Difficulty": 288804,
+      "DiffString": "288.80k"
     },
     {
       "Value": 19531250,
       "Address": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq",
       "Username": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq.bitaxeGamma2",
-      "Difficulty": 2348780,
-      "DiffString": "2.35M"
+      "Difficulty": 115100,
+      "DiffString": "115.10k"
     },
     {
       "Value": 19531250,
       "Address": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq",
       "Username": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq.bitaxeGamma2",
-      "Difficulty": 354307,
-      "DiffString": "354.31k"
+      "Difficulty": 34887,
+      "DiffString": "34.89k"
+    },
+    {
+      "Value": 19531250,
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
+      "Username": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
+      "Difficulty": 29481,
+      "DiffString": "29.48k"
     },
     {
       "Value": 19531250,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 304559,
-      "DiffString": "304.56k"
+      "Difficulty": 27313,
+      "DiffString": "27.31k"
+    },
+    {
+      "Value": 19531250,
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
+      "Username": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
+      "Difficulty": 23954,
+      "DiffString": "23.95k"
+    },
+    {
+      "Value": 19531250,
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
+      "Username": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
+      "Difficulty": 19753,
+      "DiffString": "19.75k"
     },
     {
       "Value": 19531250,
       "Address": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq",
       "Username": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq.bitaxeGamma2",
-      "Difficulty": 298837,
-      "DiffString": "298.84k"
+      "Difficulty": 18378,
+      "DiffString": "18.38k"
     },
     {
       "Value": 19531250,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 173028,
-      "DiffString": "173.03k"
-    },
-    {
-      "Value": 19531250,
-      "Address": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq",
-      "Username": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq.bitaxeGamma2",
-      "Difficulty": 170049,
-      "DiffString": "170.05k"
-    },
-    {
-      "Value": 19531250,
-      "Address": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq",
-      "Username": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq.bitaxeGamma2",
-      "Difficulty": 116332,
-      "DiffString": "116.33k"
+      "Difficulty": 12072,
+      "DiffString": "12.07k"
     },
     {
       "Value": 19531250,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 110530,
-      "DiffString": "110.53k"
+      "Difficulty": 10124,
+      "DiffString": "10.12k"
+    },
+    {
+      "Value": 19531250,
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
+      "Username": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
+      "Difficulty": 9389,
+      "DiffString": "9.39k"
+    },
+    {
+      "Value": 19531250,
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
+      "Username": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
+      "Difficulty": 8961,
+      "DiffString": "8.96k"
     },
     {
       "Value": 19531250,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 55962,
-      "DiffString": "55.96k"
+      "Difficulty": 8704,
+      "DiffString": "8.70k"
     },
     {
       "Value": 19531250,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 52286,
-      "DiffString": "52.29k"
+      "Difficulty": 6689,
+      "DiffString": "6.69k"
     },
     {
       "Value": 19531250,
-      "Address": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq",
-      "Username": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq.bitaxeGamma2",
-      "Difficulty": 46448,
-      "DiffString": "46.45k"
-    },
-    {
-      "Value": 19531250,
-      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-      "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 44733,
-      "DiffString": "44.73k"
-    },
-    {
-      "Value": 19531250,
-      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-      "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 44152,
-      "DiffString": "44.15k"
-    },
-    {
-      "Value": 19531250,
-      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-      "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 42912,
-      "DiffString": "42.91k"
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
+      "Username": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
+      "Difficulty": 5569,
+      "DiffString": "5.57k"
     }
   ],
   "OnDeckList": [
@@ -111,106 +111,106 @@
       "Value": 0,
       "Address": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq",
       "Username": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq.bitaxeGamma2",
-      "Difficulty": 288804,
-      "DiffString": "288.80k"
+      "Difficulty": 511587,
+      "DiffString": "511.59k"
+    },
+    {
+      "Value": 0,
+      "Address": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq",
+      "Username": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq.bitaxeGamma2",
+      "Difficulty": 86369,
+      "DiffString": "86.37k"
+    },
+    {
+      "Value": 0,
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
+      "Username": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
+      "Difficulty": 26494,
+      "DiffString": "26.49k"
     },
     {
       "Value": 0,
       "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
       "Username": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 29481,
-      "DiffString": "29.48k"
+      "Difficulty": 23036,
+      "DiffString": "23.04k"
     },
     {
       "Value": 0,
-      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-      "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 27313,
-      "DiffString": "27.31k"
-    },
-    {
-      "Value": 0,
-      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
-      "Username": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 23954,
-      "DiffString": "23.95k"
-    },
-    {
-      "Value": 0,
-      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-      "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 12072,
-      "DiffString": "12.07k"
-    },
-    {
-      "Value": 0,
-      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-      "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 10124,
-      "DiffString": "10.12k"
+      "Address": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq",
+      "Username": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq.bitaxeGamma2",
+      "Difficulty": 21374,
+      "DiffString": "21.37k"
     },
     {
       "Value": 0,
       "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
       "Username": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 9389,
-      "DiffString": "9.39k"
+      "Difficulty": 20574,
+      "DiffString": "20.57k"
     },
     {
       "Value": 0,
-      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-      "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 8704,
-      "DiffString": "8.70k"
+      "Address": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq",
+      "Username": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq.bitaxeGamma2",
+      "Difficulty": 19744,
+      "DiffString": "19.74k"
     },
     {
       "Value": 0,
-      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-      "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 6689,
-      "DiffString": "6.69k"
+      "Address": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq",
+      "Username": "bc1qhtd2dl3vcs78q4ur9df0x2zrnqtj7u843vmmwq.bitaxeGamma2",
+      "Difficulty": 16660,
+      "DiffString": "16.66k"
+    },
+    {
+      "Value": 0,
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
+      "Username": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
+      "Difficulty": 15196,
+      "DiffString": "15.20k"
     },
     {
       "Value": 0,
       "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
       "Username": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 5520,
-      "DiffString": "5.52k"
-    },
-    {
-      "Value": 0,
-      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-      "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 5020,
-      "DiffString": "5.02k"
+      "Difficulty": 10165,
+      "DiffString": "10.16k"
     },
     {
       "Value": 0,
       "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
       "Username": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 4457,
-      "DiffString": "4.46k"
+      "Difficulty": 7831,
+      "DiffString": "7.83k"
     },
     {
       "Value": 0,
-      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-      "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 4366,
-      "DiffString": "4.37k"
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
+      "Username": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
+      "Difficulty": 7284,
+      "DiffString": "7.28k"
     },
     {
       "Value": 0,
       "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
       "Username": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 4047,
-      "DiffString": "4.05k"
+      "Difficulty": 6642,
+      "DiffString": "6.64k"
     },
     {
       "Value": 0,
-      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-      "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
-      "Difficulty": 3761,
-      "DiffString": "3.76k"
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
+      "Username": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
+      "Difficulty": 5470,
+      "DiffString": "5.47k"
+    },
+    {
+      "Value": 0,
+      "Address": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f",
+      "Username": "bc1qvsrxstd07sgg7dmh0tc03q4g4xkhhl6rlvfp5f.bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Bitaxe",
+      "Difficulty": 5407,
+      "DiffString": "5.41k"
     }
   ],
   "BestShare": {
