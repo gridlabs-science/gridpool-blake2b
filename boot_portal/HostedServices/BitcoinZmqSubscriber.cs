@@ -8,7 +8,7 @@ namespace boot_portal.HostedServices;
 public class BitcoinZmqSubscriber : BackgroundService
 {
     private SubscriberSocket? _subscriber;
-    private const string ZMQ_ENDPOINT = "tcp://127.0.0.1:28334"; // From bitcoin.conf //TODO: Put this in the config file
+    private const string ZMQ_ENDPOINT = "tcp://127.0.0.1:28332"; // From bitcoin.conf //TODO: Put this in the config file
     private const string TOPIC = "hashblock"; // Subscribe to block hashes
     private readonly ILogger<BitcoinZmqSubscriber> _logger;
     private readonly IHubContext<PoolStatsHub> _hubContext;
@@ -108,10 +108,11 @@ public class BitcoinZmqSubscriber : BackgroundService
     // 'using' blocks will dispose poller and socket here.
     }
 
-    private async Task OnNewBlockAsync(string blockHash, CancellationToken stoppingToken)
+    public async Task OnNewBlockAsync(string blockHash, CancellationToken stoppingToken)
     {
         // Your custom logic: e.g., fetch block details via RPC, update jobs
         _logger.LogInformation("Processing block {BlockHash}...", blockHash);
+        if(blockHash != "testBlock") return;
         //return;                         
         // 1. Create the NEW list in a local variable.
         //    Reader threads CANNOT see this variable.
@@ -141,6 +142,10 @@ public class BitcoinZmqSubscriber : BackgroundService
         //    All requests *before* this line saw the old list.
         //    No locks. No waiting.
         DatumServer.WinnersList = newWinnersList;
+        for (int i = 0; i < DatumServer.WinnersList.Count; i++)
+        {
+            Console.WriteLine($"{i}\t{DatumServer.WinnersList[i].DiffString}\t{DatumServer.WinnersList[i].Address}");
+        }
 
         // 4. Reset the OnDeckList for the next round.
         //DatumServer.OnDeckList = new List<PayoutInfo>();

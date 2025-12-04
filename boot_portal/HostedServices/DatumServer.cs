@@ -29,6 +29,10 @@ public class DatumServer : BackgroundService
 
     public static IHubContext<PoolStatsHub> HubContext { get; private set; } = null!;
 
+    // Testing stuff:
+    public static readonly int RESET_THRESHOLD = 1000000000;
+    
+
     public DatumServer(IPAddress address, int port, Key serverKey, Key serverXKey, PoolConfig poolConfig, IHubContext<PoolStatsHub> hubContext, ILogger<DatumServer> logger)
     {
         _listener = new TcpListener(address, port);
@@ -137,6 +141,11 @@ public class DatumServer : BackgroundService
         }
     }
 
+    /*public static async void resetRound()
+    {
+        await BitcoinZmqSubscriber.OnNewBlockAsync("testBlock", stoppingToken);
+    }*/
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _listener.Start();
@@ -145,7 +154,7 @@ public class DatumServer : BackgroundService
         while (!stoppingToken.IsCancellationRequested)
         {
             var client = await _listener.AcceptTcpClientAsync(stoppingToken);
-            var clientHandler = new ClientHandler(client, _serverKey, _serverXKey, _poolConfig);
+            var clientHandler = new ClientHandler(client, _serverKey, _serverXKey, _poolConfig, stoppingToken);
             _ = Task.Run(clientHandler.HandleClientAsync, stoppingToken);
         }
     }

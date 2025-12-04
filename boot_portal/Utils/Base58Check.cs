@@ -27,6 +27,7 @@ public static class Base58Check
         byte[] payload = result.Take(result.Length - 4).ToArray();
         byte[] checksum = result.TakeLast(4).ToArray();
         byte[] hash = DoubleSha256(payload).Take(4).ToArray();
+        
         if (!hash.SequenceEqual(checksum)) throw new FormatException("Invalid checksum");
 
         return payload; // version (1) + hash (20)

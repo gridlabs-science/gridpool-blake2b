@@ -354,8 +354,10 @@ public class ClientHandler
     private static string BestDiffAddress = null;
     private static string clientPayoutAddress = "";
 
+    private static CancellationToken stoppingToken;
 
-    public ClientHandler(TcpClient client, Key serverLongTermKey, Key serverLongTermXKey, PoolConfig poolConfig)
+
+    public ClientHandler(TcpClient client, Key serverLongTermKey, Key serverLongTermXKey, PoolConfig poolConfig, CancellationToken st)
     {
         _client = client;
         _stream = client.GetStream();
@@ -365,12 +367,17 @@ public class ClientHandler
         _x25519KeyLongTerm = serverLongTermXKey;
         _poolConfig = poolConfig;
         clientPayoutAddress = _poolConfig.PoolPayoutScript; //Temporary, just until we get the client's first PoW share, which has their address/username.  
+        stoppingToken = st;
+        Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} connected.");
     }
 
     public async Task HandleClientAsync()
     {
+
         try
         {
+            // We only peek the protocol once at the very start of the connection
+            bool protocolDetermined = false;
             while (_client.Connected)
             {
                 // Step 1: Read the 4-byte header
@@ -381,12 +388,31 @@ public class ClientHandler
                     Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} disconnected (no data).");
                     break;
                 }
+                // --- NEW: Protocol Detection Logic ---
+                if (!protocolDetermined)
+                {
+                    // Stratum V1 JSON usually starts with '{' (0x7B)
+                    // We check if the first byte is '{'. 
+                    if (headerBuffer[0] == 0x7B) 
+                    {
+                        Console.WriteLine($"🔀 Stratum V1 detected from {_client.Client.RemoteEndPoint}. Forwarding to Gateway...");
+                        
+                        // Hand off control to the proxy method. 
+                        // We pass the 4 bytes we already read so they aren't lost.
+                        await HandleStratumProxyAsync(headerBuffer, bytesRead);
+                        
+                        // Once the proxy session ends, we break the loop and disconnect.
+                        break; 
+                    }
+                    protocolDetermined = true;
+                }
+                // -------------------------------------
                 if (bytesRead < 4)
                 {
                     Console.WriteLine($"⚠️ Partial header received ({bytesRead} bytes): {BitConverter.ToString(headerBuffer, 0, bytesRead)}");
                     break;
                 }
-                //Console.WriteLine($"📥 Received header bytes: {BitConverter.ToString(headerBuffer)}")
+                //Console.WriteLine($"📥 Received header bytes: {BitConverter.ToString(headerBuffer)}");
                 // Step 1.2: Decode header with XOR key
                 uint headerValue = BitConverter.ToUInt32(headerBuffer, 0); // Read as little-endian
                 headerValue ^= _receivingHeaderKey; // XOR as 32-bit integer
@@ -403,25 +429,28 @@ public class ClientHandler
                 var bodyBuffer = new byte[header.CmdLen];
                 bytesRead = await _stream.ReadAsync(bodyBuffer, 0, bodyBuffer.Length);
                 if (bytesRead == 0) {Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} disconnected (no body).");  break; }
-                //Console.WriteLine($"📦 Received encrypted body ({bytesRead} bytes)");
+                //Console.WriteLine($"📦 Received body ({bytesRead} bytes)");
                 
                 // Step 3: Decrypt the body
-                byte[]? decryptedBody;
+                byte[]? decryptedBody = null;
                 //TODO: This if-else could be more robust, and check header.isEncryptedChannel as well
                 if (header.IsEncryptedPubKey)
                 {
+                    //Console.WriteLine("Decrypting Signed message");
                     decryptedBody = DecryptSigned(bodyBuffer, bytesRead);
                     // Verify cmd_len matches decrypted body length
                     //TODO: change "48" to actually reference the libsodium constant instead.
                     //Modified (+48) to account for CryptoBoxSealBytes, the signature that is added to the encrypted payload.
                     if (header.CmdLen != decryptedBody.Length + 48) { Console.WriteLine($"⚠️ Header cmd_len ({header.CmdLen}) does not match decrypted body length ({decryptedBody.Length})"); break; }
                 }  //      We need to use a different decryption key depending on the header.protoCmmd
-                else
+                else if (header.IsEncryptedChannel)
                 {
+                    //Console.WriteLine("Decrypting Standard message");
                     decryptedBody = DecryptStandard(bodyBuffer, bytesRead);
                     // Verify cmd_len matches decrypted body length
                     //TODO: change "16" to actually reference the libsodium constant instead.
                     //Modified (+16) to account for MAC bytes, the signature that is added to the encrypted payload.  I think.
+                    if (decryptedBody == null) Console.WriteLine("decrypted body is null");
                     if (header.CmdLen != decryptedBody.Length + 16) { Console.WriteLine($"⚠️ Header cmd_len ({header.CmdLen}) does not match decrypted body length ({decryptedBody.Length})"); break;}
 
                 }
@@ -429,6 +458,8 @@ public class ClientHandler
                 {
                     Console.WriteLine(" Header info: Cmd=" + (header.ProtoCmd) + " / CmdLen=" + header.CmdLen + " / isSigned=" + header.IsSigned + " / isEncryptedPubKey=" + header.IsEncryptedPubKey + " / isEncryptedChannel=" + header.IsEncryptedChannel);
                     Console.WriteLine($"❌ Failed to decrypt body for client {_client.Client.RemoteEndPoint}");
+                    Console.WriteLine(BitConverter.ToString(bodyBuffer));
+                    
                     break;
                 }
                 //Console.WriteLine($"🔓 Decrypted body ({decryptedBody.Length} bytes)");
@@ -450,6 +481,90 @@ public class ClientHandler
         catch (IOException) { Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} disconnected."); }
         catch (Exception ex) { Console.WriteLine($"💥 An error occurred with client {_client.Client.RemoteEndPoint}: {ex.Message}\n{ex.StackTrace}"); }
         finally { _client.Close(); }
+    }
+
+    /// <summary>
+    /// Forwards traffic bi-directionally between the connected Client and the Onsite Gateway.
+    /// Handles the "Handover" of the first 4 bytes transparently.
+    /// </summary>
+    private async Task HandleStratumProxyAsync(byte[] initialBuffer, int initialCount)
+    {
+        // CONFIGURATION
+        string gatewayIp = "192.168.1.223"; // Ensure this IP is reachable
+        int gatewayPort = 23334;         // Ensure this is the STRATUM (Plaintext) port, not DATUM
+
+        Console.WriteLine($"🔄 Proxy: Connecting client {_client.Client.RemoteEndPoint} to Gateway ({gatewayIp}:{gatewayPort})...");
+
+        using (var gatewayClient = new System.Net.Sockets.TcpClient())
+        {
+            try
+            {
+                // 1. Attempt to connect to the Gateway
+                // We use a small timeout logic here to fail fast if the server is down
+                var connectTask = gatewayClient.ConnectAsync(gatewayIp, gatewayPort);
+                if (await Task.WhenAny(connectTask, Task.Delay(5000)) != connectTask)
+                {
+                    throw new TimeoutException("Timed out waiting for Gateway response.");
+                }
+                await connectTask; // Re-await to propagate exceptions if failed
+
+                Console.WriteLine("✅ Proxy: Connected to Gateway. Starting pipe...");
+
+                using (var gatewayStream = gatewayClient.GetStream())
+                {
+                    // 2. Replay the initial bytes (The 'Header' we peeked)
+                    // We MUST write this before hooking up the pipes.
+                    if (initialCount > 0)
+                    {
+                        await gatewayStream.WriteAsync(initialBuffer, 0, initialCount);
+                        await gatewayStream.FlushAsync(); // Force push
+                    }
+
+                    // 3. Define the Pipe CancellationToken
+                    // This token cancels the copy operation if one side disconnects
+                    using (var cts = new CancellationTokenSource())
+                    {
+                        // Task A: Miner -> Gateway (Append to the stream we already started)
+                        var clientToGateway = CopyStreamWithCloseAsync(_stream, gatewayStream, cts.Token, "Miner->Gateway");
+
+                        // Task B: Gateway -> Miner
+                        var gatewayToClient = CopyStreamWithCloseAsync(gatewayStream, _stream, cts.Token, "Gateway->Miner");
+
+                        // 4. Wait for EITHER side to close the connection
+                        await Task.WhenAny(clientToGateway, gatewayToClient);
+                        
+                        // Cancel the other task so we don't leave hanging sockets
+                        cts.Cancel(); 
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Proxy Error: {ex.GetType().Name} - {ex.Message}");
+                // Optional: Send a Stratum Error back to the miner so they know why they were dropped
+                // var errorJson = "{\"id\":null,\"result\":null,\"error\":[20,\"Internal Proxy Error\",null]}\n";
+                // byte[] errBytes = System.Text.Encoding.UTF8.GetBytes(errorJson);
+                // await _stream.WriteAsync(errBytes, 0, errBytes.Length);
+            }
+            finally
+            {
+                Console.WriteLine($"🛑 Proxy: Session ended for {_client.Client.RemoteEndPoint}");
+            }
+        }
+    }
+
+    // Helper to copy streams and detect closure
+    private async Task CopyStreamWithCloseAsync(Stream source, Stream destination, CancellationToken token, string name)
+    {
+        try
+        {
+            // Use a smaller buffer for Stratum (low latency)
+            // Stratum messages are small; 4KB is plenty.
+            await source.CopyToAsync(destination, 4096, token);
+        }
+        catch (OperationCanceledException) { /* Expected on shutdown */ }
+        catch (IOException) { /* Connection broke */ }
+        catch (Exception ex) { Console.WriteLine($"⚠️ Pipe Error ({name}): {ex.Message}"); }
     }
 
 
@@ -527,6 +642,7 @@ public class ClientHandler
         catch (Exception ex)
         {
             Console.WriteLine($"❌ Decryption error: {ex.Message}\n{ex.StackTrace}");
+            Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} has a problem.  Or something.");
             return null;
         }
     }
@@ -750,7 +866,7 @@ public class ClientHandler
             Value = mySats,
             Address = clientPayoutAddress //this inserts the client's payout address into spot '0' in the coinbase TX
         };
-        fetchResponse.Payouts = new List<PayoutInfo>(DatumServer.WinnersList);  //Insert my own "pools" payout address into the first slot.
+        fetchResponse.Payouts = new List<PayoutInfo>(DatumServer.WinnersList);  //Insert my own "pools" payout address into the first slot. TODO:  Is this line redundent??  I think so. 
         fetchResponse.Payouts.Insert(0, myPayout);
         
         /*fetchResponse.Payouts.Add(new PayoutInfo
@@ -777,6 +893,32 @@ public class ClientHandler
     private async Task HandlePowSubmitAsync(byte[] payload)
     {
         var powSubmit = PowSubmitMessage.FromBytes(payload);
+        //Check for proper address and usernames:
+        //  using _poolConfig.PoolPayoutScript as default fallback
+        string[] parts = powSubmit.Username.Split('.');
+        string? validatedAddress = null;
+        // 1. Check Priority: Address2 (Second part of username: address.address2.worker)
+        if (parts.Length >= 2 && IsValidAddress(parts[1]))
+        {
+            validatedAddress = parts[1];
+        }
+
+        // 2. Check Priority: Address1 (First part of username: address.worker OR address)
+        // Only check if we haven't found a valid address yet
+        if (validatedAddress == null && parts.Length >= 1 && IsValidAddress(parts[0]))
+        {
+            validatedAddress = parts[0];
+        }
+
+        // 3. Fallback: Use Pool Default
+        if (validatedAddress == null)
+        {
+            //Console.WriteLine($"[Warning] Invalid or missing address in username '{powSubmit.Username}'. Using default.");
+            validatedAddress = clientPayoutAddress; 
+        }
+
+        powSubmit.Address = validatedAddress;
+
         if (powSubmit.PrevBlockHash == null)  //This is just a nonce update, does not include complete header info
         {
 
@@ -792,7 +934,12 @@ public class ClientHandler
             JobCache[powSubmit.JobId].Extranonce = powSubmit.Extranonce;
             JobCache[powSubmit.JobId].Username = powSubmit.Username;
             //Now check if we got new coinbase data with this share:
-            if (powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb1 != null)  // Got a new coinbase with this one
+            if (powSubmit.SubsidyOnlyCoinb1 != null) //This share includes subsidy only coinbase data
+            {
+                JobCache[powSubmit.JobId].SubsidyOnlyCoinb1 = powSubmit.SubsidyOnlyCoinb1;
+                JobCache[powSubmit.JobId].SubsidyOnlyCoinb2 = powSubmit.SubsidyOnlyCoinb2;
+            }
+            else if (!powSubmit.SubsidyOnly && powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb1 != null)  // Got a new coinbase with this one
             {
                 //Console.WriteLine("New coinbase data");
                 JobCache[powSubmit.JobId].CoinbasePairs[powSubmit.CoinbaseId] = powSubmit.CoinbasePairs[powSubmit.CoinbaseId];
@@ -801,11 +948,22 @@ public class ClientHandler
         }
         else JobCache[powSubmit.JobId] = powSubmit;  //New job, with complete header info.  
         //TODO: Technically, there is the very edge case that a miner could reuse old coinbase info with a new job and merkle branches.  This case isn't handled right now.
-        clientPayoutAddress = powSubmit.Address;  //this stores the client's payout address once we get their first share, so we can stick this in the coinbaserFetch message
+
+        
 
         // Now compute the latest Merkle Root.  We have to do this for every share submission, since the extranonce changes every time.
-        byte[] Coinb1 = powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb1;
-        byte[] Coinb2 = powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb2;
+        byte[] Coinb1; 
+        byte[] Coinb2;
+        if (powSubmit.SubsidyOnly)
+        {
+            Coinb1 = powSubmit.SubsidyOnlyCoinb1;
+            Coinb2 = powSubmit.SubsidyOnlyCoinb2;
+        }
+        else
+        {
+            Coinb1 = powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb1;
+            Coinb2 = powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb2;
+        }
         byte[] coinbaseTx = Coinb1.Concat(powSubmit.Extranonce).Concat(Coinb2).ToArray();
 
         if (powSubmit.QuickDiff)
@@ -874,7 +1032,7 @@ public class ClientHandler
             writer.Write(powSubmit.NBits); // 4 bytes
             writer.Write(powSubmit.Nonce); // 4 bytes
         }
-        if (powSubmit.SubsidyOnly) Console.WriteLine("*** Got subsidy only coinbase message!");
+        //if (powSubmit.SubsidyOnly) Console.WriteLine("*** Got subsidy only coinbase message!");
 
         // Verify header
 
@@ -897,6 +1055,35 @@ public class ClientHandler
         // Check against the global best record
         // This handles saving to disk and updating the UI automatically
         await DatumServer.UpdateBestShareIfNewRecord(difficulty, powSubmit.Username);
+        if (difficulty > BestDiff)
+        {
+            //This share is the best we've seen from this client, so maybe update the client payout address if this share provided a new one.  
+            clientPayoutAddress = powSubmit.Address;  //this stores the client's payout address once we get their first share, so we can stick this in the coinbaserFetch message
+            BestDiff = difficulty;
+            //This is sort of a hack for DATUM, to allow different stratum miners to "play".  Best share get's their address put in this client's coinbase[0]. 
+            //The flow/states of clientPayoutAddress are:
+            // Bootup: = _poolConfig.poolPayoutScript 
+            // After first PoW share = miner address.  If 
+        }
+
+        // TODO: For testing only.  Remove this when finished. 
+        if (difficulty > DatumServer.RESET_THRESHOLD)
+        {
+            // Reset the lists for the next round.  Record payouts.
+            // Build the new lists and execute the swap in memory, with locks, like ZMQSubscriber
+            //await BitcoinZmqSubscriber.OnNewBlockAsync("testBlock", stoppingToken);
+            //await _hubContext.Clients.All.SendAsync("UpdateWinners", DatumServer.WinnersList, stoppingToken);
+            //await _hubContext.Clients.All.SendAsync("UpdateOnDeck", DatumServer.OnDeckList, stoppingToken);
+
+            // Reset BestDiff for this client, so new small miners can compete to control this client's payout address
+
+            // Search the Winner's list, and add payouts to each miner's running total
+
+            // Tally total payouts so far
+
+            // Update percentages of payouts for each address
+        }
+        // Update client's share total using PoT.
 
 
         // 2. Verify Block Header
@@ -904,7 +1091,7 @@ public class ClientHandler
         //Console.WriteLine($"   -> Header valid: {isHeaderValid}");
 
         // 3. Extract Username
-        string minerAddress = powSubmit.Username;  //TODO: ideally we extract this from the coinbase transaction
+        //string minerAddress = powSubmit.Username;  //TODO: ideally we extract this from the coinbase transaction
         //Console.WriteLine($"   -> Miner address: {minerAddress}");
 
         // 4. Verify Coinbase Transaction
@@ -943,6 +1130,7 @@ public class ClientHandler
                         newPayout.Username = powSubmit.Username;
                         newPayout.Difficulty = difficulty;
                         newPayout.DiffString = FormatDifficulty(difficulty);
+                        //newPayout.Value = 
                         
                         DatumServer.OnDeckList.Insert(j, newPayout);
                         newWinner = true;
@@ -956,7 +1144,7 @@ public class ClientHandler
                     }
 
                     int listSizeAfter = DatumServer.OnDeckList.Count;
-                    if(listSizeBefore != listSizeAfter)
+                    if(true)
                     {
                         var reward = Program.BLOCK_REWARD / ((ulong)DatumServer.OnDeckList.Count + 1);
                         for (int i = 0; i < DatumServer.OnDeckList.Count; i++)
@@ -975,10 +1163,10 @@ public class ClientHandler
                     
                     // Console I/O can be slow, you might want to move this out of the lock
                     // or keep it if debugging is critical.
-                    Console.WriteLine("-----------------------------------------------------------");
+                    //Console.WriteLine("-----------------------------------------------------------");
                     for (int i = 0; i < DatumServer.OnDeckList.Count; i++)
                     {
-                        Console.WriteLine($"{i}\t{DatumServer.OnDeckList[i].DiffString}\t{DatumServer.OnDeckList[i].Address}");
+                        //Console.WriteLine($"{i}\t{DatumServer.OnDeckList[i].DiffString}\t{DatumServer.OnDeckList[i].Address}");
                     }
                 }
             }
@@ -1208,6 +1396,37 @@ public class ClientHandler
             return Bech32.Encode("bc", 0, program);
         }
         return "UNKNOWN";
+    }
+
+    // Local function to validate an address candidate
+    bool IsValidAddress(string candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate)) return false;
+
+        try
+        {
+            // Check format based on prefix
+            if (candidate.StartsWith("bc1") || candidate.StartsWith("tb1"))
+            {
+                // Use your updated Bech32.Decode
+                Bech32.Decode(candidate); 
+                return true;
+            }
+            else
+            {
+                // Fallback to Base58Check (P2PKH/P2SH)
+                // Basic length check to avoid costly math on obvious junk
+                if (candidate.Length < 26 || candidate.Length > 35) return false;
+                
+                Base58Check.Decode(candidate);
+                return true;
+            }
+        }
+        catch (Exception)
+        {
+            // Address format is invalid (Format, Checksum, or Length exception)
+            return false;
+        }
     }
 
     private static byte[] DoubleSha256(byte[] data)
@@ -1625,69 +1844,108 @@ public class CoinbaserFetchResponseMessage
     public List<PayoutInfo> Payouts { get; set; } = new();
 
     public byte[] ToBytes()
-{
-    using var stream = new MemoryStream();
-    using var writer = new BinaryWriter(stream);
-    
-    // Write the count of payouts (1 byte)
-    writer.Write((byte)Payouts.Count); 
-    
-    foreach (var payout in Payouts)
     {
-        writer.Write(payout.Value); // 8 bytes (amount)
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream);
         
-        // --- MODIFICATION: Extract the actual address part ---
-        // Miners often provide addresses in the format "address.workerName".
-        // We only need the part before the first dot for script generation.
-        string address = payout.Address;
-        int dotIndex = address.IndexOf('.');
-        if (dotIndex != -1)
+        // Write the count of payouts (1 byte)
+        writer.Write((byte)Payouts.Count); 
+        
+        foreach (var payout in Payouts)
         {
-            // Trim the string to include only the part before the dot
-            address = address.Substring(0, dotIndex);
-        }
-        // --- END MODIFICATION ---
+            writer.Write(payout.Value); // 8 bytes (amount)
+            
+            // --- MODIFICATION: Extract the actual address part ---
+            // Miners often provide addresses in the format "address.workerName".
+            // We only need the part before the first dot for script generation.
+            string address = payout.Address;
+            int dotIndex = address.IndexOf('.');
+            if (dotIndex != -1)
+            {
+                // Trim the string to include only the part before the dot
+                address = address.Substring(0, dotIndex);
+            }
+            // --- END MODIFICATION ---
 
-        byte[] script;
-        
-        // Check if the address is Bech32 (SegWit) using the cleaned 'address'
-        if (address.StartsWith("bc1") || address.StartsWith("tb1"))
-        {
-            // Bech32 (SegWit) address
-            var (hrp, version, program) = Bech32.Decode(address); // Use cleaned 'address'
-            if (version != 0 || program.Length != 20) // P2WPKH only (adjust if P2WSH is supported)
+            byte[] script;
+            
+            // Check if the address is Bech32 (SegWit) using the cleaned 'address'
+            if (address.StartsWith("bc1") || address.StartsWith("tb1"))
             {
-                // Use payout.Address for the error message to show the original input
-                throw new InvalidOperationException($"Unsupported Bech32 address: {payout.Address}");
+                // Bech32 (SegWit) address
+                var (hrp, version, program) = Bech32.Decode(address); // Use cleaned 'address'
+                // --- START MODIFICATION: Support for P2TR (Taproot) ---
+                if (version == 0 && program.Length != 20) // Only P2WPKH (20 bytes) is explicitly allowed here
+                {
+                    // This check is fine if you ONLY want to support P2WPKH for V0, but V0 also supports 32-byte P2WSH.
+                    // It's better to check for supported versions and lengths.
+                    if (version == 0 && program.Length != 32)
+                    {
+                        // P2WSH is V0, 32 bytes. If you don't support it, keep this check.
+                        throw new InvalidOperationException($"Unsupported Bech32 address: P2WSH or invalid V0 length {payout.Address}");
+                    }
+                }
+                else if (version == 1 && program.Length != 32)
+                {
+                    // This is a P2TR (Taproot) address with a weird length?
+                    throw new InvalidOperationException($"Unsupported Bech32m address: invalid V0 length? {payout.Address}");
+                }
+                else if (version >= 2)
+                {
+                    // Unsupported Witness Version (V2 and up)
+                    throw new InvalidOperationException($"Unsupported Bech32 address: Invalid version {version} for {payout.Address}");
+                }
+                // --- END MODIFICATION ---
+                byte witnessVersionOpCode;
+                switch (version)
+                {
+                    case 0:
+                        witnessVersionOpCode = 0x00; // OP_0
+                        break;
+                    case 1:
+                        witnessVersionOpCode = 0x51; // OP_1
+                        break;
+                    default:
+                        // Use the payout.Address for the error message
+                        throw new InvalidOperationException($"Unsupported witness version {version} for SegWit address: {payout.Address}");
+                }
+                // The script construction logic for SegWit addresses is identical for all versions (V0, V1, etc.)
+                // It's: [version] [program_length] [program_bytes]
+                script = new byte[2 + program.Length];
+                script[0] = witnessVersionOpCode; // Use the decoded Witness version
+                script[1] = (byte)program.Length; // Length (20 for V0 P2WPKH, 32 for V1 P2TR)
+                Array.Copy(program, 0, script, 2, program.Length);
+                if(version == 1)
+                {
+                    //Console.WriteLine($" script = {Convert.ToHexStringLower(script)}");
+                }
+
             }
-            script = new byte[2 + program.Length];
-            script[0] = 0x00; // Witness version 0
-            script[1] = (byte)program.Length; // Length (20)
-            Array.Copy(program, 0, script, 2, program.Length);
-        }
-        else
-        {
-            // P2PKH address
-            byte[] payload = Base58Check.Decode(address); // Use cleaned 'address'
-            if (payload.Length != 21 || payload[0] != 0x00)
+            else
             {
-                // Use payout.Address for the error message to show the original input
-                throw new InvalidOperationException($"Invalid P2PKH address: {payout.Address}");
+                // P2PKH address
+                Console.WriteLine($"Decoding Base58 payout.Address: {payout.Address}");
+                Console.WriteLine($"Decoding Base58 address: {address}");
+                byte[] payload = Base58Check.Decode(address); // Use cleaned 'address'
+                if (payload.Length != 21 || payload[0] != 0x00)
+                {
+                    // Use payout.Address for the error message to show the original input
+                    throw new InvalidOperationException($"Invalid P2PKH address: {payout.Address}");
+                }
+                byte[] pubkeyHash = payload.Skip(1).Take(20).ToArray();
+                script = new byte[25];
+                script[0] = 0x76; // OP_DUP
+                script[1] = 0xA9; // OP_HASH160
+                script[2] = 0x14; // Length of hash (20)
+                Array.Copy(pubkeyHash, 0, script, 3, 20);
+                script[23] = 0x88; // OP_EQUALVERIFY
+                script[24] = 0xAC; // OP_CHECKSIG
             }
-            byte[] pubkeyHash = payload.Skip(1).Take(20).ToArray();
-            script = new byte[25];
-            script[0] = 0x76; // OP_DUP
-            script[1] = 0xA9; // OP_HASH160
-            script[2] = 0x14; // Length of hash (20)
-            Array.Copy(pubkeyHash, 0, script, 3, 20);
-            script[23] = 0x88; // OP_EQUALVERIFY
-            script[24] = 0xAC; // OP_CHECKSIG
+            
+            writer.Write((byte)script.Length); // 1 byte script length
+            writer.Write(script); // Script bytes
         }
-        
-        writer.Write((byte)script.Length); // 1 byte script length
-        writer.Write(script); // Script bytes
-    }
-    return stream.ToArray();
+        return stream.ToArray();
     }
 }
 public class PayoutInfo
@@ -1766,6 +2024,8 @@ public class PowSubmitMessage
             usernameBytes.Add(b);
         }
         result.Username = Encoding.UTF8.GetString(usernameBytes.ToArray());
+        //Console.WriteLine($"POW share from: {result.Username}");
+        
         string address = result.Username;
         int dotIndex = address.IndexOf('.');
         if (dotIndex != -1)
@@ -1808,7 +2068,19 @@ public class PowSubmitMessage
                 ushort coinb2Len = reader.ReadUInt16();
                 byte[] coinb1 = reader.ReadBytes(coinb1Len);
                 byte[] coinb2 = reader.ReadBytes(coinb2Len);
-                result.CoinbasePairs[result.CoinbaseId] = (coinb1, coinb2);
+                
+                if(result.CoinbaseId == 255)
+                {
+                    //Console.WriteLine($"result.CoinbaseID={result.CoinbaseId}");
+                    //Console.WriteLine($"result.cb only = {result.SubsidyOnly}");
+                    result.SubsidyOnlyCoinb1 = coinb1;
+                    result.SubsidyOnlyCoinb2 = coinb2;
+                }
+                else
+                {
+                    result.CoinbasePairs[result.CoinbaseId] = (coinb1, coinb2);
+                }
+                
                 //Console.WriteLine($"Stored CoinbaseId {result.CoinbaseId}: Coinb1={coinb1Len} bytes, Coinb2={coinb2Len} bytes");
             }
             else

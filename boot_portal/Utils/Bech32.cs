@@ -24,14 +24,52 @@ public static class Bech32
         }
 
         uint checksum = Polymod(ExpandHrp(hrp).Concat(data).ToArray());
-        if (checksum != 1) throw new FormatException("Invalid Bech32 checksum");
-
-        int version = data[0];
+    
+        int version = data[0]; // Get version from the first data byte (5-bit)
         if (version > 16) throw new FormatException($"Invalid witness version: {version}");
+
+        // Determine the expected checksum constant based on the witness version
+        uint expectedChecksum;
+        if (version == 0)
+        {
+            // Bech32 for Witness Version 0 (P2WPKH, P2WSH)
+            expectedChecksum = 1;
+        }
+        else
+        {
+            // Bech32m for Witness Version 1 to 16 (P2TR and future)
+            // This is the constant 0x2bc830a3
+            expectedChecksum = 0x2bc830a3; 
+        }
+        
+        if (checksum != expectedChecksum) throw new FormatException("Invalid Bech32/Bech32m checksum");
+
+        //uint checksum = Polymod(ExpandHrp(hrp).Concat(data).ToArray());
+        //if (checksum != 1) throw new FormatException("Invalid Bech32 checksum");
+
+        //int version = data[0];
+        //if (version > 16) throw new FormatException($"Invalid witness version: {version}");
+        
         byte[] program5bit = data.Skip(1).Take(data.Length - 7).ToArray();
         byte[] program = ConvertBits(program5bit, 5, 8, false);
+
+        // Taproot addresses (V1) have a 32-byte program length (V0 can be 20 or 32)
         if (program.Length < 2 || program.Length > 40) throw new FormatException($"Invalid program length: {program.Length}");
-        if (version == 0 && program.Length != 20 && program.Length != 32) throw new FormatException("Invalid program length for version 0");
+        
+        // The V0 specific check needs to be updated to allow V1 (32 bytes)
+        if (version == 0 && program.Length != 20 && program.Length != 32) 
+            throw new FormatException("Invalid program length for version 0");
+        
+        // Add V1 check for completeness (V1 must be 32 bytes)
+        if (version == 1 && program.Length != 32)
+            throw new FormatException("Invalid program length for version 1 (Taproot)");
+
+        if(version == 1)
+        {
+            //Console.WriteLine($"Decoding: {address}");
+            //Console.WriteLine($"  into..: {BitConverter.ToString(program)}");
+        }
+        
 
         return (hrp, version, program);
     }
@@ -41,18 +79,40 @@ public static class Bech32
         if (hrp != "bc" && hrp != "tb") throw new ArgumentException($"Invalid HRP: {hrp}");
         if (version < 0 || version > 16) throw new ArgumentException($"Invalid witness version: {version}");
         if (program.Length < 2 || program.Length > 40) throw new ArgumentException($"Invalid program length: {program.Length}");
-        if (version == 0 && program.Length != 20 && program.Length != 32) throw new ArgumentException("Invalid program length for version 0");
+        
+        // Validate program length for known versions
+        if (version == 0 && program.Length != 20 && program.Length != 32) 
+            throw new ArgumentException("Invalid program length for version 0");
+        if (version == 1 && program.Length != 32) // Taproot must be 32 bytes
+            throw new ArgumentException("Invalid program length for version 1 (Taproot)");
 
         // Convert program to 5-bit
         byte[] data = ConvertBits(program, 8, 5, true);
         byte[] values = new byte[data.Length + 1];
-        values[0] = (byte)version;
+        values[0] = (byte)version; // The first 5-bit value is the witness version
         Array.Copy(data, 0, values, 1, data.Length);
+
+        // --- START FIX: Determine Checksum Constant ---
+        uint checksumConstant;
+        if (version == 0)
+        {
+            // Bech32 constant for Witness Version 0 (P2WPKH, P2WSH)
+            checksumConstant = 1;
+        }
+        else
+        {
+            // Bech32m constant for Witness Version 1 to 16 (P2TR and future)
+            checksumConstant = 0x2bc830a3;
+        }
+        // --- END FIX ---
 
         // Compute checksum
         byte[] expandedHrp = ExpandHrp(hrp);
         byte[] checksum = new byte[6];
-        uint polymod = Polymod(expandedHrp.Concat(values).Concat(new byte[6]).ToArray()) ^ 1;
+        
+        // XOR with the appropriate constant (1 for Bech32, 0x2bc830a3 for Bech32m)
+        uint polymod = Polymod(expandedHrp.Concat(values).Concat(new byte[6]).ToArray()) ^ checksumConstant;
+        
         for (int i = 0; i < 6; i++)
         {
             checksum[i] = (byte)((polymod >> (5 * (5 - i))) & 31);
@@ -62,8 +122,12 @@ public static class Bech32
         var chars = new List<char>(hrp.Length + 1 + values.Length + checksum.Length);
         chars.AddRange(hrp);
         chars.Add('1');
-        chars.Add(Charset[version]);
-        foreach (byte b in data)
+        
+        // Note: The original code had chars.Add(Charset[version]) which is incorrect.
+        // The version is already included as the first byte in 'values' (values[0]).
+        // The loop below correctly adds the character representation of values[i], starting with the version.
+        
+        foreach (byte b in values)
         {
             chars.Add(Charset[b]);
         }
@@ -71,10 +135,14 @@ public static class Bech32
         {
             chars.Add(Charset[b]);
         }
+        if(version == 1)
+        {
+            Console.WriteLine($"Encoding: {hrp}");
+            Console.WriteLine($"  into..: {new string(chars.ToArray())}");
+        }
 
         return new string(chars.ToArray());
     }
-
     private static uint Polymod(byte[] values)
     {
         uint chk = 1;
