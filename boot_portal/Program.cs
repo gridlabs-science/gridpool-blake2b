@@ -218,6 +218,7 @@ public class Program
             builder.WebHost.UseUrls("http://0.0.0.0:5000", "https://0.0.0.0:5001");
 
             builder.Services.AddRazorPages(); // For serving simple HTML pages
+            builder.Services.AddControllers();
             builder.Services.AddSignalR();    // For real-time updates
             
             // Start your background services
@@ -271,6 +272,7 @@ public class Program
             app.UseStaticFiles(); // Serve static files like CSS, JS, images
             app.UseRouting();
             app.MapRazorPages(); // Use a simple page system
+            app.MapControllers();
 
             // 3. Tell the app where your SignalR Hub lives
             app.MapHub<PoolStatsHub>("/poolStatsHub"); // This is the URL your JS will use

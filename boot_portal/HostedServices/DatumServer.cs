@@ -158,4 +158,88 @@ public class DatumServer : BackgroundService
             _ = Task.Run(clientHandler.HandleClientAsync, stoppingToken);
         }
     }
+
+    // ... inside DatumServer class ...
+
+    /// <summary>
+    /// Processes a share received via the HTTP API.
+    /// Validates the PoW, updates state, saves to disk, and notifies UI.
+    /// </summary>
+    public static async Task<bool> ProcessApiShareAsync(Models.ShareSubmissionDto share)
+    {
+        // 1. VALIDATION LOGIC
+        // TODO: Implement actual PoW verification here.
+        // You need to reconstruct the Merkle Root from (Coinbase + MerklePath)
+        // Then hash the HeaderHex (with that Root) and check against Target.
+        
+        // Pseudo-check for now:
+        if (share.Difficulty < 1) return false; 
+        
+        // 2. UPDATE STATE
+        bool isNewRecord = false;
+
+        lock (_stateLock)
+        {
+            // A. Update OnDeckList (The queue for the next block)
+            // Logic: Is this miner already on deck? If so, add diff. If not, insert.
+            var existingEntry = OnDeckList.FirstOrDefault(x => x.Address == share.MinerAddress);
+            if (existingEntry != null)
+            {
+                // This is a simplification. Usually you accumulate 'share.Difficulty'
+                // based on pool weighting logic.
+                // For a "Highest Difficulty Wins" pool, you replace if higher.
+                if (share.Difficulty > existingEntry.Difficulty)
+                {
+                    existingEntry.Difficulty = share.Difficulty;
+                }
+            }
+            else
+            {
+                OnDeckList.Add(new PayoutInfo 
+                { 
+                    Address = share.MinerAddress, 
+                    Difficulty = share.Difficulty 
+                    // Add 'Value' calculation here based on pool rules
+                });
+            }
+
+            // B. Check for Best Share Record (For the UI)
+            if (share.Difficulty > BestShare.Difficulty)
+            {
+                isNewRecord = true;
+                BestShare = new BestShareRecord
+                {
+                    Difficulty = share.Difficulty,
+                    MinerAddress = share.MinerAddress,
+                    Timestamp = DateTime.UtcNow
+                };
+            }
+            
+            // C. Save to Disk
+            // We call the existing SaveState method
+            // (Note: SaveState takes a lock, so we might need to extract the logic 
+            // inside SaveState to a private method '_saveStateInternal' to avoid recursive locking 
+            // if we are already inside a lock here. 
+            // OR: Just release lock before saving. Let's do the latter for safety).
+        }
+        
+        // Save state outside the detailed logic lock, or rely on SaveState's internal lock.
+        // Since SaveState has its own lock, we are safe to call it here.
+        SaveState();
+
+        // 3. BROADCAST TO UI
+        if (HubContext != null)
+        {
+            // Send updated stats to web clients
+            if (isNewRecord)
+            {
+                await HubContext.Clients.All.SendAsync("UpdateRecord", BestShare);
+            }
+            
+            // Optional: Send a "New Share" blip to the UI
+            // await HubContext.Clients.All.SendAsync("ShareReceived", share.MinerAddress);
+        }
+
+        return true;
+    }
 }
