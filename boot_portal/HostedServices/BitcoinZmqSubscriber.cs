@@ -112,7 +112,7 @@ public class BitcoinZmqSubscriber : BackgroundService
     {
         // Your custom logic: e.g., fetch block details via RPC, update jobs
         _logger.LogInformation("Processing block {BlockHash}...", blockHash);
-        if(blockHash != "testBlock") return;
+        //if(blockHash != "testBlock") return;
         //return;                         
         // 1. Create the NEW list in a local variable.
         //    Reader threads CANNOT see this variable.
