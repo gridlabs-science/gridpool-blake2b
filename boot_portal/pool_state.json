@@ -4,8 +4,8 @@
     "ProtocolVersion": 1
   },
   "CurrentStateId": "e03f475928a30a758a9d52c470409268efd1a6b4744518b78470ede4bcf39c8f",
-  "CandidateStateId": "cdc072a94a3e2a063da68e72355c27b2bccaa11228e48fbaa4556efb58d911de",
-  "CurrentTipBlockHash": "00000000000000000001740ec32258536d8cdb5a72914aae1ddfafdf59baa2bc",
+  "CandidateStateId": "cc059b9776c3e0e30885272255fb318170210953676a02f2d8e2ef6ef602b37f",
+  "CurrentTipBlockHash": "000000000000000000019d59ce367fd65c65abf189afa37284f6d3e5b5b20007",
   "LastRotationUtc": "2026-03-29T01:48:59.2532834Z",
   "WinnersList": [
     {
@@ -18387,8 +18387,8 @@
     {
       "Endpoint": "https://boot.gridlabs.science",
       "Status": "discovered",
-      "LatencyMs": 26.0915,
-      "LastSeenUtc": "2026-03-29T13:21:11.538484Z"
+      "LatencyMs": 26.9563,
+      "LastSeenUtc": "2026-03-29T20:03:57.6503065Z"
     }
   ],
   "BestShare": {

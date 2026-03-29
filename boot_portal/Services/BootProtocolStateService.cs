@@ -706,21 +706,31 @@ public class BootProtocolStateService
         return adopted;
     }
 
-    public async Task<bool> TryBootstrapCurrentStateAsync(BootStateBundle bundle, string sourceEndpoint)
+    public async Task<bool> TryBootstrapCurrentStateAsync(BootStateBundle bundle, string? observedTipBlockHash, string sourceEndpoint)
     {
         if (!IsCompatiblePeerNetwork(bundle.ProtocolVersion, bundle.NetworkId))
         {
+            _logger.LogDebug("Rejected bootstrap state from {SourceEndpoint}: incompatible network.", sourceEndpoint);
             return false;
         }
 
         if (bundle.WinnersList.Count > _poolConfig.SharedWinnerSlotCount)
         {
+            _logger.LogDebug(
+                "Rejected bootstrap state from {SourceEndpoint}: winners count {Count} exceeds configured shared slots {MaxCount}.",
+                sourceEndpoint,
+                bundle.WinnersList.Count,
+                _poolConfig.SharedWinnerSlotCount);
             return false;
         }
 
         string? lockedTip = NormalizeCanonicalBlockHash(bundle.LockedByBlockHash);
-        if (string.IsNullOrWhiteSpace(lockedTip) || bundle.WinnersList.Count == 0)
+        string? observedTip = NormalizeCanonicalBlockHash(observedTipBlockHash) ?? lockedTip;
+        if (string.IsNullOrWhiteSpace(observedTip) || bundle.WinnersList.Count == 0)
         {
+            _logger.LogDebug(
+                "Rejected bootstrap state from {SourceEndpoint}: missing observed tip or winners list.",
+                sourceEndpoint);
             return false;
         }
 
@@ -739,16 +749,25 @@ public class BootProtocolStateService
 
             if (hasEstablishedState)
             {
+                _logger.LogDebug(
+                    "Rejected bootstrap state from {SourceEndpoint}: local node already has an established state {StateId}.",
+                    sourceEndpoint,
+                    _state.CurrentStateId);
                 return false;
             }
 
             if (!string.IsNullOrWhiteSpace(localTip) &&
-                !BitcoinHashes.AreEquivalent(localTip, lockedTip))
+                !BitcoinHashes.AreEquivalent(localTip, observedTip))
             {
+                _logger.LogDebug(
+                    "Rejected bootstrap state from {SourceEndpoint}: local tip {LocalTip} does not match observed remote tip {RemoteTip}.",
+                    sourceEndpoint,
+                    localTip,
+                    observedTip);
                 return false;
             }
 
-            _state.CurrentTipBlockHash = lockedTip;
+            _state.CurrentTipBlockHash = observedTip;
             _state.CurrentStateId = string.IsNullOrWhiteSpace(bundle.StateId)
                 ? ComputeStateIdFromPayoutsNoLock(bundle.WinnersList, lockedTip)
                 : bundle.StateId;
