@@ -1,0 +1,35 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  dotnet:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Restore app
+        run: dotnet restore boot_portal/boot_portal.csproj
+
+      - name: Build app
+        run: dotnet build boot_portal/boot_portal.csproj --configuration Release --no-restore
+
+      - name: Restore tests
+        run: dotnet restore boot.tests/boot.tests.csproj
+
+      - name: Build tests
+        run: dotnet build boot.tests/boot.tests.csproj --configuration Release --no-restore
+
+      - name: Run tests
+        run: dotnet test boot.tests/boot.tests.csproj --configuration Release --no-build

@@ -1,7 +1,11 @@
 #!/bin/bash
 
 SERVICE_NAME="bootserverapp"
-APP_DIR="/home/keegreil/Documents/GitHub/boot-protocol/boot_portal"
+ROOT_DIR="/home/keegreil/Documents/GitHub/boot-protocol"
+APP_DIR="$ROOT_DIR/boot_portal"
+PUBLISH_DIR="$APP_DIR/publish"
+TEMP_PUBLISH_DIR="/tmp/${SERVICE_NAME}-publish"
+SERVICE_FILE_SRC="$ROOT_DIR/systemd/${SERVICE_NAME}.service"
 
 echo "--- Starting Update Process ---"
 
@@ -13,7 +17,12 @@ cd $APP_DIR
 git pull origin main
 
 echo "Rebuilding..."
-dotnet publish -c Release -o ./publish
+dotnet publish boot_portal.csproj -c Release -o "$TEMP_PUBLISH_DIR"
+rsync -a --delete "$TEMP_PUBLISH_DIR"/ "$PUBLISH_DIR"/
+
+echo "Installing systemd unit..."
+sudo install -m 0644 "$SERVICE_FILE_SRC" "/etc/systemd/system/${SERVICE_NAME}.service"
+sudo systemctl daemon-reload
 
 echo "Restarting service..."
 sudo systemctl start $SERVICE_NAME

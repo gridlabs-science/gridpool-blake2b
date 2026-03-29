@@ -1,0 +1,10 @@
+.git
+.gitignore
+.vscode
+publish
+data
+**/bin
+**/obj
+boot_portal/boot_portal_config.json
+boot_portal/pool_state.json
+boot_portal/pool_state copy.json

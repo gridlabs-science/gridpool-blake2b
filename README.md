@@ -1,12 +1,34 @@
 # boot-protocol
 A decentralized protocol for bitcoin hashing nodes to share block rewards and reduce variance
+- It's like P2Pool, but much simpler, which gives boot-protocol different advantages and disadvantages.
+- It's not really a pool in the classic sense.  It's more like "shared lottery mining", with smaller payouts and better odds than pure solo mining.
+- This implementation works with DATUM or (soon) Hydrapool. 
+
+## Docker Beta Quickstart
+Boot Protocol now includes a basic Docker packaging path for public beta testing.
+
+Beta defaults now assume `299` shared Winners List slots, with slot `0` reserved for the block finder. Some of the longer discussion below still uses older 15/16-slot toy examples for intuition.
+
+1. Review `docker/boot_portal_config.sample.json`.
+2. Bring the stack up with `docker compose up --build`.
+3. The container persists runtime files under `./data` by default:
+   - `./data/boot_portal_config.json`
+   - `./data/pool_state.json`
+4. The WebUI is exposed on port `5000` and the DATUM listener on port `3008`.
+
+Notes:
+- The container is set up for HTTP on the WebUI by default.  Terminate TLS at a reverse proxy, Cloudflare tunnel, or similar edge layer.
+- The default sample uses `NotificationSource = "MempoolSpace"` so a local `bitcoind` is not required for first boot.
+- If you want local ZMQ block notifications, change the config and make sure the container can reach your Bitcoin node.
+- The public beta bootstrap seed remains `https://boot.gridlabs.science` unless you override `bootstrap_peers`.
+- Health probes are exposed at `/health/live` and `/health/ready`.
 
 ## The Problem
 Block construction, and therefore transaction selection are laughably centralized.  The vast majority of new coinbase rewards go to one of only a handful of wallets.  
 This happened because centralized, low variance payout structures (FPPS) can outcompete higher variance methods like PPLNS.  It is difficult for any small competing pool to get past the minimum hashrate required to have a manageable variance.  
 
 ## Prior Art
-The best known example is P2Pool.  This used a secondary blockchain with faster blocktimes to track individual shares in a decentralized manner.  P2Pool failed largely for two reasons.
+The best known example is P2Pool.  *(NOTE: P2PoolV2 is in active development and aims to solve many of these early problems.)*  This used a secondary blockchain with faster blocktimes to track individual shares in a decentralized manner.  P2Pool (version 1) failed largely for two reasons.
 1. The extra overhead required to run the secondary blockchain was cumbersome
 2. The 30-second block times excacerbated the negative effects of block propagation time.  In all blockchains, when a new block is found it takes a brief amount of time before the rest of the network knows about the new block.  This means that nodes which discover the new block first have an advantage of being able to work on building on the new block before the rest of the network finds out.  If the difference between average block times and block propogation speed is great, than this effect is negligible, for example Bitcoin's ~10 minute block times (600 seconds) vs. about 6 seconds for network propogation.  However if block times are very fast (eg. 30 seconds), then physically centralizing hashrate becomes quite advantageous.  Nodes near the network center will earn significantly higher rewards.
 
@@ -14,10 +36,10 @@ The second (upcoming) solution is Braid Pool, an exciting new decentralized pool
 
 The third (also upcoming) solution is Ocean Pool.  Ocean Pool of course is already operating, and allows hashers the choice of three different templates.  They are working hard on adding the ability for miners to build their own templates, which will solve the problem of centralized block template creation.  Being a centralized entity themselves (albeit with nicely decentralized block template construction), there is the black swan risk that Ocean could get shut down by regulators.  Miners on Ocean also run the risk of reduced revenue from a block witholding attack.  
 
-Boot Protocol is named a protocol, not a pool, because it is attacking the variance "problem" from the other side.  All pools attempt to estimate the actual amount of effort a miner puts in by tracking shares, either from centralized servers (Ocean) or using a side chain (P2Pool and Braid Pool).  Boot Protocol never attempts to track actual work inputs, and never centralizes the block rewards at all.  Conceptually, Boot Protocol is much closer to Solo mining, albiet with up to 16x reduced variance.  This concept accepts some variance, in exchange for other advantages.
+Boot Protocol is named a protocol, not a pool, because it is attacking the variance "problem" from the other side.  All pools attempt to estimate the actual amount of effort a miner puts in by tracking shares, either from centralized servers (Ocean) or using a side chain (P2Pool and Braid Pool).  Boot Protocol never attempts to track actual work inputs, and never centralizes the block rewards at all.  Conceptually, Boot Protocol is much closer to Solo mining, albiet with up to 300x reduced variance.  This concept accepts some variance, in exchange for other advantages.
 
 ## Advantages of Boot Protocol
-Compared to solo mining, Boot Protocol should have up to 16x reduced variance.  
+Compared to solo mining, Boot Protocol should have up to 300x reduced variance.  
 Compared to standard pooled mining (eg. Ocean with sovereign block template construction), Boot Protocol should offer reduced bandwidth requirements and much more resiliance to regulatory attack.
 Compared to decentralized pooled mining, Boot Protocol should have reduced bandwidth requirements, reduced computational overhead, and a vastly simpler code base.  
 
@@ -27,12 +49,12 @@ Boot Protocol should be far more resistant against *(and possibly immune to?) bl
 ---
 ## Boot Protocol Pseudocode
 Key terms:
-- Winners List:  A list of 15 addresses that have provided the highest difficulty hashes on the current template.  These (with the miner's own address) are used to create the coinbase transaction for the next round.  This list is finalized once a new real Bitcoin block is found.
+- Winners List:  A list of 299 shared payout addresses that have provided the highest difficulty hashes on the current template.  The miner's own address remains slot `0`, so the full payout set has 300 total slots.  This list is finalized once a new real Bitcoin block is found.
 - Boot Protocol Message (BPM): This consists of the block header, and just enough information from the Merkle Tree that other nodes can verify the addresses listed in the coinbase transaction
 - WL Threshold Difficulty: Defined as 1/2 the difficulty of the lowest difficulty proof from the previous round's Winners List. This threshold could be raised to reduce bandwidth requirements, or lowered if necessary.
 - Team: In this context, a team is the loose grouping of miners that are all working on templates built from the same Winners List.  They are sharing their proofs with each other, attempting to get on the next Winners List
 
-1. Create a block template using a local Bitcoin node.  The Coinbase payout should split the block reward evenly between your own address and the 15 addresses in the primary Winners List (see later steps).  If the WL has less than 15 entries (not including your own address in spot 0), divide the rewards equally between however many addresses are on the list.  Your own address is always spot '0'.
+1. Create a block template using a local Bitcoin node.  The Coinbase payout should split the block reward evenly between your own address and the 299 shared addresses in the primary Winners List (see later steps).  If the WL has less than 299 entries (not including your own address in spot 0), divide the rewards equally between however many addresses are on the list.  Your own address is always spot '0'.
 2. Start hashing on this template.  Once the first solution is found that meets the WL Threshold Difficulty, move to step 3:
 3. Create a Boot Protocol Message.  Using the found solution (which is just a Bitcoin block with a lower difficulty target), broadcast this proof to other nodes.
 4. Continue hashing while listening for other BPMs.

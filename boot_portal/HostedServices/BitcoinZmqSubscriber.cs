@@ -2,6 +2,8 @@
 using NetMQ;
 using NetMQ.Sockets;
 using System.Text;
+using boot_portal.Services;
+using boot_portal.Utils;
 
 namespace boot_portal.HostedServices;
 
@@ -12,11 +14,16 @@ public class BitcoinZmqSubscriber : BackgroundService
     private const string TOPIC = "hashblock"; // Subscribe to block hashes
     private readonly ILogger<BitcoinZmqSubscriber> _logger;
     private readonly IHubContext<PoolStatsHub> _hubContext;
+    private readonly BootProtocolStateService _stateService;
 
-    public BitcoinZmqSubscriber(ILogger<BitcoinZmqSubscriber> logger, IHubContext<PoolStatsHub> hubContext)
+    public BitcoinZmqSubscriber(
+        ILogger<BitcoinZmqSubscriber> logger,
+        IHubContext<PoolStatsHub> hubContext,
+        BootProtocolStateService stateService)
     {
         _logger = logger;
         _hubContext = hubContext;
+        _stateService = stateService;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -56,7 +63,7 @@ public class BitcoinZmqSubscriber : BackgroundService
 
                     if (topic == TOPIC && blockHash.Length == 32)
                     {
-                        var hashHex = Convert.ToHexStringLower(blockHash);
+                        var hashHex = BitcoinHashes.ToDisplayHashHex(blockHash);
                         _logger.LogInformation("New block detected: {HashHex}", hashHex);
 
                         // *** CRITICAL ***
@@ -110,55 +117,7 @@ public class BitcoinZmqSubscriber : BackgroundService
 
     public async Task OnNewBlockAsync(string blockHash, CancellationToken stoppingToken)
     {
-        // Your custom logic: e.g., fetch block details via RPC, update jobs
         _logger.LogInformation("Processing block {BlockHash}...", blockHash);
-        //if(blockHash != "testBlock") return;
-        //return;                         
-        // 1. Create the NEW list in a local variable.
-        //    Reader threads CANNOT see this variable.
-        //    They are all still happily reading the OLD static WinnersList.
-        var newWinnersList = new List<PayoutInfo>();
-
-        // 2. FULLY populate this new, private list.
-        var reward = Program.BLOCK_REWARD / ((ulong)DatumServer.OnDeckList.Count + 1);
-        foreach (var onDeckMiner in DatumServer.OnDeckList)
-        {
-            newWinnersList.Add(new PayoutInfo
-            {
-                Value = reward,
-                Address = onDeckMiner.Address,
-                Username = onDeckMiner.Username,
-                Difficulty = onDeckMiner.Difficulty,
-                DiffString = onDeckMiner.DiffString
-            });
-            var lastAdded = newWinnersList.Last();
-            //_logger.LogInformation("Last added value: {Value} - Address: {Address}", lastAdded.Value.ToString("N0"), lastAdded.Address);
-            onDeckMiner.Difficulty = 0;
-            onDeckMiner.DiffString = "0";
-        }
-
-        // 3. The "Swap". This is a single, instantaneous, atomic operation.
-        //    All requests *after* this line will see the new list.
-        //    All requests *before* this line saw the old list.
-        //    No locks. No waiting.
-        DatumServer.WinnersList = newWinnersList;
-        for (int i = 0; i < DatumServer.WinnersList.Count; i++)
-        {
-            Console.WriteLine($"{i}\t{DatumServer.WinnersList[i].DiffString}\t{DatumServer.WinnersList[i].Address}");
-        }
-
-        // 4. Reset the OnDeckList for the next round.
-        //DatumServer.OnDeckList = new List<PayoutInfo>();
-
-        DatumServer.SaveState();
-
-
-        //Console.WriteLine($"{i}\t{DatumServer.WinnersList[i].Value}\t{DatumServer.WinnersList[i].Address}");
-        //DatumServer.OnDeckList[i].Difficulty = 0;
-        //Console.WriteLine($"{i}\t{DatumServer.OnDeckList[i].Difficulty}\t{DatumServer.OnDeckList[i].Address}");
-
-        await _hubContext.Clients.All.SendAsync("UpdateWinners", DatumServer.WinnersList, stoppingToken);
-        await _hubContext.Clients.All.SendAsync("UpdateOnDeck", DatumServer.OnDeckList, stoppingToken);
-        //Console.WriteLine("Broadcasted new lists to web UI.");
+        await _stateService.ObserveChainTipAsync(blockHash, "zmq");
     }
 }

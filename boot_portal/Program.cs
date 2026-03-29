@@ -7,9 +7,13 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using boot_portal;
+using boot_portal.Models;
 using boot_portal.HostedServices;
+using boot_portal.Services;
 using boot_portal.Utils;
+using Microsoft.AspNetCore.RateLimiting;
 using NSec.Cryptography;
 using Microsoft.AspNetCore.SignalR;
 
@@ -43,7 +47,13 @@ public class PoolConfig
     public string PoolPayoutScript { get; set; } = "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y"; //TODO: hard coded default address? 
 
     [JsonPropertyName("winners_list_size")]
-    public int WinnersListSize { get; set; } = 3;
+    public int WinnersListSize { get; set; } = 299;
+
+    [JsonIgnore]
+    public int SharedWinnerSlotCount => WinnersListSize;
+
+    [JsonIgnore]
+    public int TotalPayoutSlotCount => WinnersListSize + 1;
 
     [JsonPropertyName("coinbase_tag")]
     public string CoinbaseTag { get; set; } = "Boot protocol";
@@ -53,6 +63,69 @@ public class PoolConfig
 
     [JsonPropertyName("min_diff")]
     public ulong MinDiff { get; set; } = 1024;
+
+    [JsonPropertyName("boot_network_id")]
+    public string BootNetworkId { get; set; } = "public-beta";
+
+    [JsonPropertyName("boot_protocol_version")]
+    public int BootProtocolVersion { get; set; } = 1;
+
+    [JsonPropertyName("admin_api_key")]
+    public string? AdminApiKey { get; set; }
+
+    [JsonPropertyName("max_state_bundle_history")]
+    public int MaxStateBundleHistory { get; set; } = 32;
+
+    [JsonPropertyName("Datum_Port")]
+    public int DatumPort { get; set; } = 3008;
+
+    [JsonPropertyName("WebUI_Port_http")]
+    public int WebUiPortHttp { get; set; } = 5000;
+
+    [JsonPropertyName("WebUI_Port_https")]
+    public int WebUiPortHttps { get; set; } = 0;
+
+    [JsonPropertyName("enable_peer_sync")]
+    public bool EnablePeerSync { get; set; } = true;
+
+    [JsonPropertyName("public_base_url")]
+    public string PublicBaseUrl { get; set; } = string.Empty;
+
+    [JsonPropertyName("datum_public_host")]
+    public string DatumPublicHost { get; set; } = string.Empty;
+
+    [JsonPropertyName("bootstrap_peers")]
+    public List<string> BootstrapPeers { get; set; } = [];
+
+    [JsonPropertyName("peer_sync_interval_seconds")]
+    public int PeerSyncIntervalSeconds { get; set; } = 15;
+
+    [JsonPropertyName("peer_request_timeout_seconds")]
+    public int PeerRequestTimeoutSeconds { get; set; } = 5;
+
+    [JsonPropertyName("max_peers")]
+    public int MaxPeers { get; set; } = 64;
+
+    [JsonPropertyName("network_read_rate_limit_per_minute")]
+    public int NetworkReadRateLimitPerMinute { get; set; } = 180;
+
+    [JsonPropertyName("peer_write_rate_limit_per_minute")]
+    public int PeerWriteRateLimitPerMinute { get; set; } = 90;
+
+    [JsonPropertyName("mining_api_share_rate_limit_per_minute")]
+    public int MiningApiShareRateLimitPerMinute { get; set; } = 120;
+
+    [JsonPropertyName("admin_rate_limit_per_minute")]
+    public int AdminRateLimitPerMinute { get; set; } = 12;
+
+    [JsonPropertyName("max_share_request_bytes")]
+    public int MaxShareRequestBytes { get; set; } = 262144;
+
+    [JsonPropertyName("max_coinbase_hex_chars")]
+    public int MaxCoinbaseHexChars { get; set; } = 20000;
+
+    [JsonPropertyName("max_merkle_path_entries")]
+    public int MaxMerklePathEntries { get; set; } = 64;
 }
 
 //This just stores the server's primary, long term keys.  These get loaded from a config file or from the command line on startup
@@ -69,11 +142,11 @@ public class ServerConfig
 
 public class Program
 {
+    public const string DefaultPublicSeedEndpoint = "https://boot.gridlabs.science";
     // TODO: I should optionally load this from config, instead of hard-coded like this.
     private static int DatumPort = 3008;  //Defaults to 3008.  Should get set by config file.
-    private const string ConfigFilePath = "boot_portal_config.json";
     public static ulong BLOCK_REWARD = 312_500_000;  //TODO: Need to detect this from the blockchain, so it gracefully handles the next epoch
-    public static int TeamSize = 16;
+    public static int TeamSize = 300;
 
     public static async Task Main(string[] args)
     {
@@ -100,17 +173,18 @@ public class Program
 
             // Load config from boot_portal_config.json if it exists
             ServerConfig config = new ServerConfig();
-            if (File.Exists(ConfigFilePath))
+            string configFilePath = BootPortalPaths.ConfigFilePath;
+            if (File.Exists(configFilePath))
             {
                 try
                 {
-                    var json = await File.ReadAllTextAsync(ConfigFilePath);
+                    var json = await File.ReadAllTextAsync(configFilePath);
                     config = JsonSerializer.Deserialize<ServerConfig>(json) ?? new ServerConfig();
-                    Console.WriteLine($"✅ Loaded config from {ConfigFilePath}");
+                    Console.WriteLine($"✅ Loaded config from {configFilePath}");
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"⚠️ Failed to load {ConfigFilePath}: {ex.Message}. Using default or command-line keys.");
+                    Console.WriteLine($"⚠️ Failed to load {configFilePath}: {ex.Message}. Using default or command-line keys.");
                 }
             }
 
@@ -171,17 +245,18 @@ public class Program
             }
 
             // Save config if keys were generated or file doesn't exist
-            if (keysGenerated || !File.Exists(ConfigFilePath))
+            if (keysGenerated || !File.Exists(configFilePath))
             {
                 try
                 {
+                    BootPortalPaths.EnsureParentDirectory(configFilePath);
                     var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
-                    await File.WriteAllTextAsync(ConfigFilePath, json);
-                    Console.WriteLine($"✅ Saved keys to {ConfigFilePath}");
+                    await File.WriteAllTextAsync(configFilePath, json);
+                    Console.WriteLine($"✅ Saved keys to {configFilePath}");
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"❌ Failed to save {ConfigFilePath}: {ex.Message}");
+                    Console.WriteLine($"❌ Failed to save {configFilePath}: {ex.Message}");
                 }
             }
 
@@ -200,8 +275,9 @@ public class Program
             var combinedPubKeyHex = Convert.ToHexString(combinedPubKey).ToLower(); // 128 hex characters
 
             //Now load or setup the pool config options, like default payout address and coinbase tag
-            PoolConfig _poolConfig = LoadPoolConfig(ConfigFilePath);
-            Program.TeamSize = _poolConfig.WinnersListSize;
+            PoolConfig _poolConfig = LoadPoolConfig(configFilePath);
+            Program.TeamSize = _poolConfig.TotalPayoutSlotCount;
+            DatumPort = _poolConfig.DatumPort;
 
             Console.WriteLine("\n====================== IMPORTANT ======================");
             Console.WriteLine("Copy this combined public key (Ed25519 + X25519, hex-encoded) into your DATUM Gateway's config.json:");
@@ -213,13 +289,64 @@ public class Program
 
             //UI Server stuff:
             var builder = WebApplication.CreateBuilder(args);
-            builder.Configuration.AddJsonFile("boot_portal_config.json", optional: false, reloadOnChange: true);
+            builder.Configuration.AddJsonFile(configFilePath, optional: false, reloadOnChange: true);
 
-            builder.WebHost.UseUrls("http://0.0.0.0:5000", "https://0.0.0.0:5001");
+            var listenUrls = new List<string>();
+            if (_poolConfig.WebUiPortHttp > 0)
+            {
+                listenUrls.Add($"http://0.0.0.0:{_poolConfig.WebUiPortHttp}");
+            }
+
+            if (_poolConfig.WebUiPortHttps > 0)
+            {
+                listenUrls.Add($"https://0.0.0.0:{_poolConfig.WebUiPortHttps}");
+            }
+
+            if (listenUrls.Count == 0)
+            {
+                throw new InvalidOperationException("At least one WebUI port must be configured.");
+            }
+
+            builder.WebHost.UseUrls(listenUrls.ToArray());
+            builder.WebHost.ConfigureKestrel(options =>
+            {
+                options.Limits.MaxRequestBodySize = Math.Max(32_768L, _poolConfig.MaxShareRequestBytes);
+            });
 
             builder.Services.AddRazorPages(); // For serving simple HTML pages
             builder.Services.AddControllers();
             builder.Services.AddSignalR();    // For real-time updates
+            builder.Services.AddSingleton(_poolConfig);
+            builder.Services.AddSingleton<BootShareVerifier>();
+            builder.Services.AddSingleton<BootProtocolStateService>();
+            builder.Services.AddHttpClient("BootPeerClient", client =>
+            {
+                client.Timeout = TimeSpan.FromSeconds(Math.Max(2, _poolConfig.PeerRequestTimeoutSeconds));
+            });
+            builder.Services.AddRateLimiter(options =>
+            {
+                options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+                options.OnRejected = async (context, token) =>
+                {
+                    context.HttpContext.Response.Headers["Retry-After"] = "60";
+                    if (!context.HttpContext.Response.HasStarted)
+                    {
+                        context.HttpContext.Response.ContentType = "application/json";
+                        await context.HttpContext.Response.WriteAsJsonAsync(
+                            new { status = "rejected", reason = "Rate limit exceeded" },
+                            cancellationToken: token);
+                    }
+                };
+
+                options.AddPolicy("network-read", context =>
+                    CreateRateLimitPartition(context, "network-read", _poolConfig.NetworkReadRateLimitPerMinute));
+                options.AddPolicy("peer-write", context =>
+                    CreateRateLimitPartition(context, "peer-write", _poolConfig.PeerWriteRateLimitPerMinute));
+                options.AddPolicy("mining-write", context =>
+                    CreateRateLimitPartition(context, "mining-write", _poolConfig.MiningApiShareRateLimitPerMinute));
+                options.AddPolicy("admin-write", context =>
+                    CreateRateLimitPartition(context, "admin-write", _poolConfig.AdminRateLimitPerMinute));
+            });
             
             // Start your background services
             //builder.Services.AddHostedService<BitcoinZmqSubscriber>();
@@ -252,6 +379,7 @@ public class Program
             {
                 var logger = serviceProvider.GetRequiredService<ILogger<DatumServer>>();
                 var hubContext = serviceProvider.GetRequiredService<IHubContext<PoolStatsHub>>();
+                var stateService = serviceProvider.GetRequiredService<BootProtocolStateService>();
                 // The 'serviceProvider' allows you to get other services if needed,
                 // but here we just use the local variables from Program.cs
 
@@ -262,15 +390,18 @@ public class Program
                     ed25519Key,
                     x25519Key,
                     _poolConfig,
+                    stateService,
                     hubContext,
                     logger);
             });
+            builder.Services.AddHostedService<BootPeerSyncService>();
 
             var app = builder.Build();
 
             // 2. Configure the web app
             app.UseStaticFiles(); // Serve static files like CSS, JS, images
             app.UseRouting();
+            app.UseRateLimiter();
             app.MapRazorPages(); // Use a simple page system
             app.MapControllers();
 
@@ -301,6 +432,7 @@ public class Program
                 var config = JsonSerializer.Deserialize<PoolConfig>(json);
                 if (config != null)
                 {
+                    ApplyPoolConfigDefaults(config);
                     Console.WriteLine($"🔧 Loaded config from {configPath}");
                     return config;
                 }
@@ -311,7 +443,40 @@ public class Program
             Console.WriteLine($"⚠️ Failed to load config from {configPath}: {ex.Message}");
         }
         Console.WriteLine($"🔧 Using default pool config");
-        return new PoolConfig();
+        var fallbackConfig = new PoolConfig();
+        ApplyPoolConfigDefaults(fallbackConfig);
+        return fallbackConfig;
+    }
+
+    private static void ApplyPoolConfigDefaults(PoolConfig config)
+    {
+        config.BootstrapPeers ??= [];
+        config.BootstrapPeers = config.BootstrapPeers
+            .Where(peer => !string.IsNullOrWhiteSpace(peer))
+            .Select(peer => peer.Trim().TrimEnd('/'))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (string.Equals(config.BootNetworkId, "public-beta", StringComparison.OrdinalIgnoreCase) &&
+            config.BootstrapPeers.Count == 0)
+        {
+            config.BootstrapPeers.Add(DefaultPublicSeedEndpoint);
+        }
+    }
+
+    private static RateLimitPartition<string> CreateRateLimitPartition(HttpContext context, string policyName, int permitLimit)
+    {
+        string clientKey = BootRequestIdentity.GetClientKey(context);
+        return RateLimitPartition.GetFixedWindowLimiter(
+            $"{policyName}:{clientKey}",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = Math.Max(1, permitLimit),
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                AutoReplenishment = true
+            });
     }
 }
 
@@ -338,6 +503,7 @@ public class ClientHandler
     private readonly NetworkStream _stream;
     private readonly Key _ed25519LongTermKey; // The server's main Ed25519 key.
     private readonly Key _x25519KeyLongTerm; // The server's long-term x25519 key.
+    private readonly BootProtocolStateService _stateService;
 
     // --- Per-Session State ---
     private PublicKey? _clientSessionPubKey;
@@ -350,16 +516,21 @@ public class ClientHandler
     private UInt32 _sendingHeaderKey;
     private UInt32 _receivingHeaderKey;
     private HelloMessage? _helloMessage;
-    private PoolConfig _poolConfig;
-    private static readonly PowSubmitMessage?[] JobCache = new PowSubmitMessage?[8];
-    private static double BestDiff = 0; 
-    private static string BestDiffAddress = null;
-    private static string clientPayoutAddress = "";
+    private readonly PoolConfig _poolConfig;
+    private readonly PowSubmitMessage?[] _jobCache = new PowSubmitMessage?[8];
+    private double _bestDiff = 0;
+    private string _clientPayoutAddress = "";
+    private readonly CancellationToken _stoppingToken;
+    private readonly SemaphoreSlim _sendLock = new(1, 1);
 
-    private static CancellationToken stoppingToken;
 
-
-    public ClientHandler(TcpClient client, Key serverLongTermKey, Key serverLongTermXKey, PoolConfig poolConfig, CancellationToken st)
+    public ClientHandler(
+        TcpClient client,
+        Key serverLongTermKey,
+        Key serverLongTermXKey,
+        PoolConfig poolConfig,
+        BootProtocolStateService stateService,
+        CancellationToken st)
     {
         _client = client;
         _stream = client.GetStream();
@@ -368,8 +539,9 @@ public class ClientHandler
         _sendingHeaderKey = 0;
         _x25519KeyLongTerm = serverLongTermXKey;
         _poolConfig = poolConfig;
-        clientPayoutAddress = _poolConfig.PoolPayoutScript; //Temporary, just until we get the client's first PoW share, which has their address/username.  
-        stoppingToken = st;
+        _stateService = stateService;
+        _clientPayoutAddress = _poolConfig.PoolPayoutScript; //Temporary, just until we get the client's first PoW share, which has their address/username.
+        _stoppingToken = st;
         Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} connected.");
     }
 
@@ -483,6 +655,20 @@ public class ClientHandler
         catch (IOException) { Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} disconnected."); }
         catch (Exception ex) { Console.WriteLine($"💥 An error occurred with client {_client.Client.RemoteEndPoint}: {ex.Message}\n{ex.StackTrace}"); }
         finally { _client.Close(); }
+    }
+
+    public async Task<bool> RequestBlockTemplateRefreshAsync()
+    {
+        if (!_client.Connected ||
+            _channelSharedSecretBytes == null ||
+            _sessionNonceSender == null ||
+            _sendingHeaderKey == 0)
+        {
+            return false;
+        }
+
+        await SendEncryptedMessageAsync(0x05, [0xF9], isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false);
+        return true;
     }
 
     /// <summary>
@@ -855,10 +1041,18 @@ public class ClientHandler
         var fetchRequest = CoinbaserFetchMessage.FromBytes(payload);
         //Console.WriteLine($"   -> Coinbase Fetch request with total reward: {fetchRequest.RewardValue / 100_000_000.0} BTC");
         var fetchResponse = new CoinbaserFetchResponseMessage();
-        fetchResponse.Payouts = DatumServer.WinnersList;
-        ulong mySats = fetchRequest.RewardValue - (DatumServer.WinnersList.Last().Value * (ulong)DatumServer.WinnersList.Count);
-        //Console.WriteLine($"mySats {mySats}, team {DatumServer.WinnersList.Last().Value} * {DatumServer.WinnersList.Count}");
-        ulong total = mySats + DatumServer.WinnersList.Last().Value * (ulong)DatumServer.WinnersList.Count;
+        var winnersList = _stateService.GetWinnersList();
+        var coinbaseOutputs = _stateService.GetCoinbaseOutputs();
+        ulong teamPayoutTotal = 0;
+        foreach (var payout in winnersList)
+        {
+            teamPayoutTotal += payout.Value;
+        }
+
+        ulong mySats = fetchRequest.RewardValue > teamPayoutTotal
+            ? fetchRequest.RewardValue - teamPayoutTotal
+            : 0;
+        ulong total = mySats + teamPayoutTotal;
         //Console.WriteLine($"total = {total}");
         //Console.WriteLine($"Reward= {fetchRequest.RewardValue}");
         if (total > fetchRequest.RewardValue) Console.WriteLine("Reward too big!!!");
@@ -866,9 +1060,9 @@ public class ClientHandler
         var myPayout = new PayoutInfo
         {
             Value = mySats,
-            Address = clientPayoutAddress //this inserts the client's payout address into spot '0' in the coinbase TX
+            Address = _clientPayoutAddress //this inserts the client's payout address into spot '0' in the coinbase TX
         };
-        fetchResponse.Payouts = new List<PayoutInfo>(DatumServer.WinnersList);  //Insert my own "pools" payout address into the first slot. TODO:  Is this line redundent??  I think so. 
+        fetchResponse.Payouts = new List<PayoutInfo>(coinbaseOutputs);
         fetchResponse.Payouts.Insert(0, myPayout);
         
         /*fetchResponse.Payouts.Add(new PayoutInfo
@@ -916,7 +1110,7 @@ public class ClientHandler
         if (validatedAddress == null)
         {
             //Console.WriteLine($"[Warning] Invalid or missing address in username '{powSubmit.Username}'. Using default.");
-            validatedAddress = clientPayoutAddress; 
+            validatedAddress = _clientPayoutAddress; 
         }
 
         powSubmit.Address = validatedAddress;
@@ -924,31 +1118,31 @@ public class ClientHandler
         if (powSubmit.PrevBlockHash == null)  //This is just a nonce update, does not include complete header info
         {
 
-            JobCache[powSubmit.JobId].CoinbaseId = powSubmit.CoinbaseId;  
-            JobCache[powSubmit.JobId].IsBlock = powSubmit.IsBlock;
-            JobCache[powSubmit.JobId].SubsidyOnly = powSubmit.SubsidyOnly;
-            JobCache[powSubmit.JobId].QuickDiff = powSubmit.QuickDiff;
-            JobCache[powSubmit.JobId].TargetByte = powSubmit.TargetByte;
-            JobCache[powSubmit.JobId].NTime = powSubmit.NTime;
-            JobCache[powSubmit.JobId].Nonce = powSubmit.Nonce;
-            JobCache[powSubmit.JobId].Version = powSubmit.Version;
-            JobCache[powSubmit.JobId].ExtranonceSize = powSubmit.ExtranonceSize;  //Always 12, but whatever
-            JobCache[powSubmit.JobId].Extranonce = powSubmit.Extranonce;
-            JobCache[powSubmit.JobId].Username = powSubmit.Username;
+            _jobCache[powSubmit.JobId].CoinbaseId = powSubmit.CoinbaseId;  
+            _jobCache[powSubmit.JobId].IsBlock = powSubmit.IsBlock;
+            _jobCache[powSubmit.JobId].SubsidyOnly = powSubmit.SubsidyOnly;
+            _jobCache[powSubmit.JobId].QuickDiff = powSubmit.QuickDiff;
+            _jobCache[powSubmit.JobId].TargetByte = powSubmit.TargetByte;
+            _jobCache[powSubmit.JobId].NTime = powSubmit.NTime;
+            _jobCache[powSubmit.JobId].Nonce = powSubmit.Nonce;
+            _jobCache[powSubmit.JobId].Version = powSubmit.Version;
+            _jobCache[powSubmit.JobId].ExtranonceSize = powSubmit.ExtranonceSize;  //Always 12, but whatever
+            _jobCache[powSubmit.JobId].Extranonce = powSubmit.Extranonce;
+            _jobCache[powSubmit.JobId].Username = powSubmit.Username;
             //Now check if we got new coinbase data with this share:
             if (powSubmit.SubsidyOnlyCoinb1 != null) //This share includes subsidy only coinbase data
             {
-                JobCache[powSubmit.JobId].SubsidyOnlyCoinb1 = powSubmit.SubsidyOnlyCoinb1;
-                JobCache[powSubmit.JobId].SubsidyOnlyCoinb2 = powSubmit.SubsidyOnlyCoinb2;
+                _jobCache[powSubmit.JobId].SubsidyOnlyCoinb1 = powSubmit.SubsidyOnlyCoinb1;
+                _jobCache[powSubmit.JobId].SubsidyOnlyCoinb2 = powSubmit.SubsidyOnlyCoinb2;
             }
             else if (!powSubmit.SubsidyOnly && powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb1 != null)  // Got a new coinbase with this one
             {
                 //Console.WriteLine("New coinbase data");
-                JobCache[powSubmit.JobId].CoinbasePairs[powSubmit.CoinbaseId] = powSubmit.CoinbasePairs[powSubmit.CoinbaseId];
+                _jobCache[powSubmit.JobId].CoinbasePairs[powSubmit.CoinbaseId] = powSubmit.CoinbasePairs[powSubmit.CoinbaseId];
             }
-            powSubmit = JobCache[powSubmit.JobId];  //Copies back over the Merkle Branch info.
+            powSubmit = _jobCache[powSubmit.JobId];  //Copies back over the Merkle Branch info.
         }
-        else JobCache[powSubmit.JobId] = powSubmit;  //New job, with complete header info.  
+        else _jobCache[powSubmit.JobId] = powSubmit;  //New job, with complete header info.  
         //TODO: Technically, there is the very edge case that a miner could reuse old coinbase info with a new job and merkle branches.  This case isn't handled right now.
 
         
@@ -1020,7 +1214,7 @@ public class ClientHandler
 
         byte[] coinbaseHash = DoubleSha256(coinbaseTx);
         powSubmit.MerkleRoot = ComputeMerkleRoot(coinbaseHash, powSubmit.MerkleBranches, powSubmit.MerkleBranchCount.Value);
-        JobCache[powSubmit.JobId].MerkleRoot = powSubmit.MerkleRoot; //For completeness, I guess.
+        _jobCache[powSubmit.JobId].MerkleRoot = powSubmit.MerkleRoot; //For completeness, I guess.
 
         // Reconstruct block header
         byte[] header = new byte[80];
@@ -1052,130 +1246,36 @@ public class ClientHandler
 
         //Console.WriteLine($"   -> ✅ Received PoW submission: JobID={powSubmit.JobId}, CoinbaseID={powSubmit.CoinbaseId}, IsBlock={powSubmit.IsBlock}, SubsidyOnly={powSubmit.SubsidyOnly}, QuickDiff={powSubmit.QuickDiff}, Username={powSubmit.Username}");
 
-        double difficulty = (double)achievedDifficultyBig;
-
-        // Check against the global best record
-        // This handles saving to disk and updating the UI automatically
-        await DatumServer.UpdateBestShareIfNewRecord(difficulty, powSubmit.Username);
-        if (difficulty > BestDiff)
+        bool shareAccepted = false;
+        List<string> merklePath = [];
+        if (powSubmit.MerkleBranches != null && powSubmit.MerkleBranchCount.HasValue)
         {
-            //This share is the best we've seen from this client, so maybe update the client payout address if this share provided a new one.  
-            clientPayoutAddress = powSubmit.Address;  //this stores the client's payout address once we get their first share, so we can stick this in the coinbaserFetch message
-            BestDiff = difficulty;
-            //This is sort of a hack for DATUM, to allow different stratum miners to "play".  Best share get's their address put in this client's coinbase[0]. 
-            //The flow/states of clientPayoutAddress are:
-            // Bootup: = _poolConfig.poolPayoutScript 
-            // After first PoW share = miner address.  If 
-        }
-
-        // TODO: For testing only.  Remove this when finished. 
-        if (difficulty > DatumServer.RESET_THRESHOLD)
-        {
-            // Reset the lists for the next round.  Record payouts.
-            // Build the new lists and execute the swap in memory, with locks, like ZMQSubscriber
-            //await BitcoinZmqSubscriber.OnNewBlockAsync("testBlock", stoppingToken);
-            //await _hubContext.Clients.All.SendAsync("UpdateWinners", DatumServer.WinnersList, stoppingToken);
-            //await _hubContext.Clients.All.SendAsync("UpdateOnDeck", DatumServer.OnDeckList, stoppingToken);
-
-            // Reset BestDiff for this client, so new small miners can compete to control this client's payout address
-
-            // Search the Winner's list, and add payouts to each miner's running total
-
-            // Tally total payouts so far
-
-            // Update percentages of payouts for each address
-        }
-        // Update client's share total using PoT.
-
-
-        // 2. Verify Block Header
-        bool isHeaderValid = VerifyBlockHeader(powSubmit.Version, powSubmit.NTime, powSubmit.Nonce, powSubmit.PrevBlockHash, powSubmit.MerkleRoot, powSubmit.NBits);
-        //Console.WriteLine($"   -> Header valid: {isHeaderValid}");
-
-        // 3. Extract Username
-        //string minerAddress = powSubmit.Username;  //TODO: ideally we extract this from the coinbase transaction
-        //Console.WriteLine($"   -> Miner address: {minerAddress}");
-
-        // 4. Verify Coinbase Transaction
-        var (isValidCoinbase, outputs) = VerifyCoinbaseTransaction(Coinb1, Coinb2, powSubmit.CoinbaseValue);
-        //Console.WriteLine($"   -> Coinbase valid: {isValidCoinbase}");
-
-        //Console.WriteLine($"POW: {powSubmit.JobId}\t{powSubmit.CoinbaseId}\t{difficulty}\t{powSubmit.Username}\n");
-
-        //Evaluate how to credit this share, whether to add to on-deck or not
-        // ... inside HandlePowSubmitAsync ...
-
-        if (isHeaderValid)
-        {
-            if (true) // isValidCoinbase
+            for (int i = 0; i < powSubmit.MerkleBranchCount.Value; i++)
             {
-                // 🔒 LOCK STARTS HERE
-                // Only one thread can enter this block at a time.
-                bool newWinner = false;
-                lock (DatumServer._OnDeckListLock) 
-                {
-                    int j = 0;                    
-                    int listSizeBefore = DatumServer.OnDeckList.Count;
-                    
-                    // 1. Find insertion point
-                    for (int i = 0; i < DatumServer.OnDeckList.Count; i++) 
-                    {
-                        if (DatumServer.OnDeckList[i].Difficulty < difficulty) break;
-                        else j++;
-                    }
-
-                    // 2. Insert if qualified
-                    if (j < _poolConfig.WinnersListSize)
-                    {
-                        PayoutInfo newPayout = new PayoutInfo();
-                        newPayout.Address = powSubmit.Address; 
-                        newPayout.Username = powSubmit.Username;
-                        newPayout.Difficulty = difficulty;
-                        newPayout.DiffString = FormatDifficulty(difficulty);
-                        //newPayout.Value = 
-                        
-                        DatumServer.OnDeckList.Insert(j, newPayout);
-                        newWinner = true;
-                    }
-
-                    // 3. Trim the list (Robust Fix)
-                    // Changed 'if' to 'while' to auto-correct the list if it's already over-sized
-                    while (DatumServer.OnDeckList.Count > _poolConfig.WinnersListSize)
-                    {
-                        DatumServer.OnDeckList.RemoveAt(DatumServer.OnDeckList.Count - 1);
-                    }
-
-                    int listSizeAfter = DatumServer.OnDeckList.Count;
-                    if(true)
-                    {
-                        var reward = Program.BLOCK_REWARD / ((ulong)DatumServer.OnDeckList.Count + 1);
-                        for (int i = 0; i < DatumServer.OnDeckList.Count; i++)
-                        {
-                            DatumServer.OnDeckList[i].Value = reward;
-                        }
-                    }
-
-                    
-                } 
-                // 🔓 LOCK ENDS HERE
-                // 4. Save State (Assuming this is fast/synchronous)
-                if (newWinner)
-                {
-                    DatumServer.SaveState(); 
-                    
-                    // Console I/O can be slow, you might want to move this out of the lock
-                    // or keep it if debugging is critical.
-                    //Console.WriteLine("-----------------------------------------------------------");
-                    for (int i = 0; i < DatumServer.OnDeckList.Count; i++)
-                    {
-                        //Console.WriteLine($"{i}\t{DatumServer.OnDeckList[i].DiffString}\t{DatumServer.OnDeckList[i].Address}");
-                    }
-                }
+                byte[] branch = powSubmit.MerkleBranches.Skip(i * 32).Take(32).ToArray();
+                merklePath.Add(Convert.ToHexString(branch).ToLowerInvariant());
             }
-        
         }
 
-        
+        var recordResult = await _stateService.SubmitShareAsync(new RecordedShareSubmission
+        {
+            MinerAddress = powSubmit.Address,
+            Username = powSubmit.Username,
+            HeaderHex = Convert.ToHexString(header).ToLowerInvariant(),
+            CoinbaseHex = Convert.ToHexString(coinbaseTx).ToLowerInvariant(),
+            MerklePath = merklePath,
+            PrevBlockHash = powSubmit.PrevBlockHash == null ? null : BitcoinHashes.ToDisplayHashHex(powSubmit.PrevBlockHash),
+            Difficulty = (double)achievedDifficultyBig,
+            Source = "datum"
+        }, "datum-block");
+        shareAccepted = recordResult.Accepted;
+
+        if (recordResult.Accepted && recordResult.ComputedDifficulty > _bestDiff)
+        {
+            _clientPayoutAddress = powSubmit.Address;
+            _bestDiff = recordResult.ComputedDifficulty;
+        }
+
         //Console.WriteLine("-----------------------------------------");
 
         // Respond
@@ -1185,8 +1285,8 @@ public class ClientHandler
 
         var shareResponse = new ShareResponseMessage
         {
-            Status = 0x50, //(byte)(isHeaderValid && isValidCoinbase ? 0x50 : 0x66),
-            ReasonCode = (ushort)(isHeaderValid && isValidCoinbase ? 0 : 1),
+            Status = shareAccepted ? (byte)0x50 : (byte)0x66,
+            ReasonCode = (ushort)(shareAccepted ? 0 : 1),
             Nonce = powSubmit.Nonce,
             TargetPot = powSubmit.TargetByte,
             JobId = powSubmit.JobId
@@ -1197,7 +1297,6 @@ public class ClientHandler
         //Console.WriteLine($"📦 Share response payload: {BitConverter.ToString(responsePayload)}");
         //byte[] testPayload = new byte[] { 0x8F, 0x50, 0x00, 0x00, 0x32, 0x04, 0xCA, 0xC7, 0x0E, 0x02 };
         await SendEncryptedMessageAsync(0x05, responsePayload, isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false);
-        await DatumServer.HubContext.Clients.All.SendAsync("UpdateOnDeck", DatumServer.OnDeckList);
         //Console.WriteLine($"[SEND] Share Response [{(isHeaderValid && isValidCoinbase ? "ACCEPTED" : "REJECTED")}] (0x05, 0x{shareResponse.Status:X2})");
     }
     
@@ -1452,66 +1551,59 @@ public class ClientHandler
     /// Generic helper to encrypt and send a message using the client's public or (more likely) using the shared channel secret.
     private async Task SendEncryptedMessageAsync(byte protoCmd, byte[] payload, bool isSigned = false, bool isEncryptedChannel = true, bool isEncryptedPubKey = false)
     {
-        //Span<byte> finalMessageBody = new Span<byte>();
-        byte[] finalMessageBody = new byte[payload.Length + 48]; //Try +48 I guess?  + LibSodium.CryptoBox.MacLen wasn't enough
-        //Console.WriteLine("  Payload length: " + payload.Length);
-        //Console.WriteLine("finalMessageBody: " + finalMessageBody.Length);
-        //Console.WriteLine("Mac Bytes Length: " + LibSodium.CryptoBox.MacLen);
-
-        if (isEncryptedPubKey) //encrypt using the client's public key, usually for the 0x02 handshake response message
+        await _sendLock.WaitAsync();
+        try
         {
-            if (_clientSessionPubKey == null) throw new InvalidOperationException("Cannot send sealed message without client session public key.");
-            var clientPubKey = _clientSessionPubKey.Export(KeyBlobFormat.RawPublicKey); // Client’s session X25519 public key
-            finalMessageBody = LibSodium.CryptoBox.EncryptWithPublicKey(finalMessageBody, payload, clientPubKey).ToArray();
+            byte[] finalMessageBody = new byte[payload.Length + 48]; //Try +48 I guess?  + LibSodium.CryptoBox.MacLen wasn't enough
+
+            if (isEncryptedPubKey) //encrypt using the client's public key, usually for the 0x02 handshake response message
+            {
+                if (_clientSessionPubKey == null) throw new InvalidOperationException("Cannot send sealed message without client session public key.");
+                var clientPubKey = _clientSessionPubKey.Export(KeyBlobFormat.RawPublicKey); // Client’s session X25519 public key
+                finalMessageBody = LibSodium.CryptoBox.EncryptWithPublicKey(finalMessageBody, payload, clientPubKey).ToArray();
+            }
+            else if (isEncryptedChannel)  // Symmetric encryption with shared secret for other messages
+            {
+                if (_channelSharedSecret == null) throw new InvalidOperationException("Cannot send encrypted message without a shared secret.");
+                if (_sessionNonceSender == null) throw new InvalidOperationException("Cannot send encrypted message without a sender nonce.");
+                finalMessageBody = LibSodium.CryptoBox.EncryptWithSharedKey(finalMessageBody, payload, _channelSharedSecretBytes, null, _sessionNonceSender).ToArray();
+            }
+            else
+            {
+                // Unencrypted message (not typical, but handle for completeness)
+                finalMessageBody = payload;
+                Console.WriteLine($"📦 Plaintext payload: {BitConverter.ToString(payload, 0, Math.Min(payload.Length, 64))}...");
+            }
+
+            // Construct header
+            var header = new DatumHeader
+            {
+                CmdLen = (uint)finalMessageBody.Length,
+                IsEncryptedChannel = isEncryptedChannel,
+                IsEncryptedPubKey = isEncryptedPubKey,
+                IsSigned = isSigned,
+                ProtoCmd = protoCmd
+            };
+
+            uint headerValue = BitConverter.ToUInt32(header.ToBytes(), 0);
+            headerValue ^= _sendingHeaderKey;
+            var xoredHeaderBytes = BitConverter.GetBytes(headerValue);
+            _sendingHeaderKey = DatumHeaderXorFeedback(_sendingHeaderKey);  //Increment the sending header for next time
+
+            // Send header and body together
+            var message = xoredHeaderBytes.Concat(finalMessageBody.ToArray()).ToArray();
+            await _stream.WriteAsync(message, 0, message.Length);
+            await _stream.FlushAsync();
+
+            // Increment nonce only for channel encryption
+            if (isEncryptedChannel && _sessionNonceSender != null)
+            {
+                _sessionNonceSender = IncrementNonce(_sessionNonceSender);
+            }
         }
-        else if (isEncryptedChannel)  // Symmetric encryption with shared secret for other messages
-        {            
-            if (_channelSharedSecret == null) throw new InvalidOperationException("Cannot send encrypted message without a shared secret.");
-            if (_sessionNonceSender == null) throw new InvalidOperationException("Cannot send encrypted message without a sender nonce.");
-            finalMessageBody = LibSodium.CryptoBox.EncryptWithSharedKey(finalMessageBody, payload, _channelSharedSecretBytes, null, _sessionNonceSender).ToArray();
-            //Console.WriteLine(" after encryption finalMessageBody.length: " + finalMessageBody.Length);
-            //Console.WriteLine($"📦 Nonce: {BitConverter.ToString(_sessionNonceSender)}");
-            //Console.WriteLine($"📦 Shared Key: {BitConverter.ToString(sharedKey)}");
-            //Console.WriteLine($"📦 Ciphertext (channel): {BitConverter.ToString(finalMessageBody, 0, finalMessageBody.Length)}...");
-        }
-        else
+        finally
         {
-            // Unencrypted message (not typical, but handle for completeness)
-            finalMessageBody = payload;
-            Console.WriteLine($"📦 Plaintext payload: {BitConverter.ToString(payload, 0, Math.Min(payload.Length, 64))}...");
-        }
-
-        // Construct header
-        var header = new DatumHeader
-        {
-            CmdLen = (uint)finalMessageBody.Length,
-            IsEncryptedChannel = isEncryptedChannel,
-            IsEncryptedPubKey = isEncryptedPubKey,
-            IsSigned = isSigned,
-            ProtoCmd = protoCmd
-        };
-        // Debug header fields
-        //Console.WriteLine($"📋 Sending Header: Cmd=0x{protoCmd:X2}, Len={header.CmdLen}, Signed={header.IsSigned}, PubKey={header.IsEncryptedPubKey}, Channel={header.IsEncryptedChannel}");
-        //Console.WriteLine($"🔑 current Session nonce sender: {Convert.ToBase64String(_sessionNonceSender)}");
-        //Console.WriteLine($"🔑 current Session nonce receiver: {Convert.ToBase64String(_sessionNonceReceiver)}");
-        // XOR header
-        //Console.WriteLine($"📦 Plaintext header: {BitConverter.ToString(header.ToBytes())}");
-        uint headerValue = BitConverter.ToUInt32(header.ToBytes(), 0);
-        headerValue ^= _sendingHeaderKey;
-        var xoredHeaderBytes = BitConverter.GetBytes(headerValue);
-        //Console.WriteLine($"📦 XORed header: {BitConverter.ToString(xoredHeaderBytes)}");
-        _sendingHeaderKey = DatumHeaderXorFeedback(_sendingHeaderKey);  //Increment the sending header for next time
-
-        // Send header and body together
-        var message = xoredHeaderBytes.Concat(finalMessageBody.ToArray()).ToArray();
-        await _stream.WriteAsync(message, 0, message.Length);
-        await _stream.FlushAsync();
-
-        // Increment nonce only for channel encryption
-        // TODO NEXT: Do I need to increment both recieve and send nonce's?
-        if (isEncryptedChannel && _sessionNonceSender != null)
-        {
-            _sessionNonceSender = IncrementNonce(_sessionNonceSender);
+            _sendLock.Release();
         }
     }
 

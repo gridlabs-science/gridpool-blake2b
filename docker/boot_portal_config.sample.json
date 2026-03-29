@@ -1,6 +1,6 @@
 {
-  "ed25519_private_key": "iAu\u002B2GGq\u002Bdp/kyR7fZ994wspGCdaCj/X1qwitWwk3Sg=",
-  "x25519_private_key": "DJaUNGGGz6rT0XMjYKcaZA2PsuKprNs8yco8KM8IImc=",
+  "ed25519_private_key": "",
+  "x25519_private_key": "",
   "Logging": {
     "LogLevel": {
       "Default": "Information",
@@ -8,12 +8,12 @@
     }
   },
   "AllowedHosts": "*",
-  "NotificationSource": "ZMQ",
+  "NotificationSource": "MempoolSpace",
   "Datum_Port": 3008,
   "WebUI_Port_http": 5000,
-  "WebUI_Port_https": 5001,
-  "public_base_url": "https://boot.gridlabs.science",
-  "datum_public_host": "datum.gridlabs.science",
+  "WebUI_Port_https": 0,
+  "public_base_url": "https://boot.example.com",
+  "datum_public_host": "datum.example.com",
   "enable_peer_sync": true,
   "bootstrap_peers": [
     "https://boot.gridlabs.science"
@@ -21,14 +21,19 @@
   "peer_sync_interval_seconds": 15,
   "peer_request_timeout_seconds": 5,
   "max_peers": 64,
+  "network_read_rate_limit_per_minute": 180,
+  "peer_write_rate_limit_per_minute": 90,
+  "mining_api_share_rate_limit_per_minute": 120,
+  "admin_rate_limit_per_minute": 12,
+  "max_share_request_bytes": 262144,
+  "max_coinbase_hex_chars": 20000,
+  "max_merkle_path_entries": 64,
   "boot_network_id": "public-beta",
   "boot_protocol_version": 1,
-
+  "admin_api_key": "change-this-admin-key",
   "pool_payout_script": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
   "winners_list_size": 299,
   "coinbase_tag": "Boot protocol",
   "prime_id": 21,
-  "min_diff": 1024,
-  
-  "admin_api_key": "gridlabs"
+  "min_diff": 1024
 }

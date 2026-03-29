@@ -255,6 +255,41 @@
             overflow-x: auto;
         }
 
+        .list-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin: -6px 0 10px 0;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        .list-summary-note {
+            min-height: 1em;
+        }
+
+        .view-toggle {
+            display: inline-flex;
+            border: 1px solid var(--border-color);
+            background: #000;
+        }
+
+        .toggle-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-family: inherit;
+            padding: 6px 10px;
+            cursor: pointer;
+        }
+
+        .toggle-btn.active {
+            background: var(--accent-color);
+            color: #000;
+            font-weight: bold;
+        }
+
         table {
             width: 100%;
             border-collapse: collapse;
@@ -288,6 +323,12 @@
             color: var(--highlight-color);
             font-weight: bold;
             border-bottom: 1px solid var(--highlight-color);
+        }
+
+        .omitted-row td {
+            color: var(--text-muted);
+            text-align: center;
+            font-style: italic;
         }
 
         /* Footer */
@@ -349,6 +390,11 @@
             .charts-section {
                 grid-template-columns: 1fr;
             }
+
+            .list-toolbar {
+                flex-direction: column;
+                align-items: flex-start;
+            }
         }
     </style>
 </head>
@@ -384,7 +430,7 @@
 
         <div class="info-box">
             <h3>📡 Connection Info</h3>
-            <div>Host: <span class="accent-value">datum.gridlabs.science</span></div>
+            <div>Host: <span class="accent-value" id="server-host">Loading...</span></div>
             <div>Port: <span class="accent-value" id="server-port">Loading...</span></div>
             <h3 style="margin-top: 10px;">Pool Pubkey</h3>
             <div class="key-container">
@@ -392,6 +438,19 @@
                 <button onclick="copyPubKey()" class="copy-btn" title="Copy Key">📋</button>
             </div>
             <div id="copy-feedback" style="color: var(--accent-color); height: 15px; font-size: 0.7em;"></div>
+        </div>
+
+        <div class="info-box">
+            <h3>🕸 Network State</h3>
+            <div>Self: <span class="accent-value" id="self-endpoint">--</span></div>
+            <div>Network: <span class="accent-value" id="network-id">Loading...</span></div>
+            <div>Template Slots: <span class="accent-value" id="template-slot-count">Loading...</span></div>
+            <div>Peers: <span class="accent-value" id="peer-count">0</span></div>
+            <div>Current State: <span class="accent-value" id="current-state-id">Loading...</span></div>
+            <div>Candidate State: <span class="accent-value" id="candidate-state-id">Loading...</span></div>
+            <h3 style="margin-top: 10px;">Commitment Preview</h3>
+            <div class="info-value" id="commitment-preview">Loading...</div>
+            <div class="search-results" id="commitment-note"></div>
         </div>
     </div>
 
@@ -405,6 +464,23 @@
         </div>
     </div>
 
+    <section>
+        <h2>Peer Status</h2>
+        <div class="table-container">
+            <table id="peer-list">
+                <thead>
+                <tr>
+                    <th>Endpoint</th>
+                    <th>Status</th>
+                    <th>Latency</th>
+                    <th>Last Seen</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </section>
+
     <div class="lists-container">
         <section>
             <h2>
@@ -412,6 +488,13 @@
                 <span class="info-icon"
                       data-tooltip="High difficulty shares that won the last round.  Miners put these payouts in their coinbase transaction (including one spot for their own) to compete in the current round.">i</span>
             </h2>
+            <div class="list-toolbar">
+                <div class="list-summary-note" id="winners-summary-note"></div>
+                <div class="view-toggle">
+                    <button class="toggle-btn active" id="winners-summary-btn" onclick="setListViewMode('winners-list', 'summary')">SUMMARY</button>
+                    <button class="toggle-btn" id="winners-full-btn" onclick="setListViewMode('winners-list', 'full')">FULL</button>
+                </div>
+            </div>
             <div class="table-container">
                 <table id="winners-list">
                     <thead>
@@ -432,6 +515,13 @@
                 <span class="info-icon"
                       data-tooltip="The current round of competition. When the team finds a new block, these addresses get locked into the Winners List.">i</span>
             </h2>
+            <div class="list-toolbar">
+                <div class="list-summary-note" id="ondeck-summary-note"></div>
+                <div class="view-toggle">
+                    <button class="toggle-btn active" id="ondeck-summary-btn" onclick="setListViewMode('ondeck-list', 'summary')">SUMMARY</button>
+                    <button class="toggle-btn" id="ondeck-full-btn" onclick="setListViewMode('ondeck-list', 'full')">FULL</button>
+                </div>
+            </div>
             <div class="table-container">
                 <table id="ondeck-list">
                     <thead>
@@ -450,7 +540,8 @@
         <footer>
             <a href="https://github.com/gridlabs-science/boot-protocol" target="_blank">SOURCE CODE</a> |
             <a onclick="toggleModal('theory-modal')">THEORY</a> |
-            <a onclick="toggleModal('help-modal')">HELP</a>
+            <a onclick="toggleModal('help-modal')">HELP</a> |
+            <a onclick="toggleModal('test-modal')">TEST TOOLS</a>
         </footer>
     </div> 
 
@@ -460,7 +551,7 @@
         <h2>Pool Theory</h2>
         <p>Boot Protocol operates differently than traditional pools. It's more like a protocol for solo miners to split
             rewards in exchange for better odds.</p>
-        <p>Nodes maintain a "Winners List", which defines all the addresses for the shared coinbase payout.
+        <p>Nodes maintain a "Winners List", which defines the 299 shared payout slots for the coinbase split. Slot 0 always belongs to the block finder, so a full template has 300 total payout slots.
             Miners make their own templates using this coinbase payout, and submit the highest difficulty shares to the
             nodes.
             Nodes keep track of top shares with the "On Deck List". Once someone finds a golden nonce and the Winner's
@@ -494,16 +585,34 @@
     </div>
 </div>
 
+<div id="test-modal" class="modal-overlay" onclick="if(event.target === this) toggleModal('test-modal')">
+    <div class="modal-content">
+        <span class="close-modal" onclick="toggleModal('test-modal')">&times;</span>
+        <h2>Test Tools</h2>
+        <p>Use this only for local testing. A reset locks the current On-Deck List into the Winners List and starts a fresh round.</p>
+        <div class="search-box-container" style="margin-top: 20px;">
+            <input type="password" id="admin-api-key" class="search-input" placeholder="Admin API Key">
+            <button class="search-btn" onclick="triggerManualReset()">RESET LISTS</button>
+        </div>
+        <div id="admin-reset-status" class="search-results" style="margin-top: 12px;"></div>
+    </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
 <script>
     let fullServerPubKey = "";
     let winnersChartInstance = null;
     let onDeckChartInstance = null;
+    let latestNetworkState = null;
 
     // Global state for client-side searching
     let globalWinnersList = [];
     let globalOnDeckList = [];
     let currentSearchTerm = "";
+    const listViewModes = {
+        "winners-list": "summary",
+        "ondeck-list": "summary"
+    };
 
     // --- INITIALIZE URL SEARCH ---
     // Checks if the URL is like /bc1q... and pre-fills the search
@@ -606,14 +715,138 @@
         });
     }
 
+    function shortenHash(value) {
+        if (!value) return "--";
+        if (value.length <= 18) return value;
+        return `${value.substring(0, 8)}...${value.substring(value.length - 8)}`;
+    }
+
     function toggleModal(modalId) {
         const modal = document.getElementById(modalId);
         modal.style.display = modal.style.display === 'flex' ? 'none' : 'flex';
     }
 
+    function setListViewMode(tableId, mode) {
+        listViewModes[tableId] = mode;
+        refreshUI();
+    }
+
+    function renderPeerTable(peers) {
+        const tableBody = document.querySelector('#peer-list tbody');
+        tableBody.innerHTML = '';
+
+        if (!peers || peers.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="4">No peers connected yet.</td></tr>';
+            return;
+        }
+
+        peers.forEach(peer => {
+            const latency = peer.latencyMs == null ? '--' : `${peer.latencyMs.toFixed(0)} ms`;
+            const lastSeen = peer.lastSeenUtc ? new Date(peer.lastSeenUtc).toLocaleString() : '--';
+            const row = `<tr>
+                    <td title="${peer.endpoint}">${peer.endpoint}</td>
+                    <td>${peer.status || '--'}</td>
+                    <td>${latency}</td>
+                    <td>${lastSeen}</td>
+                </tr>`;
+            tableBody.innerHTML += row;
+        });
+    }
+
+    async function triggerManualReset() {
+        const status = document.getElementById('admin-reset-status');
+        const apiKey = document.getElementById('admin-api-key').value.trim();
+
+        if (!apiKey) {
+            status.innerText = "Enter the admin API key first.";
+            return;
+        }
+
+        status.innerText = "Resetting round...";
+
+        try {
+            const response = await fetch('/api/network/admin/reset', {
+                method: 'POST',
+                headers: {
+                    'X-Boot-Admin-Key': apiKey
+                }
+            });
+
+            const payload = await response.json().catch(() => null);
+            if (!response.ok) {
+                status.innerText = payload?.reason || 'Reset failed.';
+                return;
+            }
+
+            status.innerText = `Reset complete. New state: ${shortenHash(payload?.networkStatus?.currentStateId || payload?.lockedStateBundle?.stateId || '')}`;
+        } catch (error) {
+            console.error(error);
+            status.innerText = 'Reset request failed.';
+        }
+    }
+
+    function getDisplayRows(tableId, list) {
+        const normalizedList = list || [];
+        if (currentSearchTerm || listViewModes[tableId] !== 'summary' || normalizedList.length <= 12) {
+            return {
+                rows: normalizedList,
+                summarized: false,
+                omittedCount: 0
+            };
+        }
+
+        const headCount = 5;
+        const tailCount = 5;
+        const head = normalizedList.slice(0, headCount);
+        const tailStart = Math.max(head.length, normalizedList.length - tailCount);
+        const tail = normalizedList.slice(tailStart);
+        const omittedCount = Math.max(0, normalizedList.length - head.length - tail.length);
+        const rows = [...head];
+
+        if (omittedCount > 0) {
+            rows.push({ __omitted: true, omittedCount: omittedCount });
+        }
+
+        rows.push(...tail);
+        return {
+            rows: rows,
+            summarized: omittedCount > 0,
+            omittedCount: omittedCount
+        };
+    }
+
+    function updateListSummary(tableId, list, displayMeta) {
+        const prefix = tableId === "winners-list" ? "winners" : "ondeck";
+        document.getElementById(`${prefix}-summary-btn`).classList.toggle('active', listViewModes[tableId] === 'summary');
+        document.getElementById(`${prefix}-full-btn`).classList.toggle('active', listViewModes[tableId] === 'full');
+
+        const note = document.getElementById(`${prefix}-summary-note`);
+        const total = (list || []).length;
+        const slotLabel = tableId === "winners-list" ? "shared slots plus slot 0" : "shared slots";
+
+        if (currentSearchTerm) {
+            note.innerText = `Search active. Showing all ${total} ${slotLabel}.`;
+            return;
+        }
+
+        if (total === 0) {
+            note.innerText = 'No qualifying entries yet.';
+            return;
+        }
+
+        if (displayMeta.summarized) {
+            note.innerText = `Showing top 5 and bottom 5 of ${total} ${slotLabel}.`;
+            return;
+        }
+
+        note.innerText = `Showing all ${total} ${slotLabel}.`;
+    }
+
     function updateTable(tableId, list) {
         const tableBody = document.querySelector(`#${tableId} tbody`);
         tableBody.innerHTML = '';
+        const displayMeta = getDisplayRows(tableId, list);
+        updateListSummary(tableId, list, displayMeta);
 
         if (tableId === "winners-list") {
             tableBody.innerHTML += `<tr class="static-row"><td>[YourAddressHere]</td><td>1 share + fees</td><td>>NetworkDiff</td></tr>`;
@@ -621,7 +854,12 @@
 
         if (!list) return;
 
-        list.forEach(payout => {
+        displayMeta.rows.forEach(payout => {
+            if (payout.__omitted) {
+                tableBody.innerHTML += `<tr class="omitted-row"><td colspan="3">${payout.omittedCount} additional shared slots hidden</td></tr>`;
+                return;
+            }
+
             const btcValue = payout.value / 100000000.0;
             const formattedAddr = formatAddress(payout.username);
             const diffVal = payout.difficulty || 0;
@@ -762,6 +1000,7 @@
 
     connection.on("UpdateServerInfo", (info) => {
         fullServerPubKey = info.pubKey;
+        document.getElementById("server-host").innerText = info.datumHost || "--";
         document.getElementById("server-port").innerText = info.poolPort;
         if (info.pubKey && info.pubKey.length > 16) {
             const first = info.pubKey.substring(0, 8);
@@ -770,6 +1009,20 @@
         } else {
             document.getElementById("server-pubkey-display").innerText = info.pubKey;
         }
+    });
+
+    connection.on("UpdateNetworkState", (state) => {
+        if (!state) return;
+        latestNetworkState = state;
+        document.getElementById("self-endpoint").innerText = state.selfEndpoint || "--";
+        document.getElementById("network-id").innerText = state.networkId || "--";
+        document.getElementById("template-slot-count").innerText = `${state.totalPayoutSlotCount ?? '--'} total (${state.sharedWinnerSlotCount ?? '--'} shared + slot 0)`;
+        document.getElementById("peer-count").innerText = state.peerCount ?? 0;
+        document.getElementById("current-state-id").innerText = shortenHash(state.currentStateId);
+        document.getElementById("candidate-state-id").innerText = shortenHash(state.candidateStateId);
+        document.getElementById("commitment-preview").innerText = state.commitment?.tagPreview || "--";
+        document.getElementById("commitment-note").innerText = state.commitment?.supportNote || "";
+        renderPeerTable(state.peers || []);
     });
 
     async function start() {

@@ -1,6 +1,7 @@
-﻿using System.Net;
+﻿using System.Collections.Concurrent;
+using System.Net;
 using System.Net.Sockets;
-using System.Text.Json;
+using boot_portal.Services;
 using Microsoft.AspNetCore.SignalR;
 using NSec.Cryptography;
 
@@ -11,42 +12,42 @@ public class DatumServer : BackgroundService
     private readonly TcpListener _listener;
     private readonly Key _serverKey; 
     private readonly Key _serverXKey;
-    private PoolConfig _poolConfig;
+    private readonly PoolConfig _poolConfig;
+    private readonly BootProtocolStateService _stateService;
     private readonly ILogger<DatumServer> _logger;
-    
-    // Thread locking object to prevent file corruption
-    private static readonly object _stateLock = new object();
-    private const string StateFilePath = "pool_state.json";
+    private readonly ConcurrentDictionary<int, (TcpClient Client, ClientHandler Handler)> _activeClients = new();
+    private int _nextClientId;
 
-    // State Data
-    public static List<PayoutInfo> WinnersList { get; set; } = [];
-    public static List<PayoutInfo> OnDeckList { get; set; } = [];
-    public static readonly object _OnDeckListLock = new object();
-    public static BestShareRecord BestShare { get; set; } = new() { Difficulty = 0 };
-    
+    public static BootProtocolStateService StateService { get; private set; } = null!;
     // Store the hex string for the UI
     public static string ServerPubKeyHex { get; private set; } = string.Empty;
-
-    public static IHubContext<PoolStatsHub> HubContext { get; private set; } = null!;
+    public static int PoolPort { get; private set; }
 
     // Testing stuff:
     public static readonly int RESET_THRESHOLD = 1000000000;
-    
 
-    public DatumServer(IPAddress address, int port, Key serverKey, Key serverXKey, PoolConfig poolConfig, IHubContext<PoolStatsHub> hubContext, ILogger<DatumServer> logger)
+    public DatumServer(
+        IPAddress address,
+        int port,
+        Key serverKey,
+        Key serverXKey,
+        PoolConfig poolConfig,
+        BootProtocolStateService stateService,
+        IHubContext<PoolStatsHub> hubContext,
+        ILogger<DatumServer> logger)
     {
         _listener = new TcpListener(address, port);
         _serverKey = serverKey;
         _serverXKey = serverXKey;
         _poolConfig = poolConfig;
-        HubContext = hubContext;
+        _stateService = stateService;
         _logger = logger;
+        StateService = stateService;
+        PoolPort = port;
+        _stateService.WinnersListChanged += HandleWinnersListChangedAsync;
 
         // Calculate the Hex Public Key once on startup for the UI
         GeneratePubKeyHex();
-        
-        // Load previous state from disk
-        LoadState();
     }
 
     private void GeneratePubKeyHex()
@@ -59,93 +60,6 @@ public class DatumServer : BackgroundService
         ServerPubKeyHex = Convert.ToHexString(combinedPubKey).ToLower();
     }
 
-    private void LoadState()
-    {
-        lock (_stateLock)
-        {
-            if (File.Exists(StateFilePath))
-            {
-                try
-                {
-                    var json = File.ReadAllText(StateFilePath);
-                    var state = JsonSerializer.Deserialize<PoolState>(json);
-                    if (state != null)
-                    {
-                        WinnersList = state.WinnersList;
-                        OnDeckList = state.OnDeckList;
-                        BestShare = state.BestShare ?? new BestShareRecord();
-                        _logger.LogInformation("✅ Loaded pool state from disk.");
-                        return;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError($"❌ Failed to load state: {ex.Message}");
-                }
-            }
-        }
-
-        // Fallback: Initialize defaults if no file exists
-        _logger.LogInformation("⚠️ No state file found. Initializing defaults.");
-        WinnersList.Add(new PayoutInfo
-        {
-            Value = Program.BLOCK_REWARD / 2,
-            Address = _poolConfig.PoolPayoutScript
-        });
-        OnDeckList.Add(new PayoutInfo
-        {
-            Address = _poolConfig.PoolPayoutScript,
-            Difficulty = 0
-        });
-    }
-
-    public static void SaveState()
-    {
-        lock (_stateLock)
-        {
-            try
-            {
-                var state = new PoolState
-                {
-                    WinnersList = WinnersList,
-                    OnDeckList = OnDeckList,
-                    BestShare = BestShare
-                };
-                var json = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(StateFilePath, json);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"❌ Error saving state: {ex.Message}");
-            }
-        }
-    }
-
-    // Call this from your ClientHandler when a share is submitted
-    public static async Task UpdateBestShareIfNewRecord(double difficulty, string minerAddress)
-    {
-        if (difficulty > BestShare.Difficulty)
-        {
-            BestShare = new BestShareRecord
-            {
-                Difficulty = difficulty,
-                MinerAddress = minerAddress,
-                Timestamp = DateTime.UtcNow
-            };
-            
-            // 1. Save to Disk
-            SaveState();
-
-            // 2. Broadcast to UI immediately
-            await HubContext.Clients.All.SendAsync("UpdateRecord", BestShare);
-        }
-    }
-
-    /*public static async void resetRound()
-    {
-        await BitcoinZmqSubscriber.OnNewBlockAsync("testBlock", stoppingToken);
-    }*/
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _listener.Start();
@@ -154,92 +68,73 @@ public class DatumServer : BackgroundService
         while (!stoppingToken.IsCancellationRequested)
         {
             var client = await _listener.AcceptTcpClientAsync(stoppingToken);
-            var clientHandler = new ClientHandler(client, _serverKey, _serverXKey, _poolConfig, stoppingToken);
-            _ = Task.Run(clientHandler.HandleClientAsync, stoppingToken);
+            int clientId = Interlocked.Increment(ref _nextClientId);
+            var clientHandler = new ClientHandler(client, _serverKey, _serverXKey, _poolConfig, _stateService, stoppingToken);
+            _activeClients[clientId] = (client, clientHandler);
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await clientHandler.HandleClientAsync();
+                }
+                finally
+                {
+                    _activeClients.TryRemove(clientId, out _);
+                    client.Dispose();
+                }
+            }, stoppingToken);
         }
     }
 
-    // ... inside DatumServer class ...
-
-    /// <summary>
-    /// Processes a share received via the HTTP API.
-    /// Validates the PoW, updates state, saves to disk, and notifies UI.
-    /// </summary>
-    public static async Task<bool> ProcessApiShareAsync(Models.ShareSubmissionDto share)
+    private async Task HandleWinnersListChangedAsync(string reason)
     {
-        // 1. VALIDATION LOGIC
-        // TODO: Implement actual PoW verification here.
-        // You need to reconstruct the Merkle Root from (Coinbase + MerklePath)
-        // Then hash the HeaderHex (with that Root) and check against Target.
-        
-        // Pseudo-check for now:
-        if (share.Difficulty < 1) return false; 
-        
-        // 2. UPDATE STATE
-        bool isNewRecord = false;
-
-        lock (_stateLock)
+        if (_activeClients.IsEmpty)
         {
-            // A. Update OnDeckList (The queue for the next block)
-            // Logic: Is this miner already on deck? If so, add diff. If not, insert.
-            var existingEntry = OnDeckList.FirstOrDefault(x => x.Address == share.MinerAddress);
-            if (existingEntry != null)
+            return;
+        }
+
+        await Task.Delay(250);
+
+        int refreshed = 0;
+        int disconnected = 0;
+        foreach (var entry in _activeClients.ToArray())
+        {
+            try
             {
-                // This is a simplification. Usually you accumulate 'share.Difficulty'
-                // based on pool weighting logic.
-                // For a "Highest Difficulty Wins" pool, you replace if higher.
-                if (share.Difficulty > existingEntry.Difficulty)
+                bool refreshSent = await entry.Value.Handler.RequestBlockTemplateRefreshAsync();
+                if (refreshSent)
                 {
-                    existingEntry.Difficulty = share.Difficulty;
+                    refreshed++;
+                    continue;
+                }
+
+                entry.Value.Client.Close();
+                disconnected++;
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to refresh DATUM client {ClientId}; disconnecting instead.", entry.Key);
+                try
+                {
+                    entry.Value.Client.Close();
+                    disconnected++;
+                }
+                catch (ObjectDisposedException)
+                {
                 }
             }
-            else
-            {
-                OnDeckList.Add(new PayoutInfo 
-                { 
-                    Address = share.MinerAddress, 
-                    Difficulty = share.Difficulty 
-                    // Add 'Value' calculation here based on pool rules
-                });
-            }
-
-            // B. Check for Best Share Record (For the UI)
-            if (share.Difficulty > BestShare.Difficulty)
-            {
-                isNewRecord = true;
-                BestShare = new BestShareRecord
-                {
-                    Difficulty = share.Difficulty,
-                    MinerAddress = share.MinerAddress,
-                    Timestamp = DateTime.UtcNow
-                };
-            }
-            
-            // C. Save to Disk
-            // We call the existing SaveState method
-            // (Note: SaveState takes a lock, so we might need to extract the logic 
-            // inside SaveState to a private method '_saveStateInternal' to avoid recursive locking 
-            // if we are already inside a lock here. 
-            // OR: Just release lock before saving. Let's do the latter for safety).
         }
-        
-        // Save state outside the detailed logic lock, or rely on SaveState's internal lock.
-        // Since SaveState has its own lock, we are safe to call it here.
-        SaveState();
 
-        // 3. BROADCAST TO UI
-        if (HubContext != null)
+        if (refreshed > 0 || disconnected > 0)
         {
-            // Send updated stats to web clients
-            if (isNewRecord)
-            {
-                await HubContext.Clients.All.SendAsync("UpdateRecord", BestShare);
-            }
-            
-            // Optional: Send a "New Share" blip to the UI
-            // await HubContext.Clients.All.SendAsync("ShareReceived", share.MinerAddress);
+            _logger.LogInformation(
+                "Requested DATUM work refresh for {Refreshed} client(s) after Winners List change ({Reason}); disconnected {Disconnected} fallback client(s).",
+                refreshed,
+                reason,
+                disconnected);
         }
-
-        return true;
     }
 }

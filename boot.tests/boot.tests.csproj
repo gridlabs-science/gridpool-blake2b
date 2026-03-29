@@ -16,4 +16,8 @@
       <ProjectReference Include="..\boot_portal\boot_portal.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+      <Compile Remove="zmqtest.cs" />
+    </ItemGroup>
+
 </Project>

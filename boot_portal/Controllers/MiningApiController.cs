@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
-using boot_portal.HostedServices;
 using boot_portal.Models;
+using boot_portal.Services;
+using boot_portal.Utils;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace boot_portal.Controllers;
 
@@ -8,55 +10,75 @@ namespace boot_portal.Controllers;
 [Route("api/mining")]
 public class MiningApiController : ControllerBase
 {
+    private readonly PoolConfig _poolConfig;
+    private readonly BootProtocolStateService _stateService;
     private readonly ILogger<MiningApiController> _logger;
 
-    public MiningApiController(ILogger<MiningApiController> logger)
+    public MiningApiController(PoolConfig poolConfig, BootProtocolStateService stateService, ILogger<MiningApiController> logger)
     {
+        _poolConfig = poolConfig;
+        _stateService = stateService;
         _logger = logger;
     }
 
     // GET: api/mining/payouts
     // Returns the current list of winners (the required coinbase outputs)
+    [EnableRateLimiting("network-read")]
     [HttpGet("payouts")]
     public IActionResult GetPayouts()
     {
-        // Accessing static state from DatumServer
-        // Note: In a production app, we might use a dedicated Service for state, 
-        // but for this architecture, accessing the static lists is efficient.
-        
-        var response = new PayoutResponseDto
-        {
-            // You might want to add a Sequence/Version number to DatumServer state later
-            Sequence = DateTime.UtcNow.Ticks, 
-            Payouts = DatumServer.WinnersList
-        };
-
-        return Ok(response);
+        return Ok(_stateService.GetPayoutResponse());
     }
 
     // POST: api/mining/share
     // Receives a high-difficulty share
+    [EnableRateLimiting("mining-write")]
     [HttpPost("share")]
     public async Task<IActionResult> SubmitShare([FromBody] ShareSubmissionDto share)
     {
-        if (string.IsNullOrEmpty(share.HeaderHex) || string.IsNullOrEmpty(share.MinerAddress))
+        BootRequestValidationFailure? requestValidation = BootRequestGuards.ValidateShareRequest(
+            _poolConfig,
+            Request,
+            share.MinerAddress,
+            share.HeaderHex,
+            share.CoinbaseHex,
+            share.MerklePath);
+        if (requestValidation.HasValue)
         {
-            return BadRequest("Invalid share data");
+            return StatusCode(requestValidation.Value.StatusCode, new { status = "rejected", reason = requestValidation.Value.Reason });
         }
 
         try
         {
-            // We delegate the logic to DatumServer to keep thread safety in one place
-            bool isValid = await DatumServer.ProcessApiShareAsync(share);
-
-            if (isValid)
+            var result = await _stateService.SubmitShareAsync(new RecordedShareSubmission
             {
-                return Ok(new { status = "accepted", difficulty = share.Difficulty });
+                MinerAddress = share.MinerAddress,
+                Username = string.IsNullOrWhiteSpace(share.Username) ? share.MinerAddress : share.Username,
+                HeaderHex = share.HeaderHex,
+                CoinbaseHex = share.CoinbaseHex,
+                MerklePath = share.MerklePath,
+                PrevBlockHash = share.PrevBlockHash,
+                Difficulty = share.Difficulty,
+                Source = "http"
+            }, "http-block");
+
+            if (result.Accepted || string.Equals(result.RejectionReason, "Duplicate share", StringComparison.Ordinal))
+            {
+                return Ok(new
+                {
+                    status = result.Accepted ? "accepted" : "duplicate",
+                    difficulty = result.ComputedDifficulty,
+                    isBlock = result.IsBlock,
+                    blockHash = result.BlockHash,
+                    stateId = result.IsBlock
+                        ? result.NetworkStatus.CurrentStateId
+                        : result.NetworkStatus.CandidateStateId
+                });
             }
             else
             {
                 // In production, don't be too verbose about WHY it failed to prevent gaming
-                return BadRequest(new { status = "rejected", reason = "Low difficulty or invalid proof" });
+                return BadRequest(new { status = "rejected", reason = result.RejectionReason ?? "Low difficulty or invalid proof" });
             }
         }
         catch (Exception ex)

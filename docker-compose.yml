@@ -1,0 +1,15 @@
+services:
+  boot-portal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: boot-portal
+    restart: unless-stopped
+    environment:
+      BOOT_PORTAL_CONFIG_PATH: /data/boot_portal_config.json
+      BOOT_PORTAL_STATE_PATH: /data/pool_state.json
+    ports:
+      - "5000:5000"
+      - "3008:3008"
+    volumes:
+      - ./data:/data

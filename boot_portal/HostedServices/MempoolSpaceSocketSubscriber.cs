@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json.Nodes; // Add this for simple JSON parsing
+using boot_portal.Services;
 
 namespace boot_portal.HostedServices;
 
@@ -10,11 +11,16 @@ public class MempoolSpaceSocketSubscriber : BackgroundService
     private const string MEMPOOL_ENDPOINT = "wss://mempool.space/api/v1/ws";
     private readonly ILogger<MempoolSpaceSocketSubscriber> _logger;
     private readonly IHubContext<PoolStatsHub> _hubContext;
+    private readonly BootProtocolStateService _stateService;
 
-    public MempoolSpaceSocketSubscriber(ILogger<MempoolSpaceSocketSubscriber> logger, IHubContext<PoolStatsHub> hubContext)
+    public MempoolSpaceSocketSubscriber(
+        ILogger<MempoolSpaceSocketSubscriber> logger,
+        IHubContext<PoolStatsHub> hubContext,
+        BootProtocolStateService stateService)
     {
         _logger = logger;
         _hubContext = hubContext;
+        _stateService = stateService;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -149,37 +155,7 @@ public class MempoolSpaceSocketSubscriber : BackgroundService
     // into BOTH of your subscriber classes.
     private async Task OnNewBlockAsync(string blockHash, CancellationToken stoppingToken)
     {
-        // Your custom logic: e.g., fetch block details via RPC, update jobs
         _logger.LogInformation("Processing block {BlockHash}...", blockHash);
-        return;
-        // 1. Create the NEW list in a local variable.
-        var newWinnersList = new List<PayoutInfo>();
-
-        // 2. FULLY populate this new, private list.
-        var reward = Program.BLOCK_REWARD / ((ulong)DatumServer.OnDeckList.Count + 1);
-        foreach (var onDeckMiner in DatumServer.OnDeckList)
-        {
-            newWinnersList.Add(new PayoutInfo
-            {
-                Value = reward,
-                Address = onDeckMiner.Address,
-                Difficulty = onDeckMiner.Difficulty,
-                DiffString = onDeckMiner.DiffString
-            });
-            var lastAdded = newWinnersList.Last();
-            //_logger.LogInformation("Last added value: {Value} - Address: {Address}", lastAdded.Value.ToString("N0"), lastAdded.Address);
-            onDeckMiner.Difficulty = 0;
-        }
-
-        // 3. The "Swap".
-        DatumServer.WinnersList = newWinnersList;
-
-        // 4. (Your comment noted resetting this, so I've left it commented)
-        //DatumServer.OnDeckList = new List<PayoutInfo>();
-        DatumServer.SaveState();
-
-        await _hubContext.Clients.All.SendAsync("UpdateWinners", DatumServer.WinnersList, stoppingToken);
-        await _hubContext.Clients.All.SendAsync("UpdateOnDeck", DatumServer.OnDeckList, stoppingToken);
-        //Console.WriteLine("Broadcasted new lists to web UI.");
+        await _stateService.ObserveChainTipAsync(blockHash, "mempool.space");
     }
 }
