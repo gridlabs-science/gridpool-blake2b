@@ -1,34 +1,4 @@
 {
-  "ed25519_private_key": "iAu\u002B2GGq\u002Bdp/kyR7fZ994wspGCdaCj/X1qwitWwk3Sg=",
-  "x25519_private_key": "DJaUNGGGz6rT0XMjYKcaZA2PsuKprNs8yco8KM8IImc=",
-  "Logging": {
-    "LogLevel": {
-      "Default": "Information",
-      "Microsoft.AspNetCore": "Warning"
-    }
-  },
-  "AllowedHosts": "*",
-  "NotificationSource": "ZMQ",
-  "Datum_Port": 3008,
-  "WebUI_Port_http": 5000,
-  "WebUI_Port_https": 5001,
-  "public_base_url": "https://boot.gridlabs.science",
-  "datum_public_host": "datum.gridlabs.science",
-  "enable_peer_sync": true,
-  "bootstrap_peers": [
-    "https://boot.gridlabs.science"
-  ],
-  "peer_sync_interval_seconds": 15,
-  "peer_request_timeout_seconds": 5,
-  "max_peers": 64,
-  "boot_network_id": "public-beta",
-  "boot_protocol_version": 1,
-
-  "pool_payout_script": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-  "winners_list_size": 299,
-  "coinbase_tag": "Boot protocol",
-  "prime_id": 21,
-  "min_diff": 1024,
-  
-  "admin_api_key": "gridlabs"
+  "ed25519_private_key": "KSP0qrAklup4HT2BcJRWuSaT6jk8WuQ/AtXFXRX4ePc=",
+  "x25519_private_key": "Ps0z/oziVHa5AaqVS2ItAOfyLWRoGy2jQhy9mIaKspY="
 }

@@ -6,6 +6,7 @@ using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using boot_portal;
@@ -167,6 +168,8 @@ public class Program
             Key ed25519Key;
             Key x25519Key;
             bool keysGenerated = false;
+            bool configCanBeSafelyRewritten = false;
+            JsonObject? configJsonObject = null;
 
             var signatureAlgorithm = SignatureAlgorithm.Ed25519;
             var keyExchangeAlgorithm = KeyAgreementAlgorithm.X25519;
@@ -179,13 +182,20 @@ public class Program
                 try
                 {
                     var json = await File.ReadAllTextAsync(configFilePath);
-                    config = JsonSerializer.Deserialize<ServerConfig>(json) ?? new ServerConfig();
+                    configJsonObject = JsonNode.Parse(json) as JsonObject;
+                    config = configJsonObject?.Deserialize<ServerConfig>() ?? new ServerConfig();
+                    configCanBeSafelyRewritten = configJsonObject != null;
                     Console.WriteLine($"✅ Loaded config from {configFilePath}");
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine($"⚠️ Failed to load {configFilePath}: {ex.Message}. Using default or command-line keys.");
+                    configCanBeSafelyRewritten = false;
                 }
+            }
+            else
+            {
+                configCanBeSafelyRewritten = true;
             }
 
             // Handle Ed25519 key
@@ -249,10 +259,21 @@ public class Program
             {
                 try
                 {
-                    BootPortalPaths.EnsureParentDirectory(configFilePath);
-                    var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
-                    await File.WriteAllTextAsync(configFilePath, json);
-                    Console.WriteLine($"✅ Saved keys to {configFilePath}");
+                    if (!configCanBeSafelyRewritten && File.Exists(configFilePath))
+                    {
+                        Console.WriteLine($"⚠️ Skipping config rewrite for {configFilePath} because the existing JSON could not be parsed. Generated keys are only in memory for this run.");
+                    }
+                    else
+                    {
+                        configJsonObject ??= new JsonObject();
+                        configJsonObject["ed25519_private_key"] = config.Ed25519PrivateKey;
+                        configJsonObject["x25519_private_key"] = config.X25519PrivateKey;
+
+                        BootPortalPaths.EnsureParentDirectory(configFilePath);
+                        var json = configJsonObject.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+                        await File.WriteAllTextAsync(configFilePath, json);
+                        Console.WriteLine($"✅ Saved keys to {configFilePath}");
+                    }
                 }
                 catch (Exception ex)
                 {

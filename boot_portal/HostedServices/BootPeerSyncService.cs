@@ -139,10 +139,7 @@ public class BootPeerSyncService : BackgroundService
         }
 
         BootNetworkStatusDto local = _stateService.GetNetworkStatus();
-        if (!BitcoinHashes.AreEquivalent(remote.CurrentTipBlockHash, local.CurrentTipBlockHash))
-        {
-            return;
-        }
+        bool sameTip = BitcoinHashes.AreEquivalent(remote.CurrentTipBlockHash, local.CurrentTipBlockHash);
 
         if (!string.IsNullOrWhiteSpace(remote.CurrentStateId) &&
             !string.Equals(remote.CurrentStateId, local.CurrentStateId, StringComparison.OrdinalIgnoreCase))
@@ -153,9 +150,21 @@ public class BootPeerSyncService : BackgroundService
 
             if (lockedBundle != null)
             {
-                await _stateService.TryAdoptCurrentStateAsync(lockedBundle, remoteEndpoint);
+                bool bootstrapped = await _stateService.TryBootstrapCurrentStateAsync(lockedBundle, remoteEndpoint);
                 local = _stateService.GetNetworkStatus();
+                sameTip = BitcoinHashes.AreEquivalent(remote.CurrentTipBlockHash, local.CurrentTipBlockHash);
+
+                if (!bootstrapped && sameTip)
+                {
+                    await _stateService.TryAdoptCurrentStateAsync(lockedBundle, remoteEndpoint);
+                    local = _stateService.GetNetworkStatus();
+                }
             }
+        }
+
+        if (!sameTip)
+        {
+            return;
         }
 
         if (string.IsNullOrWhiteSpace(remote.CandidateStateId) ||

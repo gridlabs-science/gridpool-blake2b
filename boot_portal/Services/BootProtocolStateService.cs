@@ -706,6 +706,87 @@ public class BootProtocolStateService
         return adopted;
     }
 
+    public async Task<bool> TryBootstrapCurrentStateAsync(BootStateBundle bundle, string sourceEndpoint)
+    {
+        if (!IsCompatiblePeerNetwork(bundle.ProtocolVersion, bundle.NetworkId))
+        {
+            return false;
+        }
+
+        if (bundle.WinnersList.Count > _poolConfig.SharedWinnerSlotCount)
+        {
+            return false;
+        }
+
+        string? lockedTip = NormalizeCanonicalBlockHash(bundle.LockedByBlockHash);
+        if (string.IsNullOrWhiteSpace(lockedTip) || bundle.WinnersList.Count == 0)
+        {
+            return false;
+        }
+
+        BootNetworkStatusDto networkStatus;
+        List<PayoutInfo> winnersSnapshot;
+        List<PayoutInfo> onDeckSnapshot;
+        bool adopted = false;
+
+        lock (_sync)
+        {
+            string? localTip = NormalizeCanonicalBlockHash(_state.CurrentTipBlockHash);
+            bool hasEstablishedState =
+                _state.ArchivedStateBundles.Count > 0 ||
+                _state.WinnersList.Count > 1 ||
+                (_state.WinnersList.Count == 1 && _state.WinnersList[0].Difficulty > 0);
+
+            if (hasEstablishedState)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(localTip) &&
+                !BitcoinHashes.AreEquivalent(localTip, lockedTip))
+            {
+                return false;
+            }
+
+            _state.CurrentTipBlockHash = lockedTip;
+            _state.CurrentStateId = string.IsNullOrWhiteSpace(bundle.StateId)
+                ? ComputeStateIdFromPayoutsNoLock(bundle.WinnersList, lockedTip)
+                : bundle.StateId;
+            _state.LastRotationUtc = bundle.CreatedAtUtc == default ? DateTime.UtcNow : bundle.CreatedAtUtc;
+            _state.WinnersList = ClonePayouts(bundle.WinnersList);
+            _state.OnDeckProofs = [];
+            _state.OnDeckList = [];
+
+            BootStateBundle lockedBundle = CloneBundle(bundle);
+            lockedBundle.LockedByBlockHash = lockedTip;
+            lockedBundle.WinnersList = ClonePayouts(bundle.WinnersList);
+            lockedBundle.Commitment = BuildCommitmentNoLock();
+            UpsertArchivedBundleNoLock(lockedBundle);
+
+            _state.CandidateStateId = ComputeCandidateStateIdNoLock();
+            SaveStateNoLock();
+
+            winnersSnapshot = ClonePayouts(_state.WinnersList);
+            onDeckSnapshot = ClonePayouts(_state.OnDeckList);
+            networkStatus = BuildNetworkStatusNoLock();
+            adopted = true;
+        }
+
+        if (adopted)
+        {
+            _logger.LogWarning(
+                "Bootstrapped current state {StateId} from {SourceEndpoint} without local chain context. This state should be cross-checked by subsequent peer sync.",
+                bundle.StateId,
+                sourceEndpoint);
+            await _hubContext.Clients.All.SendAsync("UpdateWinners", winnersSnapshot);
+            await _hubContext.Clients.All.SendAsync("UpdateOnDeck", onDeckSnapshot);
+            await _hubContext.Clients.All.SendAsync("UpdateNetworkState", networkStatus);
+            await NotifyWinnersListChangedAsync($"bootstrap-state:{sourceEndpoint}");
+        }
+
+        return adopted;
+    }
+
     private void LoadState()
     {
         lock (_sync)
