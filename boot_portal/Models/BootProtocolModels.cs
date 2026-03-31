@@ -83,6 +83,7 @@ public class BootStateBundle
     public string? ParentBlockHash { get; set; }
     public DateTime CreatedAtUtc { get; set; }
     public double TotalDifficulty { get; set; }
+    public List<string> ValidParentBlockHashes { get; set; } = [];
     public List<PayoutInfo> WinnersList { get; set; } = [];
     public List<BootShareProof> ShareProofs { get; set; } = [];
     public BootCommitmentInfo Commitment { get; set; } = new();

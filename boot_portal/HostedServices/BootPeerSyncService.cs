@@ -157,10 +157,11 @@ public class BootPeerSyncService : BackgroundService
                 local = _stateService.GetNetworkStatus();
                 sameTip = BitcoinHashes.AreEquivalent(remote.CurrentTipBlockHash, local.CurrentTipBlockHash);
 
-                if (!bootstrapped && sameTip)
+                if (!bootstrapped)
                 {
-                    await _stateService.TryAdoptCurrentStateAsync(lockedBundle, remoteEndpoint);
+                    await _stateService.TryAdoptCurrentStateAsync(lockedBundle, remote.CurrentTipBlockHash, remoteEndpoint);
                     local = _stateService.GetNetworkStatus();
+                    sameTip = BitcoinHashes.AreEquivalent(remote.CurrentTipBlockHash, local.CurrentTipBlockHash);
                 }
             }
         }

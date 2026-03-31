@@ -32,6 +32,17 @@ public class BootShareVerifier
         IReadOnlyList<PayoutInfo> expectedWinners,
         string? expectedPrevBlockHash)
     {
+        return ValidateShare(
+            share,
+            expectedWinners,
+            string.IsNullOrWhiteSpace(expectedPrevBlockHash) ? [] : [expectedPrevBlockHash]);
+    }
+
+    public BootShareValidationResult ValidateShare(
+        RecordedShareSubmission share,
+        IReadOnlyList<PayoutInfo> expectedWinners,
+        IReadOnlyCollection<string> expectedPrevBlockHashes)
+    {
         string username = string.IsNullOrWhiteSpace(share.Username) ? share.MinerAddress : share.Username;
         return ValidateCore(
             share.MinerAddress,
@@ -41,7 +52,7 @@ public class BootShareVerifier
             share.MerklePath,
             share.PrevBlockHash,
             expectedWinners,
-            expectedPrevBlockHash,
+            expectedPrevBlockHashes,
             expectedShareId: null);
     }
 
@@ -49,6 +60,17 @@ public class BootShareVerifier
         BootShareProof proof,
         IReadOnlyList<PayoutInfo> expectedWinners,
         string? expectedPrevBlockHash)
+    {
+        return ValidateShare(
+            proof,
+            expectedWinners,
+            string.IsNullOrWhiteSpace(expectedPrevBlockHash) ? [] : [expectedPrevBlockHash]);
+    }
+
+    public BootShareValidationResult ValidateShare(
+        BootShareProof proof,
+        IReadOnlyList<PayoutInfo> expectedWinners,
+        IReadOnlyCollection<string> expectedPrevBlockHashes)
     {
         return ValidateCore(
             proof.MinerAddress,
@@ -58,7 +80,7 @@ public class BootShareVerifier
             proof.MerklePath,
             proof.PrevBlockHash,
             expectedWinners,
-            expectedPrevBlockHash,
+            expectedPrevBlockHashes,
             proof.ShareId);
     }
 
@@ -70,7 +92,7 @@ public class BootShareVerifier
         List<string> merklePath,
         string? providedPrevBlockHash,
         IReadOnlyList<PayoutInfo> expectedWinners,
-        string? expectedPrevBlockHash,
+        IReadOnlyCollection<string> expectedPrevBlockHashes,
         string? expectedShareId)
     {
         try
@@ -118,10 +140,13 @@ public class BootShareVerifier
                 return Invalid("Prev block hash does not match the submitted header.");
             }
 
-            if (!string.IsNullOrWhiteSpace(expectedPrevBlockHash) &&
-                !BitcoinHashes.AreEquivalent(expectedPrevBlockHash, actualPrevBlockHash))
+            bool hasExpectedParents = expectedPrevBlockHashes.Any(hash => !string.IsNullOrWhiteSpace(hash));
+            if (hasExpectedParents &&
+                !expectedPrevBlockHashes.Any(hash =>
+                    !string.IsNullOrWhiteSpace(hash) &&
+                    BitcoinHashes.AreEquivalent(hash, actualPrevBlockHash)))
             {
-                return Invalid("Share builds on the wrong parent block.");
+                return Invalid($"Share builds on the wrong parent block ({actualPrevBlockHash}).");
             }
 
             byte[] coinbaseHash = DoubleSha256(coinbaseBytes);
