@@ -45,6 +45,7 @@ public class DatumServer : BackgroundService
         StateService = stateService;
         PoolPort = port;
         _stateService.WinnersListChanged += HandleWinnersListChangedAsync;
+        _stateService.WorkTemplatesInvalidated += HandleWorkTemplatesInvalidatedAsync;
 
         // Calculate the Hex Public Key once on startup for the UI
         GeneratePubKeyHex();
@@ -87,6 +88,16 @@ public class DatumServer : BackgroundService
     }
 
     private async Task HandleWinnersListChangedAsync(string reason)
+    {
+        await RefreshActiveClientsAsync(reason);
+    }
+
+    private async Task HandleWorkTemplatesInvalidatedAsync(string reason)
+    {
+        await RefreshActiveClientsAsync(reason);
+    }
+
+    private async Task RefreshActiveClientsAsync(string reason)
     {
         if (_activeClients.IsEmpty)
         {

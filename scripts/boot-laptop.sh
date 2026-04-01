@@ -18,6 +18,7 @@ Commands:
   down                   Stop the docker compose service
   up                     Start the docker compose service
   git-pull-rebuild       Pull from origin/main with git.exe, then rebuild
+  sync-file <src> <dst>  Copy a local file to the remote Windows path over SSH
 
 Environment overrides:
   BOOT_LAPTOP_SSH_ALIAS  SSH host alias (default: boot-laptop)
@@ -35,6 +36,14 @@ run_remote() {
 run_compose() {
     local compose_args="$1"
     run_remote "Set-Location '$REMOTE_REPO'; docker compose $compose_args"
+}
+
+sync_file() {
+    local local_path="$1"
+    local remote_path="$2"
+    local encoded
+    encoded="$(printf '%s' "\$ProgressPreference = 'SilentlyContinue'; \$payload = [Console]::In.ReadToEnd(); [System.IO.File]::WriteAllText('$remote_path', [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(\$payload)), [System.Text.UTF8Encoding]::new(\$false))" | iconv -f UTF-8 -t UTF-16LE | base64 -w 0)"
+    base64 -w 0 "$local_path" | ssh "$REMOTE_ALIAS" powershell -NoProfile -NonInteractive -EncodedCommand "$encoded"
 }
 
 case "${1:-}" in
@@ -63,6 +72,13 @@ case "${1:-}" in
         ;;
     git-pull-rebuild)
         run_remote "& git -C '$REMOTE_REPO' pull --ff-only origin main; Set-Location '$REMOTE_REPO'; docker compose up -d --build"
+        ;;
+    sync-file)
+        if [[ $# -ne 3 ]]; then
+            echo "Usage: $(basename "$0") sync-file <src> <dst>" >&2
+            exit 1
+        fi
+        sync_file "$2" "$3"
         ;;
     ""|-h|--help|help)
         usage

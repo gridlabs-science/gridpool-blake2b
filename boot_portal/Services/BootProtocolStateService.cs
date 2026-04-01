@@ -26,6 +26,7 @@ public class BootProtocolStateService
     private PoolState _state = new();
 
     public event Func<string, Task>? WinnersListChanged;
+    public event Func<string, Task>? WorkTemplatesInvalidated;
 
     public BootProtocolStateService(
         PoolConfig poolConfig,
@@ -523,6 +524,7 @@ public class BootProtocolStateService
 
         _logger.LogInformation("Observed new chain tip from {Source}: {BlockHash}", source, blockHash);
         await _hubContext.Clients.All.SendAsync("UpdateNetworkState", status);
+        await NotifyWorkTemplatesInvalidatedAsync($"chain-tip:{source}");
         return status;
     }
 
@@ -550,8 +552,26 @@ public class BootProtocolStateService
             acceptedParentBlockHashesSnapshot = GetAcceptedParentBlockHashesNoLock();
         }
 
-        if (!string.IsNullOrWhiteSpace(currentTipSnapshot) &&
-            !BitcoinHashes.AreEquivalent(bundle.ParentBlockHash, currentTipSnapshot))
+        List<string> remoteAcceptedParentBlockHashes = NormalizeAcceptedParentBlockHashes(
+            bundle.ValidParentBlockHashes
+                .Append(bundle.ParentBlockHash ?? string.Empty)
+                .Concat(bundle.ShareProofs.Select(proof => proof.PrevBlockHash)));
+        List<string> validationParentBlockHashes = MergeAcceptedParentBlockHashes(
+            acceptedParentBlockHashesSnapshot,
+            remoteAcceptedParentBlockHashes);
+
+        bool parentSetsOverlap =
+            acceptedParentBlockHashesSnapshot.Count == 0 ||
+            remoteAcceptedParentBlockHashes.Count == 0 ||
+            acceptedParentBlockHashesSnapshot.Any(local =>
+                remoteAcceptedParentBlockHashes.Any(remote => BitcoinHashes.AreEquivalent(local, remote)));
+
+        bool currentTipIsCompatible =
+            string.IsNullOrWhiteSpace(currentTipSnapshot) ||
+            validationParentBlockHashes.Any(hash => BitcoinHashes.AreEquivalent(hash, currentTipSnapshot)) ||
+            BitcoinHashes.AreEquivalent(bundle.ParentBlockHash, currentTipSnapshot);
+
+        if (!parentSetsOverlap || !currentTipIsCompatible)
         {
             return false;
         }
@@ -562,7 +582,7 @@ public class BootProtocolStateService
 
         try
         {
-            validatedProofs = ValidateImportedProofs(bundle.ShareProofs, winnersSnapshot, acceptedParentBlockHashesSnapshot, $"peer-state:{sourceEndpoint}");
+            validatedProofs = ValidateImportedProofs(bundle.ShareProofs, winnersSnapshot, validationParentBlockHashes, $"peer-state:{sourceEndpoint}");
             expectedPayouts = BuildPayoutsFromProofs(validatedProofs);
             totalDifficulty = validatedProofs.Sum(x => x.Difficulty);
         }
@@ -572,7 +592,7 @@ public class BootProtocolStateService
             return false;
         }
 
-        string expectedStateId = ComputeStateIdNoLock(validatedProofs, currentTipSnapshot);
+        string expectedStateId = ComputeCandidateStateId(currentStateSnapshot, validatedProofs);
         if (!string.Equals(expectedStateId, bundle.StateId, StringComparison.OrdinalIgnoreCase))
         {
             return false;
@@ -589,13 +609,17 @@ public class BootProtocolStateService
 
         lock (_sync)
         {
-            if (!string.Equals(currentStateSnapshot, _state.CurrentStateId, StringComparison.OrdinalIgnoreCase) ||
-                !BitcoinHashes.AreEquivalent(currentTipSnapshot, _state.CurrentTipBlockHash))
+            if (!string.Equals(currentStateSnapshot, _state.CurrentStateId, StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
 
-            if (!validatedProofs.All(proof => IsAcceptedParentBlockHashNoLock(proof.PrevBlockHash)))
+            List<string> currentAcceptedParentBlockHashes = GetAcceptedParentBlockHashesNoLock();
+            List<string> mergedAcceptedParentBlockHashes = MergeAcceptedParentBlockHashes(
+                currentAcceptedParentBlockHashes,
+                remoteAcceptedParentBlockHashes);
+            if (!validatedProofs.All(proof =>
+                    mergedAcceptedParentBlockHashes.Any(hash => BitcoinHashes.AreEquivalent(hash, proof.PrevBlockHash))))
             {
                 return false;
             }
@@ -609,6 +633,7 @@ public class BootProtocolStateService
 
             _state.OnDeckProofs = validatedProofs.Select(CloneProof).ToList();
             _state.OnDeckList = ClonePayouts(expectedPayouts);
+            SetAcceptedParentBlockHashesNoLock(mergedAcceptedParentBlockHashes, _state.CurrentTipBlockHash);
             _state.CandidateStateId = bundle.StateId;
             foreach (var proof in validatedProofs)
             {
@@ -1102,7 +1127,7 @@ public class BootProtocolStateService
 
     private string ComputeCandidateStateIdNoLock()
     {
-        return ComputeStateIdNoLock(_state.OnDeckProofs, NormalizeCanonicalBlockHash(_state.CurrentTipBlockHash));
+        return ComputeCandidateStateId(_state.CurrentStateId, _state.OnDeckProofs);
     }
 
     private bool IsPlaceholderOrEmptyCurrentStateNoLock()
@@ -1134,6 +1159,11 @@ public class BootProtocolStateService
         foreach (string hash in _state.AcceptedParentBlockHashes)
         {
             addHash(hash);
+        }
+
+        foreach (BootShareProof proof in _state.OnDeckProofs)
+        {
+            addHash(proof.PrevBlockHash);
         }
 
         addHash(_state.CurrentTipBlockHash);
@@ -1346,6 +1376,29 @@ public class BootProtocolStateService
         return ComputeStateIdNoLock(pseudoProofs, blockHash);
     }
 
+    private string ComputeCandidateStateId(string? currentStateId, IEnumerable<BootShareProof> shares)
+    {
+        var builder = new StringBuilder();
+        builder.Append("boot-protocol-candidate-state").Append('\n');
+        builder.Append(_poolConfig.BootProtocolVersion).Append('\n');
+        builder.Append(_poolConfig.BootNetworkId).Append('\n');
+        builder.Append(currentStateId ?? string.Empty).Append('\n');
+
+        int index = 0;
+        foreach (var share in shares
+                     .OrderByDescending(x => x.Difficulty)
+                     .ThenBy(x => x.ShareId, StringComparer.Ordinal))
+        {
+            builder.Append(index++).Append('|');
+            builder.Append(share.ScriptPubKeyHex).Append('|');
+            builder.Append(share.Difficulty.ToString("R", CultureInfo.InvariantCulture)).Append('|');
+            builder.Append(share.ShareId).Append('\n');
+        }
+
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString()));
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
     private string ComputeStateIdNoLock(IEnumerable<BootShareProof> shares, string? blockHash)
     {
         var builder = new StringBuilder();
@@ -1388,6 +1441,31 @@ public class BootProtocolStateService
         return normalized;
     }
 
+    private static List<string> NormalizeAcceptedParentBlockHashes(IEnumerable<string?> hashes)
+    {
+        var normalized = new List<string>();
+        foreach (string? hash in hashes)
+        {
+            string? canonical = NormalizeCanonicalBlockHash(hash);
+            if (string.IsNullOrWhiteSpace(canonical) ||
+                normalized.Any(existing => BitcoinHashes.AreEquivalent(existing, canonical)))
+            {
+                continue;
+            }
+
+            normalized.Add(canonical);
+        }
+
+        return normalized;
+    }
+
+    private static List<string> MergeAcceptedParentBlockHashes(
+        IEnumerable<string> primary,
+        IEnumerable<string> secondary)
+    {
+        return NormalizeAcceptedParentBlockHashes(primary.Concat(secondary));
+    }
+
     private async Task NotifyWinnersListChangedAsync(string reason)
     {
         Func<string, Task>? handlers = WinnersListChanged;
@@ -1405,6 +1483,27 @@ public class BootProtocolStateService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "A WinnersListChanged handler failed for reason {Reason}.", reason);
+            }
+        }
+    }
+
+    private async Task NotifyWorkTemplatesInvalidatedAsync(string reason)
+    {
+        Func<string, Task>? handlers = WorkTemplatesInvalidated;
+        if (handlers == null)
+        {
+            return;
+        }
+
+        foreach (Func<string, Task> handler in handlers.GetInvocationList().Cast<Func<string, Task>>())
+        {
+            try
+            {
+                await handler(reason);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "A WorkTemplatesInvalidated handler failed for reason {Reason}.", reason);
             }
         }
     }
