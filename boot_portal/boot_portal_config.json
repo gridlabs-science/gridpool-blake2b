@@ -1,4 +1,13 @@
 {
   "ed25519_private_key": "KSP0qrAklup4HT2BcJRWuSaT6jk8WuQ/AtXFXRX4ePc=",
-  "x25519_private_key": "Ps0z/oziVHa5AaqVS2ItAOfyLWRoGy2jQhy9mIaKspY="
+  "x25519_private_key": "Ps0z/oziVHa5AaqVS2ItAOfyLWRoGy2jQhy9mIaKspY=",
+  "enable_peer_sync": true,
+  "public_base_url": "https://boot.gridlabs.science",
+  "datum_public_host": "datum.gridlabs.science",
+  "bootstrap_peers": [
+    "https://boot.gridlabs.science",
+    "http://100.96.249.123:5000"
+  ],
+  "testing_round_reset_mode": "block_hash_low_nibble",
+  "testing_round_reset_low_nibble_threshold": 6
 }

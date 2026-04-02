@@ -448,9 +448,12 @@
             <div>Peers: <span class="accent-value" id="peer-count">0</span></div>
             <div>Current State: <span class="accent-value" id="current-state-id">Loading...</span></div>
             <div>Candidate State: <span class="accent-value" id="candidate-state-id">Loading...</span></div>
+            <div>Test Trigger: <span class="accent-value" id="testing-trigger-status">Loading...</span></div>
+            <div>Last Test Block: <span class="accent-value" id="last-testing-trigger-block">--</span></div>
             <h3 style="margin-top: 10px;">Commitment Preview</h3>
             <div class="info-value" id="commitment-preview">Loading...</div>
             <div class="search-results" id="commitment-note"></div>
+            <div class="search-results" id="testing-trigger-note"></div>
         </div>
     </div>
 
@@ -589,10 +592,11 @@
     <div class="modal-content">
         <span class="close-modal" onclick="toggleModal('test-modal')">&times;</span>
         <h2>Test Tools</h2>
-        <p>Use this only for local testing. A reset locks the current On-Deck List into the Winners List and starts a fresh round.</p>
+        <p>Use this only for local node testing. This button does not propagate to peers.</p>
+        <p>The preferred distributed test path is the automatic Bitcoin block-hash trigger shown in the Network State panel.</p>
         <div class="search-box-container" style="margin-top: 20px;">
             <input type="password" id="admin-api-key" class="search-input" placeholder="Admin API Key">
-            <button class="search-btn" onclick="triggerManualReset()">RESET LISTS</button>
+            <button class="search-btn" onclick="triggerManualReset()">LOCAL RESET</button>
         </div>
         <div id="admin-reset-status" class="search-results" style="margin-top: 12px;"></div>
     </div>
@@ -1020,8 +1024,11 @@
         document.getElementById("peer-count").innerText = state.peerCount ?? 0;
         document.getElementById("current-state-id").innerText = shortenHash(state.currentStateId);
         document.getElementById("candidate-state-id").innerText = shortenHash(state.candidateStateId);
+        document.getElementById("testing-trigger-status").innerText = state.testingRoundResetEnabled ? "ACTIVE" : "disabled";
+        document.getElementById("last-testing-trigger-block").innerText = shortenHash(state.lastTestingTriggerBlockHash) || "--";
         document.getElementById("commitment-preview").innerText = state.commitment?.tagPreview || "--";
         document.getElementById("commitment-note").innerText = state.commitment?.supportNote || "";
+        document.getElementById("testing-trigger-note").innerText = state.testingRoundResetDescription || "";
         renderPeerTable(state.peers || []);
     });
 

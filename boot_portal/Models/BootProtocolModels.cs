@@ -61,6 +61,11 @@ public class BootNetworkStatusDto
     public int OnDeckCount { get; set; }
     public double OnDeckTotalDifficulty { get; set; }
     public int PeerCount { get; set; }
+    public bool TestingRoundResetEnabled { get; set; }
+    public string TestingRoundResetMode { get; set; } = "none";
+    public int TestingRoundResetLowNibbleThreshold { get; set; }
+    public string TestingRoundResetDescription { get; set; } = string.Empty;
+    public string? LastTestingTriggerBlockHash { get; set; }
     public List<BootPeerStatus> Peers { get; set; } = [];
     public BootCommitmentInfo Commitment { get; set; } = new();
 }
@@ -85,6 +90,7 @@ public class BootStateBundle
     public double TotalDifficulty { get; set; }
     public List<string> ValidParentBlockHashes { get; set; } = [];
     public List<PayoutInfo> WinnersList { get; set; } = [];
+    public List<PayoutInfo> ProofWinnersList { get; set; } = [];
     public List<BootShareProof> ShareProofs { get; set; } = [];
     public BootCommitmentInfo Commitment { get; set; } = new();
 }

@@ -127,6 +127,17 @@ public class PoolConfig
 
     [JsonPropertyName("max_merkle_path_entries")]
     public int MaxMerklePathEntries { get; set; } = 64;
+
+    [JsonPropertyName("testing_round_reset_mode")]
+    public string TestingRoundResetMode { get; set; } = "none";
+
+    [JsonPropertyName("testing_round_reset_low_nibble_threshold")]
+    public int TestingRoundResetLowNibbleThreshold { get; set; } = 0;
+
+    [JsonIgnore]
+    public bool TestingRoundResetEnabled =>
+        string.Equals(TestingRoundResetMode, "block_hash_low_nibble", StringComparison.OrdinalIgnoreCase) &&
+        TestingRoundResetLowNibbleThreshold > 0;
 }
 
 //This just stores the server's primary, long term keys.  These get loaded from a config file or from the command line on startup
@@ -471,6 +482,18 @@ public class Program
 
     private static void ApplyPoolConfigDefaults(PoolConfig config)
     {
+        config.TestingRoundResetMode = string.IsNullOrWhiteSpace(config.TestingRoundResetMode)
+            ? "none"
+            : config.TestingRoundResetMode.Trim().ToLowerInvariant();
+
+        if (!string.Equals(config.TestingRoundResetMode, "none", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(config.TestingRoundResetMode, "block_hash_low_nibble", StringComparison.OrdinalIgnoreCase))
+        {
+            config.TestingRoundResetMode = "none";
+        }
+
+        config.TestingRoundResetLowNibbleThreshold = Math.Clamp(config.TestingRoundResetLowNibbleThreshold, 0, 16);
+
         config.BootstrapPeers ??= [];
         config.BootstrapPeers = config.BootstrapPeers
             .Where(peer => !string.IsNullOrWhiteSpace(peer))

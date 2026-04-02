@@ -419,6 +419,7 @@ public class BootProtocolStateService
         bool winnersChanged = false;
         lock (_sync)
         {
+            List<PayoutInfo> previousWinnersSnapshot = ClonePayouts(_state.WinnersList);
             string? previousTipBlockHash = NormalizeCanonicalBlockHash(_state.CurrentTipBlockHash);
             string? submittedBlockHash = NormalizeCanonicalBlockHash(blockHash);
             string? effectiveBlockHash = manual
@@ -457,6 +458,7 @@ public class BootProtocolStateService
                 lockedBundle.ParentBlockHash = previousTipBlockHash;
                 lockedBundle.CreatedAtUtc = DateTime.UtcNow;
                 lockedBundle.ValidParentBlockHashes = GetAcceptedParentBlockHashesNoLock();
+                lockedBundle.ProofWinnersList = previousWinnersSnapshot;
                 lockedBundle.Commitment = BuildCommitmentNoLock();
 
                 _state.CurrentTipBlockHash = effectiveBlockHash;
@@ -500,9 +502,11 @@ public class BootProtocolStateService
     public async Task<BootNetworkStatusDto> ObserveChainTipAsync(string blockHash, string source)
     {
         BootNetworkStatusDto status;
+        string? normalizedBlockHash;
+        bool shouldRotateTestRound = false;
         lock (_sync)
         {
-            string? normalizedBlockHash = NormalizeCanonicalBlockHash(blockHash);
+            normalizedBlockHash = NormalizeCanonicalBlockHash(blockHash);
             if (string.IsNullOrWhiteSpace(normalizedBlockHash))
             {
                 _logger.LogWarning("Ignored invalid chain tip hash from {Source}: {BlockHash}", source, blockHash);
@@ -514,12 +518,35 @@ public class BootProtocolStateService
                 return BuildNetworkStatusNoLock();
             }
 
-            _state.CurrentTipBlockHash = normalizedBlockHash;
-            RememberAcceptedParentBlockHashNoLock(normalizedBlockHash);
-            _state.CandidateStateId = ComputeCandidateStateIdNoLock();
-            SaveStateNoLock();
+            shouldRotateTestRound = ShouldTriggerTestingRoundResetNoLock(normalizedBlockHash);
+            if (shouldRotateTestRound)
+            {
+                _state.LastTestingTriggerBlockHash = normalizedBlockHash;
+                SaveStateNoLock();
+                status = BuildNetworkStatusNoLock();
+            }
+            else
+            {
+                _state.CurrentTipBlockHash = normalizedBlockHash;
+                RememberAcceptedParentBlockHashNoLock(normalizedBlockHash);
+                _state.CandidateStateId = ComputeCandidateStateIdNoLock();
+                SaveStateNoLock();
 
-            status = BuildNetworkStatusNoLock();
+                status = BuildNetworkStatusNoLock();
+            }
+        }
+
+        if (shouldRotateTestRound && !string.IsNullOrWhiteSpace(normalizedBlockHash))
+        {
+            _logger.LogWarning(
+                "Deterministic test round trigger fired from {Source}: {BlockHash}",
+                source,
+                normalizedBlockHash);
+            RoundRotationResult rotation = await RotateToNextRoundAsync(
+                normalizedBlockHash,
+                $"test-trigger:{source}",
+                manual: false);
+            return rotation.NetworkStatus;
         }
 
         _logger.LogInformation("Observed new chain tip from {Source}: {BlockHash}", source, blockHash);
@@ -582,7 +609,10 @@ public class BootProtocolStateService
 
         try
         {
-            validatedProofs = ValidateImportedProofs(bundle.ShareProofs, winnersSnapshot, validationParentBlockHashes, $"peer-state:{sourceEndpoint}");
+            IReadOnlyList<PayoutInfo> proofWinners = bundle.ProofWinnersList.Count > 0
+                ? bundle.ProofWinnersList
+                : winnersSnapshot;
+            validatedProofs = ValidateImportedProofs(bundle.ShareProofs, proofWinners, validationParentBlockHashes, $"peer-state:{sourceEndpoint}");
             expectedPayouts = BuildPayoutsFromProofs(validatedProofs);
             totalDifficulty = validatedProofs.Sum(x => x.Difficulty);
         }
@@ -700,9 +730,12 @@ public class BootProtocolStateService
         List<PayoutInfo> expectedPayouts;
         try
         {
+            IReadOnlyList<PayoutInfo> proofWinners = bundle.ProofWinnersList.Count > 0
+                ? bundle.ProofWinnersList
+                : currentWinnersSnapshot;
             validatedProofs = ValidateImportedProofs(
                 bundle.ShareProofs,
-                currentWinnersSnapshot,
+                proofWinners,
                 string.IsNullOrWhiteSpace(bundle.ParentBlockHash) ? [] : [bundle.ParentBlockHash],
                 $"peer-locked:{sourceEndpoint}");
             expectedPayouts = BuildPayoutsFromProofs(validatedProofs);
@@ -714,7 +747,12 @@ public class BootProtocolStateService
         }
 
         string expectedStateId = ComputeStateIdNoLock(validatedProofs, lockedTipSnapshot);
-        if (!string.Equals(expectedStateId, bundle.StateId, StringComparison.OrdinalIgnoreCase))
+        string legacyExpectedStateId = ComputeStateIdNoLock(validatedProofs, null);
+        bool stateIdMatches =
+            string.Equals(expectedStateId, bundle.StateId, StringComparison.OrdinalIgnoreCase) ||
+            (string.IsNullOrWhiteSpace(bundle.LockedByBlockHash) &&
+             string.Equals(legacyExpectedStateId, bundle.StateId, StringComparison.OrdinalIgnoreCase));
+        if (!stateIdMatches)
         {
             return false;
         }
@@ -756,7 +794,10 @@ public class BootProtocolStateService
             BootStateBundle lockedBundle = CloneBundle(bundle);
             lockedBundle.ShareProofs = validatedProofs.Select(CloneProof).ToList();
             lockedBundle.WinnersList = ClonePayouts(expectedPayouts);
-            lockedBundle.StateId = expectedStateId;
+            lockedBundle.ProofWinnersList = ClonePayouts(bundle.ProofWinnersList.Count > 0
+                ? bundle.ProofWinnersList
+                : currentWinnersSnapshot);
+            lockedBundle.StateId = string.IsNullOrWhiteSpace(bundle.LockedByBlockHash) ? legacyExpectedStateId : expectedStateId;
             lockedBundle.TotalDifficulty = validatedProofs.Sum(x => x.Difficulty);
             lockedBundle.LockedByBlockHash = lockedTipSnapshot;
             lockedBundle.ParentBlockHash = BitcoinHashes.NormalizeHex(bundle.ParentBlockHash);
@@ -869,6 +910,7 @@ public class BootProtocolStateService
             lockedBundle.LockedByBlockHash = lockedTip;
             lockedBundle.ValidParentBlockHashes = GetAcceptedParentBlockHashesNoLock();
             lockedBundle.WinnersList = ClonePayouts(bundle.WinnersList);
+            lockedBundle.ProofWinnersList = ClonePayouts(bundle.ProofWinnersList);
             lockedBundle.Commitment = BuildCommitmentNoLock();
             UpsertArchivedBundleNoLock(lockedBundle);
 
@@ -922,6 +964,8 @@ public class BootProtocolStateService
                         }
 
                         _state.CurrentTipBlockHash = loadedTip;
+                        _state.LastTestingTriggerBlockHash = NormalizeCanonicalBlockHash(_state.LastTestingTriggerBlockHash);
+                        NormalizeArchivedBundlesNoLock();
                         _state.AcceptedParentBlockHashes = GetAcceptedParentBlockHashesNoLock();
 
                         if (_state.OnDeckProofs.Count == 0 && _state.OnDeckList.Count > 0)
@@ -1026,6 +1070,11 @@ public class BootProtocolStateService
             OnDeckCount = _state.OnDeckList.Count,
             OnDeckTotalDifficulty = _state.OnDeckProofs.Sum(x => x.Difficulty),
             PeerCount = _state.Peers.Count,
+            TestingRoundResetEnabled = _poolConfig.TestingRoundResetEnabled,
+            TestingRoundResetMode = _poolConfig.TestingRoundResetMode,
+            TestingRoundResetLowNibbleThreshold = _poolConfig.TestingRoundResetLowNibbleThreshold,
+            TestingRoundResetDescription = BuildTestingRoundResetDescriptionNoLock(),
+            LastTestingTriggerBlockHash = _state.LastTestingTriggerBlockHash,
             Peers = _state.Peers.Select(ClonePeer).ToList(),
             Commitment = BuildCommitmentNoLock()
         };
@@ -1062,6 +1111,7 @@ public class BootProtocolStateService
             TotalDifficulty = _state.OnDeckProofs.Sum(x => x.Difficulty),
             ValidParentBlockHashes = GetAcceptedParentBlockHashesNoLock(),
             WinnersList = ClonePayouts(_state.OnDeckList),
+            ProofWinnersList = ClonePayouts(_state.WinnersList),
             ShareProofs = _state.OnDeckProofs.Select(CloneProof).ToList(),
             Commitment = BuildCommitmentNoLock()
         };
@@ -1081,6 +1131,7 @@ public class BootProtocolStateService
             TotalDifficulty = _state.WinnersList.Sum(x => x.Difficulty),
             ValidParentBlockHashes = GetAcceptedParentBlockHashesNoLock(),
             WinnersList = ClonePayouts(_state.WinnersList),
+            ProofWinnersList = [],
             ShareProofs = [],
             Commitment = BuildCommitmentNoLock()
         };
@@ -1128,6 +1179,21 @@ public class BootProtocolStateService
     private string ComputeCandidateStateIdNoLock()
     {
         return ComputeCandidateStateId(_state.CurrentStateId, _state.OnDeckProofs);
+    }
+
+    private string BuildTestingRoundResetDescriptionNoLock()
+    {
+        if (!_poolConfig.TestingRoundResetEnabled)
+        {
+            return "Disabled";
+        }
+
+        return _poolConfig.TestingRoundResetMode switch
+        {
+            "block_hash_low_nibble" =>
+                $"Auto-rotate when a new Bitcoin block hash ends in hex 0-{Math.Max(0, _poolConfig.TestingRoundResetLowNibbleThreshold - 1):x}.",
+            _ => "Disabled"
+        };
     }
 
     private bool IsPlaceholderOrEmptyCurrentStateNoLock()
@@ -1466,6 +1532,30 @@ public class BootProtocolStateService
         return NormalizeAcceptedParentBlockHashes(primary.Concat(secondary));
     }
 
+    private bool ShouldTriggerTestingRoundResetNoLock(string normalizedBlockHash)
+    {
+        if (!_poolConfig.TestingRoundResetEnabled ||
+            string.IsNullOrWhiteSpace(normalizedBlockHash) ||
+            string.Equals(_poolConfig.TestingRoundResetMode, "none", StringComparison.OrdinalIgnoreCase) ||
+            _state.OnDeckProofs.Count == 0)
+        {
+            return false;
+        }
+
+        if (BitcoinHashes.AreEquivalent(_state.LastTestingTriggerBlockHash, normalizedBlockHash))
+        {
+            return false;
+        }
+
+        if (string.Equals(_poolConfig.TestingRoundResetMode, "block_hash_low_nibble", StringComparison.OrdinalIgnoreCase))
+        {
+            int nibble = Convert.ToInt32(normalizedBlockHash[^1].ToString(), 16);
+            return nibble < _poolConfig.TestingRoundResetLowNibbleThreshold;
+        }
+
+        return false;
+    }
+
     private async Task NotifyWinnersListChangedAsync(string reason)
     {
         Func<string, Task>? handlers = WinnersListChanged;
@@ -1523,6 +1613,38 @@ public class BootProtocolStateService
         while (_state.ArchivedStateBundles.Count > _poolConfig.MaxStateBundleHistory)
         {
             _state.ArchivedStateBundles.RemoveAt(_state.ArchivedStateBundles.Count - 1);
+        }
+    }
+
+    private void NormalizeArchivedBundlesNoLock()
+    {
+        for (int index = 0; index < _state.ArchivedStateBundles.Count; index++)
+        {
+            BootStateBundle bundle = _state.ArchivedStateBundles[index];
+            bundle.LockedByBlockHash = NormalizeCanonicalBlockHash(bundle.LockedByBlockHash);
+            bundle.ParentBlockHash = NormalizeCanonicalBlockHash(bundle.ParentBlockHash);
+            bundle.ValidParentBlockHashes = NormalizeAcceptedParentBlockHashes(
+                bundle.ValidParentBlockHashes
+                    .Append(bundle.ParentBlockHash)
+                    .Append(bundle.LockedByBlockHash));
+            bundle.WinnersList = ClonePayouts(bundle.WinnersList);
+            bundle.ProofWinnersList = ClonePayouts(bundle.ProofWinnersList);
+            bundle.ShareProofs = bundle.ShareProofs
+                .Select(CloneProof)
+                .OrderByDescending(x => x.Difficulty)
+                .ThenBy(x => x.ShareId, StringComparer.Ordinal)
+                .ToList();
+
+            if (bundle.ShareProofs.Count > 0 && bundle.ProofWinnersList.Count == 0)
+            {
+                List<PayoutInfo>? inferredProofWinners = index + 1 < _state.ArchivedStateBundles.Count
+                    ? ClonePayouts(_state.ArchivedStateBundles[index + 1].WinnersList)
+                    : null;
+                if (inferredProofWinners is { Count: > 0 })
+                {
+                    bundle.ProofWinnersList = inferredProofWinners;
+                }
+            }
         }
     }
 
@@ -1694,6 +1816,7 @@ public class BootProtocolStateService
             TotalDifficulty = bundle.TotalDifficulty,
             ValidParentBlockHashes = bundle.ValidParentBlockHashes.ToList(),
             WinnersList = ClonePayouts(bundle.WinnersList),
+            ProofWinnersList = ClonePayouts(bundle.ProofWinnersList),
             ShareProofs = bundle.ShareProofs.Select(CloneProof).ToList(),
             Commitment = new BootCommitmentInfo
             {

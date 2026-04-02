@@ -168,6 +168,12 @@ public class BootPeerSyncService : BackgroundService
             return;
         }
 
+        if (!string.IsNullOrWhiteSpace(remote.CurrentTipBlockHash) &&
+            !BitcoinHashes.AreEquivalent(remote.CurrentTipBlockHash, local.CurrentTipBlockHash))
+        {
+            local = await _stateService.ObserveChainTipAsync(remote.CurrentTipBlockHash, $"peer-tip:{remoteEndpoint}");
+        }
+
         if (string.IsNullOrWhiteSpace(remote.CandidateStateId) ||
             string.Equals(remote.CandidateStateId, local.CandidateStateId, StringComparison.OrdinalIgnoreCase) ||
             remote.OnDeckTotalDifficulty <= local.OnDeckTotalDifficulty)
