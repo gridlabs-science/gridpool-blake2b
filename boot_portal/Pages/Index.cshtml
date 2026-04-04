@@ -310,6 +310,15 @@
             box-shadow: inset 0 0 0 1px var(--accent-color);
         }
 
+        .round-card.orphaned {
+            opacity: 0.6;
+            border-style: dashed;
+        }
+
+        .round-card.orphaned.active {
+            opacity: 0.8;
+        }
+
         .round-card-header {
             display: flex;
             align-items: center;
@@ -339,6 +348,11 @@
             color: var(--accent-color);
             padding: 2px 6px;
             text-transform: uppercase;
+        }
+
+        .round-kind-pill.orphaned {
+            color: #ff9f1c;
+            border-color: #ff9f1c;
         }
 
         .round-card-meta,
@@ -409,6 +423,15 @@
             color: var(--text-muted);
             font-size: 0.85rem;
             word-break: break-word;
+        }
+
+        .round-detail-warning {
+            color: #ff9f1c;
+            border: 1px dashed #ff9f1c;
+            padding: 10px 12px;
+            margin-bottom: 16px;
+            font-size: 0.85rem;
+            background: rgba(255, 159, 28, 0.08);
         }
 
         .round-history-chart {
@@ -653,6 +676,7 @@
             <h3>🕸 Network State</h3>
             <div>Self: <span class="accent-value" id="self-endpoint">--</span></div>
             <div>Network: <span class="accent-value" id="network-id">Loading...</span></div>
+            <div>Current Round: <span class="accent-value" id="current-round-number">--</span></div>
             <div>Template Slots: <span class="accent-value" id="template-slot-count">Loading...</span></div>
             <div>Peers: <span class="accent-value" id="peer-count">0</span></div>
             <div>Current State: <span class="accent-value" id="current-state-id">Loading...</span></div>
@@ -1073,6 +1097,10 @@
         }).join(" · ");
     }
 
+    function describeRoundStatus(entry) {
+        return entry.isOrphaned ? "orphaned" : "canonical";
+    }
+
     function renderRoundHistory(history) {
         const note = document.getElementById("round-history-note");
         const scroller = document.getElementById("round-history-scroller");
@@ -1089,7 +1117,8 @@
             return;
         }
 
-        note.innerText = `Showing the most recent ${history.length} completed rounds. Order is ${roundHistoryOrder === "oldest-left" ? "oldest to newest" : "newest to oldest"}.`;
+        const orphanedCount = history.filter(entry => entry.isOrphaned).length;
+        note.innerText = `Showing the most recent ${history.length} completed rounds (${orphanedCount} orphaned). Order is ${roundHistoryOrder === "oldest-left" ? "oldest to newest" : "newest to oldest"}.`;
 
         if (!selectedRoundStateId || !history.some(entry => entry.stateId === selectedRoundStateId)) {
             selectedRoundStateId = history[0].stateId;
@@ -1099,7 +1128,7 @@
         displayHistory.forEach((entry) => {
             const card = document.createElement("button");
             card.type = "button";
-            card.className = `round-card${entry.stateId === selectedRoundStateId ? " active" : ""}`;
+            card.className = `round-card${entry.isOrphaned ? " orphaned" : ""}${entry.stateId === selectedRoundStateId ? " active" : ""}`;
             card.onclick = () => {
                 selectedRoundStateId = entry.stateId;
                 renderRoundHistory(globalRoundHistory);
@@ -1109,10 +1138,11 @@
             card.innerHTML = `
                 <div class="round-card-header">
                     <div class="round-card-title">Round ${entry.roundNumber}</div>
-                    <div class="round-kind-pill">${describeRoundKind(entry.kind)}</div>
+                    <div class="round-kind-pill${entry.isOrphaned ? " orphaned" : ""}">${entry.isOrphaned ? "orphan" : describeRoundKind(entry.kind)}</div>
                 </div>
                 <div class="round-card-meta">${formatBlockLabel(entry.triggerBlockHash, entry.triggerBlockHeight)}</div>
                 <div class="round-card-meta">${formatTimestamp(entry.lockedAtUtc)}</div>
+                <div class="round-card-meta">${describeRoundStatus(entry)}</div>
                 ${explorerUrl ? `<div class="round-card-meta"><a class="round-card-link" href="${explorerUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Open Block</a></div>` : ""}
                 <div class="round-card-preview"><strong>Paid:</strong> ${buildRoundPreview(entry.paidRecipients, entry.paidTotalValue)}</div>
                 <div class="round-card-preview"><strong>Next:</strong> ${buildRoundPreview(entry.nextRecipients, entry.nextWinnerTotalValue)}</div>
@@ -1134,6 +1164,9 @@
         const explorerUrl = getBlockExplorerUrl(entry.triggerBlockHash);
         const paidSearchShare = computeRecipientShare(entry.paidRecipients, entry.paidTotalValue);
         const nextSearchShare = computeRecipientShare(entry.nextRecipients, entry.nextWinnerTotalValue);
+        const orphanedWarning = entry.isOrphaned
+            ? `<div class="round-detail-warning">This round was observed locally but is not on the node's current canonical Boot state chain. It was superseded by a competing state after convergence.</div>`
+            : "";
 
         const renderRecipientRows = (recipients, totalValue) => {
             if (!recipients || recipients.length === 0) {
@@ -1157,11 +1190,13 @@
                     <h3>Round ${entry.roundNumber}</h3>
                     <div class="round-detail-subline">${formatBlockLabel(entry.triggerBlockHash, entry.triggerBlockHeight)}</div>
                     <div class="round-detail-subline">${entry.triggerBlockHash || "--"}</div>
+                    <div class="round-detail-subline">${describeRoundStatus(entry)}</div>
                 </div>
                 <div>
                     ${explorerUrl ? `<a class="round-card-link" href="${explorerUrl}" target="_blank" rel="noopener noreferrer">Open On Mempool.Space</a>` : ""}
                 </div>
             </div>
+            ${orphanedWarning}
             <div class="round-detail-grid">
                 <div class="round-detail-box">
                     <h3>Trigger Block</h3>
@@ -1687,6 +1722,7 @@
         latestNetworkState = state;
         document.getElementById("self-endpoint").innerText = state.selfEndpoint || "--";
         document.getElementById("network-id").innerText = state.networkId || "--";
+        document.getElementById("current-round-number").innerText = state.currentRoundNumber ?? "--";
         document.getElementById("template-slot-count").innerText = `${state.totalPayoutSlotCount ?? '--'} total (${state.sharedWinnerSlotCount ?? '--'} shared + slot 0)`;
         document.getElementById("peer-count").innerText = state.peerCount ?? 0;
         document.getElementById("current-state-id").innerText = shortenHash(state.currentStateId);

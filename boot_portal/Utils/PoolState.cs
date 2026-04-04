@@ -5,6 +5,7 @@ public class PoolState
     public BootProtocolMetadata Metadata { get; set; } = new();
     public string CurrentStateId { get; set; } = string.Empty;
     public string CandidateStateId { get; set; } = string.Empty;
+    public int CurrentRoundNumber { get; set; }
     public string? CurrentTipBlockHash { get; set; }
     public long? CurrentTipBlockHeight { get; set; }
     public string? LastTestingTriggerBlockHash { get; set; }

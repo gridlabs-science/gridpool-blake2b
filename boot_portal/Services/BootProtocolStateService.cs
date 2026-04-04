@@ -11,6 +11,8 @@ namespace boot_portal.Services;
 
 public class BootProtocolStateService
 {
+    public const string GenesisFoundationAddress = "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3";
+
     private readonly object _sync = new();
     private readonly PoolConfig _poolConfig;
     private readonly BootShareVerifier _shareVerifier;
@@ -147,6 +149,7 @@ public class BootProtocolStateService
             List<BootStateBundle> completedRounds = _state.ArchivedStateBundles
                 .Where(x => x.WinnersList.Count > 0 || x.ProofWinnersList.Count > 0)
                 .ToList();
+            HashSet<string> canonicalStateIds = BuildCanonicalStateIdSetNoLock();
             int index = completedRounds.FindIndex(x =>
                 string.Equals(x.StateId, stateId, StringComparison.OrdinalIgnoreCase));
             if (index < 0)
@@ -157,7 +160,10 @@ public class BootProtocolStateService
             BootStateBundle? priorBundle = index + 1 < completedRounds.Count
                 ? completedRounds[index + 1]
                 : null;
-            return BuildRoundHistoryEntryNoLock(completedRounds[index], completedRounds.Count - index, priorBundle);
+            return BuildRoundHistoryEntryNoLock(
+                completedRounds[index],
+                canonicalStateIds.Contains(completedRounds[index].StateId),
+                priorBundle);
         }
     }
 
@@ -490,6 +496,8 @@ public class BootProtocolStateService
         lock (_sync)
         {
             List<PayoutInfo> previousWinnersSnapshot = ClonePayouts(_state.WinnersList);
+            string previousStateId = _state.CurrentStateId;
+            int previousCurrentRoundNumber = _state.CurrentRoundNumber;
             string? previousTipBlockHash = NormalizeCanonicalBlockHash(_state.CurrentTipBlockHash);
             long? previousTipBlockHeight = _state.CurrentTipBlockHeight;
             string? submittedBlockHash = NormalizeCanonicalBlockHash(blockHash);
@@ -528,7 +536,9 @@ public class BootProtocolStateService
             {
                 BootStateBundle lockedBundle = BuildBundleFromCurrentCandidateNoLock();
                 lockedBundle.StateId = ComputeStateIdNoLock(_state.OnDeckProofs, effectiveBlockHash);
+                lockedBundle.PreviousStateId = previousStateId;
                 lockedBundle.Kind = manual ? "manual-rotation" : source;
+                lockedBundle.CurrentRoundNumber = previousCurrentRoundNumber + 1;
                 lockedBundle.LockedByBlockHash = effectiveBlockHash;
                 lockedBundle.LockedByBlockHeight = effectiveBlockHeight;
                 lockedBundle.ParentBlockHash = previousTipBlockHash;
@@ -543,6 +553,7 @@ public class BootProtocolStateService
                 ResetAcceptedParentBlockHashesNoLock(effectiveBlockHash);
                 _state.LastRotationUtc = DateTime.UtcNow;
                 _state.CurrentStateId = lockedBundle.StateId;
+                _state.CurrentRoundNumber = lockedBundle.CurrentRoundNumber;
                 _state.WinnersList = ClonePayouts(lockedBundle.WinnersList);
                 _state.OnDeckProofs = [];
                 _state.OnDeckList = [];
@@ -576,6 +587,46 @@ public class BootProtocolStateService
             await NotifyWinnersListChangedAsync(manual ? "manual-reset" : source);
         }
         return result;
+    }
+
+    public async Task<BootNetworkStatusDto> ResetHistoryToGenesisAsync()
+    {
+        BootNetworkStatusDto networkStatus;
+        List<PayoutInfo> winnersSnapshot;
+        List<PayoutInfo> onDeckSnapshot;
+
+        lock (_sync)
+        {
+            List<BootPeerStatus> peers = _state.Peers.Select(ClonePeer).ToList();
+            Dictionary<string, string> knownDatumPayouts = new(_state.KnownDatumPayoutAddresses, StringComparer.Ordinal);
+            BestShareRecord bestShare = CloneBestShare(_state.BestShare);
+            string? currentTipBlockHash = _state.CurrentTipBlockHash;
+            long? currentTipBlockHeight = _state.CurrentTipBlockHeight;
+
+            InitializeDefaultsNoLock();
+            _state.Peers = peers;
+            _state.KnownDatumPayoutAddresses = knownDatumPayouts;
+            _state.BestShare = bestShare;
+            _state.CurrentTipBlockHash = currentTipBlockHash;
+            _state.CurrentTipBlockHeight = currentTipBlockHeight;
+            _state.LastRotationUtc = DateTime.UtcNow;
+            _state.LastTestingTriggerBlockHash = null;
+            _state.LastTestingTriggerBlockHeight = null;
+            ResetAcceptedParentBlockHashesNoLock(currentTipBlockHash);
+            SaveStateNoLock();
+
+            winnersSnapshot = ClonePayouts(_state.WinnersList);
+            onDeckSnapshot = ClonePayouts(_state.OnDeckList);
+            networkStatus = BuildNetworkStatusNoLock();
+        }
+
+        await _hubContext.Clients.All.SendAsync("UpdateWinners", winnersSnapshot);
+        await _hubContext.Clients.All.SendAsync("UpdateOnDeck", onDeckSnapshot);
+        await _hubContext.Clients.All.SendAsync("UpdateNetworkState", networkStatus);
+        await _hubContext.Clients.All.SendAsync("UpdateRoundHistory", GetRoundHistory());
+        await NotifyWinnersListChangedAsync("genesis-reset");
+        await NotifyWorkTemplatesInvalidatedAsync("genesis-reset");
+        return networkStatus;
     }
 
     public async Task<BootNetworkStatusDto> ObserveChainTipAsync(string blockHash, string source, long? blockHeight = null)
@@ -805,12 +856,14 @@ public class BootProtocolStateService
         string? currentTipSnapshot;
         string currentStateSnapshot;
         DateTime? localLastRotationUtc;
+        int localCurrentRoundNumber;
         lock (_sync)
         {
             currentWinnersSnapshot = ClonePayouts(_state.WinnersList);
             currentTipSnapshot = _state.CurrentTipBlockHash;
             currentStateSnapshot = _state.CurrentStateId;
             localLastRotationUtc = _state.LastRotationUtc;
+            localCurrentRoundNumber = _state.CurrentRoundNumber;
         }
 
         string? lockedTipSnapshot = NormalizeCanonicalBlockHash(bundle.LockedByBlockHash) ??
@@ -840,6 +893,7 @@ public class BootProtocolStateService
         DateTime localRotationUtc = localLastRotationUtc ?? DateTime.MinValue;
         bool remoteLooksNewer =
             localStateIsEmpty ||
+            bundle.CurrentRoundNumber > localCurrentRoundNumber ||
             remoteRotationUtc > localRotationUtc ||
             (remoteRotationUtc == localRotationUtc &&
              string.CompareOrdinal(bundle.StateId ?? string.Empty, currentStateSnapshot ?? string.Empty) > 0);
@@ -907,6 +961,7 @@ public class BootProtocolStateService
             }
 
             _state.CurrentStateId = bundle.StateId;
+            _state.CurrentRoundNumber = Math.Max(0, bundle.CurrentRoundNumber);
             _state.LastRotationUtc = bundle.CreatedAtUtc == default ? DateTime.UtcNow : bundle.CreatedAtUtc;
             _state.WinnersList = ClonePayouts(expectedPayouts);
             _state.CurrentTipBlockHash = observedTipSnapshot ?? currentTipSnapshot;
@@ -925,6 +980,8 @@ public class BootProtocolStateService
             lockedBundle.ProofWinnersList = ClonePayouts(bundle.ProofWinnersList.Count > 0
                 ? bundle.ProofWinnersList
                 : currentWinnersSnapshot);
+            lockedBundle.PreviousStateId = bundle.PreviousStateId;
+            lockedBundle.CurrentRoundNumber = Math.Max(0, bundle.CurrentRoundNumber);
             lockedBundle.StateId = string.IsNullOrWhiteSpace(bundle.LockedByBlockHash) ? legacyExpectedStateId : expectedStateId;
             lockedBundle.TotalDifficulty = validatedProofs.Sum(x => x.Difficulty);
             lockedBundle.LockedByBlockHash = lockedTipSnapshot;
@@ -1034,12 +1091,15 @@ public class BootProtocolStateService
             _state.CurrentStateId = string.IsNullOrWhiteSpace(bundle.StateId)
                 ? ComputeStateIdFromPayoutsNoLock(bundle.WinnersList, lockedTip)
                 : bundle.StateId;
+            _state.CurrentRoundNumber = Math.Max(0, bundle.CurrentRoundNumber);
             _state.LastRotationUtc = bundle.CreatedAtUtc == default ? DateTime.UtcNow : bundle.CreatedAtUtc;
             _state.WinnersList = ClonePayouts(bundle.WinnersList);
             _state.OnDeckProofs = [];
             _state.OnDeckList = [];
 
             BootStateBundle lockedBundle = CloneBundle(bundle);
+            lockedBundle.PreviousStateId = bundle.PreviousStateId;
+            lockedBundle.CurrentRoundNumber = Math.Max(0, bundle.CurrentRoundNumber);
             lockedBundle.LockedByBlockHash = lockedTip;
             lockedBundle.LockedByBlockHeight = lockedTipHeight;
             lockedBundle.ValidParentBlockHashes = GetAcceptedParentBlockHashesNoLock();
@@ -1110,20 +1170,29 @@ public class BootProtocolStateService
                 ProtocolVersion = _poolConfig.BootProtocolVersion
             },
             BestShare = new BestShareRecord(),
+            CurrentRoundNumber = 0,
             CurrentTipBlockHash = null,
             CurrentTipBlockHeight = null,
             LastTestingTriggerBlockHeight = null,
             LastRotationUtc = null
         };
 
-        _state.WinnersList.Add(new PayoutInfo
-        {
-            Value = Program.BLOCK_REWARD / 2,
-            Address = _poolConfig.PoolPayoutScript,
-            Username = _poolConfig.PoolPayoutScript
-        });
+        _state.WinnersList = BuildGenesisWinnersListNoLock();
         _state.CurrentStateId = ComputeStateIdFromPayoutsNoLock(_state.WinnersList, null);
         _state.CandidateStateId = ComputeCandidateStateIdNoLock();
+    }
+
+    private List<PayoutInfo> BuildGenesisWinnersListNoLock()
+    {
+        return
+        [
+            new PayoutInfo
+            {
+                Value = Program.BLOCK_REWARD / 2,
+                Address = GenesisFoundationAddress,
+                Username = GenesisFoundationAddress
+            }
+        ];
     }
 
     private void SaveStateNoLock()
@@ -1175,6 +1244,7 @@ public class BootProtocolStateService
             _state.LastTestingTriggerBlockHash = NormalizeCanonicalBlockHash(_state.LastTestingTriggerBlockHash);
             _state.KnownDatumPayoutAddresses ??= [];
             NormalizeArchivedBundlesNoLock();
+            EnsureRoundMetadataNoLock();
             UpdateKnownBlockHeightNoLock(_state.CurrentTipBlockHash, _state.CurrentTipBlockHeight);
             UpdateKnownBlockHeightNoLock(_state.LastTestingTriggerBlockHash, _state.LastTestingTriggerBlockHeight);
             _state.AcceptedParentBlockHashes = GetAcceptedParentBlockHashesNoLock();
@@ -1242,6 +1312,7 @@ public class BootProtocolStateService
             SelfEndpoint = NormalizePeerEndpoint(_poolConfig.PublicBaseUrl),
             ProtocolVersion = _poolConfig.BootProtocolVersion,
             NetworkId = _poolConfig.BootNetworkId,
+            CurrentRoundNumber = _state.CurrentRoundNumber,
             SharedWinnerSlotCount = _poolConfig.SharedWinnerSlotCount,
             TotalPayoutSlotCount = _poolConfig.TotalPayoutSlotCount,
             CurrentStateId = _state.CurrentStateId,
@@ -1273,30 +1344,34 @@ public class BootProtocolStateService
         List<BootStateBundle> completedRounds = _state.ArchivedStateBundles
             .Where(bundle => bundle.WinnersList.Count > 0 || bundle.ProofWinnersList.Count > 0)
             .ToList();
+        HashSet<string> canonicalStateIds = BuildCanonicalStateIdSetNoLock();
 
-        int totalRounds = completedRounds.Count;
         return completedRounds
             .Take(effectiveLimit)
             .Select((bundle, index) => BuildRoundHistoryEntryNoLock(
                 bundle,
-                totalRounds - index,
+                canonicalStateIds.Contains(bundle.StateId),
                 index + 1 < completedRounds.Count ? completedRounds[index + 1] : null))
             .ToList();
     }
 
-    private BootRoundHistoryEntry BuildRoundHistoryEntryNoLock(BootStateBundle bundle, int roundNumber, BootStateBundle? priorBundle)
+    private BootRoundHistoryEntry BuildRoundHistoryEntryNoLock(BootStateBundle bundle, bool isCanonical, BootStateBundle? priorBundle)
     {
         List<BootRoundPayoutAggregate> paidRecipients = AggregateRoundPayoutsNoLock(
             bundle.ProofWinnersList.Count > 0 ? bundle.ProofWinnersList : bundle.WinnersList);
         List<BootRoundPayoutAggregate> nextRecipients = AggregateRoundPayoutsNoLock(bundle.WinnersList);
         long? roundElapsedSeconds = GetElapsedSeconds(priorBundle?.CreatedAtUtc, bundle.CreatedAtUtc);
         double? observedHashrateThs = EstimateObservedHashrateThs(bundle.TotalDifficulty, roundElapsedSeconds);
+        int roundNumber = Math.Max(0, bundle.CurrentRoundNumber - 1);
 
         return new BootRoundHistoryEntry
         {
-            RoundNumber = Math.Max(1, roundNumber),
+            RoundNumber = roundNumber,
             StateId = bundle.StateId,
+            PreviousStateId = bundle.PreviousStateId,
             Kind = bundle.Kind,
+            IsCanonical = isCanonical,
+            IsOrphaned = !isCanonical,
             TriggerBlockHash = bundle.LockedByBlockHash,
             TriggerBlockHeight = bundle.LockedByBlockHeight,
             ParentBlockHash = bundle.ParentBlockHash,
@@ -1317,6 +1392,31 @@ public class BootProtocolStateService
             PaidRecipients = paidRecipients,
             NextRecipients = nextRecipients
         };
+    }
+
+    private HashSet<string> BuildCanonicalStateIdSetNoLock()
+    {
+        var canonical = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        string? cursor = _state.CurrentStateId;
+
+        while (!string.IsNullOrWhiteSpace(cursor))
+        {
+            if (!canonical.Add(cursor))
+            {
+                break;
+            }
+
+            BootStateBundle? bundle = _state.ArchivedStateBundles.FirstOrDefault(existing =>
+                string.Equals(existing.StateId, cursor, StringComparison.OrdinalIgnoreCase));
+            if (bundle == null)
+            {
+                break;
+            }
+
+            cursor = bundle.PreviousStateId;
+        }
+
+        return canonical;
     }
 
     private static List<BootRoundPayoutAggregate> AggregateRoundPayoutsNoLock(IEnumerable<PayoutInfo> payouts)
@@ -1441,7 +1541,9 @@ public class BootProtocolStateService
         return new BootStateBundle
         {
             StateId = _state.CandidateStateId,
+            PreviousStateId = _state.CurrentStateId,
             Kind = "candidate",
+            CurrentRoundNumber = _state.CurrentRoundNumber + 1,
             ProtocolVersion = _poolConfig.BootProtocolVersion,
             NetworkId = _poolConfig.BootNetworkId,
             LockedByBlockHash = null,
@@ -1460,10 +1562,16 @@ public class BootProtocolStateService
 
     private BootStateBundle BuildBundleFromCurrentWinnersNoLock()
     {
+        string? previousStateId = _state.ArchivedStateBundles
+            .FirstOrDefault(bundle => string.Equals(bundle.StateId, _state.CurrentStateId, StringComparison.OrdinalIgnoreCase))
+            ?.PreviousStateId;
+
         return new BootStateBundle
         {
             StateId = _state.CurrentStateId,
+            PreviousStateId = previousStateId,
             Kind = "current",
+            CurrentRoundNumber = _state.CurrentRoundNumber,
             ProtocolVersion = _poolConfig.BootProtocolVersion,
             NetworkId = _poolConfig.BootNetworkId,
             LockedByBlockHash = _state.CurrentTipBlockHash,
@@ -1964,6 +2072,7 @@ public class BootProtocolStateService
         for (int index = 0; index < _state.ArchivedStateBundles.Count; index++)
         {
             BootStateBundle bundle = _state.ArchivedStateBundles[index];
+            bundle.PreviousStateId = string.IsNullOrWhiteSpace(bundle.PreviousStateId) ? null : bundle.PreviousStateId;
             bundle.LockedByBlockHash = NormalizeCanonicalBlockHash(bundle.LockedByBlockHash);
             bundle.ParentBlockHash = NormalizeCanonicalBlockHash(bundle.ParentBlockHash);
             bundle.ValidParentBlockHashes = NormalizeAcceptedParentBlockHashes(
@@ -1988,6 +2097,47 @@ public class BootProtocolStateService
                     bundle.ProofWinnersList = inferredProofWinners;
                 }
             }
+        }
+    }
+
+    private void EnsureRoundMetadataNoLock()
+    {
+        if (_state.ArchivedStateBundles.Count == 0)
+        {
+            _state.CurrentRoundNumber = Math.Max(0, _state.CurrentRoundNumber);
+            return;
+        }
+
+        var orderedByTime = _state.ArchivedStateBundles
+            .OrderBy(bundle => bundle.CreatedAtUtc == default ? DateTime.MaxValue : bundle.CreatedAtUtc)
+            .ThenBy(bundle => bundle.StateId, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        string genesisStateId = ComputeStateIdFromPayoutsNoLock(BuildGenesisWinnersListNoLock(), null);
+        string? previousStateId = genesisStateId;
+        int nextCurrentRoundNumber = 1;
+
+        foreach (BootStateBundle bundle in orderedByTime)
+        {
+            if (string.IsNullOrWhiteSpace(bundle.PreviousStateId))
+            {
+                bundle.PreviousStateId = previousStateId;
+            }
+
+            if (bundle.CurrentRoundNumber <= 0)
+            {
+                bundle.CurrentRoundNumber = nextCurrentRoundNumber;
+            }
+
+            previousStateId = bundle.StateId;
+            nextCurrentRoundNumber = Math.Max(nextCurrentRoundNumber + 1, bundle.CurrentRoundNumber + 1);
+        }
+
+        if (_state.CurrentRoundNumber <= 0)
+        {
+            BootStateBundle? currentBundle = _state.ArchivedStateBundles.FirstOrDefault(bundle =>
+                string.Equals(bundle.StateId, _state.CurrentStateId, StringComparison.OrdinalIgnoreCase));
+            _state.CurrentRoundNumber = currentBundle?.CurrentRoundNumber ?? Math.Max(0, nextCurrentRoundNumber - 1);
         }
     }
 
@@ -2192,7 +2342,9 @@ public class BootProtocolStateService
         return new BootStateBundle
         {
             StateId = bundle.StateId,
+            PreviousStateId = bundle.PreviousStateId,
             Kind = bundle.Kind,
+            CurrentRoundNumber = bundle.CurrentRoundNumber,
             ProtocolVersion = bundle.ProtocolVersion,
             NetworkId = bundle.NetworkId,
             LockedByBlockHash = bundle.LockedByBlockHash,

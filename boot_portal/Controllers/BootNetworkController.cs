@@ -61,4 +61,22 @@ public class BootNetworkController : ControllerBase
         _logger.LogWarning("Manual round reset triggered via admin API. New state: {StateId}", result.NetworkStatus.CurrentStateId);
         return Ok(result);
     }
+
+    [EnableRateLimiting("admin-write")]
+    [HttpPost("admin/reset-genesis")]
+    public async Task<IActionResult> ResetHistoryToGenesis()
+    {
+        string? apiKey = Request.Headers["X-Boot-Admin-Key"].FirstOrDefault();
+        if (!_stateService.IsAdminAuthorized(apiKey))
+        {
+            return Unauthorized(new { status = "rejected", reason = "Missing or invalid admin key" });
+        }
+
+        var status = await _stateService.ResetHistoryToGenesisAsync();
+        _logger.LogWarning(
+            "Genesis history reset triggered via admin API. New state: {StateId}, round: {RoundNumber}",
+            status.CurrentStateId,
+            status.CurrentRoundNumber);
+        return Ok(status);
+    }
 }

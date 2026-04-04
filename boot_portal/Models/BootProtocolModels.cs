@@ -51,6 +51,7 @@ public class BootNetworkStatusDto
     public string SelfEndpoint { get; set; } = string.Empty;
     public int ProtocolVersion { get; set; }
     public string NetworkId { get; set; } = string.Empty;
+    public int CurrentRoundNumber { get; set; }
     public int SharedWinnerSlotCount { get; set; }
     public int TotalPayoutSlotCount { get; set; }
     public string CurrentStateId { get; set; } = string.Empty;
@@ -89,7 +90,10 @@ public class BootRoundHistoryEntry
 {
     public int RoundNumber { get; set; }
     public string StateId { get; set; } = string.Empty;
+    public string? PreviousStateId { get; set; }
     public string Kind { get; set; } = string.Empty;
+    public bool IsCanonical { get; set; }
+    public bool IsOrphaned { get; set; }
     public string? TriggerBlockHash { get; set; }
     public long? TriggerBlockHeight { get; set; }
     public string? ParentBlockHash { get; set; }
@@ -122,7 +126,9 @@ public class PeerShareAnnouncement
 public class BootStateBundle
 {
     public string StateId { get; set; } = string.Empty;
+    public string? PreviousStateId { get; set; }
     public string Kind { get; set; } = "current";
+    public int CurrentRoundNumber { get; set; }
     public int ProtocolVersion { get; set; }
     public string NetworkId { get; set; } = string.Empty;
     public string? LockedByBlockHash { get; set; }
