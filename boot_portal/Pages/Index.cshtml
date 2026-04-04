@@ -709,13 +709,14 @@
             <div>Candidate State: <span class="accent-value" id="candidate-state-id">Loading...</span></div>
             <div>Round Age: <span class="accent-value" id="current-round-age">--</span></div>
             <div>Estimated Hashrate: <span class="accent-value" id="current-round-hashrate">--</span></div>
+            <div>Local DATUM Hashrate: <span class="accent-value" id="local-datum-hashrate">--</span></div>
             <div>Test Trigger: <span class="accent-value" id="testing-trigger-status">Loading...</span></div>
             <div>Last Test Block: <span class="accent-value" id="last-testing-trigger-block">--</span></div>
             <h3 style="margin-top: 10px;">Commitment Preview</h3>
             <div class="info-value" id="commitment-preview">Loading...</div>
             <div class="search-results" id="commitment-note"></div>
             <div class="search-results" id="testing-trigger-note"></div>
-            <div class="search-results" id="round-hashrate-note">Estimated hashrate uses the median rank-adjusted share difficulty and updates live from the current On Deck list.</div>
+            <div class="search-results" id="round-hashrate-note">Team estimate uses the median rank-adjusted current On Deck share set. Local DATUM estimate uses a rolling window of directly connected DATUM shares.</div>
         </div>
     </div>
 
@@ -918,6 +919,7 @@
     let roundHashrateChartInstance = null;
     let latestNetworkState = null;
     let globalRoundHistory = [];
+    let globalHashrateSeries = { points: [], sampleIntervalSeconds: 60, localWindowSeconds: 1800 };
     let selectedRoundStateId = null;
     let roundHistoryOrder = localStorage.getItem("boot-round-history-order") || "oldest-left";
     let chartScaleMode = localStorage.getItem("boot-chart-scale-mode") || "linear";
@@ -1004,7 +1006,7 @@
         updateTable("ondeck-list", globalOnDeckList);
         renderRoundHistory(globalRoundHistory);
         updateCurrentRoundTelemetry();
-        updateHashrateHistoryChart(globalRoundHistory);
+        updateHashrateHistoryChart();
 
         // Re-draw charts with the vertical lines
         winnersChartInstance = updateChart("winnersChart", globalWinnersList, "Winners List Depth", winnersChartInstance);
@@ -1174,13 +1176,28 @@
         refreshUI();
     }
 
-    function setHashrateWindow(windowKey) {
+    async function setHashrateWindow(windowKey) {
         hashrateWindow = ["6h", "24h", "7d", "30d", "all"].includes(windowKey) ? windowKey : "24h";
         localStorage.setItem("boot-hashrate-window", hashrateWindow);
         ["6h", "24h", "7d", "30d", "all"].forEach(key => {
             document.getElementById(`hashrate-window-${key}-btn`).classList.toggle("active", hashrateWindow === key);
         });
-        updateHashrateHistoryChart(globalRoundHistory);
+        await loadHashrateSeries();
+    }
+
+    async function loadHashrateSeries() {
+        try {
+            const response = await fetch(`/api/network/hashrate?window=${encodeURIComponent(hashrateWindow)}`);
+            if (!response.ok) {
+                throw new Error(`Hashrate series request failed with ${response.status}`);
+            }
+
+            globalHashrateSeries = await response.json();
+            updateHashrateHistoryChart();
+        } catch (error) {
+            console.error(error);
+            document.getElementById("round-hashrate-chart-note").innerText = "Failed to load sampled hashrate series.";
+        }
     }
 
     function getHashrateWindowCutoff(windowKey) {
@@ -1221,6 +1238,7 @@
         const elapsedSeconds = getCurrentRoundElapsedSeconds();
         const estimatedHashrateThs = getCurrentRoundEstimatedHashrateThs();
         const estimatedDisplay = formatHashrateFromThs(estimatedHashrateThs);
+        const localDatumDisplay = formatHashrateFromThs(latestNetworkState?.localDatumHashrateThs);
 
         document.getElementById("current-round-age").innerText = formatElapsedSeconds(
             elapsedSeconds ?? latestNetworkState?.currentRoundElapsedSeconds
@@ -1229,9 +1247,13 @@
             (estimatedDisplay !== "--" ? estimatedDisplay : null) ||
             latestNetworkState?.currentRoundObservedHashrateDisplay ||
             "--";
+        document.getElementById("local-datum-hashrate").innerText =
+            (localDatumDisplay !== "--" ? localDatumDisplay : null) ||
+            latestNetworkState?.localDatumHashrateDisplay ||
+            "--";
     }
 
-    function updateHashrateHistoryChart(history) {
+    function updateHashrateHistoryChart() {
         const canvas = document.getElementById("roundHashrateChart");
         const note = document.getElementById("round-hashrate-chart-note");
         const ctx = canvas.getContext("2d");
@@ -1241,29 +1263,30 @@
             roundHashrateChartInstance = null;
         }
 
-        const cutoff = getHashrateWindowCutoff(hashrateWindow);
-        const completeRounds = [...(history || [])]
-            .filter(entry => entry && entry.isCanonical !== false && entry.lockedAtUtc && entry.observedHashrateThs != null)
-            .sort((a, b) => new Date(a.lockedAtUtc).getTime() - new Date(b.lockedAtUtc).getTime())
-            .filter(entry => cutoff == null || new Date(entry.lockedAtUtc).getTime() >= cutoff);
-
-        const points = completeRounds.map(entry => ({
-            roundNumber: entry.roundNumber,
-            timestampMs: new Date(entry.lockedAtUtc).getTime(),
-            label: `R${entry.roundNumber}`,
-            hashrateThs: entry.observedHashrateThs,
-            display: entry.observedHashrateDisplay || formatHashrateFromThs(entry.observedHashrateThs)
-        }));
+        const points = [...(globalHashrateSeries?.points || [])]
+            .filter(point => point && point.timestampUtc)
+            .map(point => ({
+                roundNumber: point.currentRoundNumber,
+                timestampMs: new Date(point.timestampUtc).getTime(),
+                label: `R${point.currentRoundNumber}`,
+                teamHashrateThs: point.teamEstimatedHashrateThs,
+                teamDisplay: point.teamEstimatedHashrateDisplay || formatHashrateFromThs(point.teamEstimatedHashrateThs),
+                localHashrateThs: point.localDatumHashrateThs,
+                localDisplay: point.localDatumHashrateDisplay || formatHashrateFromThs(point.localDatumHashrateThs)
+            }));
 
         const currentHashrateThs = getCurrentRoundEstimatedHashrateThs();
+        const currentLocalDatumHashrateThs = latestNetworkState?.localDatumHashrateThs ?? null;
         const currentTimestampMs = Date.now();
-        if (currentHashrateThs != null && (cutoff == null || currentTimestampMs >= cutoff)) {
+        if ((currentHashrateThs != null || currentLocalDatumHashrateThs != null)) {
             points.push({
                 roundNumber: latestNetworkState?.currentRoundNumber,
                 timestampMs: currentTimestampMs,
                 label: `R${latestNetworkState?.currentRoundNumber ?? "?"}`,
-                hashrateThs: currentHashrateThs,
-                display: formatHashrateFromThs(currentHashrateThs),
+                teamHashrateThs: currentHashrateThs,
+                teamDisplay: formatHashrateFromThs(currentHashrateThs),
+                localHashrateThs: currentLocalDatumHashrateThs,
+                localDisplay: formatHashrateFromThs(currentLocalDatumHashrateThs),
                 isCurrent: true
             });
         }
@@ -1274,16 +1297,18 @@
         }
 
         const labels = points.map(point => formatHashratePointLabel(point.timestampMs, !!point.isCurrent));
-        const data = points.map(point => point.hashrateThs);
+        const teamData = points.map(point => point.teamHashrateThs);
+        const localData = points.map(point => point.localHashrateThs);
         const accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim();
+        const secondaryColor = "#39d98a";
 
         roundHashrateChartInstance = new Chart(ctx, {
             type: "line",
             data: {
                 labels: labels,
                 datasets: [{
-                    label: "Estimated Hashrate",
-                    data: data,
+                    label: "Team Estimate",
+                    data: teamData,
                     borderColor: accentColor,
                     backgroundColor: `${accentColor}33`,
                     borderWidth: 2,
@@ -1291,16 +1316,31 @@
                     pointHoverRadius: points.map(point => point.isCurrent ? 7 : 5),
                     fill: true,
                     tension: 0.25
+                },
+                {
+                    label: "Local DATUM Estimate",
+                    data: localData,
+                    borderColor: secondaryColor,
+                    backgroundColor: `${secondaryColor}22`,
+                    borderWidth: 2,
+                    pointRadius: points.map(point => point.isCurrent ? 4 : 2),
+                    pointHoverRadius: points.map(point => point.isCurrent ? 6 : 4),
+                    fill: false,
+                    tension: 0.2
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: { display: false },
+                    legend: {
+                        display: true,
+                        position: "bottom",
+                        labels: { color: "#888" }
+                    },
                     title: {
                         display: true,
-                        text: "Estimated Hashrate By Round Lock Time",
+                        text: "Sampled Team / Local DATUM Hashrate",
                         color: "#888"
                     },
                     tooltip: {
@@ -1310,7 +1350,10 @@
                                 return `${point.label} · ${new Date(point.timestampMs).toLocaleString()}`;
                             },
                             label: function(context) {
-                                return points[context.dataIndex].display;
+                                const point = points[context.dataIndex];
+                                return context.datasetIndex === 0
+                                    ? `Team: ${point.teamDisplay}`
+                                    : `Local DATUM: ${point.localDisplay}`;
                             }
                         }
                     }
@@ -1335,14 +1378,14 @@
         });
 
         const currentPoint = points[points.length - 1];
-        const historyOnlyPoints = points.filter(point => !point.isCurrent);
+        const historyOnlyPoints = points.filter(point => !point.isCurrent && point.teamHashrateThs != null);
         const averageHashrateThs = historyOnlyPoints.length > 0
-            ? historyOnlyPoints.reduce((sum, point) => sum + point.hashrateThs, 0) / historyOnlyPoints.length
+            ? historyOnlyPoints.reduce((sum, point) => sum + point.teamHashrateThs, 0) / historyOnlyPoints.length
             : null;
-
+        const localWindowMinutes = Math.round((globalHashrateSeries?.localWindowSeconds || 1800) / 60);
         note.innerText = currentPoint?.isCurrent && averageHashrateThs != null
-            ? `Live point updates every second. Current round estimate: ${currentPoint.display}. Window average: ${formatHashrateFromThs(averageHashrateThs)}.`
-            : "Live point updates every second from the current On Deck share set.";
+            ? `Live team point updates every second from the current On Deck list. Local DATUM estimate uses a rolling ${localWindowMinutes}-minute window. Team window average: ${formatHashrateFromThs(averageHashrateThs)}.`
+            : `Local DATUM estimate uses a rolling ${localWindowMinutes}-minute window of directly connected DATUM shares.`;
     }
 
     function recipientMatchesSearch(item) {
@@ -1977,7 +2020,6 @@
     connection.on("UpdateRoundHistory", (history) => {
         globalRoundHistory = history || [];
         renderRoundHistory(globalRoundHistory);
-        updateHashrateHistoryChart(globalRoundHistory);
     });
 
     connection.on("UpdateServerInfo", (info) => {
@@ -2012,16 +2054,16 @@
         document.getElementById("testing-trigger-note").innerText = state.testingRoundResetDescription || "";
         renderPeerTable(state.peers || []);
         updateCurrentRoundTelemetry();
-        updateHashrateHistoryChart(globalRoundHistory);
+        updateHashrateHistoryChart();
     });
 
     async function start() {
         try {
             document.getElementById("chart-linear-btn").classList.toggle("active", chartScaleMode === "linear");
             document.getElementById("chart-log-btn").classList.toggle("active", chartScaleMode === "log");
-            setHashrateWindow(hashrateWindow);
             await connection.start();
             await connection.invoke("GetInitialData");
+            await setHashrateWindow(hashrateWindow);
         } catch (err) {
             console.error(err);
             setTimeout(start, 5000);
@@ -2030,8 +2072,12 @@
 
     currentRoundEstimateTimer = setInterval(() => {
         updateCurrentRoundTelemetry();
-        updateHashrateHistoryChart(globalRoundHistory);
+        updateHashrateHistoryChart();
     }, 1000);
+
+    setInterval(() => {
+        loadHashrateSeries();
+    }, 60000);
 
     start();
 </script>

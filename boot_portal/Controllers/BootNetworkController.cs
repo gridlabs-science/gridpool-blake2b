@@ -47,6 +47,13 @@ public class BootNetworkController : ControllerBase
         return entry == null ? NotFound() : Ok(entry);
     }
 
+    [EnableRateLimiting("network-read")]
+    [HttpGet("hashrate")]
+    public IActionResult GetHashrateSeries([FromQuery] string? window = "24h")
+    {
+        return Ok(_stateService.GetHashrateSeries(window));
+    }
+
     [EnableRateLimiting("admin-write")]
     [HttpPost("admin/reset")]
     public async Task<IActionResult> ResetRound()

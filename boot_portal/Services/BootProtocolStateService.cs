@@ -175,6 +175,14 @@ public class BootProtocolStateService
         }
     }
 
+    public BootHashrateSeriesDto GetHashrateSeries(string? windowKey = null)
+    {
+        lock (_sync)
+        {
+            return BuildHashrateSeriesNoLock(windowKey);
+        }
+    }
+
     public string? GetKnownDatumPayoutAddress(string? clientIdentity)
     {
         if (string.IsNullOrWhiteSpace(clientIdentity))
@@ -431,6 +439,8 @@ public class BootProtocolStateService
                 newRecord = true;
             }
 
+            RecordAcceptedShareTelemetryNoLock(proof);
+            MaybeCaptureHashrateSampleNoLock(proof.Timestamp, force: false);
             _state.CandidateStateId = ComputeCandidateStateIdNoLock();
             SaveStateNoLock();
 
@@ -612,6 +622,8 @@ public class BootProtocolStateService
             _state.LastRotationUtc = DateTime.UtcNow;
             _state.LastTestingTriggerBlockHash = null;
             _state.LastTestingTriggerBlockHeight = null;
+            _state.RecentAcceptedShares = [];
+            _state.HashrateSamples = [];
             ResetAcceptedParentBlockHashesNoLock(currentTipBlockHash);
             SaveStateNoLock();
 
@@ -1297,11 +1309,15 @@ public class BootProtocolStateService
             _state.CurrentTipBlockHash = loadedTip;
             _state.LastTestingTriggerBlockHash = NormalizeCanonicalBlockHash(_state.LastTestingTriggerBlockHash);
             _state.KnownDatumPayoutAddresses ??= [];
+            _state.RecentAcceptedShares ??= [];
+            _state.HashrateSamples ??= [];
             NormalizeArchivedBundlesNoLock();
             EnsureRoundMetadataNoLock();
             UpdateKnownBlockHeightNoLock(_state.CurrentTipBlockHash, _state.CurrentTipBlockHeight);
             UpdateKnownBlockHeightNoLock(_state.LastTestingTriggerBlockHash, _state.LastTestingTriggerBlockHeight);
             _state.AcceptedParentBlockHashes = GetAcceptedParentBlockHashesNoLock();
+            TrimAcceptedShareTelemetryNoLock(DateTime.UtcNow);
+            TrimHashrateSamplesNoLock(DateTime.UtcNow);
 
             if (_state.OnDeckProofs.Count == 0 && _state.OnDeckList.Count > 0)
             {
@@ -1357,13 +1373,15 @@ public class BootProtocolStateService
 
     private BootNetworkStatusDto BuildNetworkStatusNoLock()
     {
-        long? currentRoundElapsedSeconds = GetElapsedSeconds(_state.LastRotationUtc, DateTime.UtcNow);
+        DateTime nowUtc = DateTime.UtcNow;
+        long? currentRoundElapsedSeconds = GetElapsedSeconds(_state.LastRotationUtc, nowUtc);
         List<double> onDeckDifficulties = _state.OnDeckProofs
             .Select(x => x.Difficulty)
             .Where(x => x > 0)
             .ToList();
         double onDeckTotalDifficulty = onDeckDifficulties.Sum();
         double? currentRoundObservedHashrateThs = EstimateRankAdjustedHashrateThs(onDeckDifficulties, currentRoundElapsedSeconds);
+        double? localDatumHashrateThs = EstimateLocalDatumHashrateThsNoLock(nowUtc);
 
         return new BootNetworkStatusDto
         {
@@ -1384,6 +1402,8 @@ public class BootProtocolStateService
             CurrentRoundElapsedSeconds = currentRoundElapsedSeconds,
             CurrentRoundObservedHashrateThs = currentRoundObservedHashrateThs,
             CurrentRoundObservedHashrateDisplay = FormatObservedHashrate(currentRoundObservedHashrateThs),
+            LocalDatumHashrateThs = localDatumHashrateThs,
+            LocalDatumHashrateDisplay = FormatObservedHashrate(localDatumHashrateThs),
             PeerCount = _state.Peers.Count,
             TestingRoundResetEnabled = _poolConfig.TestingRoundResetEnabled,
             TestingRoundResetMode = _poolConfig.TestingRoundResetMode,
@@ -1393,6 +1413,24 @@ public class BootProtocolStateService
             LastTestingTriggerBlockHeight = _state.LastTestingTriggerBlockHeight,
             Peers = _state.Peers.Select(ClonePeer).ToList(),
             Commitment = BuildCommitmentNoLock()
+        };
+    }
+
+    private BootHashrateSeriesDto BuildHashrateSeriesNoLock(string? windowKey)
+    {
+        DateTime nowUtc = DateTime.UtcNow;
+        DateTime cutoffUtc = ResolveHashrateSeriesCutoffUtc(windowKey, nowUtc);
+        TrimHashrateSamplesNoLock(nowUtc);
+
+        return new BootHashrateSeriesDto
+        {
+            SampleIntervalSeconds = GetHashrateSampleIntervalSeconds(),
+            LocalWindowSeconds = GetHashrateLocalWindowSeconds(),
+            Points = _state.HashrateSamples
+                .Where(point => point.TimestampUtc >= cutoffUtc)
+                .OrderBy(point => point.TimestampUtc)
+                .Select(CloneHashratePoint)
+                .ToList()
         };
     }
 
@@ -1527,6 +1565,122 @@ public class BootProtocolStateService
         }
 
         return (long)Math.Floor(totalSeconds);
+    }
+
+    private void RecordAcceptedShareTelemetryNoLock(BootShareProof proof)
+    {
+        _state.RecentAcceptedShares.Add(new BootAcceptedShareTelemetry
+        {
+            MinerAddress = proof.MinerAddress,
+            Username = proof.Username,
+            Source = proof.Source,
+            Difficulty = proof.Difficulty,
+            TimestampUtc = proof.Timestamp
+        });
+
+        TrimAcceptedShareTelemetryNoLock(proof.Timestamp);
+    }
+
+    private void MaybeCaptureHashrateSampleNoLock(DateTime nowUtc, bool force)
+    {
+        TrimAcceptedShareTelemetryNoLock(nowUtc);
+        TrimHashrateSamplesNoLock(nowUtc);
+
+        int intervalSeconds = GetHashrateSampleIntervalSeconds();
+        BootHashratePoint? lastSample = _state.HashrateSamples.Count > 0 ? _state.HashrateSamples[^1] : null;
+        if (!force && lastSample != null && (nowUtc - lastSample.TimestampUtc).TotalSeconds < intervalSeconds)
+        {
+            return;
+        }
+
+        long? currentRoundElapsedSeconds = GetElapsedSeconds(_state.LastRotationUtc, nowUtc);
+        List<double> onDeckDifficulties = _state.OnDeckProofs
+            .Select(x => x.Difficulty)
+            .Where(x => x > 0)
+            .ToList();
+        double? teamEstimatedHashrateThs = EstimateRankAdjustedHashrateThs(onDeckDifficulties, currentRoundElapsedSeconds);
+        double? localDatumHashrateThs = EstimateLocalDatumHashrateThsNoLock(nowUtc);
+
+        _state.HashrateSamples.Add(new BootHashratePoint
+        {
+            TimestampUtc = nowUtc,
+            CurrentRoundNumber = _state.CurrentRoundNumber,
+            TeamEstimatedHashrateThs = teamEstimatedHashrateThs,
+            TeamEstimatedHashrateDisplay = FormatObservedHashrate(teamEstimatedHashrateThs),
+            LocalDatumHashrateThs = localDatumHashrateThs,
+            LocalDatumHashrateDisplay = FormatObservedHashrate(localDatumHashrateThs)
+        });
+
+        TrimHashrateSamplesNoLock(nowUtc);
+    }
+
+    private double? EstimateLocalDatumHashrateThsNoLock(DateTime nowUtc)
+    {
+        int localWindowSeconds = GetHashrateLocalWindowSeconds();
+        DateTime windowStartUtc = nowUtc.AddSeconds(-localWindowSeconds);
+        List<BootAcceptedShareTelemetry> localDatumShares = _state.RecentAcceptedShares
+            .Where(share => string.Equals(share.Source, "datum", StringComparison.OrdinalIgnoreCase) &&
+                            share.TimestampUtc >= windowStartUtc &&
+                            share.Difficulty > 0)
+            .OrderBy(share => share.TimestampUtc)
+            .ToList();
+        if (localDatumShares.Count == 0)
+        {
+            return null;
+        }
+
+        DateTime effectiveStartUtc = localDatumShares[0].TimestampUtc > windowStartUtc
+            ? localDatumShares[0].TimestampUtc
+            : windowStartUtc;
+        long? elapsedSeconds = GetElapsedSeconds(effectiveStartUtc, nowUtc);
+        return EstimateRankAdjustedHashrateThs(localDatumShares.Select(share => share.Difficulty), elapsedSeconds);
+    }
+
+    private void TrimAcceptedShareTelemetryNoLock(DateTime nowUtc)
+    {
+        DateTime cutoffUtc = nowUtc.AddHours(-GetAcceptedShareTelemetryRetentionHours());
+        _state.RecentAcceptedShares = _state.RecentAcceptedShares
+            .Where(share => share.TimestampUtc >= cutoffUtc)
+            .OrderBy(share => share.TimestampUtc)
+            .ToList();
+    }
+
+    private void TrimHashrateSamplesNoLock(DateTime nowUtc)
+    {
+        DateTime cutoffUtc = nowUtc.AddDays(-GetHashrateSampleRetentionDays());
+        _state.HashrateSamples = _state.HashrateSamples
+            .Where(point => point.TimestampUtc >= cutoffUtc)
+            .OrderBy(point => point.TimestampUtc)
+            .ToList();
+    }
+
+    private int GetHashrateSampleIntervalSeconds() => Math.Clamp(_poolConfig.HashrateSampleIntervalSeconds, 10, 3600);
+
+    private int GetHashrateLocalWindowSeconds() => Math.Clamp(_poolConfig.HashrateLocalWindowSeconds, 60, 86400);
+
+    private int GetHashrateSampleRetentionDays() => Math.Clamp(_poolConfig.HashrateSampleRetentionDays, 1, 365);
+
+    private int GetAcceptedShareTelemetryRetentionHours() => Math.Clamp(_poolConfig.AcceptedShareTelemetryRetentionHours, 1, 168);
+
+    private DateTime ResolveHashrateSeriesCutoffUtc(string? windowKey, DateTime nowUtc)
+    {
+        DateTime retentionCutoffUtc = nowUtc.AddDays(-GetHashrateSampleRetentionDays());
+        TimeSpan? requestedWindow = windowKey?.ToLowerInvariant() switch
+        {
+            "6h" => TimeSpan.FromHours(6),
+            "24h" => TimeSpan.FromHours(24),
+            "7d" => TimeSpan.FromDays(7),
+            "30d" => TimeSpan.FromDays(30),
+            _ => null
+        };
+
+        if (!requestedWindow.HasValue)
+        {
+            return retentionCutoffUtc;
+        }
+
+        DateTime requestedCutoffUtc = nowUtc.Subtract(requestedWindow.Value);
+        return requestedCutoffUtc > retentionCutoffUtc ? requestedCutoffUtc : retentionCutoffUtc;
     }
 
     private static double? EstimateRankAdjustedHashrateThs(IEnumerable<double> difficulties, long? elapsedSeconds)
@@ -2418,6 +2572,19 @@ public class BootProtocolStateService
             Status = peer.Status,
             LatencyMs = peer.LatencyMs,
             LastSeenUtc = peer.LastSeenUtc
+        };
+    }
+
+    private static BootHashratePoint CloneHashratePoint(BootHashratePoint point)
+    {
+        return new BootHashratePoint
+        {
+            TimestampUtc = point.TimestampUtc,
+            CurrentRoundNumber = point.CurrentRoundNumber,
+            TeamEstimatedHashrateThs = point.TeamEstimatedHashrateThs,
+            TeamEstimatedHashrateDisplay = point.TeamEstimatedHashrateDisplay,
+            LocalDatumHashrateThs = point.LocalDatumHashrateThs,
+            LocalDatumHashrateDisplay = point.LocalDatumHashrateDisplay
         };
     }
 

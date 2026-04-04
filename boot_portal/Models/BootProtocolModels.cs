@@ -65,6 +65,8 @@ public class BootNetworkStatusDto
     public long? CurrentRoundElapsedSeconds { get; set; }
     public double? CurrentRoundObservedHashrateThs { get; set; }
     public string CurrentRoundObservedHashrateDisplay { get; set; } = "--";
+    public double? LocalDatumHashrateThs { get; set; }
+    public string LocalDatumHashrateDisplay { get; set; } = "--";
     public int PeerCount { get; set; }
     public bool TestingRoundResetEnabled { get; set; }
     public string TestingRoundResetMode { get; set; } = "none";
@@ -74,6 +76,32 @@ public class BootNetworkStatusDto
     public long? LastTestingTriggerBlockHeight { get; set; }
     public List<BootPeerStatus> Peers { get; set; } = [];
     public BootCommitmentInfo Commitment { get; set; } = new();
+}
+
+public class BootAcceptedShareTelemetry
+{
+    public string MinerAddress { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string Source { get; set; } = string.Empty;
+    public double Difficulty { get; set; }
+    public DateTime TimestampUtc { get; set; }
+}
+
+public class BootHashratePoint
+{
+    public DateTime TimestampUtc { get; set; }
+    public int CurrentRoundNumber { get; set; }
+    public double? TeamEstimatedHashrateThs { get; set; }
+    public string TeamEstimatedHashrateDisplay { get; set; } = "--";
+    public double? LocalDatumHashrateThs { get; set; }
+    public string LocalDatumHashrateDisplay { get; set; } = "--";
+}
+
+public class BootHashrateSeriesDto
+{
+    public int SampleIntervalSeconds { get; set; }
+    public int LocalWindowSeconds { get; set; }
+    public List<BootHashratePoint> Points { get; set; } = [];
 }
 
 public class BootRoundPayoutAggregate

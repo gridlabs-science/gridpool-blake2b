@@ -15,6 +15,8 @@ public class PoolState
     public List<PayoutInfo> WinnersList { get; set; } = [];
     public List<PayoutInfo> OnDeckList { get; set; } = [];
     public List<BootShareProof> OnDeckProofs { get; set; } = [];
+    public List<BootAcceptedShareTelemetry> RecentAcceptedShares { get; set; } = [];
+    public List<BootHashratePoint> HashrateSamples { get; set; } = [];
     public List<BootStateBundle> ArchivedStateBundles { get; set; } = [];
     public List<BootPeerStatus> Peers { get; set; } = [];
     public Dictionary<string, string> KnownDatumPayoutAddresses { get; set; } = [];

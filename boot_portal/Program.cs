@@ -134,6 +134,18 @@ public class PoolConfig
     [JsonPropertyName("testing_round_reset_low_nibble_threshold")]
     public int TestingRoundResetLowNibbleThreshold { get; set; } = 0;
 
+    [JsonPropertyName("hashrate_sample_interval_seconds")]
+    public int HashrateSampleIntervalSeconds { get; set; } = 60;
+
+    [JsonPropertyName("hashrate_local_window_seconds")]
+    public int HashrateLocalWindowSeconds { get; set; } = 1800;
+
+    [JsonPropertyName("hashrate_sample_retention_days")]
+    public int HashrateSampleRetentionDays { get; set; } = 60;
+
+    [JsonPropertyName("accepted_share_telemetry_retention_hours")]
+    public int AcceptedShareTelemetryRetentionHours { get; set; } = 2;
+
     [JsonIgnore]
     public bool TestingRoundResetEnabled =>
         string.Equals(TestingRoundResetMode, "block_hash_low_nibble", StringComparison.OrdinalIgnoreCase) &&
