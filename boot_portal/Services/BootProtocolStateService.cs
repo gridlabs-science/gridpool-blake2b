@@ -1304,8 +1304,12 @@ public class BootProtocolStateService
     private BootNetworkStatusDto BuildNetworkStatusNoLock()
     {
         long? currentRoundElapsedSeconds = GetElapsedSeconds(_state.LastRotationUtc, DateTime.UtcNow);
-        double onDeckTotalDifficulty = _state.OnDeckProofs.Sum(x => x.Difficulty);
-        double? currentRoundObservedHashrateThs = EstimateObservedHashrateThs(onDeckTotalDifficulty, currentRoundElapsedSeconds);
+        List<double> onDeckDifficulties = _state.OnDeckProofs
+            .Select(x => x.Difficulty)
+            .Where(x => x > 0)
+            .ToList();
+        double onDeckTotalDifficulty = onDeckDifficulties.Sum();
+        double? currentRoundObservedHashrateThs = EstimateRankAdjustedHashrateThs(onDeckDifficulties, currentRoundElapsedSeconds);
 
         return new BootNetworkStatusDto
         {
@@ -1361,7 +1365,11 @@ public class BootProtocolStateService
             bundle.ProofWinnersList.Count > 0 ? bundle.ProofWinnersList : bundle.WinnersList);
         List<BootRoundPayoutAggregate> nextRecipients = AggregateRoundPayoutsNoLock(bundle.WinnersList);
         long? roundElapsedSeconds = GetElapsedSeconds(priorBundle?.CreatedAtUtc, bundle.CreatedAtUtc);
-        double? observedHashrateThs = EstimateObservedHashrateThs(bundle.TotalDifficulty, roundElapsedSeconds);
+        List<double> roundDifficulties = bundle.ShareProofs
+            .Select(x => x.Difficulty)
+            .Where(x => x > 0)
+            .ToList();
+        double? observedHashrateThs = EstimateRankAdjustedHashrateThs(roundDifficulties, roundElapsedSeconds);
         int roundNumber = Math.Max(0, bundle.CurrentRoundNumber - 1);
 
         return new BootRoundHistoryEntry
@@ -1467,15 +1475,37 @@ public class BootProtocolStateService
         return (long)Math.Floor(totalSeconds);
     }
 
-    private static double? EstimateObservedHashrateThs(double totalDifficulty, long? elapsedSeconds)
+    private static double? EstimateRankAdjustedHashrateThs(IEnumerable<double> difficulties, long? elapsedSeconds)
     {
-        if (!elapsedSeconds.HasValue || elapsedSeconds.Value <= 0 || totalDifficulty < 0)
+        if (!elapsedSeconds.HasValue || elapsedSeconds.Value <= 0)
         {
             return null;
         }
 
-        double hashesPerSecond = totalDifficulty * 4294967296d / elapsedSeconds.Value;
-        return hashesPerSecond / 1_000_000_000_000d;
+        List<double> rankedDifficulties = difficulties
+            .Where(difficulty => difficulty > 0)
+            .OrderByDescending(difficulty => difficulty)
+            .ToList();
+        if (rankedDifficulties.Count == 0)
+        {
+            return null;
+        }
+
+        var perShareEstimatesThs = new List<double>(rankedDifficulties.Count);
+        for (int index = 0; index < rankedDifficulties.Count; index++)
+        {
+            double hashesPerSecond = (index + 1) * rankedDifficulties[index] * 4294967296d / elapsedSeconds.Value;
+            perShareEstimatesThs.Add(hashesPerSecond / 1_000_000_000_000d);
+        }
+
+        perShareEstimatesThs.Sort();
+        int middle = perShareEstimatesThs.Count / 2;
+        if (perShareEstimatesThs.Count % 2 == 1)
+        {
+            return perShareEstimatesThs[middle];
+        }
+
+        return (perShareEstimatesThs[middle - 1] + perShareEstimatesThs[middle]) / 2d;
     }
 
     private static string FormatObservedHashrate(double? hashrateThs)

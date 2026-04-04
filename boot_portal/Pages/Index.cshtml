@@ -438,6 +438,28 @@
             margin-top: 16px;
         }
 
+        .round-history-chart-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+            gap: 16px;
+            margin-top: 16px;
+        }
+
+        .round-history-chart-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+
+        .round-history-chart-toolbar h3 {
+            margin: 0;
+            font-size: 0.95rem;
+            color: var(--text-muted);
+        }
+
         .round-history-chart canvas {
             width: 100%;
             height: 220px;
@@ -623,6 +645,10 @@
                 align-items: flex-start;
             }
 
+            .round-history-chart-grid {
+                grid-template-columns: 1fr;
+            }
+
             .list-toolbar {
                 flex-direction: column;
                 align-items: flex-start;
@@ -682,14 +708,14 @@
             <div>Current State: <span class="accent-value" id="current-state-id">Loading...</span></div>
             <div>Candidate State: <span class="accent-value" id="candidate-state-id">Loading...</span></div>
             <div>Round Age: <span class="accent-value" id="current-round-age">--</span></div>
-            <div>Observed Hashrate: <span class="accent-value" id="current-round-hashrate">--</span></div>
+            <div>Estimated Hashrate: <span class="accent-value" id="current-round-hashrate">--</span></div>
             <div>Test Trigger: <span class="accent-value" id="testing-trigger-status">Loading...</span></div>
             <div>Last Test Block: <span class="accent-value" id="last-testing-trigger-block">--</span></div>
             <h3 style="margin-top: 10px;">Commitment Preview</h3>
             <div class="info-value" id="commitment-preview">Loading...</div>
             <div class="search-results" id="commitment-note"></div>
             <div class="search-results" id="testing-trigger-note"></div>
-            <div class="search-results" id="round-hashrate-note">Observed hashrate is a rough, luck-sensitive estimate.</div>
+            <div class="search-results" id="round-hashrate-note">Estimated hashrate uses the median rank-adjusted share difficulty and updates live from the current On Deck list.</div>
         </div>
     </div>
 
@@ -743,9 +769,25 @@
         <div class="round-detail" id="round-history-detail">
             <div class="round-history-empty">No completed rounds recorded yet.</div>
         </div>
-        <div class="chart-container round-history-chart" style="margin-top: 16px;">
-            <canvas id="roundShareChart"></canvas>
-            <div class="round-history-search-note" id="round-history-search-note"></div>
+        <div class="round-history-chart-grid">
+            <div class="chart-container round-history-chart">
+                <canvas id="roundShareChart"></canvas>
+                <div class="round-history-search-note" id="round-history-search-note"></div>
+            </div>
+            <div class="chart-container round-history-chart">
+                <div class="round-history-chart-toolbar">
+                    <h3>Estimated Hashrate Through Time</h3>
+                    <div class="view-toggle">
+                        <button class="toggle-btn" id="hashrate-window-6h-btn" onclick="setHashrateWindow('6h')">6H</button>
+                        <button class="toggle-btn active" id="hashrate-window-24h-btn" onclick="setHashrateWindow('24h')">24H</button>
+                        <button class="toggle-btn" id="hashrate-window-7d-btn" onclick="setHashrateWindow('7d')">7D</button>
+                        <button class="toggle-btn" id="hashrate-window-30d-btn" onclick="setHashrateWindow('30d')">30D</button>
+                        <button class="toggle-btn" id="hashrate-window-all-btn" onclick="setHashrateWindow('all')">ALL</button>
+                    </div>
+                </div>
+                <canvas id="roundHashrateChart"></canvas>
+                <div class="round-history-search-note" id="round-hashrate-chart-note"></div>
+            </div>
         </div>
     </section>
 
@@ -873,11 +915,14 @@
     let winnersChartInstance = null;
     let onDeckChartInstance = null;
     let roundShareChartInstance = null;
+    let roundHashrateChartInstance = null;
     let latestNetworkState = null;
     let globalRoundHistory = [];
     let selectedRoundStateId = null;
     let roundHistoryOrder = localStorage.getItem("boot-round-history-order") || "oldest-left";
     let chartScaleMode = localStorage.getItem("boot-chart-scale-mode") || "linear";
+    let hashrateWindow = localStorage.getItem("boot-hashrate-window") || "24h";
+    let currentRoundEstimateTimer = null;
 
     // Global state for client-side searching
     let globalWinnersList = [];
@@ -958,6 +1003,8 @@
         updateTable("winners-list", globalWinnersList);
         updateTable("ondeck-list", globalOnDeckList);
         renderRoundHistory(globalRoundHistory);
+        updateCurrentRoundTelemetry();
+        updateHashrateHistoryChart(globalRoundHistory);
 
         // Re-draw charts with the vertical lines
         winnersChartInstance = updateChart("winnersChart", globalWinnersList, "Winners List Depth", winnersChartInstance);
@@ -1011,6 +1058,63 @@
         if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
         if (minutes > 0) return `${minutes}m ${seconds}s`;
         return `${seconds}s`;
+    }
+
+    function estimateRankAdjustedHashrateThs(difficulties, elapsedSeconds) {
+        if (!Array.isArray(difficulties) || difficulties.length === 0) return null;
+        if (elapsedSeconds == null || elapsedSeconds <= 0) return null;
+
+        const ranked = difficulties
+            .map(value => Number(value) || 0)
+            .filter(value => value > 0)
+            .sort((a, b) => b - a);
+        if (ranked.length === 0) return null;
+
+        const estimates = ranked
+            .map((difficulty, index) => ((index + 1) * difficulty * 4294967296) / elapsedSeconds / 1_000_000_000_000)
+            .sort((a, b) => a - b);
+
+        const middle = Math.floor(estimates.length / 2);
+        if (estimates.length % 2 === 1) {
+            return estimates[middle];
+        }
+
+        return (estimates[middle - 1] + estimates[middle]) / 2;
+    }
+
+    function formatHashrateFromThs(hashrateThs) {
+        if (hashrateThs == null || !isFinite(hashrateThs) || hashrateThs <= 0) return "--";
+        const hashesPerSecond = hashrateThs * 1_000_000_000_000;
+        if (hashesPerSecond >= 1_000_000_000_000_000_000) return `${trimHashratePrecision(hashesPerSecond / 1_000_000_000_000_000_000)} EH/s`;
+        if (hashesPerSecond >= 1_000_000_000_000_000) return `${trimHashratePrecision(hashesPerSecond / 1_000_000_000_000_000)} PH/s`;
+        if (hashesPerSecond >= 1_000_000_000_000) return `${trimHashratePrecision(hashesPerSecond / 1_000_000_000_000)} TH/s`;
+        if (hashesPerSecond >= 1_000_000_000) return `${trimHashratePrecision(hashesPerSecond / 1_000_000_000)} GH/s`;
+        return `${hashesPerSecond.toFixed(0)} H/s`;
+    }
+
+    function trimHashratePrecision(value) {
+        return value.toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+    }
+
+    function getCurrentRoundElapsedSeconds() {
+        if (!latestNetworkState?.lastRotationUtc) {
+            return latestNetworkState?.currentRoundElapsedSeconds ?? null;
+        }
+
+        const startedAt = new Date(latestNetworkState.lastRotationUtc).getTime();
+        if (Number.isNaN(startedAt)) {
+            return latestNetworkState?.currentRoundElapsedSeconds ?? null;
+        }
+
+        return Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    }
+
+    function getCurrentRoundEstimatedHashrateThs() {
+        const elapsedSeconds = getCurrentRoundElapsedSeconds();
+        const difficulties = (globalOnDeckList || [])
+            .map(item => Number(item.difficulty) || 0)
+            .filter(value => value > 0);
+        return estimateRankAdjustedHashrateThs(difficulties, elapsedSeconds);
     }
 
     function normalizeSearchValue(value) {
@@ -1068,6 +1172,177 @@
         document.getElementById("chart-linear-btn").classList.toggle("active", chartScaleMode === "linear");
         document.getElementById("chart-log-btn").classList.toggle("active", chartScaleMode === "log");
         refreshUI();
+    }
+
+    function setHashrateWindow(windowKey) {
+        hashrateWindow = ["6h", "24h", "7d", "30d", "all"].includes(windowKey) ? windowKey : "24h";
+        localStorage.setItem("boot-hashrate-window", hashrateWindow);
+        ["6h", "24h", "7d", "30d", "all"].forEach(key => {
+            document.getElementById(`hashrate-window-${key}-btn`).classList.toggle("active", hashrateWindow === key);
+        });
+        updateHashrateHistoryChart(globalRoundHistory);
+    }
+
+    function getHashrateWindowCutoff(windowKey) {
+        const now = Date.now();
+        switch (windowKey) {
+            case "6h":
+                return now - (6 * 60 * 60 * 1000);
+            case "24h":
+                return now - (24 * 60 * 60 * 1000);
+            case "7d":
+                return now - (7 * 24 * 60 * 60 * 1000);
+            case "30d":
+                return now - (30 * 24 * 60 * 60 * 1000);
+            default:
+                return null;
+        }
+    }
+
+    function formatHashratePointLabel(timestampMs, isCurrentPoint) {
+        if (isCurrentPoint) {
+            return "Now";
+        }
+
+        const date = new Date(timestampMs);
+        switch (hashrateWindow) {
+            case "6h":
+            case "24h":
+                return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            case "7d":
+            case "30d":
+                return date.toLocaleDateString([], { month: "short", day: "numeric" });
+            default:
+                return `${date.toLocaleDateString([], { month: "short", day: "numeric" })} ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+        }
+    }
+
+    function updateCurrentRoundTelemetry() {
+        const elapsedSeconds = getCurrentRoundElapsedSeconds();
+        const estimatedHashrateThs = getCurrentRoundEstimatedHashrateThs();
+        const estimatedDisplay = formatHashrateFromThs(estimatedHashrateThs);
+
+        document.getElementById("current-round-age").innerText = formatElapsedSeconds(
+            elapsedSeconds ?? latestNetworkState?.currentRoundElapsedSeconds
+        );
+        document.getElementById("current-round-hashrate").innerText =
+            (estimatedDisplay !== "--" ? estimatedDisplay : null) ||
+            latestNetworkState?.currentRoundObservedHashrateDisplay ||
+            "--";
+    }
+
+    function updateHashrateHistoryChart(history) {
+        const canvas = document.getElementById("roundHashrateChart");
+        const note = document.getElementById("round-hashrate-chart-note");
+        const ctx = canvas.getContext("2d");
+
+        if (roundHashrateChartInstance) {
+            roundHashrateChartInstance.destroy();
+            roundHashrateChartInstance = null;
+        }
+
+        const cutoff = getHashrateWindowCutoff(hashrateWindow);
+        const completeRounds = [...(history || [])]
+            .filter(entry => entry && entry.isCanonical !== false && entry.lockedAtUtc && entry.observedHashrateThs != null)
+            .sort((a, b) => new Date(a.lockedAtUtc).getTime() - new Date(b.lockedAtUtc).getTime())
+            .filter(entry => cutoff == null || new Date(entry.lockedAtUtc).getTime() >= cutoff);
+
+        const points = completeRounds.map(entry => ({
+            roundNumber: entry.roundNumber,
+            timestampMs: new Date(entry.lockedAtUtc).getTime(),
+            label: `R${entry.roundNumber}`,
+            hashrateThs: entry.observedHashrateThs,
+            display: entry.observedHashrateDisplay || formatHashrateFromThs(entry.observedHashrateThs)
+        }));
+
+        const currentHashrateThs = getCurrentRoundEstimatedHashrateThs();
+        const currentTimestampMs = Date.now();
+        if (currentHashrateThs != null && (cutoff == null || currentTimestampMs >= cutoff)) {
+            points.push({
+                roundNumber: latestNetworkState?.currentRoundNumber,
+                timestampMs: currentTimestampMs,
+                label: `R${latestNetworkState?.currentRoundNumber ?? "?"}`,
+                hashrateThs: currentHashrateThs,
+                display: formatHashrateFromThs(currentHashrateThs),
+                isCurrent: true
+            });
+        }
+
+        if (points.length === 0) {
+            note.innerText = "Not enough completed round data yet for a hashrate timeline.";
+            return;
+        }
+
+        const labels = points.map(point => formatHashratePointLabel(point.timestampMs, !!point.isCurrent));
+        const data = points.map(point => point.hashrateThs);
+        const accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim();
+
+        roundHashrateChartInstance = new Chart(ctx, {
+            type: "line",
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: "Estimated Hashrate",
+                    data: data,
+                    borderColor: accentColor,
+                    backgroundColor: `${accentColor}33`,
+                    borderWidth: 2,
+                    pointRadius: points.map(point => point.isCurrent ? 5 : 3),
+                    pointHoverRadius: points.map(point => point.isCurrent ? 7 : 5),
+                    fill: true,
+                    tension: 0.25
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    title: {
+                        display: true,
+                        text: "Estimated Hashrate By Round Lock Time",
+                        color: "#888"
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                const point = points[context[0].dataIndex];
+                                return `${point.label} · ${new Date(point.timestampMs).toLocaleString()}`;
+                            },
+                            label: function(context) {
+                                return points[context.dataIndex].display;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: { color: "#888", maxRotation: 0, autoSkip: true },
+                        grid: { display: false }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            color: "#888",
+                            callback: function(value) {
+                                return formatHashrateFromThs(value);
+                            }
+                        },
+                        grid: { color: "#333", drawBorder: false }
+                    }
+                }
+            }
+        });
+
+        const currentPoint = points[points.length - 1];
+        const historyOnlyPoints = points.filter(point => !point.isCurrent);
+        const averageHashrateThs = historyOnlyPoints.length > 0
+            ? historyOnlyPoints.reduce((sum, point) => sum + point.hashrateThs, 0) / historyOnlyPoints.length
+            : null;
+
+        note.innerText = currentPoint?.isCurrent && averageHashrateThs != null
+            ? `Live point updates every second. Current round estimate: ${currentPoint.display}. Window average: ${formatHashrateFromThs(averageHashrateThs)}.`
+            : "Live point updates every second from the current On Deck share set.";
     }
 
     function recipientMatchesSearch(item) {
@@ -1211,7 +1486,7 @@
                     <div class="round-detail-value">${formatElapsedSeconds(entry.roundElapsedSeconds)}</div>
                 </div>
                 <div class="round-detail-box">
-                    <h3>Observed Hashrate</h3>
+                    <h3>Estimated Hashrate</h3>
                     <div class="round-detail-value">${entry.observedHashrateDisplay || "--"}</div>
                 </div>
                 <div class="round-detail-box">
@@ -1702,6 +1977,7 @@
     connection.on("UpdateRoundHistory", (history) => {
         globalRoundHistory = history || [];
         renderRoundHistory(globalRoundHistory);
+        updateHashrateHistoryChart(globalRoundHistory);
     });
 
     connection.on("UpdateServerInfo", (info) => {
@@ -1727,8 +2003,6 @@
         document.getElementById("peer-count").innerText = state.peerCount ?? 0;
         document.getElementById("current-state-id").innerText = shortenHash(state.currentStateId);
         document.getElementById("candidate-state-id").innerText = shortenHash(state.candidateStateId);
-        document.getElementById("current-round-age").innerText = formatElapsedSeconds(state.currentRoundElapsedSeconds);
-        document.getElementById("current-round-hashrate").innerText = state.currentRoundObservedHashrateDisplay || "--";
         document.getElementById("testing-trigger-status").innerText = state.testingRoundResetEnabled ? "ACTIVE" : "disabled";
         document.getElementById("last-testing-trigger-block").innerText = state.lastTestingTriggerBlockHash
             ? formatBlockLabel(state.lastTestingTriggerBlockHash, state.lastTestingTriggerBlockHeight)
@@ -1737,12 +2011,15 @@
         document.getElementById("commitment-note").innerText = state.commitment?.supportNote || "";
         document.getElementById("testing-trigger-note").innerText = state.testingRoundResetDescription || "";
         renderPeerTable(state.peers || []);
+        updateCurrentRoundTelemetry();
+        updateHashrateHistoryChart(globalRoundHistory);
     });
 
     async function start() {
         try {
             document.getElementById("chart-linear-btn").classList.toggle("active", chartScaleMode === "linear");
             document.getElementById("chart-log-btn").classList.toggle("active", chartScaleMode === "log");
+            setHashrateWindow(hashrateWindow);
             await connection.start();
             await connection.invoke("GetInitialData");
         } catch (err) {
@@ -1750,6 +2027,11 @@
             setTimeout(start, 5000);
         }
     };
+
+    currentRoundEstimateTimer = setInterval(() => {
+        updateCurrentRoundTelemetry();
+        updateHashrateHistoryChart(globalRoundHistory);
+    }, 1000);
 
     start();
 </script>
