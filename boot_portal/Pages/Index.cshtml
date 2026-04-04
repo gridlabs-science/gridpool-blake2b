@@ -16,7 +16,7 @@
             --accent-color: #bd59ff;
             --highlight-color: #ffffff; /* Bright white for search matches */
             --border-color: #333333;
-            --container-width: 900px;
+            --container-width: 1500px;
         }
 
         body {
@@ -244,6 +244,20 @@
             margin-bottom: 30px;
         }
 
+        .section-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 30px;
+            margin-bottom: 12px;
+        }
+
+        .section-toolbar h2 {
+            margin: 0;
+        }
+
         .chart-container {
             border: 1px solid var(--border-color);
             padding: 15px;
@@ -266,9 +280,7 @@
         }
 
         .round-history-scroller {
-            display: grid;
-            grid-auto-flow: column;
-            grid-auto-columns: minmax(180px, 220px);
+            display: flex;
             gap: 12px;
             overflow-x: auto;
             padding-bottom: 8px;
@@ -281,6 +293,8 @@
             padding: 12px;
             cursor: pointer;
             min-height: 128px;
+            flex: 1 0 clamp(220px, 20vw, 340px);
+            max-width: 360px;
             color: var(--text-color);
             font-family: inherit;
             text-align: left;
@@ -370,8 +384,12 @@
 
         .round-detail-columns {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+
+        .round-detail-section h3 {
+            margin: 0 0 10px 0;
         }
 
         .round-detail-head {
@@ -459,6 +477,24 @@
             width: 100%;
             border-collapse: collapse;
             text-align: left;
+        }
+
+        #winners-list,
+        #ondeck-list {
+            table-layout: fixed;
+        }
+
+        #winners-list th:first-child,
+        #winners-list td:first-child,
+        #ondeck-list th:first-child,
+        #ondeck-list td:first-child {
+            width: 8.5rem;
+        }
+
+        .compact-label {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         th {
@@ -621,16 +657,25 @@
             <div>Peers: <span class="accent-value" id="peer-count">0</span></div>
             <div>Current State: <span class="accent-value" id="current-state-id">Loading...</span></div>
             <div>Candidate State: <span class="accent-value" id="candidate-state-id">Loading...</span></div>
+            <div>Round Age: <span class="accent-value" id="current-round-age">--</span></div>
+            <div>Observed Hashrate: <span class="accent-value" id="current-round-hashrate">--</span></div>
             <div>Test Trigger: <span class="accent-value" id="testing-trigger-status">Loading...</span></div>
             <div>Last Test Block: <span class="accent-value" id="last-testing-trigger-block">--</span></div>
             <h3 style="margin-top: 10px;">Commitment Preview</h3>
             <div class="info-value" id="commitment-preview">Loading...</div>
             <div class="search-results" id="commitment-note"></div>
             <div class="search-results" id="testing-trigger-note"></div>
+            <div class="search-results" id="round-hashrate-note">Observed hashrate is a rough, luck-sensitive estimate.</div>
         </div>
     </div>
 
-    <h2>Difficulty Distribution</h2>
+    <div class="section-toolbar">
+        <h2>Difficulty Distribution</h2>
+        <div class="view-toggle">
+            <button class="toggle-btn active" id="chart-linear-btn" onclick="setChartScaleMode('linear')">LINEAR</button>
+            <button class="toggle-btn" id="chart-log-btn" onclick="setChartScaleMode('log')">LOG</button>
+        </div>
+    </div>
     <div class="charts-section">
         <div class="chart-container">
             <canvas id="winnersChart"></canvas>
@@ -641,7 +686,11 @@
     </div>
 
     <section>
-        <h2>Peer Status</h2>
+        <h2>
+            Peer Status
+            <span class="info-icon"
+                  data-tooltip="configured: manually seeded peer. discovered: learned from another peer. connected: recent summary poll succeeded. share: peer submitted a share to this node. relayed: this node recently relayed a share to that peer. empty/error/foreign-network: recent peer sync failed or was incompatible.">i</span>
+        </h2>
         <div class="table-container">
             <table id="peer-list">
                 <thead>
@@ -804,6 +853,7 @@
     let globalRoundHistory = [];
     let selectedRoundStateId = null;
     let roundHistoryOrder = localStorage.getItem("boot-round-history-order") || "oldest-left";
+    let chartScaleMode = localStorage.getItem("boot-chart-scale-mode") || "linear";
 
     // Global state for client-side searching
     let globalWinnersList = [];
@@ -847,14 +897,14 @@
         // 1. Scan Winners
         const winnerMatches = globalWinnersList
             .map((item, index) => ({item, index: index + 1})) // 1-based index
-            .filter(x => x.item.username.toLowerCase().includes(rawTerm.toLowerCase()));
+            .filter(x => normalizeSearchValue(x.item.username || x.item.address).includes(rawTerm.toLowerCase()));
 
         const winnerTotal = winnerMatches.reduce((sum, x) => sum + x.item.value, 0);
 
         // 2. Scan OnDeck
         const deckMatches = globalOnDeckList
             .map((item, index) => ({item, index: index + 1}))
-            .filter(x => x.item.username.toLowerCase().includes(rawTerm.toLowerCase()));
+            .filter(x => normalizeSearchValue(x.item.username || x.item.address).includes(rawTerm.toLowerCase()));
 
         const deckTotal = deckMatches.reduce((sum, x) => sum + x.item.value, 0);
 
@@ -907,6 +957,17 @@
         return `${first6}...${last6}${suffix}`;
     }
 
+    function formatMinerLabel(value) {
+        if (!value) return "Unknown";
+        const text = String(value);
+        const dotIndex = text.indexOf('.');
+        const address = dotIndex === -1 ? text : text.substring(0, dotIndex);
+        const worker = dotIndex === -1 ? "" : text.substring(dotIndex + 1);
+        const shortAddress = address.length <= 6 ? address : address.substring(address.length - 6);
+        const shortWorker = worker ? `.${worker.substring(0, 6)}` : "";
+        return `${shortAddress}${shortWorker}`;
+    }
+
     function formatBtcFromSats(value) {
         return ((value || 0) / 100000000.0).toFixed(8);
     }
@@ -914,6 +975,18 @@
     function formatPercent(part, total) {
         if (!total) return "0.0%";
         return `${((part / total) * 100).toFixed(1)}%`;
+    }
+
+    function formatElapsedSeconds(value) {
+        if (value == null) return "--";
+        const total = Math.max(0, Number(value));
+        const hours = Math.floor(total / 3600);
+        const minutes = Math.floor((total % 3600) / 60);
+        const seconds = Math.floor(total % 60);
+
+        if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+        if (minutes > 0) return `${minutes}m ${seconds}s`;
+        return `${seconds}s`;
     }
 
     function normalizeSearchValue(value) {
@@ -965,6 +1038,14 @@
         renderRoundHistory(globalRoundHistory);
     }
 
+    function setChartScaleMode(mode) {
+        chartScaleMode = mode === "log" ? "log" : "linear";
+        localStorage.setItem("boot-chart-scale-mode", chartScaleMode);
+        document.getElementById("chart-linear-btn").classList.toggle("active", chartScaleMode === "linear");
+        document.getElementById("chart-log-btn").classList.toggle("active", chartScaleMode === "log");
+        refreshUI();
+    }
+
     function recipientMatchesSearch(item) {
         const term = currentSearchValue();
         if (!term) return false;
@@ -987,7 +1068,7 @@
     function buildRoundPreview(recipients, totalValue) {
         if (!recipients || recipients.length === 0) return "No payouts";
         return recipients.slice(0, 3).map(entry => {
-            const label = formatAddress(entry.username || entry.address);
+            const label = formatMinerLabel(entry.username || entry.address);
             return `${label} ${formatPercent(entry.totalValue, totalValue)}`;
         }).join(" · ");
     }
@@ -1061,7 +1142,7 @@
 
             return recipients.map(item => `
                 <tr class="${recipientMatchesSearch(item) ? 'highlight-row' : ''}">
-                    <td title="${item.address}">${formatAddress(item.username || item.address)}</td>
+                    <td class="compact-label" title="${item.username || item.address}">${formatMinerLabel(item.username || item.address)}</td>
                     <td>${item.slotCount}</td>
                     <td>${formatBtcFromSats(item.totalValue)}</td>
                     <td>${formatPercent(item.totalValue, totalValue)}</td>
@@ -1091,6 +1172,14 @@
                     <div class="round-detail-value">${formatTimestamp(entry.lockedAtUtc)}</div>
                 </div>
                 <div class="round-detail-box">
+                    <h3>Round Duration</h3>
+                    <div class="round-detail-value">${formatElapsedSeconds(entry.roundElapsedSeconds)}</div>
+                </div>
+                <div class="round-detail-box">
+                    <h3>Observed Hashrate</h3>
+                    <div class="round-detail-value">${entry.observedHashrateDisplay || "--"}</div>
+                </div>
+                <div class="round-detail-box">
                     <h3>Winning Difficulty</h3>
                     <div class="round-detail-value">${entry.winningTotalDifficultyDisplay || "--"} across ${entry.winningShareCount} shares</div>
                 </div>
@@ -1118,7 +1207,7 @@
                 </div>` : ""}
             </div>
             <div class="round-detail-columns">
-                <div>
+                <div class="round-detail-section">
                     <h3>Paid Recipients</h3>
                     <div class="table-container">
                         <table>
@@ -1135,7 +1224,7 @@
                         </table>
                     </div>
                 </div>
-                <div>
+                <div class="round-detail-section">
                     <h3>Locked Next Winners</h3>
                     <div class="table-container">
                         <table>
@@ -1188,7 +1277,7 @@
         const labels = displayHistory.map(entry => `R${entry.roundNumber}`);
         const colors = ["#bd59ff", "#39d98a", "#ffc857", "#4ea8de", "#666666"];
         const datasets = topAddresses.map((address, index) => ({
-            label: formatAddress(address),
+            label: formatMinerLabel(address),
             data: displayHistory.map(entry => {
                 const total = entry.paidTotalValue || 0;
                 const match = (entry.paidRecipients || []).find(item => item.address === address);
@@ -1435,18 +1524,18 @@
             }
 
             const btcValue = payout.value / 100000000.0;
-            const formattedAddr = formatAddress(payout.username);
+            const formattedAddr = formatMinerLabel(payout.username || payout.address);
             const diffVal = payout.difficulty || 0;
             const diffDisplay = payout.diffString || diffVal.toLocaleString(undefined, {maximumFractionDigits: 2});
 
             // CHECK FOR SEARCH HIGHLIGHT
             let rowClass = "";
-            if (currentSearchTerm && payout.username.toLowerCase().includes(currentSearchTerm.toLowerCase())) {
+            if (currentSearchTerm && normalizeSearchValue(payout.username || payout.address).includes(currentSearchTerm.toLowerCase())) {
                 rowClass = "highlight-row";
             }
 
             const row = `<tr class="${rowClass}">
-                    <td title="${payout.address}">${formattedAddr}</td>
+                    <td class="compact-label" title="${payout.username || payout.address}">${formattedAddr}</td>
                     <td>${btcValue.toFixed(8)}</td>
                     <td>${diffDisplay}</td>
                 </tr>`;
@@ -1460,13 +1549,14 @@
         const ctx = document.getElementById(canvasId).getContext('2d');
         const plotData = list.map(x => x.difficulty).reverse();
         const labels = list.map((_, index) => list.length - index);
+        const isLogScale = chartScaleMode === "log";
 
         //const bubbleData = currentSearchTerm && list.find(x => x.address === currentSearchTerm) ?
         //    list.sort((a, b) => a.difficulty - b.difficulty).map(x => x.address === currentSearchTerm ? x.difficulty : NaN) : [];
         
         // FIX: Use [...list] to create a shallow copy before sorting
-        const bubbleData = currentSearchTerm && list.find(x => x.username.toLowerCase().includes(currentSearchTerm.toLowerCase())) ?
-            [...list].sort((a, b) => a.difficulty - b.difficulty).map(x => x.username.toLowerCase().includes(currentSearchTerm.toLowerCase()) ? x.difficulty : NaN) : [];
+        const bubbleData = currentSearchTerm && list.find(x => normalizeSearchValue(x.username || x.address).includes(currentSearchTerm.toLowerCase())) ?
+            [...list].sort((a, b) => a.difficulty - b.difficulty).map(x => normalizeSearchValue(x.username || x.address).includes(currentSearchTerm.toLowerCase()) ? x.difficulty : NaN) : [];
 
         const accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim();
 
@@ -1515,7 +1605,7 @@
                 },
                 plugins: {
                     legend: {display: false},
-                    title: {display: true, text: chartTitle, color: '#888'},
+                    title: {display: true, text: `${chartTitle} (${isLogScale ? "log" : "linear"} scale)`, color: '#888'},
                     tooltip: {
                         callbacks: {
                             label: function (context) {
@@ -1526,7 +1616,9 @@
                 },
                 scales: {
                     y: {
-                        beginAtZero: true,
+                        type: isLogScale ? 'logarithmic' : 'linear',
+                        beginAtZero: !isLogScale,
+                        min: isLogScale ? 1 : 0,
                         grid: {color: '#333', drawBorder: false},
                         ticks: {
                             color: '#888', callback: function (value) {
@@ -1599,6 +1691,8 @@
         document.getElementById("peer-count").innerText = state.peerCount ?? 0;
         document.getElementById("current-state-id").innerText = shortenHash(state.currentStateId);
         document.getElementById("candidate-state-id").innerText = shortenHash(state.candidateStateId);
+        document.getElementById("current-round-age").innerText = formatElapsedSeconds(state.currentRoundElapsedSeconds);
+        document.getElementById("current-round-hashrate").innerText = state.currentRoundObservedHashrateDisplay || "--";
         document.getElementById("testing-trigger-status").innerText = state.testingRoundResetEnabled ? "ACTIVE" : "disabled";
         document.getElementById("last-testing-trigger-block").innerText = state.lastTestingTriggerBlockHash
             ? formatBlockLabel(state.lastTestingTriggerBlockHash, state.lastTestingTriggerBlockHeight)
@@ -1611,6 +1705,8 @@
 
     async function start() {
         try {
+            document.getElementById("chart-linear-btn").classList.toggle("active", chartScaleMode === "linear");
+            document.getElementById("chart-log-btn").classList.toggle("active", chartScaleMode === "log");
             await connection.start();
             await connection.invoke("GetInitialData");
         } catch (err) {

@@ -154,7 +154,10 @@ public class BootProtocolStateService
                 return null;
             }
 
-            return BuildRoundHistoryEntryNoLock(completedRounds[index], completedRounds.Count - index);
+            BootStateBundle? priorBundle = index + 1 < completedRounds.Count
+                ? completedRounds[index + 1]
+                : null;
+            return BuildRoundHistoryEntryNoLock(completedRounds[index], completedRounds.Count - index, priorBundle);
         }
     }
 
@@ -1230,6 +1233,10 @@ public class BootProtocolStateService
 
     private BootNetworkStatusDto BuildNetworkStatusNoLock()
     {
+        long? currentRoundElapsedSeconds = GetElapsedSeconds(_state.LastRotationUtc, DateTime.UtcNow);
+        double onDeckTotalDifficulty = _state.OnDeckProofs.Sum(x => x.Difficulty);
+        double? currentRoundObservedHashrateThs = EstimateObservedHashrateThs(onDeckTotalDifficulty, currentRoundElapsedSeconds);
+
         return new BootNetworkStatusDto
         {
             SelfEndpoint = NormalizePeerEndpoint(_poolConfig.PublicBaseUrl),
@@ -1244,7 +1251,10 @@ public class BootProtocolStateService
             LastRotationUtc = _state.LastRotationUtc,
             WinnersCount = _state.WinnersList.Count,
             OnDeckCount = _state.OnDeckList.Count,
-            OnDeckTotalDifficulty = _state.OnDeckProofs.Sum(x => x.Difficulty),
+            OnDeckTotalDifficulty = onDeckTotalDifficulty,
+            CurrentRoundElapsedSeconds = currentRoundElapsedSeconds,
+            CurrentRoundObservedHashrateThs = currentRoundObservedHashrateThs,
+            CurrentRoundObservedHashrateDisplay = FormatObservedHashrate(currentRoundObservedHashrateThs),
             PeerCount = _state.Peers.Count,
             TestingRoundResetEnabled = _poolConfig.TestingRoundResetEnabled,
             TestingRoundResetMode = _poolConfig.TestingRoundResetMode,
@@ -1267,15 +1277,20 @@ public class BootProtocolStateService
         int totalRounds = completedRounds.Count;
         return completedRounds
             .Take(effectiveLimit)
-            .Select((bundle, index) => BuildRoundHistoryEntryNoLock(bundle, totalRounds - index))
+            .Select((bundle, index) => BuildRoundHistoryEntryNoLock(
+                bundle,
+                totalRounds - index,
+                index + 1 < completedRounds.Count ? completedRounds[index + 1] : null))
             .ToList();
     }
 
-    private BootRoundHistoryEntry BuildRoundHistoryEntryNoLock(BootStateBundle bundle, int roundNumber)
+    private BootRoundHistoryEntry BuildRoundHistoryEntryNoLock(BootStateBundle bundle, int roundNumber, BootStateBundle? priorBundle)
     {
         List<BootRoundPayoutAggregate> paidRecipients = AggregateRoundPayoutsNoLock(
             bundle.ProofWinnersList.Count > 0 ? bundle.ProofWinnersList : bundle.WinnersList);
         List<BootRoundPayoutAggregate> nextRecipients = AggregateRoundPayoutsNoLock(bundle.WinnersList);
+        long? roundElapsedSeconds = GetElapsedSeconds(priorBundle?.CreatedAtUtc, bundle.CreatedAtUtc);
+        double? observedHashrateThs = EstimateObservedHashrateThs(bundle.TotalDifficulty, roundElapsedSeconds);
 
         return new BootRoundHistoryEntry
         {
@@ -1287,9 +1302,12 @@ public class BootProtocolStateService
             ParentBlockHash = bundle.ParentBlockHash,
             ParentBlockHeight = bundle.ParentBlockHeight,
             LockedAtUtc = bundle.CreatedAtUtc,
+            RoundElapsedSeconds = roundElapsedSeconds,
             WinningShareCount = bundle.ShareProofs.Count,
             WinningTotalDifficulty = bundle.TotalDifficulty,
             WinningTotalDifficultyDisplay = ClientHandler.FormatDifficulty(bundle.TotalDifficulty),
+            ObservedHashrateThs = observedHashrateThs,
+            ObservedHashrateDisplay = FormatObservedHashrate(observedHashrateThs),
             PaidSlotCount = bundle.ProofWinnersList.Count > 0 ? bundle.ProofWinnersList.Count : bundle.WinnersList.Count,
             PaidRecipientCount = paidRecipients.Count,
             PaidTotalValue = paidRecipients.Aggregate<BootRoundPayoutAggregate, ulong>(0, (sum, item) => sum + item.TotalValue),
@@ -1326,6 +1344,79 @@ public class BootProtocolStateService
             .ThenByDescending(item => item.SlotCount)
             .ThenBy(item => item.Address, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private static long? GetElapsedSeconds(DateTime? startedAtUtc, DateTime? endedAtUtc)
+    {
+        if (!startedAtUtc.HasValue || !endedAtUtc.HasValue)
+        {
+            return null;
+        }
+
+        if (startedAtUtc.Value == default || endedAtUtc.Value == default)
+        {
+            return null;
+        }
+
+        double totalSeconds = (endedAtUtc.Value - startedAtUtc.Value).TotalSeconds;
+        if (totalSeconds < 0)
+        {
+            return null;
+        }
+
+        return (long)Math.Floor(totalSeconds);
+    }
+
+    private static double? EstimateObservedHashrateThs(double totalDifficulty, long? elapsedSeconds)
+    {
+        if (!elapsedSeconds.HasValue || elapsedSeconds.Value <= 0 || totalDifficulty < 0)
+        {
+            return null;
+        }
+
+        double hashesPerSecond = totalDifficulty * 4294967296d / elapsedSeconds.Value;
+        return hashesPerSecond / 1_000_000_000_000d;
+    }
+
+    private static string FormatObservedHashrate(double? hashrateThs)
+    {
+        if (!hashrateThs.HasValue)
+        {
+            return "--";
+        }
+
+        double hashesPerSecond = hashrateThs.Value * 1_000_000_000_000d;
+        if (hashesPerSecond >= 1_000_000_000_000_000_000d)
+        {
+            return $"{hashesPerSecond / 1_000_000_000_000_000_000d:0.##} EH/s";
+        }
+
+        if (hashesPerSecond >= 1_000_000_000_000_000d)
+        {
+            return $"{hashesPerSecond / 1_000_000_000_000_000d:0.##} PH/s";
+        }
+
+        if (hashesPerSecond >= 1_000_000_000_000d)
+        {
+            return $"{hashesPerSecond / 1_000_000_000_000d:0.##} TH/s";
+        }
+
+        if (hashesPerSecond >= 1_000_000_000d)
+        {
+            return $"{hashesPerSecond / 1_000_000_000d:0.##} GH/s";
+        }
+
+        if (hashesPerSecond >= 1_000_000d)
+        {
+            return $"{hashesPerSecond / 1_000_000d:0.##} MH/s";
+        }
+
+        if (hashesPerSecond >= 1_000d)
+        {
+            return $"{hashesPerSecond / 1_000d:0.##} kH/s";
+        }
+
+        return $"{hashesPerSecond:0.##} H/s";
     }
 
     private BootCommitmentInfo BuildCommitmentNoLock()

@@ -61,6 +61,9 @@ public class BootNetworkStatusDto
     public int WinnersCount { get; set; }
     public int OnDeckCount { get; set; }
     public double OnDeckTotalDifficulty { get; set; }
+    public long? CurrentRoundElapsedSeconds { get; set; }
+    public double? CurrentRoundObservedHashrateThs { get; set; }
+    public string CurrentRoundObservedHashrateDisplay { get; set; } = "--";
     public int PeerCount { get; set; }
     public bool TestingRoundResetEnabled { get; set; }
     public string TestingRoundResetMode { get; set; } = "none";
@@ -92,9 +95,12 @@ public class BootRoundHistoryEntry
     public string? ParentBlockHash { get; set; }
     public long? ParentBlockHeight { get; set; }
     public DateTime LockedAtUtc { get; set; }
+    public long? RoundElapsedSeconds { get; set; }
     public int WinningShareCount { get; set; }
     public double WinningTotalDifficulty { get; set; }
     public string WinningTotalDifficultyDisplay { get; set; } = "0";
+    public double? ObservedHashrateThs { get; set; }
+    public string ObservedHashrateDisplay { get; set; } = "--";
     public int PaidSlotCount { get; set; }
     public int PaidRecipientCount { get; set; }
     public ulong PaidTotalValue { get; set; }
