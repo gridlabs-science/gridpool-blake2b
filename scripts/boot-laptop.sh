@@ -18,6 +18,9 @@ Commands:
   down                   Stop the docker compose service
   up                     Start the docker compose service
   git-pull-rebuild       Pull from origin/main with git.exe, then rebuild
+  remote <ps-script>     Run an arbitrary PowerShell snippet on the laptop
+  remote-file <path>     Run a local PowerShell script file on the laptop
+  apply-patch            Read a git patch from stdin and apply it on the laptop repo
   sync-file <src> <dst>  Copy a local file to the remote Windows path over SSH
 
 Environment overrides:
@@ -33,17 +36,30 @@ run_remote() {
     ssh "$REMOTE_ALIAS" powershell -NoProfile -NonInteractive -EncodedCommand "$encoded"
 }
 
+run_remote_file() {
+    local script_path="$1"
+    local encoded
+    encoded="$(printf '%s' "\$ProgressPreference = 'SilentlyContinue'; $(cat "$script_path")" | iconv -f UTF-8 -t UTF-16LE | base64 -w 0)"
+    ssh "$REMOTE_ALIAS" powershell -NoProfile -NonInteractive -EncodedCommand "$encoded"
+}
+
 run_compose() {
     local compose_args="$1"
     run_remote "Set-Location '$REMOTE_REPO'; docker compose $compose_args"
 }
 
+apply_stdin_patch() {
+    local encoded
+    encoded="$(printf '%s' "\$ProgressPreference = 'SilentlyContinue'; & git -C '$REMOTE_REPO' apply -" | iconv -f UTF-8 -t UTF-16LE | base64 -w 0)"
+    ssh "$REMOTE_ALIAS" powershell -NoProfile -NonInteractive -EncodedCommand "$encoded"
+}
+
 sync_file() {
     local local_path="$1"
     local remote_path="$2"
-    local encoded
-    encoded="$(printf '%s' "\$ProgressPreference = 'SilentlyContinue'; \$payload = [Console]::In.ReadToEnd(); [System.IO.File]::WriteAllText('$remote_path', [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(\$payload)), [System.Text.UTF8Encoding]::new(\$false))" | iconv -f UTF-8 -t UTF-16LE | base64 -w 0)"
-    base64 -w 0 "$local_path" | ssh "$REMOTE_ALIAS" powershell -NoProfile -NonInteractive -EncodedCommand "$encoded"
+    local remote_scp_path
+    remote_scp_path="/${remote_path//\\//}"
+    scp "$local_path" "${REMOTE_ALIAS}:${remote_scp_path}"
 }
 
 case "${1:-}" in
@@ -72,6 +88,27 @@ case "${1:-}" in
         ;;
     git-pull-rebuild)
         run_remote "& git -C '$REMOTE_REPO' pull --ff-only origin main; Set-Location '$REMOTE_REPO'; docker compose up -d --build"
+        ;;
+    remote)
+        if [[ $# -ne 2 ]]; then
+            echo "Usage: $(basename "$0") remote <powershell-snippet>" >&2
+            exit 1
+        fi
+        run_remote "$2"
+        ;;
+    remote-file)
+        if [[ $# -ne 2 ]]; then
+            echo "Usage: $(basename "$0") remote-file <local-script-path>" >&2
+            exit 1
+        fi
+        run_remote_file "$2"
+        ;;
+    apply-patch)
+        if [[ $# -ne 1 ]]; then
+            echo "Usage: $(basename "$0") apply-patch < patch.diff" >&2
+            exit 1
+        fi
+        apply_stdin_patch
         ;;
     sync-file)
         if [[ $# -ne 3 ]]; then

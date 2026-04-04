@@ -56,6 +56,7 @@ public class BootNetworkStatusDto
     public string CurrentStateId { get; set; } = string.Empty;
     public string CandidateStateId { get; set; } = string.Empty;
     public string? CurrentTipBlockHash { get; set; }
+    public long? CurrentTipBlockHeight { get; set; }
     public DateTime? LastRotationUtc { get; set; }
     public int WinnersCount { get; set; }
     public int OnDeckCount { get; set; }
@@ -66,8 +67,42 @@ public class BootNetworkStatusDto
     public int TestingRoundResetLowNibbleThreshold { get; set; }
     public string TestingRoundResetDescription { get; set; } = string.Empty;
     public string? LastTestingTriggerBlockHash { get; set; }
+    public long? LastTestingTriggerBlockHeight { get; set; }
     public List<BootPeerStatus> Peers { get; set; } = [];
     public BootCommitmentInfo Commitment { get; set; } = new();
+}
+
+public class BootRoundPayoutAggregate
+{
+    public string Address { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public int SlotCount { get; set; }
+    public ulong TotalValue { get; set; }
+    public double TotalDifficulty { get; set; }
+    public string TotalDifficultyDisplay { get; set; } = "0";
+}
+
+public class BootRoundHistoryEntry
+{
+    public int RoundNumber { get; set; }
+    public string StateId { get; set; } = string.Empty;
+    public string Kind { get; set; } = string.Empty;
+    public string? TriggerBlockHash { get; set; }
+    public long? TriggerBlockHeight { get; set; }
+    public string? ParentBlockHash { get; set; }
+    public long? ParentBlockHeight { get; set; }
+    public DateTime LockedAtUtc { get; set; }
+    public int WinningShareCount { get; set; }
+    public double WinningTotalDifficulty { get; set; }
+    public string WinningTotalDifficultyDisplay { get; set; } = "0";
+    public int PaidSlotCount { get; set; }
+    public int PaidRecipientCount { get; set; }
+    public ulong PaidTotalValue { get; set; }
+    public int NextWinnerSlotCount { get; set; }
+    public int NextWinnerRecipientCount { get; set; }
+    public ulong NextWinnerTotalValue { get; set; }
+    public List<BootRoundPayoutAggregate> PaidRecipients { get; set; } = [];
+    public List<BootRoundPayoutAggregate> NextRecipients { get; set; } = [];
 }
 
 public class PeerShareAnnouncement
@@ -85,7 +120,9 @@ public class BootStateBundle
     public int ProtocolVersion { get; set; }
     public string NetworkId { get; set; } = string.Empty;
     public string? LockedByBlockHash { get; set; }
+    public long? LockedByBlockHeight { get; set; }
     public string? ParentBlockHash { get; set; }
+    public long? ParentBlockHeight { get; set; }
     public DateTime CreatedAtUtc { get; set; }
     public double TotalDifficulty { get; set; }
     public List<string> ValidParentBlockHashes { get; set; } = [];

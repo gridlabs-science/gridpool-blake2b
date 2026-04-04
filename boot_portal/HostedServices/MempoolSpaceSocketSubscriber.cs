@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using System.Net.WebSockets;
 using System.Text;
-using System.Text.Json.Nodes; // Add this for simple JSON parsing
+using System.Text.Json.Nodes;
 using boot_portal.Services;
 
 namespace boot_portal.HostedServices;
@@ -80,9 +80,8 @@ public class MempoolSpaceSocketSubscriber : BackgroundService
 
                     if (result.MessageType == WebSocketMessageType.Text)
                     {
-                        // Now we have the full message, convert it
                         var message = Encoding.UTF8.GetString(ms.ToArray());
-                        ProcessMessage(message, stoppingToken);
+                        await ProcessMessageAsync(message, stoppingToken);
                     }
                 }
             }
@@ -106,42 +105,28 @@ public class MempoolSpaceSocketSubscriber : BackgroundService
         _logger.LogInformation("Mempool.space WebSocket subscriber stopped.");
     }
 
-    private void ProcessMessage(string message, CancellationToken stoppingToken)
+    private async Task ProcessMessageAsync(string message, CancellationToken stoppingToken)
     {
         try
         {
-            // Use System.Text.Json.Nodes for easy, dynamic parsing
             var jsonNode = JsonNode.Parse(message);
 
-            // ** CORRECTED LOGIC **
-            // Check if the "blocks" key exists and is an array
-            if (jsonNode?["blocks"] is JsonArray blocksArray)
+            var startupBlocks = ParseBlocks(jsonNode?["blocks"]);
+            if (startupBlocks.Count > 0)
             {
-                // Iterate over each block in the array
-                // (Usually, it's just one, but this is safer)
-                foreach (var blockNode in blocksArray)
+                foreach (var block in SelectRelevantStartupBlocks(startupBlocks))
                 {
-                    string blockHash = blockNode?["id"]?.GetValue<string>();
-                    if (!string.IsNullOrEmpty(blockHash))
-                    {
-                        _logger.LogInformation("New block from mempool.space: {HashHex}", blockHash);
-                        
-                        // Dispatch the async work to the thread pool
-                        _ = Task.Run(async () =>
-                        {
-                            try
-                            {
-                                await OnNewBlockAsync(blockHash, stoppingToken);
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogError(ex, "Error processing new block {HashHex}", blockHash);
-                            }
-                        }, stoppingToken);
-                    }
+                    _logger.LogInformation("New block from mempool.space backlog: {HashHex}", block.Hash);
+                    await OnNewBlockAsync(block.Hash, block.Height, stoppingToken);
                 }
             }
-            // You can add 'else if' here to handle other message types, like pings
+
+            (string? Hash, long? Height) liveBlock = ParseBlock(jsonNode?["block"]);
+            if (!string.IsNullOrWhiteSpace(liveBlock.Hash))
+            {
+                _logger.LogInformation("New live block from mempool.space: {HashHex}", liveBlock.Hash);
+                await OnNewBlockAsync(liveBlock.Hash, liveBlock.Height, stoppingToken);
+            }
         }
         catch (Exception ex)
         {
@@ -153,9 +138,67 @@ public class MempoolSpaceSocketSubscriber : BackgroundService
     // Note: For a cleaner design, this logic should be moved to a
     // new, shared service (e.g., INewBlockProcessor) and injected
     // into BOTH of your subscriber classes.
-    private async Task OnNewBlockAsync(string blockHash, CancellationToken stoppingToken)
+    private async Task OnNewBlockAsync(string blockHash, long? blockHeight, CancellationToken stoppingToken)
     {
         _logger.LogInformation("Processing block {BlockHash}...", blockHash);
-        await _stateService.ObserveChainTipAsync(blockHash, "mempool.space");
+        await _stateService.ObserveChainTipAsync(blockHash, "mempool.space", blockHeight);
+    }
+
+    private IReadOnlyList<(string Hash, long? Height)> SelectRelevantStartupBlocks(List<(string Hash, long? Height)> blocks)
+    {
+        if (blocks.Count == 0)
+        {
+            return [];
+        }
+
+        List<(string Hash, long? Height)> ordered = blocks
+            .OrderBy(block => block.Height ?? long.MaxValue)
+            .ThenBy(block => block.Hash, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        string currentTip = _stateService.GetNetworkStatus().CurrentTipBlockHash ?? string.Empty;
+        int currentIndex = ordered.FindIndex(block =>
+            string.Equals(block.Hash, currentTip, StringComparison.OrdinalIgnoreCase));
+
+        if (currentIndex >= 0)
+        {
+            return ordered
+                .Skip(currentIndex + 1)
+                .ToList();
+        }
+
+        // If we cannot anchor the backlog to our current tip, just take the newest block
+        // instead of replaying an entire recent-history snapshot as if each one were newly found.
+        return [ordered[^1]];
+    }
+
+    private static List<(string Hash, long? Height)> ParseBlocks(JsonNode? blocksNode)
+    {
+        var result = new List<(string Hash, long? Height)>();
+        if (blocksNode is not JsonArray blocksArray)
+        {
+            return result;
+        }
+
+        foreach (JsonNode? blockNode in blocksArray)
+        {
+            (string? Hash, long? Height) parsed = ParseBlock(blockNode);
+            string? hash = parsed.Hash;
+            if (string.IsNullOrWhiteSpace(hash))
+            {
+                continue;
+            }
+
+            result.Add((hash, parsed.Height));
+        }
+
+        return result;
+    }
+
+    private static (string? Hash, long? Height) ParseBlock(JsonNode? blockNode)
+    {
+        return (
+            blockNode?["id"]?.GetValue<string>(),
+            blockNode?["height"]?.GetValue<long?>());
     }
 }

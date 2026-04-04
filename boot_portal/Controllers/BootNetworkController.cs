@@ -32,6 +32,21 @@ public class BootNetworkController : ControllerBase
         return bundle == null ? NotFound() : Ok(bundle);
     }
 
+    [EnableRateLimiting("network-read")]
+    [HttpGet("history")]
+    public IActionResult GetHistory([FromQuery] int limit = 24)
+    {
+        return Ok(_stateService.GetRoundHistory(limit));
+    }
+
+    [EnableRateLimiting("network-read")]
+    [HttpGet("history/{stateId}")]
+    public IActionResult GetHistoryEntry(string stateId)
+    {
+        var entry = _stateService.GetRoundHistoryEntry(stateId);
+        return entry == null ? NotFound() : Ok(entry);
+    }
+
     [EnableRateLimiting("admin-write")]
     [HttpPost("admin/reset")]
     public async Task<IActionResult> ResetRound()

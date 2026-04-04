@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http.Json;
 using boot_portal.Models;
 using boot_portal.Services;
@@ -141,7 +142,8 @@ public class BootPeerSyncService : BackgroundService
         BootNetworkStatusDto local = _stateService.GetNetworkStatus();
 
         if (!string.IsNullOrWhiteSpace(remote.CurrentStateId) &&
-            !string.Equals(remote.CurrentStateId, local.CurrentStateId, StringComparison.OrdinalIgnoreCase))
+            !string.Equals(remote.CurrentStateId, local.CurrentStateId, StringComparison.OrdinalIgnoreCase) &&
+            ShouldFetchRemoteCurrentState(local, remote))
         {
             BootStateBundle? lockedBundle = await client.GetFromJsonAsync<BootStateBundle>(
                 $"{remoteEndpoint}/api/network/state/{remote.CurrentStateId}",
@@ -152,12 +154,17 @@ public class BootPeerSyncService : BackgroundService
                 bool bootstrapped = await _stateService.TryBootstrapCurrentStateAsync(
                     lockedBundle,
                     remote.CurrentTipBlockHash,
+                    remote.CurrentTipBlockHeight,
                     remoteEndpoint);
                 local = _stateService.GetNetworkStatus();
 
                 if (!bootstrapped)
                 {
-                    await _stateService.TryAdoptCurrentStateAsync(lockedBundle, remote.CurrentTipBlockHash, remoteEndpoint);
+                    await _stateService.TryAdoptCurrentStateAsync(
+                        lockedBundle,
+                        remote.CurrentTipBlockHash,
+                        remote.CurrentTipBlockHeight,
+                        remoteEndpoint);
                     local = _stateService.GetNetworkStatus();
                 }
             }
@@ -169,9 +176,13 @@ public class BootPeerSyncService : BackgroundService
         }
 
         if (!string.IsNullOrWhiteSpace(remote.CurrentTipBlockHash) &&
-            !BitcoinHashes.AreEquivalent(remote.CurrentTipBlockHash, local.CurrentTipBlockHash))
+            (!BitcoinHashes.AreEquivalent(remote.CurrentTipBlockHash, local.CurrentTipBlockHash) ||
+             (remote.CurrentTipBlockHeight.HasValue && remote.CurrentTipBlockHeight != local.CurrentTipBlockHeight)))
         {
-            local = await _stateService.ObserveChainTipAsync(remote.CurrentTipBlockHash, $"peer-tip:{remoteEndpoint}");
+            local = await _stateService.ObserveChainTipAsync(
+                remote.CurrentTipBlockHash,
+                $"peer-tip:{remoteEndpoint}",
+                remote.CurrentTipBlockHeight);
         }
 
         if (string.IsNullOrWhiteSpace(remote.CandidateStateId) ||
@@ -181,10 +192,20 @@ public class BootPeerSyncService : BackgroundService
             return;
         }
 
-        BootStateBundle? bundle = await client.GetFromJsonAsync<BootStateBundle>(
+        using HttpResponseMessage bundleResponse = await client.GetAsync(
             $"{remoteEndpoint}/api/network/state/{remote.CandidateStateId}",
             stoppingToken);
+        if (bundleResponse.StatusCode == HttpStatusCode.NotFound)
+        {
+            _logger.LogDebug(
+                "Peer {Peer} candidate state {StateId} changed before it could be fetched.",
+                remoteEndpoint,
+                remote.CandidateStateId);
+            return;
+        }
 
+        bundleResponse.EnsureSuccessStatusCode();
+        BootStateBundle? bundle = await bundleResponse.Content.ReadFromJsonAsync<BootStateBundle>(cancellationToken: stoppingToken);
         if (bundle == null)
         {
             return;
@@ -218,5 +239,28 @@ public class BootPeerSyncService : BackgroundService
     private static string NormalizeEndpoint(string endpoint)
     {
         return endpoint.Trim().TrimEnd('/');
+    }
+
+    private static bool ShouldFetchRemoteCurrentState(BootNetworkStatusDto local, BootNetworkStatusDto remote)
+    {
+        DateTime localRotation = local.LastRotationUtc ?? DateTime.MinValue;
+        DateTime remoteRotation = remote.LastRotationUtc ?? DateTime.MinValue;
+
+        if (local.WinnersCount == 0 || (local.WinnersCount == 1 && local.OnDeckCount == 0))
+        {
+            return true;
+        }
+
+        if (remoteRotation > localRotation)
+        {
+            return true;
+        }
+
+        if (remoteRotation < localRotation)
+        {
+            return false;
+        }
+
+        return string.CompareOrdinal(remote.CurrentStateId ?? string.Empty, local.CurrentStateId ?? string.Empty) > 0;
     }
 }

@@ -118,6 +118,6 @@ public class BitcoinZmqSubscriber : BackgroundService
     public async Task OnNewBlockAsync(string blockHash, CancellationToken stoppingToken)
     {
         _logger.LogInformation("Processing block {BlockHash}...", blockHash);
-        await _stateService.ObserveChainTipAsync(blockHash, "zmq");
+        await _stateService.ObserveChainTipAsync(blockHash, "zmq", null);
     }
 }

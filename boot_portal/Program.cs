@@ -564,6 +564,8 @@ public class ClientHandler
     private readonly PowSubmitMessage?[] _jobCache = new PowSubmitMessage?[8];
     private double _bestDiff = 0;
     private string _clientPayoutAddress = "";
+    private string _clientIdentityKey = "";
+    private string _clientEncryptIdentityKey = "";
     private readonly CancellationToken _stoppingToken;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
@@ -699,6 +701,17 @@ public class ClientHandler
         catch (IOException) { Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} disconnected."); }
         catch (Exception ex) { Console.WriteLine($"💥 An error occurred with client {_client.Client.RemoteEndPoint}: {ex.Message}\n{ex.StackTrace}"); }
         finally { _client.Close(); }
+    }
+
+    private void RememberClientPayoutAddress(string payoutAddress)
+    {
+        if (string.IsNullOrWhiteSpace(payoutAddress))
+        {
+            return;
+        }
+
+        _stateService.RememberDatumPayoutAddress(_clientIdentityKey, payoutAddress);
+        _stateService.RememberDatumPayoutAddress(_clientEncryptIdentityKey, payoutAddress);
     }
 
     public async Task<bool> RequestBlockTemplateRefreshAsync()
@@ -939,6 +952,21 @@ public class ClientHandler
             return;
         }
 
+        _clientIdentityKey = Convert.ToHexString(_helloMessage.ClientSigningPubKey).ToLowerInvariant();
+        _clientEncryptIdentityKey = Convert.ToHexString(_helloMessage.ClientEncryptPubKey).ToLowerInvariant();
+        string? rememberedPayoutAddress =
+            _stateService.GetKnownDatumPayoutAddress(_clientIdentityKey) ??
+            _stateService.GetKnownDatumPayoutAddress(_clientEncryptIdentityKey);
+        if (!string.IsNullOrWhiteSpace(rememberedPayoutAddress))
+        {
+            _clientPayoutAddress = rememberedPayoutAddress;
+            string signingKeyPreview = _clientIdentityKey.Length >= 8
+                ? _clientIdentityKey[..8]
+                : _clientIdentityKey;
+            Console.WriteLine(
+                $"🔁 Restored DATUM client payout address {_clientPayoutAddress} for client {signingKeyPreview}...");
+        }
+
         //Initialize a new ed25519 key for signing the session messages with
         //TODO: Switch these from NSec Keys to whatever Span<T> LibSodium uses
         _serverSessionSigningKey = Key.Create(SignatureAlgorithm.Ed25519, new KeyCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextExport });
@@ -1158,9 +1186,35 @@ public class ClientHandler
         }
 
         powSubmit.Address = validatedAddress;
+        RememberClientPayoutAddress(powSubmit.Address);
+
+        bool payoutAddressChanged = !string.Equals(
+            BitcoinScript.NormalizeAddress(_clientPayoutAddress),
+            BitcoinScript.NormalizeAddress(powSubmit.Address),
+            StringComparison.OrdinalIgnoreCase);
+        if (payoutAddressChanged)
+        {
+            string previousAddress = _clientPayoutAddress;
+            _clientPayoutAddress = powSubmit.Address;
+            _bestDiff = 0;
+            Array.Clear(_jobCache, 0, _jobCache.Length);
+            Console.WriteLine(
+                $"♻️ Updating DATUM client payout address from {previousAddress} to {_clientPayoutAddress} and requesting fresh templates.");
+            await RequestBlockTemplateRefreshAsync();
+            await SendShareResponseAsync(powSubmit, accepted: false);
+            return;
+        }
 
         if (powSubmit.PrevBlockHash == null)  //This is just a nonce update, does not include complete header info
         {
+            if (powSubmit.JobId < 0 || powSubmit.JobId >= _jobCache.Length || _jobCache[powSubmit.JobId] == null)
+            {
+                Console.WriteLine(
+                    $"⚠️ Missing cached DATUM job {powSubmit.JobId} for nonce-only update from {_clientPayoutAddress}. Requesting fresh templates.");
+                await RequestBlockTemplateRefreshAsync();
+                await SendShareResponseAsync(powSubmit, accepted: false);
+                return;
+            }
 
             _jobCache[powSubmit.JobId].CoinbaseId = powSubmit.CoinbaseId;  
             _jobCache[powSubmit.JobId].IsBlock = powSubmit.IsBlock;
@@ -1327,21 +1381,23 @@ public class ClientHandler
         //#define DATUM_POW_SHARE_RESPONSE_ACCEPTED_TENTATIVELY 0x55
         //#define DATUM_POW_SHARE_RESPONSE_REJECTED 0x66
 
+        await SendShareResponseAsync(powSubmit, shareAccepted);
+        //Console.WriteLine($"[SEND] Share Response [{(isHeaderValid && isValidCoinbase ? "ACCEPTED" : "REJECTED")}] (0x05, 0x{shareResponse.Status:X2})");
+    }
+
+    private async Task SendShareResponseAsync(PowSubmitMessage powSubmit, bool accepted)
+    {
         var shareResponse = new ShareResponseMessage
         {
-            Status = shareAccepted ? (byte)0x50 : (byte)0x66,
-            ReasonCode = (ushort)(shareAccepted ? 0 : 1),
+            Status = accepted ? (byte)0x50 : (byte)0x66,
+            ReasonCode = (ushort)(accepted ? 0 : 1),
             Nonce = powSubmit.Nonce,
             TargetPot = powSubmit.TargetByte,
             JobId = powSubmit.JobId
         };
 
         var responsePayload = shareResponse.ToBytes();
-
-        //Console.WriteLine($"📦 Share response payload: {BitConverter.ToString(responsePayload)}");
-        //byte[] testPayload = new byte[] { 0x8F, 0x50, 0x00, 0x00, 0x32, 0x04, 0xCA, 0xC7, 0x0E, 0x02 };
         await SendEncryptedMessageAsync(0x05, responsePayload, isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false);
-        //Console.WriteLine($"[SEND] Share Response [{(isHeaderValid && isValidCoinbase ? "ACCEPTED" : "REJECTED")}] (0x05, 0x{shareResponse.Status:X2})");
     }
     
     private static byte FloorPoT(ulong x)

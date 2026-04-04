@@ -20,6 +20,7 @@ public class PoolStatsHub : Hub
         // Send Lists
         await Clients.Caller.SendAsync("UpdateWinners", _stateService.GetWinnersList());
         await Clients.Caller.SendAsync("UpdateOnDeck", _stateService.GetOnDeckList());
+        await Clients.Caller.SendAsync("UpdateRoundHistory", _stateService.GetRoundHistory());
         
         // Send Best Record
         await Clients.Caller.SendAsync("UpdateRecord", _stateService.GetBestShare());

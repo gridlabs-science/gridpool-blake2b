@@ -250,6 +250,171 @@
             height: 250px;
         }
 
+        .round-history-note {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin-bottom: 10px;
+        }
+
+        .round-history-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        .round-history-scroller {
+            display: grid;
+            grid-auto-flow: column;
+            grid-auto-columns: minmax(180px, 220px);
+            gap: 12px;
+            overflow-x: auto;
+            padding-bottom: 8px;
+            margin-bottom: 16px;
+        }
+
+        .round-card {
+            border: 1px solid var(--border-color);
+            background: #0c0c0c;
+            padding: 12px;
+            cursor: pointer;
+            min-height: 128px;
+            color: var(--text-color);
+            font-family: inherit;
+            text-align: left;
+            appearance: none;
+        }
+
+        .round-card:hover {
+            border-color: var(--text-muted);
+        }
+
+        .round-card.active {
+            border-color: var(--accent-color);
+            box-shadow: inset 0 0 0 1px var(--accent-color);
+        }
+
+        .round-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .round-card-title {
+            font-weight: bold;
+            color: var(--text-color);
+        }
+
+        .round-card-link {
+            color: var(--accent-color);
+            font-size: 0.76rem;
+            text-decoration: none;
+        }
+
+        .round-card-link:hover {
+            text-decoration: underline;
+        }
+
+        .round-kind-pill {
+            font-size: 0.72rem;
+            border: 1px solid var(--border-color);
+            color: var(--accent-color);
+            padding: 2px 6px;
+            text-transform: uppercase;
+        }
+
+        .round-card-meta,
+        .round-card-preview {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        .round-card-preview strong {
+            color: var(--text-color);
+        }
+
+        .round-detail {
+            border: 1px solid var(--border-color);
+            padding: 16px;
+            background: #0c0c0c;
+        }
+
+        .round-detail-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+
+        .round-detail-box {
+            border: 1px solid var(--border-color);
+            padding: 12px;
+            background: #111;
+        }
+
+        .round-detail-box h3 {
+            margin: 0 0 8px 0;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+        }
+
+        .round-detail-value {
+            font-size: 0.95rem;
+            word-break: break-word;
+        }
+
+        .round-detail-columns {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .round-detail-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 18px;
+            flex-wrap: wrap;
+        }
+
+        .round-detail-head h3 {
+            margin: 0 0 6px 0;
+        }
+
+        .round-detail-subline {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            word-break: break-word;
+        }
+
+        .round-history-chart {
+            margin-top: 16px;
+        }
+
+        .round-history-chart canvas {
+            width: 100%;
+            height: 220px;
+        }
+
+        .round-history-search-note {
+            color: var(--accent-color);
+            font-size: 0.85rem;
+            margin-top: 8px;
+        }
+
+        .round-history-empty {
+            color: var(--text-muted);
+            border: 1px dashed var(--border-color);
+            padding: 16px;
+            text-align: center;
+        }
+
         /* Tables */
         .table-container {
             overflow-x: auto;
@@ -391,6 +556,14 @@
                 grid-template-columns: 1fr;
             }
 
+            .round-detail-columns {
+                grid-template-columns: 1fr;
+            }
+
+            .round-history-toolbar {
+                align-items: flex-start;
+            }
+
             .list-toolbar {
                 flex-direction: column;
                 align-items: flex-start;
@@ -481,6 +654,25 @@
                 </thead>
                 <tbody></tbody>
             </table>
+        </div>
+    </section>
+
+    <section style="margin-top: 30px;">
+        <h2>Round History</h2>
+        <div class="round-history-toolbar">
+            <div class="round-history-note" id="round-history-note">Loading round history...</div>
+            <div class="view-toggle">
+                <button class="toggle-btn active" id="rounds-oldest-left-btn" onclick="setRoundHistoryOrder('oldest-left')">OLD LEFT</button>
+                <button class="toggle-btn" id="rounds-newest-left-btn" onclick="setRoundHistoryOrder('newest-left')">NEW LEFT</button>
+            </div>
+        </div>
+        <div class="round-history-scroller" id="round-history-scroller"></div>
+        <div class="round-detail" id="round-history-detail">
+            <div class="round-history-empty">No completed rounds recorded yet.</div>
+        </div>
+        <div class="chart-container round-history-chart" style="margin-top: 16px;">
+            <canvas id="roundShareChart"></canvas>
+            <div class="round-history-search-note" id="round-history-search-note"></div>
         </div>
     </section>
 
@@ -607,7 +799,11 @@
     let fullServerPubKey = "";
     let winnersChartInstance = null;
     let onDeckChartInstance = null;
+    let roundShareChartInstance = null;
     let latestNetworkState = null;
+    let globalRoundHistory = [];
+    let selectedRoundStateId = null;
+    let roundHistoryOrder = localStorage.getItem("boot-round-history-order") || "oldest-left";
 
     // Global state for client-side searching
     let globalWinnersList = [];
@@ -687,6 +883,7 @@
     function refreshUI() {
         updateTable("winners-list", globalWinnersList);
         updateTable("ondeck-list", globalOnDeckList);
+        renderRoundHistory(globalRoundHistory);
 
         // Re-draw charts with the vertical lines
         winnersChartInstance = updateChart("winnersChart", globalWinnersList, "Winners List Depth", winnersChartInstance);
@@ -708,6 +905,379 @@
         const first6 = mainPart.substring(0, 6);
         const last6 = mainPart.substring(mainPart.length - 6);
         return `${first6}...${last6}${suffix}`;
+    }
+
+    function formatBtcFromSats(value) {
+        return ((value || 0) / 100000000.0).toFixed(8);
+    }
+
+    function formatPercent(part, total) {
+        if (!total) return "0.0%";
+        return `${((part / total) * 100).toFixed(1)}%`;
+    }
+
+    function normalizeSearchValue(value) {
+        return (value || "").toLowerCase();
+    }
+
+    function currentSearchValue() {
+        return normalizeSearchValue(currentSearchTerm);
+    }
+
+    function formatTimestamp(value) {
+        if (!value) return "--";
+        return new Date(value).toLocaleString();
+    }
+
+    function formatBlockLabel(hash, height) {
+        if (height != null) return `Block ${height.toLocaleString()}`;
+        return `Block ${shortenHash(hash)}`;
+    }
+
+    function getBlockExplorerUrl(hash) {
+        if (!hash) return null;
+        return `https://mempool.space/block/${hash}`;
+    }
+
+    function describeRoundKind(kind) {
+        if (!kind) return "round";
+        if (kind.startsWith("test-trigger:")) return "test";
+        if (kind === "manual-rotation") return "manual";
+        if (kind === "manual-reset") return "manual";
+        if (kind.startsWith("adopted-state:")) return "adopted";
+        if (kind.startsWith("bootstrap-state:")) return "bootstrap";
+        return kind.replace(/[:_]/g, " ");
+    }
+
+    function roundHistoryDisplayOrder(history) {
+        if (roundHistoryOrder === "newest-left") {
+            return [...history];
+        }
+
+        return [...history].reverse();
+    }
+
+    function setRoundHistoryOrder(order) {
+        roundHistoryOrder = order === "newest-left" ? "newest-left" : "oldest-left";
+        localStorage.setItem("boot-round-history-order", roundHistoryOrder);
+        document.getElementById("rounds-oldest-left-btn").classList.toggle("active", roundHistoryOrder === "oldest-left");
+        document.getElementById("rounds-newest-left-btn").classList.toggle("active", roundHistoryOrder === "newest-left");
+        renderRoundHistory(globalRoundHistory);
+    }
+
+    function recipientMatchesSearch(item) {
+        const term = currentSearchValue();
+        if (!term) return false;
+        const address = normalizeSearchValue(item.address);
+        const username = normalizeSearchValue(item.username);
+        return address.includes(term) || username.includes(term);
+    }
+
+    function computeRecipientShare(recipients, totalValue) {
+        if (!currentSearchValue()) return null;
+        const matchingValue = (recipients || [])
+            .filter(recipientMatchesSearch)
+            .reduce((sum, item) => sum + (item.totalValue || 0), 0);
+        return {
+            value: matchingValue,
+            percent: totalValue ? (matchingValue / totalValue) * 100 : 0
+        };
+    }
+
+    function buildRoundPreview(recipients, totalValue) {
+        if (!recipients || recipients.length === 0) return "No payouts";
+        return recipients.slice(0, 3).map(entry => {
+            const label = formatAddress(entry.username || entry.address);
+            return `${label} ${formatPercent(entry.totalValue, totalValue)}`;
+        }).join(" · ");
+    }
+
+    function renderRoundHistory(history) {
+        const note = document.getElementById("round-history-note");
+        const scroller = document.getElementById("round-history-scroller");
+        const detail = document.getElementById("round-history-detail");
+        scroller.innerHTML = "";
+        document.getElementById("rounds-oldest-left-btn").classList.toggle("active", roundHistoryOrder === "oldest-left");
+        document.getElementById("rounds-newest-left-btn").classList.toggle("active", roundHistoryOrder === "newest-left");
+
+        if (!history || history.length === 0) {
+            note.innerText = "No completed rounds recorded yet.";
+            detail.innerHTML = '<div class="round-history-empty">Completed rounds will appear here after the next lock.</div>';
+            updateRoundShareChart([]);
+            selectedRoundStateId = null;
+            return;
+        }
+
+        note.innerText = `Showing the most recent ${history.length} completed rounds. Order is ${roundHistoryOrder === "oldest-left" ? "oldest to newest" : "newest to oldest"}.`;
+
+        if (!selectedRoundStateId || !history.some(entry => entry.stateId === selectedRoundStateId)) {
+            selectedRoundStateId = history[0].stateId;
+        }
+
+        const displayHistory = roundHistoryDisplayOrder(history);
+        displayHistory.forEach((entry) => {
+            const card = document.createElement("button");
+            card.type = "button";
+            card.className = `round-card${entry.stateId === selectedRoundStateId ? " active" : ""}`;
+            card.onclick = () => {
+                selectedRoundStateId = entry.stateId;
+                renderRoundHistory(globalRoundHistory);
+            };
+
+            const explorerUrl = getBlockExplorerUrl(entry.triggerBlockHash);
+            card.innerHTML = `
+                <div class="round-card-header">
+                    <div class="round-card-title">Round ${entry.roundNumber}</div>
+                    <div class="round-kind-pill">${describeRoundKind(entry.kind)}</div>
+                </div>
+                <div class="round-card-meta">${formatBlockLabel(entry.triggerBlockHash, entry.triggerBlockHeight)}</div>
+                <div class="round-card-meta">${formatTimestamp(entry.lockedAtUtc)}</div>
+                ${explorerUrl ? `<div class="round-card-meta"><a class="round-card-link" href="${explorerUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Open Block</a></div>` : ""}
+                <div class="round-card-preview"><strong>Paid:</strong> ${buildRoundPreview(entry.paidRecipients, entry.paidTotalValue)}</div>
+                <div class="round-card-preview"><strong>Next:</strong> ${buildRoundPreview(entry.nextRecipients, entry.nextWinnerTotalValue)}</div>
+            `;
+            scroller.appendChild(card);
+        });
+
+        const selected = history.find(entry => entry.stateId === selectedRoundStateId) || history[0];
+        renderRoundHistoryDetail(selected, detail);
+        updateRoundShareChart(history);
+    }
+
+    function renderRoundHistoryDetail(entry, container) {
+        if (!entry) {
+            container.innerHTML = '<div class="round-history-empty">Select a round to inspect it.</div>';
+            return;
+        }
+
+        const explorerUrl = getBlockExplorerUrl(entry.triggerBlockHash);
+        const paidSearchShare = computeRecipientShare(entry.paidRecipients, entry.paidTotalValue);
+        const nextSearchShare = computeRecipientShare(entry.nextRecipients, entry.nextWinnerTotalValue);
+
+        const renderRecipientRows = (recipients, totalValue) => {
+            if (!recipients || recipients.length === 0) {
+                return '<tr><td colspan="5">No payouts recorded.</td></tr>';
+            }
+
+            return recipients.map(item => `
+                <tr class="${recipientMatchesSearch(item) ? 'highlight-row' : ''}">
+                    <td title="${item.address}">${formatAddress(item.username || item.address)}</td>
+                    <td>${item.slotCount}</td>
+                    <td>${formatBtcFromSats(item.totalValue)}</td>
+                    <td>${formatPercent(item.totalValue, totalValue)}</td>
+                    <td>${item.totalDifficultyDisplay || '--'}</td>
+                </tr>
+            `).join("");
+        };
+
+        container.innerHTML = `
+            <div class="round-detail-head">
+                <div>
+                    <h3>Round ${entry.roundNumber}</h3>
+                    <div class="round-detail-subline">${formatBlockLabel(entry.triggerBlockHash, entry.triggerBlockHeight)}</div>
+                    <div class="round-detail-subline">${entry.triggerBlockHash || "--"}</div>
+                </div>
+                <div>
+                    ${explorerUrl ? `<a class="round-card-link" href="${explorerUrl}" target="_blank" rel="noopener noreferrer">Open On Mempool.Space</a>` : ""}
+                </div>
+            </div>
+            <div class="round-detail-grid">
+                <div class="round-detail-box">
+                    <h3>Trigger Block</h3>
+                    <div class="round-detail-value">${formatBlockLabel(entry.triggerBlockHash, entry.triggerBlockHeight)}</div>
+                </div>
+                <div class="round-detail-box">
+                    <h3>Locked At</h3>
+                    <div class="round-detail-value">${formatTimestamp(entry.lockedAtUtc)}</div>
+                </div>
+                <div class="round-detail-box">
+                    <h3>Winning Difficulty</h3>
+                    <div class="round-detail-value">${entry.winningTotalDifficultyDisplay || "--"} across ${entry.winningShareCount} shares</div>
+                </div>
+                <div class="round-detail-box">
+                    <h3>Paid This Block</h3>
+                    <div class="round-detail-value">${entry.paidRecipientCount} recipients across ${entry.paidSlotCount} shared slots</div>
+                </div>
+                <div class="round-detail-box">
+                    <h3>Paid Total</h3>
+                    <div class="round-detail-value">${formatBtcFromSats(entry.paidTotalValue)} BTC</div>
+                </div>
+                <div class="round-detail-box">
+                    <h3>Locked For Next Round</h3>
+                    <div class="round-detail-value">${entry.nextWinnerRecipientCount} recipients across ${entry.nextWinnerSlotCount} shared slots</div>
+                </div>
+                ${paidSearchShare ? `
+                <div class="round-detail-box">
+                    <h3>Search Match Paid Share</h3>
+                    <div class="round-detail-value">${paidSearchShare.percent.toFixed(1)}% (${formatBtcFromSats(paidSearchShare.value)} BTC)</div>
+                </div>` : ""}
+                ${nextSearchShare ? `
+                <div class="round-detail-box">
+                    <h3>Search Match Next Share</h3>
+                    <div class="round-detail-value">${nextSearchShare.percent.toFixed(1)}% (${formatBtcFromSats(nextSearchShare.value)} BTC)</div>
+                </div>` : ""}
+            </div>
+            <div class="round-detail-columns">
+                <div>
+                    <h3>Paid Recipients</h3>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                            <tr>
+                                <th>Address</th>
+                                <th>Slots</th>
+                                <th>Payout (BTC)</th>
+                                <th>Share</th>
+                                <th>Total Diff</th>
+                            </tr>
+                            </thead>
+                            <tbody>${renderRecipientRows(entry.paidRecipients, entry.paidTotalValue)}</tbody>
+                        </table>
+                    </div>
+                </div>
+                <div>
+                    <h3>Locked Next Winners</h3>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                            <tr>
+                                <th>Address</th>
+                                <th>Slots</th>
+                                <th>Payout (BTC)</th>
+                                <th>Share</th>
+                                <th>Total Diff</th>
+                            </tr>
+                            </thead>
+                            <tbody>${renderRecipientRows(entry.nextRecipients, entry.nextWinnerTotalValue)}</tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    function updateRoundShareChart(history) {
+        const canvas = document.getElementById("roundShareChart");
+        const note = document.getElementById("round-history-search-note");
+        const ctx = canvas.getContext("2d");
+
+        if (roundShareChartInstance) {
+            roundShareChartInstance.destroy();
+            roundShareChartInstance = null;
+        }
+
+        if (!history || history.length === 0) {
+            note.innerText = "";
+            return;
+        }
+
+        const displayHistory = roundHistoryDisplayOrder(history);
+        const totalsByAddress = new Map();
+        displayHistory.forEach(entry => {
+            (entry.paidRecipients || []).forEach(recipient => {
+                const key = recipient.address || recipient.username || "unknown";
+                totalsByAddress.set(key, (totalsByAddress.get(key) || 0) + (recipient.totalValue || 0));
+            });
+        });
+
+        const topAddresses = [...totalsByAddress.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 4)
+            .map(entry => entry[0]);
+
+        const labels = displayHistory.map(entry => `R${entry.roundNumber}`);
+        const colors = ["#bd59ff", "#39d98a", "#ffc857", "#4ea8de", "#666666"];
+        const datasets = topAddresses.map((address, index) => ({
+            label: formatAddress(address),
+            data: displayHistory.map(entry => {
+                const total = entry.paidTotalValue || 0;
+                const match = (entry.paidRecipients || []).find(item => item.address === address);
+                return total ? (((match?.totalValue || 0) / total) * 100) : 0;
+            }),
+            backgroundColor: colors[index % colors.length]
+        }));
+
+        const hasOther = displayHistory.some(entry => {
+            const totalKnown = (entry.paidRecipients || [])
+                .filter(item => topAddresses.includes(item.address))
+                .reduce((sum, item) => sum + (item.totalValue || 0), 0);
+            return totalKnown < (entry.paidTotalValue || 0);
+        });
+
+        if (hasOther) {
+            datasets.push({
+                label: "Other",
+                data: displayHistory.map(entry => {
+                    const total = entry.paidTotalValue || 0;
+                    const totalKnown = (entry.paidRecipients || [])
+                        .filter(item => topAddresses.includes(item.address))
+                        .reduce((sum, item) => sum + (item.totalValue || 0), 0);
+                    return total ? (((total - totalKnown) / total) * 100) : 0;
+                }),
+                backgroundColor: colors[4]
+            });
+        }
+
+        roundShareChartInstance = new Chart(ctx, {
+            type: "bar",
+            data: {
+                labels: labels,
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: "bottom",
+                        labels: {
+                            color: "#888"
+                        }
+                    },
+                    title: {
+                        display: true,
+                        text: "Paid Share By Address Across Recent Rounds",
+                        color: "#888"
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return `${context.dataset.label}: ${context.raw.toFixed(1)}%`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        stacked: true,
+                        ticks: { color: "#888" },
+                        grid: { display: false }
+                    },
+                    y: {
+                        stacked: true,
+                        beginAtZero: true,
+                        max: 100,
+                        ticks: {
+                            color: "#888",
+                            callback: function(value) {
+                                return `${value}%`;
+                            }
+                        },
+                        grid: { color: "#333", drawBorder: false }
+                    }
+                }
+            }
+        });
+
+        if (currentSearchValue()) {
+            const avgPaidShare = displayHistory.reduce((sum, entry) => {
+                const share = computeRecipientShare(entry.paidRecipients, entry.paidTotalValue);
+                return sum + (share ? share.percent : 0);
+            }, 0) / displayHistory.length;
+            note.innerText = `Search match average paid share across these rounds: ${avgPaidShare.toFixed(1)}%.`;
+        } else {
+            note.innerText = "Use the search box to see a per-round share percentage for a specific address.";
+        }
     }
 
     function copyPubKey() {
@@ -1002,6 +1572,11 @@
         }
     });
 
+    connection.on("UpdateRoundHistory", (history) => {
+        globalRoundHistory = history || [];
+        renderRoundHistory(globalRoundHistory);
+    });
+
     connection.on("UpdateServerInfo", (info) => {
         fullServerPubKey = info.pubKey;
         document.getElementById("server-host").innerText = info.datumHost || "--";
@@ -1025,7 +1600,9 @@
         document.getElementById("current-state-id").innerText = shortenHash(state.currentStateId);
         document.getElementById("candidate-state-id").innerText = shortenHash(state.candidateStateId);
         document.getElementById("testing-trigger-status").innerText = state.testingRoundResetEnabled ? "ACTIVE" : "disabled";
-        document.getElementById("last-testing-trigger-block").innerText = shortenHash(state.lastTestingTriggerBlockHash) || "--";
+        document.getElementById("last-testing-trigger-block").innerText = state.lastTestingTriggerBlockHash
+            ? formatBlockLabel(state.lastTestingTriggerBlockHash, state.lastTestingTriggerBlockHeight)
+            : "--";
         document.getElementById("commitment-preview").innerText = state.commitment?.tagPreview || "--";
         document.getElementById("commitment-note").innerText = state.commitment?.supportNote || "";
         document.getElementById("testing-trigger-note").innerText = state.testingRoundResetDescription || "";
