@@ -175,6 +175,18 @@ public class BootPeerSyncService : BackgroundService
             return;
         }
 
+        if (remote.LastRotationUtc.HasValue &&
+            (local.LastRotationUtc != remote.LastRotationUtc ||
+             local.CurrentRoundNumber != remote.CurrentRoundNumber))
+        {
+            await _stateService.TrySyncCurrentRoundMetadataAsync(
+                remote.CurrentStateId,
+                remote.CurrentRoundNumber,
+                remote.LastRotationUtc,
+                remoteEndpoint);
+            local = _stateService.GetNetworkStatus();
+        }
+
         if (!string.IsNullOrWhiteSpace(remote.CurrentTipBlockHash) &&
             (!BitcoinHashes.AreEquivalent(remote.CurrentTipBlockHash, local.CurrentTipBlockHash) ||
              (remote.CurrentTipBlockHeight.HasValue && remote.CurrentTipBlockHeight != local.CurrentTipBlockHeight)))

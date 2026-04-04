@@ -1133,6 +1133,60 @@ public class BootProtocolStateService
         return adopted;
     }
 
+    public async Task<bool> TrySyncCurrentRoundMetadataAsync(
+        string stateId,
+        int remoteCurrentRoundNumber,
+        DateTime? remoteLastRotationUtc,
+        string sourceEndpoint)
+    {
+        if (string.IsNullOrWhiteSpace(stateId) || !remoteLastRotationUtc.HasValue || remoteLastRotationUtc.Value == default)
+        {
+            return false;
+        }
+
+        BootNetworkStatusDto? networkStatus = null;
+        bool changed = false;
+
+        lock (_sync)
+        {
+            if (!string.Equals(_state.CurrentStateId, stateId, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (!_state.LastRotationUtc.HasValue ||
+                _state.LastRotationUtc.Value == default ||
+                remoteLastRotationUtc.Value > _state.LastRotationUtc.Value)
+            {
+                _state.LastRotationUtc = remoteLastRotationUtc.Value;
+                changed = true;
+            }
+
+            if (remoteCurrentRoundNumber > _state.CurrentRoundNumber)
+            {
+                _state.CurrentRoundNumber = remoteCurrentRoundNumber;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                SaveStateNoLock();
+                networkStatus = BuildNetworkStatusNoLock();
+            }
+        }
+
+        if (changed && networkStatus != null)
+        {
+            _logger.LogInformation(
+                "Synced current-round metadata for state {StateId} from {SourceEndpoint}.",
+                stateId,
+                sourceEndpoint);
+            await _hubContext.Clients.All.SendAsync("UpdateNetworkState", networkStatus);
+        }
+
+        return changed;
+    }
+
     private void LoadState()
     {
         lock (_sync)
