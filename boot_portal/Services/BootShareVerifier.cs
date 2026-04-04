@@ -239,12 +239,14 @@ public class BootShareVerifier
         IReadOnlyList<BitcoinTransactionOutput> winnerOutputs = outputs.Skip(1).ToList();
 
         if (MatchesWinnerOutputs(winnerOutputs, legacyOutputs) ||
-            MatchesWinnerOutputs(winnerOutputs, compressedOutputs))
+            MatchesWinnerOutputs(winnerOutputs, compressedOutputs) ||
+            MatchesAggregatedWinnerOutputs(outputs, minerScript, compressedOutputs))
         {
             return;
         }
 
-        throw new InvalidOperationException("Coinbase winners payouts do not match the required Boot outputs.");
+        throw new InvalidOperationException(
+            $"Coinbase winners payouts do not match the required Boot outputs. Expected {DescribeExpectedOutputs(compressedOutputs)}; actual {DescribeActualOutputs(outputs)}.");
     }
 
     private static byte[] ComputeMerkleRoot(byte[] coinbaseHash, IReadOnlyList<byte[]> merkleBranches)
@@ -322,6 +324,103 @@ public class BootShareVerifier
         }
 
         return true;
+    }
+
+    private static bool MatchesAggregatedWinnerOutputs(
+        IReadOnlyList<BitcoinTransactionOutput> actualOutputs,
+        byte[] minerScript,
+        IReadOnlyList<ExpectedWinnerOutput> expectedOutputs)
+    {
+        string minerScriptHex = Convert.ToHexString(minerScript).ToLowerInvariant();
+        Dictionary<string, ulong> actualTotals = AggregateActualOutputs(actualOutputs);
+        Dictionary<string, ulong> expectedTotals = AggregateExpectedOutputs(expectedOutputs);
+
+        foreach ((string scriptHex, ulong expectedValue) in expectedTotals)
+        {
+            actualTotals.TryGetValue(scriptHex, out ulong actualValue);
+            if (string.Equals(scriptHex, minerScriptHex, StringComparison.OrdinalIgnoreCase))
+            {
+                if (actualValue <= expectedValue)
+                {
+                    return false;
+                }
+
+                continue;
+            }
+
+            if (actualValue != expectedValue)
+            {
+                return false;
+            }
+        }
+
+        return actualTotals.TryGetValue(minerScriptHex, out ulong minerTotal) && minerTotal > 0;
+    }
+
+    private static Dictionary<string, ulong> AggregateActualOutputs(IReadOnlyList<BitcoinTransactionOutput> outputs)
+    {
+        var totals = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
+        foreach (BitcoinTransactionOutput output in outputs)
+        {
+            string scriptHex = Convert.ToHexString(output.ScriptPubKey).ToLowerInvariant();
+            if (totals.TryGetValue(scriptHex, out ulong existing))
+            {
+                totals[scriptHex] = existing + output.Value;
+            }
+            else
+            {
+                totals[scriptHex] = output.Value;
+            }
+        }
+
+        return totals;
+    }
+
+    private static Dictionary<string, ulong> AggregateExpectedOutputs(IReadOnlyList<ExpectedWinnerOutput> outputs)
+    {
+        var totals = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
+        foreach (ExpectedWinnerOutput output in outputs)
+        {
+            string scriptHex = Convert.ToHexString(output.ScriptPubKey).ToLowerInvariant();
+            if (totals.TryGetValue(scriptHex, out ulong existing))
+            {
+                totals[scriptHex] = existing + output.Value;
+            }
+            else
+            {
+                totals[scriptHex] = output.Value;
+            }
+        }
+
+        return totals;
+    }
+
+    private static string DescribeExpectedOutputs(IReadOnlyList<ExpectedWinnerOutput> outputs)
+    {
+        return string.Join(
+            ", ",
+            AggregateExpectedOutputs(outputs)
+                .OrderByDescending(item => item.Value)
+                .Select(item => $"{ShortScript(item.Key)}:{item.Value}"));
+    }
+
+    private static string DescribeActualOutputs(IReadOnlyList<BitcoinTransactionOutput> outputs)
+    {
+        return string.Join(
+            ", ",
+            AggregateActualOutputs(outputs)
+                .OrderByDescending(item => item.Value)
+                .Select(item => $"{ShortScript(item.Key)}:{item.Value}"));
+    }
+
+    private static string ShortScript(string scriptHex)
+    {
+        if (string.IsNullOrWhiteSpace(scriptHex) || scriptHex.Length <= 12)
+        {
+            return scriptHex;
+        }
+
+        return $"{scriptHex[..6]}...{scriptHex[^6..]}";
     }
 
     private static byte[] DoubleSha256(byte[] data)
