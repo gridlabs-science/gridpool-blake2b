@@ -4,7 +4,7 @@
     "ProtocolVersion": 1
   },
   "CurrentStateId": "5558f5a058a4a55995dabf74d4019c7c2a177a75c08fdbf8550bb13bf5a2ac41",
-  "CandidateStateId": "03b3fa919a48fa1315c6a7b01fd41ed18989a5613557db1e9c1cc7e8be970849",
+  "CandidateStateId": "4f876c0f3f04d07011160076358b3afac27f49b07eb26ce25e40828101bf79f2",
   "CurrentRoundNumber": 28,
   "CurrentTipBlockHash": "000000000000000000004056401b26afd5e5e46b7f5566931e8ef131368a8d8a",
   "CurrentTipBlockHeight": 943716,
@@ -2112,1428 +2112,1421 @@
   ],
   "OnDeckList": [
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 1834268.5762872861,
       "DiffString": "1.83M"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 1510153.8732092862,
       "DiffString": "1.51M"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1041873.7335603546,
       "DiffString": "1.04M"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 523462.7454747706,
       "DiffString": "523.46k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 320951.23675291956,
       "DiffString": "320.95k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 115810.521040556,
       "DiffString": "115.81k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 111215.3177735388,
       "DiffString": "111.22k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 99433.78957632584,
       "DiffString": "99.43k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 95484.20541328816,
       "DiffString": "95.48k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 93799.58516111434,
       "DiffString": "93.80k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 93399.84470580683,
       "DiffString": "93.40k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 79866.21565883198,
       "DiffString": "79.87k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 73858.17761393049,
       "DiffString": "73.86k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 59771.31366556832,
       "DiffString": "59.77k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 50411.821099749985,
       "DiffString": "50.41k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 50207.44551060096,
       "DiffString": "50.21k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 48569.55019376478,
       "DiffString": "48.57k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 45191.83553419808,
       "DiffString": "45.19k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 42661.8648398592,
       "DiffString": "42.66k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 41474.76717398787,
       "DiffString": "41.47k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 40654.76929547597,
       "DiffString": "40.65k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 40534.51466917504,
       "DiffString": "40.53k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 40317.960784725794,
       "DiffString": "40.32k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 39870.13668591781,
       "DiffString": "39.87k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 35938.44511254299,
       "DiffString": "35.94k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 32914.12219086847,
       "DiffString": "32.91k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 32575.911816800177,
       "DiffString": "32.58k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 31346.159822818718,
       "DiffString": "31.35k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 30675.54830668819,
       "DiffString": "30.68k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 29565.474713586496,
       "DiffString": "29.57k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 26131.196895076017,
       "DiffString": "26.13k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 25897.986007865686,
       "DiffString": "25.90k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 24172.231495677544,
       "DiffString": "24.17k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 23289.826509350725,
       "DiffString": "23.29k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 22474.583033457297,
       "DiffString": "22.47k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 21609.251594926227,
       "DiffString": "21.61k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 20325.773864614872,
       "DiffString": "20.33k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 19318.513527944873,
       "DiffString": "19.32k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 19043.90260232812,
       "DiffString": "19.04k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 18667.77278421608,
       "DiffString": "18.67k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 18474.627104702475,
       "DiffString": "18.47k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 18393.901290750815,
       "DiffString": "18.39k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 18092.12787046853,
       "DiffString": "18.09k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 17599.780593550862,
       "DiffString": "17.60k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 15739.992279976334,
       "DiffString": "15.74k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 15528.04849141357,
       "DiffString": "15.53k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 14996.5673733914,
       "DiffString": "15.00k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 14066.122467257086,
       "DiffString": "14.07k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 13403.82548869242,
       "DiffString": "13.40k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 13357.599235418837,
       "DiffString": "13.36k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 13072.628343097773,
       "DiffString": "13.07k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 12733.331050651605,
       "DiffString": "12.73k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 12330.096365787234,
       "DiffString": "12.33k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 12277.083521462608,
       "DiffString": "12.28k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 12070.902505458907,
       "DiffString": "12.07k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 12010.91274085845,
       "DiffString": "12.01k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 11726.6016488015,
       "DiffString": "11.73k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 11403.437510194117,
       "DiffString": "11.40k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 11301.267537763188,
       "DiffString": "11.30k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 11098.682580061635,
       "DiffString": "11.10k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 10647.119266397327,
       "DiffString": "10.65k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 10248.294133028685,
       "DiffString": "10.25k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 10197.036939139642,
       "DiffString": "10.20k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 10125.160387569684,
       "DiffString": "10.13k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 10069.811504009906,
       "DiffString": "10.07k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 9841.427321224779,
       "DiffString": "9.84k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 9515.419345604674,
       "DiffString": "9.52k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 9500.514594715693,
       "DiffString": "9.50k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 9473.6757582974,
       "DiffString": "9.47k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 9192.565502941483,
       "DiffString": "9.19k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 8933.208001811929,
       "DiffString": "8.93k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 8772.705543716593,
       "DiffString": "8.77k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 8632.801411979624,
       "DiffString": "8.63k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 8494.03683362514,
       "DiffString": "8.49k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 8479.301115859145,
       "DiffString": "8.48k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 8239.317871689653,
       "DiffString": "8.24k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 8228.313995348204,
       "DiffString": "8.23k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 8122.2706410306655,
       "DiffString": "8.12k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 8099.623873660553,
       "DiffString": "8.10k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 7893.480281643654,
       "DiffString": "7.89k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 7882.593090831564,
       "DiffString": "7.88k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 7605.509090613948,
       "DiffString": "7.61k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 7440.25471986619,
       "DiffString": "7.44k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 7358.969779939224,
       "DiffString": "7.36k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 7325.357099637622,
       "DiffString": "7.33k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 7298.023369622693,
       "DiffString": "7.30k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 7293.320167882829,
       "DiffString": "7.29k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 7218.487941312291,
       "DiffString": "7.22k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 7166.409142951317,
       "DiffString": "7.17k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 6967.004163351298,
       "DiffString": "6.97k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 6927.87950675699,
       "DiffString": "6.93k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 6904.712520581112,
       "DiffString": "6.90k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 6853.262806420446,
       "DiffString": "6.85k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 6834.71572286326,
       "DiffString": "6.83k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 6831.079685955634,
       "DiffString": "6.83k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 6806.145558395692,
       "DiffString": "6.81k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 6663.789443765803,
       "DiffString": "6.66k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 6522.142984426206,
       "DiffString": "6.52k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 6489.532527242886,
       "DiffString": "6.49k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 6467.624786571061,
       "DiffString": "6.47k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 6374.493270448514,
       "DiffString": "6.37k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 6371.693154256023,
       "DiffString": "6.37k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 6370.634843937643,
       "DiffString": "6.37k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 6349.629276519913,
       "DiffString": "6.35k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 6308.905366911454,
       "DiffString": "6.31k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 6263.326192389963,
       "DiffString": "6.26k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 6206.548953421627,
       "DiffString": "6.21k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 6122.748050993226,
       "DiffString": "6.12k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 6057.6839107708665,
       "DiffString": "6.06k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 6020.883987185647,
       "DiffString": "6.02k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 6008.100719117275,
       "DiffString": "6.01k"
     },
     {
-      "Value": 1524390,
-      "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-      "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
-      "Difficulty": 5913.162505746322,
-      "DiffString": "5.91k"
-    },
-    {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 5774.650643148446,
       "DiffString": "5.77k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 5772.275478365292,
       "DiffString": "5.77k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 5646.093993290094,
       "DiffString": "5.65k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 5599.811546385478,
       "DiffString": "5.60k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 5523.021609250373,
       "DiffString": "5.52k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 5499.515149168737,
       "DiffString": "5.50k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 5483.184678826454,
       "DiffString": "5.48k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 5479.875909125663,
       "DiffString": "5.48k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 5315.106680259678,
       "DiffString": "5.32k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 5253.902427198831,
       "DiffString": "5.25k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 5168.8901625757835,
       "DiffString": "5.17k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 5067.13446376007,
       "DiffString": "5.07k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 5038.304712182897,
       "DiffString": "5.04k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 5037.004257488452,
       "DiffString": "5.04k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4956.613610680345,
       "DiffString": "4.96k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4911.357288939781,
       "DiffString": "4.91k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 4899.658587806882,
       "DiffString": "4.90k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4893.774299967792,
       "DiffString": "4.89k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4875.424020572283,
       "DiffString": "4.88k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 4872.446476914897,
       "DiffString": "4.87k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4851.163233892899,
       "DiffString": "4.85k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 4798.535692902812,
       "DiffString": "4.80k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4762.403466458148,
       "DiffString": "4.76k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 4752.157350287768,
       "DiffString": "4.75k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4746.541268345752,
       "DiffString": "4.75k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4724.228101844211,
       "DiffString": "4.72k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 4650.447368773623,
       "DiffString": "4.65k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4615.713236011404,
       "DiffString": "4.62k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4574.798669364077,
       "DiffString": "4.57k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 4554.42745816681,
       "DiffString": "4.55k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 4542.604063904547,
       "DiffString": "4.54k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4535.0472036017645,
       "DiffString": "4.54k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 4534.254337866162,
       "DiffString": "4.53k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 4533.391796574529,
       "DiffString": "4.53k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4514.03033757748,
       "DiffString": "4.51k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 4441.08053179686,
       "DiffString": "4.44k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4414.865326904441,
       "DiffString": "4.41k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4365.590447076266,
       "DiffString": "4.37k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4327.11131855385,
       "DiffString": "4.33k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4322.238125027659,
       "DiffString": "4.32k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4272.6880322643165,
       "DiffString": "4.27k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4207.56761609112,
       "DiffString": "4.21k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 4191.621670677142,
       "DiffString": "4.19k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4185.044293616294,
       "DiffString": "4.19k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4177.254748357511,
       "DiffString": "4.18k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4176.624337739764,
       "DiffString": "4.18k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 4168.234019237967,
       "DiffString": "4.17k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4168.128717194852,
       "DiffString": "4.17k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4117.312295869468,
       "DiffString": "4.12k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4111.119163549016,
       "DiffString": "4.11k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4108.249682222744,
       "DiffString": "4.11k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
       "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
       "Difficulty": 4104.681485979263,
       "DiffString": "4.10k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 3929.497788951262,
       "DiffString": "3.93k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 3921.231544275632,
       "DiffString": "3.92k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 3717.2845808924835,
       "DiffString": "3.72k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 3501.725801658567,
       "DiffString": "3.50k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 3417.8271203361096,
       "DiffString": "3.42k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 3261.094175507365,
       "DiffString": "3.26k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 3155.1978854632443,
       "DiffString": "3.16k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 3143.4562549919133,
       "DiffString": "3.14k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 2961.5288315156704,
       "DiffString": "2.96k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 2739.7923170804393,
       "DiffString": "2.74k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 2705.3111225042726,
       "DiffString": "2.71k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 2695.944941247139,
       "DiffString": "2.70k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 2520.1394730617026,
       "DiffString": "2.52k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 2289.8879792370362,
       "DiffString": "2.29k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 2123.3272008676486,
       "DiffString": "2.12k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 2041.0185789140162,
       "DiffString": "2.04k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1908.894043626512,
       "DiffString": "1.91k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1818.7355579744692,
       "DiffString": "1.82k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1770.8859337178992,
       "DiffString": "1.77k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1738.3932341486816,
       "DiffString": "1.74k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1668.292475695961,
       "DiffString": "1.67k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1566.1613305496876,
       "DiffString": "1.57k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1537.6890811578137,
       "DiffString": "1.54k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1489.8966207467245,
       "DiffString": "1.49k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1460.9045199470152,
       "DiffString": "1.46k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1458.4681329355794,
       "DiffString": "1.46k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1451.0375586758855,
       "DiffString": "1.45k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1433.0017184349022,
       "DiffString": "1.43k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1350.8736416214808,
       "DiffString": "1.35k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1333.7674682872732,
       "DiffString": "1.33k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1311.0798348161684,
       "DiffString": "1.31k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1220.7218965747365,
       "DiffString": "1.22k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1123.3347119590123,
       "DiffString": "1.12k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1119.9704806743757,
       "DiffString": "1.12k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1101.895187148349,
       "DiffString": "1.10k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1095.798717155562,
       "DiffString": "1.10k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1075.4894587386814,
       "DiffString": "1.08k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1066.564975482608,
       "DiffString": "1.07k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1029.253382764382,
       "DiffString": "1.03k"
     },
     {
-      "Value": 1524390,
+      "Value": 1531862,
       "Address": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p",
       "Username": "bc1qd9m04z95mglaxd9e9accmhyjdlmkfmzjprkq4p.Laptop_Datum_MaraHeater",
       "Difficulty": 1028.2019294054471,
@@ -6025,30 +6018,6 @@
       "DiffString": "6.01k",
       "Source": "peer:http://100.96.249.123:5000",
       "Timestamp": "2026-04-05T03:57:54.471686Z"
-    },
-    {
-      "ShareId": "1c887a97a1df1a458170a734a914b7a301f46974aaaa34173ce0b4e2fc553e76",
-      "MinerAddress": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-      "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
-      "ScriptPubKeyHex": "00141ba063a60ffe85ee2034c3044d7ef087a5f20f91",
-      "HeaderHex": "0080fc288a8d8a3631f18e1e9366557f6be4e5d5af261b4056400000000000000000000032649e4e6c298a8dd8595f912348a2debee99cf13945eca7af517edb99c9e046feddd169840602171732faef",
-      "CoinbaseHex": "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff240365660e17426f6f742070726f746f636f6c0f477269644c61627300070c2a0015000000ffffffff06732d1500000000001600141ba063a60ffe85ee2034c3044d7ef087a5f20f91fad1c207000000001600146976fa88b4da3fd334b92f718ddc926ff764ec520000000000000000106a0eec84b10cf00d000000000006a8dd5ca7cd0a000000001600141ba063a60ffe85ee2034c3044d7ef087a5f20f910000000000000000036a01000000000000000000266a24aa21a9eda72a92ee7bd4c0bc8530023a980a9aec100f424fddf385f3e4636ece1350876e00000000",
-      "MerklePath": [
-        "f342c8cacaf35a9c51253ddd1648de6eda2a10c8d8363b7a4609eb4e6832ce60",
-        "ef4b5710b5c1d05de6b4d7349fea7d4f7305e3b9af75c56371f578d87ec2f524",
-        "4903c7bfd8e1663a6d24677578048a478a5c9afdfd6d8cc9e5675850203f6c21",
-        "0380b18d9ea1be5ebb1755fccae0c19e92f872bdc3e251784ba8f1a4aa860ae9",
-        "dfe143675e8875fc512fc47f4e2ea630f36de32311207de6a446ac95bdcff8c5",
-        "fc5a93bd0bbcc8be8be6b1d9b866abe09723e7a61c21fe313fb1f8c8eb3b2e5f",
-        "a94eeddfa8e301c840129a01864e2c0ac0dd63761d192d3758199b832e3b7589",
-        "b3f1b3b576ded395f3798cafaa004f9640805d8e8dc4c73245a946e11eafe22c",
-        "9f29df8e5da594a28a729d6c1ea40f76020bd81ae748574d2863fd6d55846371"
-      ],
-      "PrevBlockHash": "000000000000000000004056401b26afd5e5e46b7f5566931e8ef131368a8d8a",
-      "Difficulty": 5913.162505746322,
-      "DiffString": "5.91k",
-      "Source": "datum",
-      "Timestamp": "2026-04-05T03:59:27.2927606Z"
     },
     {
       "ShareId": "b449b0056bd1c20871c978219c5e7f7b83899e5c3b5afc08068c1c697ce5a148",
@@ -18731,13 +18700,6 @@
       "Source": "datum",
       "Difficulty": 1510153.8732092862,
       "TimestampUtc": "2026-04-05T03:59:27.0286812Z"
-    },
-    {
-      "MinerAddress": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-      "Username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y.Start9_DATUM_MaraHeater",
-      "Source": "datum",
-      "Difficulty": 5913.162505746322,
-      "TimestampUtc": "2026-04-05T03:59:27.2927606Z"
     }
   ],
   "HashrateSamples": [
