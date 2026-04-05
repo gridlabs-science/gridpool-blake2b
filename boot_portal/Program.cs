@@ -146,6 +146,12 @@ public class PoolConfig
     [JsonPropertyName("accepted_share_telemetry_retention_hours")]
     public int AcceptedShareTelemetryRetentionHours { get; set; } = 2;
 
+    [JsonPropertyName("share_diagnostic_retention_hours")]
+    public int ShareDiagnosticRetentionHours { get; set; } = 12;
+
+    [JsonPropertyName("stale_datum_payout_mismatch_threshold")]
+    public int StaleDatumPayoutMismatchThreshold { get; set; } = 4;
+
     [JsonIgnore]
     public bool TestingRoundResetEnabled =>
         string.Equals(TestingRoundResetMode, "block_hash_low_nibble", StringComparison.OrdinalIgnoreCase) &&
@@ -578,6 +584,8 @@ public class ClientHandler
     private string _clientPayoutAddress = "";
     private string _clientIdentityKey = "";
     private string _clientEncryptIdentityKey = "";
+    private int _consecutivePayoutMismatchRejections = 0;
+    private DateTime _lastStaleTemplateRefreshUtc = DateTime.MinValue;
     private readonly CancellationToken _stoppingToken;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
@@ -737,6 +745,44 @@ public class ClientHandler
         }
 
         await SendEncryptedMessageAsync(0x05, [0xF9], isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false);
+        return true;
+    }
+
+    private static bool IsPayoutMismatchReason(string? reason)
+    {
+        return !string.IsNullOrWhiteSpace(reason) &&
+               reason.StartsWith("Coinbase winners payouts do not match", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void ResetStaleTemplateTracking()
+    {
+        _consecutivePayoutMismatchRejections = 0;
+    }
+
+    private async Task<bool> HandlePotentialStaleTemplateRejectAsync(string? rejectionReason)
+    {
+        if (!IsPayoutMismatchReason(rejectionReason))
+        {
+            return false;
+        }
+
+        _consecutivePayoutMismatchRejections++;
+
+        DateTime nowUtc = DateTime.UtcNow;
+        if ((nowUtc - _lastStaleTemplateRefreshUtc).TotalSeconds >= 2)
+        {
+            _lastStaleTemplateRefreshUtc = nowUtc;
+            await RequestBlockTemplateRefreshAsync();
+        }
+
+        int disconnectThreshold = Math.Clamp(_poolConfig.StaleDatumPayoutMismatchThreshold, 2, 20);
+        if (_consecutivePayoutMismatchRejections < disconnectThreshold)
+        {
+            return false;
+        }
+
+        Console.WriteLine(
+            $"⚠️ DATUM client {_client.Client.RemoteEndPoint} submitted {_consecutivePayoutMismatchRejections} consecutive stale payout shares for {_clientPayoutAddress}. Disconnecting to force a clean reconnect.");
         return true;
     }
 
@@ -1379,6 +1425,16 @@ public class ClientHandler
             Source = "datum"
         }, "datum-block");
         shareAccepted = recordResult.Accepted;
+        bool disconnectAfterResponse = false;
+
+        if (recordResult.Accepted)
+        {
+            ResetStaleTemplateTracking();
+        }
+        else
+        {
+            disconnectAfterResponse = await HandlePotentialStaleTemplateRejectAsync(recordResult.RejectionReason);
+        }
 
         if (recordResult.Accepted && recordResult.ComputedDifficulty > _bestDiff)
         {
@@ -1394,6 +1450,10 @@ public class ClientHandler
         //#define DATUM_POW_SHARE_RESPONSE_REJECTED 0x66
 
         await SendShareResponseAsync(powSubmit, shareAccepted);
+        if (disconnectAfterResponse)
+        {
+            _client.Close();
+        }
         //Console.WriteLine($"[SEND] Share Response [{(isHeaderValid && isValidCoinbase ? "ACCEPTED" : "REJECTED")}] (0x05, 0x{shareResponse.Status:X2})");
     }
 

@@ -710,6 +710,12 @@
             <div>Round Age: <span class="accent-value" id="current-round-age">--</span></div>
             <div>Estimated Hashrate: <span class="accent-value" id="current-round-hashrate">--</span></div>
             <div>Local DATUM Hashrate: <span class="accent-value" id="local-datum-hashrate">--</span></div>
+            <h3 style="margin-top: 10px;">Local DATUM Diagnostics</h3>
+            <div>Window: <span class="accent-value" id="datum-diagnostic-window">--</span></div>
+            <div>Accepted: <span class="accent-value" id="datum-accepted-count">--</span></div>
+            <div>On Deck: <span class="accent-value" id="datum-ondeck-count">--</span></div>
+            <div>Rejected: <span class="accent-value" id="datum-rejected-count">--</span></div>
+            <div>Acceptance: <span class="accent-value" id="datum-acceptance-rate">--</span></div>
             <div>Test Trigger: <span class="accent-value" id="testing-trigger-status">Loading...</span></div>
             <div>Last Test Block: <span class="accent-value" id="last-testing-trigger-block">--</span></div>
             <h3 style="margin-top: 10px;">Commitment Preview</h3>
@@ -717,6 +723,7 @@
             <div class="search-results" id="commitment-note"></div>
             <div class="search-results" id="testing-trigger-note"></div>
             <div class="search-results" id="round-hashrate-note">Team estimate uses the median rank-adjusted current On Deck share set. Local DATUM estimate uses a rolling window of directly connected DATUM shares.</div>
+            <div class="search-results" id="datum-rejection-note"></div>
         </div>
     </div>
 
@@ -1060,6 +1067,39 @@
         if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
         if (minutes > 0) return `${minutes}m ${seconds}s`;
         return `${seconds}s`;
+    }
+
+    function formatDiagnosticWindow(windowSeconds) {
+        if (!windowSeconds || windowSeconds <= 0) return "--";
+        const hours = windowSeconds / 3600;
+        if (hours >= 24 && Number.isInteger(hours / 24)) return `${hours / 24}d`;
+        if (Number.isInteger(hours)) return `${hours}h`;
+        return formatElapsedSeconds(windowSeconds);
+    }
+
+    function formatAcceptanceRate(accepted, total) {
+        if (!total) return "--";
+        return `${((accepted / total) * 100).toFixed(1)}%`;
+    }
+
+    function renderLocalDatumDiagnostics() {
+        const diagnostics = latestNetworkState?.localDatumDiagnostics || {};
+        const reasons = Array.isArray(diagnostics.rejectionReasons) ? diagnostics.rejectionReasons : [];
+        const totalSubmissions = diagnostics.totalSubmissions ?? 0;
+        const acceptedCount = diagnostics.acceptedCount ?? 0;
+        const onDeckCount = diagnostics.acceptedOnDeckCount ?? 0;
+        const rejectedCount = diagnostics.rejectedCount ?? 0;
+
+        document.getElementById("datum-diagnostic-window").innerText = formatDiagnosticWindow(diagnostics.windowSeconds);
+        document.getElementById("datum-accepted-count").innerText = acceptedCount.toLocaleString();
+        document.getElementById("datum-ondeck-count").innerText = onDeckCount.toLocaleString();
+        document.getElementById("datum-rejected-count").innerText = rejectedCount.toLocaleString();
+        document.getElementById("datum-acceptance-rate").innerText = formatAcceptanceRate(acceptedCount, totalSubmissions);
+
+        const reasonText = reasons.length > 0
+            ? `Top rejects: ${reasons.map(item => `${item.reason} (${item.count})`).join(", ")}`
+            : "Top rejects: none";
+        document.getElementById("datum-rejection-note").innerText = reasonText;
     }
 
     function estimateRankAdjustedHashrateThs(difficulties, elapsedSeconds) {
@@ -2053,6 +2093,7 @@
         document.getElementById("commitment-note").innerText = state.commitment?.supportNote || "";
         document.getElementById("testing-trigger-note").innerText = state.testingRoundResetDescription || "";
         renderPeerTable(state.peers || []);
+        renderLocalDatumDiagnostics();
         updateCurrentRoundTelemetry();
         updateHashrateHistoryChart();
     });

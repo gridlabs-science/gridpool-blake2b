@@ -22,6 +22,7 @@ public class BootProtocolStateService
     private readonly Channel<BootShareProof> _acceptedShares = Channel.CreateUnbounded<BootShareProof>();
     private readonly HashSet<string> _seenShareIds = [];
     private readonly Queue<string> _seenShareQueue = new();
+    private readonly List<BootShareDiagnosticTelemetry> _recentShareDiagnostics = [];
     private const int MaxSeenShareIds = 20000;
     private const int MaxAcceptedParentBlockHashes = 100000;
 
@@ -322,6 +323,22 @@ public class BootProtocolStateService
         BootShareValidationResult validation = _shareVerifier.ValidateShare(share, winnersSnapshot, acceptedParentBlockHashesSnapshot);
         if (!validation.IsValid)
         {
+            BootNetworkStatusDto networkStatus;
+            DateTime nowUtc = DateTime.UtcNow;
+            lock (_sync)
+            {
+                RecordShareDiagnosticNoLock(
+                    share.Source,
+                    share.MinerAddress,
+                    string.IsNullOrWhiteSpace(share.Username) ? share.MinerAddress : share.Username,
+                    accepted: false,
+                    affectedOnDeck: false,
+                    validation.RejectionReason,
+                    share.Difficulty,
+                    nowUtc);
+                networkStatus = BuildNetworkStatusNoLock();
+            }
+
             _logger.LogInformation(
                 "Rejected {Source} share from {MinerAddress}: {Reason}",
                 string.IsNullOrWhiteSpace(share.Source) ? "unknown" : share.Source,
@@ -333,12 +350,28 @@ public class BootProtocolStateService
                 RejectionReason = validation.RejectionReason ?? "Invalid share",
                 BestShare = GetBestShare(),
                 OnDeckList = GetOnDeckList(),
-                NetworkStatus = GetNetworkStatus()
+                NetworkStatus = networkStatus
             };
         }
 
         if (validation.Difficulty < 1)
         {
+            BootNetworkStatusDto networkStatus;
+            DateTime nowUtc = DateTime.UtcNow;
+            lock (_sync)
+            {
+                RecordShareDiagnosticNoLock(
+                    share.Source,
+                    validation.MinerAddress,
+                    string.IsNullOrWhiteSpace(validation.Username) ? validation.MinerAddress : validation.Username,
+                    accepted: false,
+                    affectedOnDeck: false,
+                    "Low difficulty",
+                    validation.Difficulty,
+                    nowUtc);
+                networkStatus = BuildNetworkStatusNoLock();
+            }
+
             _logger.LogInformation(
                 "Rejected {Source} share from {MinerAddress}: low difficulty ({Difficulty})",
                 string.IsNullOrWhiteSpace(share.Source) ? "unknown" : share.Source,
@@ -351,7 +384,7 @@ public class BootProtocolStateService
                 ComputedDifficulty = validation.Difficulty,
                 BestShare = GetBestShare(),
                 OnDeckList = GetOnDeckList(),
-                NetworkStatus = GetNetworkStatus()
+                NetworkStatus = networkStatus
             };
         }
 
@@ -361,6 +394,15 @@ public class BootProtocolStateService
         {
             if (!string.Equals(currentStateSnapshot, _state.CurrentStateId, StringComparison.OrdinalIgnoreCase))
             {
+                RecordShareDiagnosticNoLock(
+                    share.Source,
+                    validation.MinerAddress,
+                    string.IsNullOrWhiteSpace(validation.Username) ? validation.MinerAddress : validation.Username,
+                    accepted: false,
+                    affectedOnDeck: false,
+                    "Round changed during validation",
+                    validation.Difficulty,
+                    DateTime.UtcNow);
                 return new ShareRecordingResult
                 {
                     Accepted = false,
@@ -374,6 +416,15 @@ public class BootProtocolStateService
 
             if (!IsAcceptedParentBlockHashNoLock(validation.PrevBlockHash))
             {
+                RecordShareDiagnosticNoLock(
+                    share.Source,
+                    validation.MinerAddress,
+                    string.IsNullOrWhiteSpace(validation.Username) ? validation.MinerAddress : validation.Username,
+                    accepted: false,
+                    affectedOnDeck: false,
+                    "Accepted parent set changed during validation",
+                    validation.Difficulty,
+                    DateTime.UtcNow);
                 return new ShareRecordingResult
                 {
                     Accepted = false,
@@ -388,6 +439,15 @@ public class BootProtocolStateService
             BootShareProof proof = CreateProofNoLock(validation, share.Source);
             if (!RememberShareIdNoLock(proof.ShareId))
             {
+                RecordShareDiagnosticNoLock(
+                    share.Source,
+                    proof.MinerAddress,
+                    string.IsNullOrWhiteSpace(proof.Username) ? proof.MinerAddress : proof.Username,
+                    accepted: false,
+                    affectedOnDeck: false,
+                    "Duplicate share",
+                    validation.Difficulty,
+                    proof.Timestamp);
                 return new ShareRecordingResult
                 {
                     Accepted = false,
@@ -440,6 +500,15 @@ public class BootProtocolStateService
             }
 
             RecordAcceptedShareTelemetryNoLock(proof);
+            RecordShareDiagnosticNoLock(
+                share.Source,
+                proof.MinerAddress,
+                string.IsNullOrWhiteSpace(proof.Username) ? proof.MinerAddress : proof.Username,
+                accepted: true,
+                affectedOnDeck: affectedOnDeck,
+                rejectionReason: null,
+                difficulty: validation.Difficulty,
+                timestampUtc: proof.Timestamp);
             MaybeCaptureHashrateSampleNoLock(proof.Timestamp, force: false);
             _state.CandidateStateId = ComputeCandidateStateIdNoLock();
             SaveStateNoLock();
@@ -1382,6 +1451,7 @@ public class BootProtocolStateService
         double onDeckTotalDifficulty = onDeckDifficulties.Sum();
         double? currentRoundObservedHashrateThs = EstimateRankAdjustedHashrateThs(onDeckDifficulties, currentRoundElapsedSeconds);
         double? localDatumHashrateThs = EstimateLocalDatumHashrateThsNoLock(nowUtc);
+        BootDatumDiagnosticsDto localDatumDiagnostics = BuildLocalDatumDiagnosticsNoLock(nowUtc);
 
         return new BootNetworkStatusDto
         {
@@ -1411,6 +1481,7 @@ public class BootProtocolStateService
             TestingRoundResetDescription = BuildTestingRoundResetDescriptionNoLock(),
             LastTestingTriggerBlockHash = _state.LastTestingTriggerBlockHash,
             LastTestingTriggerBlockHeight = _state.LastTestingTriggerBlockHeight,
+            LocalDatumDiagnostics = localDatumDiagnostics,
             Peers = _state.Peers.Select(ClonePeer).ToList(),
             Commitment = BuildCommitmentNoLock()
         };
@@ -1567,6 +1638,67 @@ public class BootProtocolStateService
         return (long)Math.Floor(totalSeconds);
     }
 
+    private BootDatumDiagnosticsDto BuildLocalDatumDiagnosticsNoLock(DateTime nowUtc)
+    {
+        TrimShareDiagnosticsNoLock(nowUtc);
+
+        DateTime cutoffUtc = nowUtc.AddHours(-GetShareDiagnosticRetentionHours());
+        List<BootShareDiagnosticTelemetry> localDatumDiagnostics = _recentShareDiagnostics
+            .Where(item => string.Equals(item.Source, "datum", StringComparison.OrdinalIgnoreCase) &&
+                           item.TimestampUtc >= cutoffUtc)
+            .OrderBy(item => item.TimestampUtc)
+            .ToList();
+
+        return new BootDatumDiagnosticsDto
+        {
+            WindowSeconds = GetShareDiagnosticRetentionHours() * 3600,
+            TotalSubmissions = localDatumDiagnostics.Count,
+            AcceptedCount = localDatumDiagnostics.Count(item => item.Accepted),
+            AcceptedOnDeckCount = localDatumDiagnostics.Count(item => item.Accepted && item.AffectedOnDeck),
+            RejectedCount = localDatumDiagnostics.Count(item => !item.Accepted),
+            LastAcceptedUtc = localDatumDiagnostics.LastOrDefault(item => item.Accepted)?.TimestampUtc,
+            LastRejectedUtc = localDatumDiagnostics.LastOrDefault(item => !item.Accepted)?.TimestampUtc,
+            RejectionReasons = localDatumDiagnostics
+                .Where(item => !item.Accepted && !string.IsNullOrWhiteSpace(item.RejectionCategory))
+                .GroupBy(item => item.RejectionCategory!, StringComparer.OrdinalIgnoreCase)
+                .Select(group => new BootReasonCountDto
+                {
+                    Reason = group.Key,
+                    Count = group.Count()
+                })
+                .OrderByDescending(item => item.Count)
+                .ThenBy(item => item.Reason, StringComparer.OrdinalIgnoreCase)
+                .Take(5)
+                .ToList()
+        };
+    }
+
+    private void RecordShareDiagnosticNoLock(
+        string source,
+        string minerAddress,
+        string username,
+        bool accepted,
+        bool affectedOnDeck,
+        string? rejectionReason,
+        double difficulty,
+        DateTime timestampUtc)
+    {
+        _recentShareDiagnostics.Add(new BootShareDiagnosticTelemetry
+        {
+            Source = string.IsNullOrWhiteSpace(source) ? "unknown" : source,
+            MinerAddress = minerAddress,
+            Username = username,
+            Accepted = accepted,
+            AffectedOnDeck = affectedOnDeck,
+            RejectionReason = rejectionReason,
+            RejectionCategory = NormalizeDiagnosticReason(rejectionReason),
+            Difficulty = difficulty,
+            TimestampUtc = timestampUtc
+        });
+
+        TrimShareDiagnosticsNoLock(timestampUtc);
+    }
+
     private void RecordAcceptedShareTelemetryNoLock(BootShareProof proof)
     {
         _state.RecentAcceptedShares.Add(new BootAcceptedShareTelemetry
@@ -1636,6 +1768,12 @@ public class BootProtocolStateService
         return EstimateRankAdjustedHashrateThs(localDatumShares.Select(share => share.Difficulty), elapsedSeconds);
     }
 
+    private void TrimShareDiagnosticsNoLock(DateTime nowUtc)
+    {
+        DateTime cutoffUtc = nowUtc.AddHours(-GetShareDiagnosticRetentionHours());
+        _recentShareDiagnostics.RemoveAll(item => item.TimestampUtc < cutoffUtc);
+    }
+
     private void TrimAcceptedShareTelemetryNoLock(DateTime nowUtc)
     {
         DateTime cutoffUtc = nowUtc.AddHours(-GetAcceptedShareTelemetryRetentionHours());
@@ -1662,6 +1800,8 @@ public class BootProtocolStateService
 
     private int GetAcceptedShareTelemetryRetentionHours() => Math.Clamp(_poolConfig.AcceptedShareTelemetryRetentionHours, 1, 168);
 
+    private int GetShareDiagnosticRetentionHours() => Math.Clamp(_poolConfig.ShareDiagnosticRetentionHours, 1, 168);
+
     private DateTime ResolveHashrateSeriesCutoffUtc(string? windowKey, DateTime nowUtc)
     {
         DateTime retentionCutoffUtc = nowUtc.AddDays(-GetHashrateSampleRetentionDays());
@@ -1681,6 +1821,56 @@ public class BootProtocolStateService
 
         DateTime requestedCutoffUtc = nowUtc.Subtract(requestedWindow.Value);
         return requestedCutoffUtc > retentionCutoffUtc ? requestedCutoffUtc : retentionCutoffUtc;
+    }
+
+    private static string? NormalizeDiagnosticReason(string? rejectionReason)
+    {
+        if (string.IsNullOrWhiteSpace(rejectionReason))
+        {
+            return null;
+        }
+
+        if (rejectionReason.StartsWith("Coinbase winners payouts do not match", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Payout mismatch";
+        }
+
+        if (rejectionReason.StartsWith("Share builds on the wrong parent block", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Wrong parent block";
+        }
+
+        if (rejectionReason.StartsWith("Coinbase slot 0 does not pay", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Slot 0 mismatch";
+        }
+
+        if (rejectionReason.StartsWith("Prev block hash does not match", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Prev block mismatch";
+        }
+
+        if (rejectionReason.StartsWith("Round changed during validation", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Round changed";
+        }
+
+        if (rejectionReason.StartsWith("Accepted parent set changed during validation", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Accepted parent changed";
+        }
+
+        if (rejectionReason.StartsWith("Duplicate share", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Duplicate share";
+        }
+
+        if (rejectionReason.StartsWith("Low difficulty", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Low difficulty";
+        }
+
+        return rejectionReason;
     }
 
     private static double? EstimateRankAdjustedHashrateThs(IEnumerable<double> difficulties, long? elapsedSeconds)

@@ -46,6 +46,24 @@ public class BootPeerStatus
     public DateTime? LastSeenUtc { get; set; }
 }
 
+public class BootReasonCountDto
+{
+    public string Reason { get; set; } = string.Empty;
+    public int Count { get; set; }
+}
+
+public class BootDatumDiagnosticsDto
+{
+    public int WindowSeconds { get; set; }
+    public int TotalSubmissions { get; set; }
+    public int AcceptedCount { get; set; }
+    public int AcceptedOnDeckCount { get; set; }
+    public int RejectedCount { get; set; }
+    public DateTime? LastAcceptedUtc { get; set; }
+    public DateTime? LastRejectedUtc { get; set; }
+    public List<BootReasonCountDto> RejectionReasons { get; set; } = [];
+}
+
 public class BootNetworkStatusDto
 {
     public string SelfEndpoint { get; set; } = string.Empty;
@@ -74,6 +92,7 @@ public class BootNetworkStatusDto
     public string TestingRoundResetDescription { get; set; } = string.Empty;
     public string? LastTestingTriggerBlockHash { get; set; }
     public long? LastTestingTriggerBlockHeight { get; set; }
+    public BootDatumDiagnosticsDto LocalDatumDiagnostics { get; set; } = new();
     public List<BootPeerStatus> Peers { get; set; } = [];
     public BootCommitmentInfo Commitment { get; set; } = new();
 }
@@ -83,6 +102,19 @@ public class BootAcceptedShareTelemetry
     public string MinerAddress { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
     public string Source { get; set; } = string.Empty;
+    public double Difficulty { get; set; }
+    public DateTime TimestampUtc { get; set; }
+}
+
+public class BootShareDiagnosticTelemetry
+{
+    public string Source { get; set; } = string.Empty;
+    public string MinerAddress { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public bool Accepted { get; set; }
+    public bool AffectedOnDeck { get; set; }
+    public string? RejectionReason { get; set; }
+    public string? RejectionCategory { get; set; }
     public double Difficulty { get; set; }
     public DateTime TimestampUtc { get; set; }
 }
