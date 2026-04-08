@@ -580,12 +580,13 @@ public class ClientHandler
     private HelloMessage? _helloMessage;
     private readonly PoolConfig _poolConfig;
     private readonly PowSubmitMessage?[] _jobCache = new PowSubmitMessage?[8];
-    private double _bestDiff = 0;
     private string _clientPayoutAddress = "";
     private string _clientIdentityKey = "";
     private string _clientEncryptIdentityKey = "";
     private int _consecutivePayoutMismatchRejections = 0;
     private DateTime _lastStaleTemplateRefreshUtc = DateTime.MinValue;
+    private bool _sessionPayoutAddressLocked = false;
+    private readonly HashSet<string> _loggedUnexpectedPayoutAddresses = new(StringComparer.OrdinalIgnoreCase);
     private readonly CancellationToken _stoppingToken;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
@@ -606,7 +607,7 @@ public class ClientHandler
         _x25519KeyLongTerm = serverLongTermXKey;
         _poolConfig = poolConfig;
         _stateService = stateService;
-        _clientPayoutAddress = _poolConfig.PoolPayoutScript; //Temporary, just until we get the client's first PoW share, which has their address/username.
+        _clientPayoutAddress = BootProtocolStateService.GenesisFoundationAddress;
         _stoppingToken = st;
         Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} connected.");
     }
@@ -1017,12 +1018,11 @@ public class ClientHandler
             _stateService.GetKnownDatumPayoutAddress(_clientEncryptIdentityKey);
         if (!string.IsNullOrWhiteSpace(rememberedPayoutAddress))
         {
-            _clientPayoutAddress = rememberedPayoutAddress;
             string signingKeyPreview = _clientIdentityKey.Length >= 8
                 ? _clientIdentityKey[..8]
                 : _clientIdentityKey;
             Console.WriteLine(
-                $"🔁 Restored DATUM client payout address {_clientPayoutAddress} for client {signingKeyPreview}...");
+                $"🔁 Known DATUM client payout address {rememberedPayoutAddress} for client {signingKeyPreview}... starting this session on the temporary 256 Foundation slot-0 address until the first share locks the payout address.");
         }
 
         //Initialize a new ed25519 key for signing the session messages with
@@ -1223,6 +1223,7 @@ public class ClientHandler
         //  using _poolConfig.PoolPayoutScript as default fallback
         string[] parts = powSubmit.Username.Split('.');
         string? validatedAddress = null;
+        bool usedSessionFallback = false;
         // 1. Check Priority: Address2 (Second part of username: address.address2.worker)
         if (parts.Length >= 2 && IsValidAddress(parts[1]))
         {
@@ -1241,64 +1242,68 @@ public class ClientHandler
         {
             //Console.WriteLine($"[Warning] Invalid or missing address in username '{powSubmit.Username}'. Using default.");
             validatedAddress = _clientPayoutAddress; 
+            usedSessionFallback = true;
         }
 
-        powSubmit.Address = validatedAddress;
-        RememberClientPayoutAddress(powSubmit.Address);
-
-        bool payoutAddressChanged = !string.Equals(
-            BitcoinScript.NormalizeAddress(_clientPayoutAddress),
-            BitcoinScript.NormalizeAddress(powSubmit.Address),
-            StringComparison.OrdinalIgnoreCase);
-        if (payoutAddressChanged)
+        string submittedAddress = BitcoinScript.NormalizeAddress(validatedAddress);
+        if (!_sessionPayoutAddressLocked && !usedSessionFallback && IsValidAddress(submittedAddress))
         {
-            string previousAddress = _clientPayoutAddress;
-            _clientPayoutAddress = powSubmit.Address;
-            _bestDiff = 0;
-            Array.Clear(_jobCache, 0, _jobCache.Length);
+            _clientPayoutAddress = submittedAddress;
+            _sessionPayoutAddressLocked = true;
+            RememberClientPayoutAddress(_clientPayoutAddress);
             Console.WriteLine(
-                $"♻️ Updating DATUM client payout address from {previousAddress} to {_clientPayoutAddress} and requesting fresh templates.");
-            await RequestBlockTemplateRefreshAsync();
-            await SendShareResponseAsync(powSubmit, accepted: false);
-            return;
+                $"🔒 Locked DATUM session {_client.Client.RemoteEndPoint} to payout address {_clientPayoutAddress}.");
         }
+        else if (_sessionPayoutAddressLocked &&
+                 IsValidAddress(submittedAddress) &&
+                 !string.Equals(submittedAddress, _clientPayoutAddress, StringComparison.OrdinalIgnoreCase) &&
+                 _loggedUnexpectedPayoutAddresses.Add(submittedAddress))
+        {
+            Console.WriteLine(
+                $"⚠️ DATUM session {_client.Client.RemoteEndPoint} submitted share usernames for unexpected payout address {submittedAddress} after locking to {_clientPayoutAddress}. Treating the session as a single payout address.");
+        }
+
+        powSubmit.Address = _clientPayoutAddress;
 
         if (powSubmit.PrevBlockHash == null)  //This is just a nonce update, does not include complete header info
         {
-            if (powSubmit.JobId < 0 || powSubmit.JobId >= _jobCache.Length || _jobCache[powSubmit.JobId] == null)
+            if (powSubmit.JobId >= _jobCache.Length || _jobCache[powSubmit.JobId] == null)
             {
                 Console.WriteLine(
-                    $"⚠️ Missing cached DATUM job {powSubmit.JobId} for nonce-only update from {_clientPayoutAddress}. Requesting fresh templates.");
+                    $"⚠️ Missing cached DATUM job {powSubmit.JobId} for nonce-only update from {powSubmit.Address}. Requesting fresh templates.");
                 await RequestBlockTemplateRefreshAsync();
                 await SendShareResponseAsync(powSubmit, accepted: false);
                 return;
             }
 
-            _jobCache[powSubmit.JobId].CoinbaseId = powSubmit.CoinbaseId;  
-            _jobCache[powSubmit.JobId].IsBlock = powSubmit.IsBlock;
-            _jobCache[powSubmit.JobId].SubsidyOnly = powSubmit.SubsidyOnly;
-            _jobCache[powSubmit.JobId].QuickDiff = powSubmit.QuickDiff;
-            _jobCache[powSubmit.JobId].TargetByte = powSubmit.TargetByte;
-            _jobCache[powSubmit.JobId].NTime = powSubmit.NTime;
-            _jobCache[powSubmit.JobId].Nonce = powSubmit.Nonce;
-            _jobCache[powSubmit.JobId].Version = powSubmit.Version;
-            _jobCache[powSubmit.JobId].ExtranonceSize = powSubmit.ExtranonceSize;  //Always 12, but whatever
-            _jobCache[powSubmit.JobId].Extranonce = powSubmit.Extranonce;
-            _jobCache[powSubmit.JobId].Username = powSubmit.Username;
+            _jobCache[powSubmit.JobId]!.CoinbaseId = powSubmit.CoinbaseId;  
+            _jobCache[powSubmit.JobId]!.IsBlock = powSubmit.IsBlock;
+            _jobCache[powSubmit.JobId]!.SubsidyOnly = powSubmit.SubsidyOnly;
+            _jobCache[powSubmit.JobId]!.QuickDiff = powSubmit.QuickDiff;
+            _jobCache[powSubmit.JobId]!.TargetByte = powSubmit.TargetByte;
+            _jobCache[powSubmit.JobId]!.NTime = powSubmit.NTime;
+            _jobCache[powSubmit.JobId]!.Nonce = powSubmit.Nonce;
+            _jobCache[powSubmit.JobId]!.Version = powSubmit.Version;
+            _jobCache[powSubmit.JobId]!.ExtranonceSize = powSubmit.ExtranonceSize;  //Always 12, but whatever
+            _jobCache[powSubmit.JobId]!.Extranonce = powSubmit.Extranonce;
+            _jobCache[powSubmit.JobId]!.Username = powSubmit.Username;
             //Now check if we got new coinbase data with this share:
             if (powSubmit.SubsidyOnlyCoinb1 != null) //This share includes subsidy only coinbase data
             {
-                _jobCache[powSubmit.JobId].SubsidyOnlyCoinb1 = powSubmit.SubsidyOnlyCoinb1;
-                _jobCache[powSubmit.JobId].SubsidyOnlyCoinb2 = powSubmit.SubsidyOnlyCoinb2;
+                _jobCache[powSubmit.JobId]!.SubsidyOnlyCoinb1 = powSubmit.SubsidyOnlyCoinb1;
+                _jobCache[powSubmit.JobId]!.SubsidyOnlyCoinb2 = powSubmit.SubsidyOnlyCoinb2;
             }
             else if (!powSubmit.SubsidyOnly && powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb1 != null)  // Got a new coinbase with this one
             {
                 //Console.WriteLine("New coinbase data");
-                _jobCache[powSubmit.JobId].CoinbasePairs[powSubmit.CoinbaseId] = powSubmit.CoinbasePairs[powSubmit.CoinbaseId];
+                _jobCache[powSubmit.JobId]!.CoinbasePairs[powSubmit.CoinbaseId] = powSubmit.CoinbasePairs[powSubmit.CoinbaseId];
             }
-            powSubmit = _jobCache[powSubmit.JobId];  //Copies back over the Merkle Branch info.
+            powSubmit = _jobCache[powSubmit.JobId]!;  //Copies back over the Merkle Branch info.
         }
-        else _jobCache[powSubmit.JobId] = powSubmit;  //New job, with complete header info.  
+        else if (powSubmit.JobId < _jobCache.Length)
+        {
+            _jobCache[powSubmit.JobId] = powSubmit;  //New job, with complete header info.  
+        }
         //TODO: Technically, there is the very edge case that a miner could reuse old coinbase info with a new job and merkle branches.  This case isn't handled right now.
 
         
@@ -1370,7 +1375,10 @@ public class ClientHandler
 
         byte[] coinbaseHash = DoubleSha256(coinbaseTx);
         powSubmit.MerkleRoot = ComputeMerkleRoot(coinbaseHash, powSubmit.MerkleBranches, powSubmit.MerkleBranchCount.Value);
-        _jobCache[powSubmit.JobId].MerkleRoot = powSubmit.MerkleRoot; //For completeness, I guess.
+        if (powSubmit.JobId < _jobCache.Length && _jobCache[powSubmit.JobId] != null)
+        {
+            _jobCache[powSubmit.JobId]!.MerkleRoot = powSubmit.MerkleRoot; //For completeness, I guess.
+        }
 
         // Reconstruct block header
         byte[] header = new byte[80];
@@ -1434,12 +1442,6 @@ public class ClientHandler
         else
         {
             disconnectAfterResponse = await HandlePotentialStaleTemplateRejectAsync(recordResult.RejectionReason);
-        }
-
-        if (recordResult.Accepted && recordResult.ComputedDifficulty > _bestDiff)
-        {
-            _clientPayoutAddress = powSubmit.Address;
-            _bestDiff = recordResult.ComputedDifficulty;
         }
 
         //Console.WriteLine("-----------------------------------------");

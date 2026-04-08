@@ -171,7 +171,7 @@ public class BootShareVerifier
             }
 
             List<BitcoinTransactionOutput> outputs = BitcoinTransactionParser.ParseOutputs(coinbaseBytes);
-            ValidatePayoutOutputs(outputs, minerScript, expectedWinners);
+            ValidatePayoutOutputs(outputs, expectedWinners);
 
             byte[] headerHash = DoubleSha256(headerBytes);
             string blockHash = BitcoinHashes.ToDisplayHashHex(headerHash);
@@ -221,17 +221,11 @@ public class BootShareVerifier
 
     private static void ValidatePayoutOutputs(
         IReadOnlyList<BitcoinTransactionOutput> outputs,
-        byte[] minerScript,
         IReadOnlyList<PayoutInfo> expectedWinners)
     {
         if (outputs.Count == 0)
         {
             throw new InvalidOperationException("Coinbase payout list is too short.");
-        }
-
-        if (!outputs[0].ScriptPubKey.SequenceEqual(minerScript))
-        {
-            throw new InvalidOperationException("Coinbase slot 0 does not pay the submitting miner.");
         }
 
         List<ExpectedWinnerOutput> legacyOutputs = BuildLegacyWinnerOutputs(expectedWinners);
@@ -240,7 +234,7 @@ public class BootShareVerifier
 
         if (MatchesWinnerOutputs(winnerOutputs, legacyOutputs) ||
             MatchesWinnerOutputs(winnerOutputs, compressedOutputs) ||
-            MatchesAggregatedWinnerOutputs(outputs, minerScript, compressedOutputs))
+            MatchesAggregatedWinnerOutputs(outputs, compressedOutputs))
         {
             return;
         }
@@ -328,33 +322,34 @@ public class BootShareVerifier
 
     private static bool MatchesAggregatedWinnerOutputs(
         IReadOnlyList<BitcoinTransactionOutput> actualOutputs,
-        byte[] minerScript,
         IReadOnlyList<ExpectedWinnerOutput> expectedOutputs)
     {
-        string minerScriptHex = Convert.ToHexString(minerScript).ToLowerInvariant();
         Dictionary<string, ulong> actualTotals = AggregateActualOutputs(actualOutputs);
         Dictionary<string, ulong> expectedTotals = AggregateExpectedOutputs(expectedOutputs);
+        bool sawSlotZeroResidual = false;
 
-        foreach ((string scriptHex, ulong expectedValue) in expectedTotals)
+        foreach (string scriptHex in actualTotals.Keys.Union(expectedTotals.Keys, StringComparer.OrdinalIgnoreCase))
         {
+            expectedTotals.TryGetValue(scriptHex, out ulong expectedValue);
             actualTotals.TryGetValue(scriptHex, out ulong actualValue);
-            if (string.Equals(scriptHex, minerScriptHex, StringComparison.OrdinalIgnoreCase))
+
+            if (actualValue < expectedValue)
             {
-                if (actualValue <= expectedValue)
+                return false;
+            }
+
+            if (actualValue > expectedValue)
+            {
+                if (sawSlotZeroResidual)
                 {
                     return false;
                 }
 
-                continue;
-            }
-
-            if (actualValue != expectedValue)
-            {
-                return false;
+                sawSlotZeroResidual = true;
             }
         }
 
-        return actualTotals.TryGetValue(minerScriptHex, out ulong minerTotal) && minerTotal > 0;
+        return sawSlotZeroResidual;
     }
 
     private static Dictionary<string, ulong> AggregateActualOutputs(IReadOnlyList<BitcoinTransactionOutput> outputs)

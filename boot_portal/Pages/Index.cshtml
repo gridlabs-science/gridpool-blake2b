@@ -792,6 +792,10 @@
                         <button class="toggle-btn" id="hashrate-window-30d-btn" onclick="setHashrateWindow('30d')">30D</button>
                         <button class="toggle-btn" id="hashrate-window-all-btn" onclick="setHashrateWindow('all')">ALL</button>
                     </div>
+                    <div class="view-toggle">
+                        <button class="toggle-btn active" id="hashrate-scale-linear-btn" onclick="setHashrateScaleMode('linear')">LINEAR</button>
+                        <button class="toggle-btn" id="hashrate-scale-log-btn" onclick="setHashrateScaleMode('log')">LOG</button>
+                    </div>
                 </div>
                 <canvas id="roundHashrateChart"></canvas>
                 <div class="round-history-search-note" id="round-hashrate-chart-note"></div>
@@ -931,6 +935,7 @@
     let roundHistoryOrder = localStorage.getItem("boot-round-history-order") || "oldest-left";
     let chartScaleMode = localStorage.getItem("boot-chart-scale-mode") || "linear";
     let hashrateWindow = localStorage.getItem("boot-hashrate-window") || "24h";
+    let hashrateScaleMode = localStorage.getItem("boot-hashrate-scale-mode") || "linear";
     let currentRoundEstimateTimer = null;
 
     // Global state for client-side searching
@@ -1225,6 +1230,14 @@
         await loadHashrateSeries();
     }
 
+    function setHashrateScaleMode(mode) {
+        hashrateScaleMode = mode === "log" ? "log" : "linear";
+        localStorage.setItem("boot-hashrate-scale-mode", hashrateScaleMode);
+        document.getElementById("hashrate-scale-linear-btn").classList.toggle("active", hashrateScaleMode === "linear");
+        document.getElementById("hashrate-scale-log-btn").classList.toggle("active", hashrateScaleMode === "log");
+        updateHashrateHistoryChart();
+    }
+
     async function loadHashrateSeries() {
         try {
             const response = await fetch(`/api/network/hashrate?window=${encodeURIComponent(hashrateWindow)}`);
@@ -1339,6 +1352,12 @@
         const labels = points.map(point => formatHashratePointLabel(point.timestampMs, !!point.isCurrent));
         const teamData = points.map(point => point.teamHashrateThs);
         const localData = points.map(point => point.localHashrateThs);
+        const positiveValues = [...teamData, ...localData]
+            .map(value => Number(value) || 0)
+            .filter(value => value > 0);
+        const hasPositiveValues = positiveValues.length > 0;
+        const positiveMin = hasPositiveValues ? Math.min(...positiveValues) : null;
+        const useLogScale = hashrateScaleMode === "log" && hasPositiveValues;
         const accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim();
         const secondaryColor = "#39d98a";
 
@@ -1404,7 +1423,9 @@
                         grid: { display: false }
                     },
                     y: {
-                        beginAtZero: true,
+                        type: useLogScale ? "logarithmic" : "linear",
+                        beginAtZero: !useLogScale,
+                        min: useLogScale && positiveMin != null ? Math.max(positiveMin * 0.8, positiveMin / 1.5) : undefined,
                         ticks: {
                             color: "#888",
                             callback: function(value) {
@@ -1423,9 +1444,10 @@
             ? historyOnlyPoints.reduce((sum, point) => sum + point.teamHashrateThs, 0) / historyOnlyPoints.length
             : null;
         const localWindowMinutes = Math.round((globalHashrateSeries?.localWindowSeconds || 1800) / 60);
+        const scaleText = hashrateScaleMode === "log" ? "Log scale emphasizes relative swings and prevents one lucky spike from flattening the rest of the series." : "Linear scale shows absolute swings in estimated hashrate.";
         note.innerText = currentPoint?.isCurrent && averageHashrateThs != null
-            ? `Live team point updates every second from the current On Deck list. Local DATUM estimate uses a rolling ${localWindowMinutes}-minute window. Team window average: ${formatHashrateFromThs(averageHashrateThs)}.`
-            : `Local DATUM estimate uses a rolling ${localWindowMinutes}-minute window of directly connected DATUM shares.`;
+            ? `Live team point updates every second from the current On Deck list. Local DATUM estimate uses a rolling ${localWindowMinutes}-minute window. Team window average: ${formatHashrateFromThs(averageHashrateThs)}. ${scaleText}`
+            : `Local DATUM estimate uses a rolling ${localWindowMinutes}-minute window of directly connected DATUM shares. ${scaleText}`;
     }
 
     function recipientMatchesSearch(item) {
@@ -2102,6 +2124,8 @@
         try {
             document.getElementById("chart-linear-btn").classList.toggle("active", chartScaleMode === "linear");
             document.getElementById("chart-log-btn").classList.toggle("active", chartScaleMode === "log");
+            document.getElementById("hashrate-scale-linear-btn").classList.toggle("active", hashrateScaleMode === "linear");
+            document.getElementById("hashrate-scale-log-btn").classList.toggle("active", hashrateScaleMode === "log");
             await connection.start();
             await connection.invoke("GetInitialData");
             await setHashrateWindow(hashrateWindow);
