@@ -1,5 +1,6 @@
 ﻿using System.Buffers.Binary;
 using System.CommandLine;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Numerics;
@@ -151,6 +152,12 @@ public class PoolConfig
 
     [JsonPropertyName("stale_datum_payout_mismatch_threshold")]
     public int StaleDatumPayoutMismatchThreshold { get; set; } = 4;
+
+    [JsonPropertyName("stale_datum_disconnect_min_seconds")]
+    public int StaleDatumDisconnectMinSeconds { get; set; } = 20;
+
+    [JsonPropertyName("stale_datum_disconnect_cooldown_seconds")]
+    public int StaleDatumDisconnectCooldownSeconds { get; set; } = 60;
 
     [JsonIgnore]
     public bool TestingRoundResetEnabled =>
@@ -584,9 +591,15 @@ public class ClientHandler
     private string _clientIdentityKey = "";
     private string _clientEncryptIdentityKey = "";
     private int _consecutivePayoutMismatchRejections = 0;
+    private DateTime? _staleTemplateSeriesStartedUtc = null;
     private DateTime _lastStaleTemplateRefreshUtc = DateTime.MinValue;
+    private DateTime _lastForcedStaleTemplateDisconnectUtc = DateTime.MinValue;
     private bool _sessionPayoutAddressLocked = false;
     private readonly HashSet<string> _loggedUnexpectedPayoutAddresses = new(StringComparer.OrdinalIgnoreCase);
+    private string? _serverInitiatedCloseEventType;
+    private string? _serverInitiatedCloseMessage;
+    private bool _serverInitiatedCloseLogged = false;
+    private long _coinbaserFetchSequence = 0;
     private readonly CancellationToken _stoppingToken;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
@@ -612,6 +625,51 @@ public class ClientHandler
         Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} connected.");
     }
 
+    private string RemoteEndpointLabel => _client.Client.RemoteEndPoint?.ToString() ?? "unknown";
+
+    private void ScheduleServerInitiatedClose(string message, string eventType = "datum-session-close")
+    {
+        if (_serverInitiatedCloseLogged || string.IsNullOrWhiteSpace(message))
+        {
+            return;
+        }
+
+        _serverInitiatedCloseEventType ??= eventType;
+        _serverInitiatedCloseMessage ??= message;
+    }
+
+    private void FlushServerInitiatedCloseLog()
+    {
+        if (_serverInitiatedCloseLogged || string.IsNullOrWhiteSpace(_serverInitiatedCloseMessage))
+        {
+            return;
+        }
+
+        _serverInitiatedCloseLogged = true;
+        _stateService.RecordExternalNetworkEvent(
+            _serverInitiatedCloseEventType ?? "datum-session-close",
+            "datum",
+            _serverInitiatedCloseMessage);
+        Console.WriteLine($"⚠️ {_serverInitiatedCloseMessage}");
+    }
+
+    private async Task<int> ReadExactOrUntilClosedAsync(byte[] buffer, int length)
+    {
+        int offset = 0;
+        while (offset < length)
+        {
+            int read = await _stream.ReadAsync(buffer, offset, length - offset);
+            if (read == 0)
+            {
+                break;
+            }
+
+            offset += read;
+        }
+
+        return offset;
+    }
+
     public async Task HandleClientAsync()
     {
 
@@ -623,7 +681,7 @@ public class ClientHandler
             {
                 // Step 1: Read the 4-byte header
                 var headerBuffer = new byte[4];
-                int bytesRead = await _stream.ReadAsync(headerBuffer, 0, headerBuffer.Length);
+                int bytesRead = await ReadExactOrUntilClosedAsync(headerBuffer, headerBuffer.Length);
                 if (bytesRead == 0)
                 {
                     Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} disconnected (no data).");
@@ -650,6 +708,8 @@ public class ClientHandler
                 // -------------------------------------
                 if (bytesRead < 4)
                 {
+                    ScheduleServerInitiatedClose(
+                        $"Closing DATUM session {RemoteEndpointLabel} after receiving a partial header ({bytesRead} bytes).");
                     Console.WriteLine($"⚠️ Partial header received ({bytesRead} bytes): {BitConverter.ToString(headerBuffer, 0, bytesRead)}");
                     break;
                 }
@@ -668,8 +728,19 @@ public class ClientHandler
 
                 // Step 2: Read in the message body
                 var bodyBuffer = new byte[header.CmdLen];
-                bytesRead = await _stream.ReadAsync(bodyBuffer, 0, bodyBuffer.Length);
-                if (bytesRead == 0) {Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} disconnected (no body).");  break; }
+                bytesRead = await ReadExactOrUntilClosedAsync(bodyBuffer, bodyBuffer.Length);
+                if (bytesRead == 0)
+                {
+                    Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} disconnected (no body).");
+                    break;
+                }
+                if (bytesRead < bodyBuffer.Length)
+                {
+                    ScheduleServerInitiatedClose(
+                        $"Closing DATUM session {RemoteEndpointLabel} after receiving a partial body ({bytesRead}/{bodyBuffer.Length} bytes).");
+                    Console.WriteLine($"⚠️ Partial body received ({bytesRead}/{bodyBuffer.Length} bytes).");
+                    break;
+                }
                 //Console.WriteLine($"📦 Received body ({bytesRead} bytes)");
                 
                 // Step 3: Decrypt the body
@@ -679,10 +750,23 @@ public class ClientHandler
                 {
                     //Console.WriteLine("Decrypting Signed message");
                     decryptedBody = DecryptSigned(bodyBuffer, bytesRead);
+                    if (decryptedBody == null)
+                    {
+                        ScheduleServerInitiatedClose(
+                            $"Closing DATUM session {RemoteEndpointLabel} after signed payload decryption failed.");
+                        Console.WriteLine("decrypted signed body is null");
+                        break;
+                    }
                     // Verify cmd_len matches decrypted body length
                     //TODO: change "48" to actually reference the libsodium constant instead.
                     //Modified (+48) to account for CryptoBoxSealBytes, the signature that is added to the encrypted payload.
-                    if (header.CmdLen != decryptedBody.Length + 48) { Console.WriteLine($"⚠️ Header cmd_len ({header.CmdLen}) does not match decrypted body length ({decryptedBody.Length})"); break; }
+                    if (header.CmdLen != decryptedBody.Length + 48)
+                    {
+                        ScheduleServerInitiatedClose(
+                            $"Closing DATUM session {RemoteEndpointLabel} because signed payload length {header.CmdLen} did not match decrypted length {decryptedBody.Length}.");
+                        Console.WriteLine($"⚠️ Header cmd_len ({header.CmdLen}) does not match decrypted body length ({decryptedBody.Length})");
+                        break;
+                    }
                 }  //      We need to use a different decryption key depending on the header.protoCmmd
                 else if (header.IsEncryptedChannel)
                 {
@@ -691,12 +775,26 @@ public class ClientHandler
                     // Verify cmd_len matches decrypted body length
                     //TODO: change "16" to actually reference the libsodium constant instead.
                     //Modified (+16) to account for MAC bytes, the signature that is added to the encrypted payload.  I think.
-                    if (decryptedBody == null) Console.WriteLine("decrypted body is null");
-                    if (header.CmdLen != decryptedBody.Length + 16) { Console.WriteLine($"⚠️ Header cmd_len ({header.CmdLen}) does not match decrypted body length ({decryptedBody.Length})"); break;}
+                    if (decryptedBody == null)
+                    {
+                        ScheduleServerInitiatedClose(
+                            $"Closing DATUM session {RemoteEndpointLabel} after encrypted channel decryption failed.");
+                        Console.WriteLine("decrypted body is null");
+                        break;
+                    }
+                    if (header.CmdLen != decryptedBody.Length + 16)
+                    {
+                        ScheduleServerInitiatedClose(
+                            $"Closing DATUM session {RemoteEndpointLabel} because encrypted channel payload length {header.CmdLen} did not match decrypted length {decryptedBody.Length}.");
+                        Console.WriteLine($"⚠️ Header cmd_len ({header.CmdLen}) does not match decrypted body length ({decryptedBody.Length})");
+                        break;
+                    }
 
                 }
                 if (decryptedBody == null)
                 {
+                    ScheduleServerInitiatedClose(
+                        $"Closing DATUM session {RemoteEndpointLabel} after a payload decryption failure.");
                     Console.WriteLine(" Header info: Cmd=" + (header.ProtoCmd) + " / CmdLen=" + header.CmdLen + " / isSigned=" + header.IsSigned + " / isEncryptedPubKey=" + header.IsEncryptedPubKey + " / isEncryptedChannel=" + header.IsEncryptedChannel);
                     Console.WriteLine($"❌ Failed to decrypt body for client {_client.Client.RemoteEndPoint}");
                     Console.WriteLine(BitConverter.ToString(bodyBuffer));
@@ -720,8 +818,17 @@ public class ClientHandler
             }
         }
         catch (IOException) { Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} disconnected."); }
-        catch (Exception ex) { Console.WriteLine($"💥 An error occurred with client {_client.Client.RemoteEndPoint}: {ex.Message}\n{ex.StackTrace}"); }
-        finally { _client.Close(); }
+        catch (Exception ex)
+        {
+            ScheduleServerInitiatedClose(
+                $"Closing DATUM session {RemoteEndpointLabel} after an internal server exception: {ex.GetType().Name}: {ex.Message}.");
+            Console.WriteLine($"💥 An error occurred with client {_client.Client.RemoteEndPoint}: {ex.Message}\n{ex.StackTrace}");
+        }
+        finally
+        {
+            FlushServerInitiatedCloseLog();
+            _client.Close();
+        }
     }
 
     private void RememberClientPayoutAddress(string payoutAddress)
@@ -735,7 +842,7 @@ public class ClientHandler
         _stateService.RememberDatumPayoutAddress(_clientEncryptIdentityKey, payoutAddress);
     }
 
-    public async Task<bool> RequestBlockTemplateRefreshAsync()
+    public async Task<bool> RequestBlockTemplateRefreshAsync(string reason = "unspecified")
     {
         if (!_client.Connected ||
             _channelSharedSecretBytes == null ||
@@ -746,34 +853,71 @@ public class ClientHandler
         }
 
         await SendEncryptedMessageAsync(0x05, [0xF9], isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false);
+        _stateService.RecordExternalNetworkEvent(
+            "datum-refresh-request",
+            "datum",
+            $"Requested DATUM template refresh for session {RemoteEndpointLabel}. reason={reason}; lockedPayoutAddress={_clientPayoutAddress}.");
         return true;
     }
 
-    private static bool IsPayoutMismatchReason(string? reason)
+    private enum TemplateRejectKind
     {
-        return !string.IsNullOrWhiteSpace(reason) &&
-               reason.StartsWith("Coinbase winners payouts do not match", StringComparison.OrdinalIgnoreCase);
+        None,
+        PayoutMismatch,
+        SoloFallback
+    }
+
+    private static TemplateRejectKind GetTemplateRejectKind(string? reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return TemplateRejectKind.None;
+        }
+
+        if (reason.StartsWith("Coinbase winners payouts do not match", StringComparison.OrdinalIgnoreCase))
+        {
+            return TemplateRejectKind.PayoutMismatch;
+        }
+
+        if (reason.StartsWith("Coinbase appears to use a non-Boot single-recipient template", StringComparison.OrdinalIgnoreCase))
+        {
+            return TemplateRejectKind.SoloFallback;
+        }
+
+        return TemplateRejectKind.None;
     }
 
     private void ResetStaleTemplateTracking()
     {
         _consecutivePayoutMismatchRejections = 0;
+        _staleTemplateSeriesStartedUtc = null;
     }
 
     private async Task<bool> HandlePotentialStaleTemplateRejectAsync(string? rejectionReason)
     {
-        if (!IsPayoutMismatchReason(rejectionReason))
+        TemplateRejectKind rejectKind = GetTemplateRejectKind(rejectionReason);
+        if (rejectKind == TemplateRejectKind.None)
         {
             return false;
         }
 
-        _consecutivePayoutMismatchRejections++;
+        if (rejectKind == TemplateRejectKind.SoloFallback)
+        {
+            // DATUM in prefer mode can legitimately spend a short window on local fallback work
+            // after a reconnect or coinbaser timeout. Re-sending blocknotify here just creates
+            // a refresh loop that looks like repeated "new block" events in the DATUM log.
+            ResetStaleTemplateTracking();
+            return false;
+        }
 
         DateTime nowUtc = DateTime.UtcNow;
+        _staleTemplateSeriesStartedUtc ??= nowUtc;
+        _consecutivePayoutMismatchRejections++;
+
         if ((nowUtc - _lastStaleTemplateRefreshUtc).TotalSeconds >= 2)
         {
             _lastStaleTemplateRefreshUtc = nowUtc;
-            await RequestBlockTemplateRefreshAsync();
+            await RequestBlockTemplateRefreshAsync("stale-payout-mismatch");
         }
 
         int disconnectThreshold = Math.Clamp(_poolConfig.StaleDatumPayoutMismatchThreshold, 2, 20);
@@ -782,8 +926,28 @@ public class ClientHandler
             return false;
         }
 
+        double staleDurationSeconds = _staleTemplateSeriesStartedUtc.HasValue
+            ? (nowUtc - _staleTemplateSeriesStartedUtc.Value).TotalSeconds
+            : 0;
+        int disconnectMinSeconds = Math.Clamp(_poolConfig.StaleDatumDisconnectMinSeconds, 1, 600);
+        if (staleDurationSeconds < disconnectMinSeconds)
+        {
+            return false;
+        }
+
+        int disconnectCooldownSeconds = Math.Clamp(_poolConfig.StaleDatumDisconnectCooldownSeconds, 5, 1800);
+        if ((nowUtc - _lastForcedStaleTemplateDisconnectUtc).TotalSeconds < disconnectCooldownSeconds)
+        {
+            return false;
+        }
+
+        _lastForcedStaleTemplateDisconnectUtc = nowUtc;
+        ScheduleServerInitiatedClose(
+            $"Reset DATUM session {RemoteEndpointLabel} after {_consecutivePayoutMismatchRejections} stale payout shares persisted for {staleDurationSeconds:F1}s while locked to payout address {_clientPayoutAddress}.",
+            "datum-session-reset");
+
         Console.WriteLine(
-            $"⚠️ DATUM client {_client.Client.RemoteEndPoint} submitted {_consecutivePayoutMismatchRejections} consecutive stale payout shares for {_clientPayoutAddress}. Disconnecting to force a clean reconnect.");
+            $"⚠️ DATUM client {RemoteEndpointLabel} submitted {_consecutivePayoutMismatchRejections} consecutive stale payout shares for {_clientPayoutAddress} over {staleDurationSeconds:F1}s. Disconnecting to force a clean reconnect.");
         return true;
     }
 
@@ -1104,8 +1268,7 @@ public class ClientHandler
         payload.Add(0x01);
 
         // Pool payout script
-        byte[] poolScriptBytes = Encoding.UTF8.GetBytes(config.PoolPayoutScript);
-        //TODO: What is the pool payout script sig?  I have no idea.
+        byte[] poolScriptBytes = ResolvePoolPayoutScriptBytes(config.PoolPayoutScript);
         if (poolScriptBytes.Length > 255)
         {
             Console.WriteLine($"⚠️ Pool payout script too long ({poolScriptBytes.Length} bytes), truncating to 255");
@@ -1168,52 +1331,181 @@ public class ClientHandler
 
     private async Task HandleCoinbaserFetchAsync(byte[] payload)
     {
-        var fetchRequest = CoinbaserFetchMessage.FromBytes(payload);
-        //Console.WriteLine($"   -> Coinbase Fetch request with total reward: {fetchRequest.RewardValue / 100_000_000.0} BTC");
-        var fetchResponse = new CoinbaserFetchResponseMessage();
-        var winnersList = _stateService.GetWinnersList();
-        var coinbaseOutputs = _stateService.GetCoinbaseOutputs();
+        long requestSequence = Interlocked.Increment(ref _coinbaserFetchSequence);
+        DateTime startedUtc = DateTime.UtcNow;
+        var stopwatch = Stopwatch.StartNew();
+        var stageStopwatch = Stopwatch.StartNew();
+        double parseDurationMs = 0;
+        double stateReadDurationMs = 0;
+        double buildDurationMs = 0;
+        double serializeDurationMs = 0;
+        double sendDurationMs = 0;
+        CoinbaserFetchMessage? fetchRequest = null;
+        CoinbaserFetchResponseMessage? fetchResponse = null;
+        List<PayoutInfo> winnersList = [];
+        List<PayoutInfo> coinbaseOutputs = [];
         ulong teamPayoutTotal = 0;
-        foreach (var payout in winnersList)
+        ulong mySats = 0;
+        byte[] responsePayload = [];
+
+        try
         {
-            teamPayoutTotal += payout.Value;
+            fetchRequest = CoinbaserFetchMessage.FromBytes(payload);
+            parseDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+
+            stageStopwatch.Restart();
+            winnersList = _stateService.GetWinnersList();
+            coinbaseOutputs = _stateService.GetCoinbaseOutputs();
+            stateReadDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+
+            stageStopwatch.Restart();
+            fetchResponse = new CoinbaserFetchResponseMessage();
+            foreach (var payout in winnersList)
+            {
+                teamPayoutTotal += payout.Value;
+            }
+
+            mySats = fetchRequest.RewardValue > teamPayoutTotal
+                ? fetchRequest.RewardValue - teamPayoutTotal
+                : 0;
+            ulong total = mySats + teamPayoutTotal;
+            if (total > fetchRequest.RewardValue) Console.WriteLine("Reward too big!!!");
+
+            var myPayout = new PayoutInfo
+            {
+                Value = mySats,
+                Address = _clientPayoutAddress
+            };
+            fetchResponse.Payouts = new List<PayoutInfo>(coinbaseOutputs);
+            fetchResponse.Payouts.Insert(0, myPayout);
+            buildDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+
+            stageStopwatch.Restart();
+            using (var stream = new MemoryStream())
+            using (var writer = new BinaryWriter(stream))
+            {
+                writer.Write((byte)0x11);
+                writer.Write(fetchRequest.RewardValue);
+                byte[] payoutBytes = fetchResponse.ToBytes();
+                writer.Write((uint)payoutBytes.Length);
+                writer.Write(payoutBytes);
+                responsePayload = stream.ToArray();
+            }
+            serializeDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+
+            stageStopwatch.Restart();
+            await SendEncryptedMessageAsync(0x05, responsePayload, isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false);
+            sendDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+            stopwatch.Stop();
+
+            bool usingTemporarySlotZero = string.Equals(
+                BitcoinScript.NormalizeAddress(_clientPayoutAddress),
+                BitcoinScript.NormalizeAddress(BootProtocolStateService.GenesisFoundationAddress),
+                StringComparison.OrdinalIgnoreCase);
+            string clientIdentityPreview = !string.IsNullOrWhiteSpace(_clientIdentityKey)
+                ? (_clientIdentityKey.Length > 8 ? _clientIdentityKey[..8] : _clientIdentityKey)
+                : string.Empty;
+
+            _stateService.RecordCoinbaserFetch(
+                "datum",
+                RemoteEndpointLabel,
+                clientIdentityPreview,
+                requestSequence,
+                fetchRequest.RewardValue,
+                teamPayoutTotal,
+                mySats,
+                _clientPayoutAddress,
+                usingTemporarySlotZero,
+                winnersList.Count,
+                fetchResponse.Payouts.Count,
+                responsePayload.Length,
+                stopwatch.Elapsed.TotalMilliseconds,
+                parseDurationMs,
+                stateReadDurationMs,
+                buildDurationMs,
+                serializeDurationMs,
+                sendDurationMs,
+                startedUtc);
+
+            if (usingTemporarySlotZero ||
+                stopwatch.Elapsed.TotalMilliseconds >= 1000 ||
+                stateReadDurationMs >= 250 ||
+                buildDurationMs >= 250 ||
+                serializeDurationMs >= 250 ||
+                sendDurationMs >= 250)
+            {
+                BootNetworkStatusDto status = _stateService.GetNetworkStatus();
+                _stateService.RecordExternalNetworkEvent(
+                    "datum-coinbaser-fetch",
+                    "datum",
+                    $"Responded to coinbaser fetch #{requestSequence} for session {RemoteEndpointLabel} in {stopwatch.Elapsed.TotalMilliseconds:F1} ms (parse={parseDurationMs:F1}, state={stateReadDurationMs:F1}, build={buildDurationMs:F1}, serialize={serializeDurationMs:F1}, send={sendDurationMs:F1}); reward={fetchRequest.RewardValue}; slot0={_clientPayoutAddress}; temporarySlot0={usingTemporarySlotZero}; winners={winnersList.Count}; outputs={fetchResponse.Payouts.Count}.",
+                    status.CurrentTipBlockHash,
+                    status.CurrentTipBlockHeight,
+                    startedUtc);
+            }
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            BootNetworkStatusDto status = _stateService.GetNetworkStatus();
+            _stateService.RecordExternalNetworkEvent(
+                "datum-coinbaser-fetch-failed",
+                "datum",
+                $"Coinbaser fetch #{requestSequence} for session {RemoteEndpointLabel} failed after {stopwatch.Elapsed.TotalMilliseconds:F1} ms (parse={parseDurationMs:F1}, state={stateReadDurationMs:F1}, build={buildDurationMs:F1}, serialize={serializeDurationMs:F1}, send={sendDurationMs:F1}): {ex.GetType().Name}: {ex.Message}",
+                status.CurrentTipBlockHash,
+                status.CurrentTipBlockHeight,
+                startedUtc);
+            throw;
+        }
+        //Console.WriteLine($"[SEND] Coinbaser Fetch Response (0x05, 0x11)");
+    }
+
+    private static byte[] ResolvePoolPayoutScriptBytes(string? configuredValue)
+    {
+        string value = (configuredValue ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return [];
         }
 
-        ulong mySats = fetchRequest.RewardValue > teamPayoutTotal
-            ? fetchRequest.RewardValue - teamPayoutTotal
-            : 0;
-        ulong total = mySats + teamPayoutTotal;
-        //Console.WriteLine($"total = {total}");
-        //Console.WriteLine($"Reward= {fetchRequest.RewardValue}");
-        if (total > fetchRequest.RewardValue) Console.WriteLine("Reward too big!!!");
-        
-        var myPayout = new PayoutInfo
+        if (BitcoinScript.TryAddressToScriptPubKey(value, out byte[]? scriptBytes))
         {
-            Value = mySats,
-            Address = _clientPayoutAddress //this inserts the client's payout address into spot '0' in the coinbase TX
-        };
-        fetchResponse.Payouts = new List<PayoutInfo>(coinbaseOutputs);
-        fetchResponse.Payouts.Insert(0, myPayout);
-        
-        /*fetchResponse.Payouts.Add(new PayoutInfo
+            return scriptBytes;
+        }
+
+        if (IsHexString(value))
         {
-            Value = fetchRequest.RewardValue,
-            Address = "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y"
-        });
-        */
+            try
+            {
+                return Convert.FromHexString(value);
+            }
+            catch (FormatException)
+            {
+                // Fall through to the legacy UTF-8 behavior below.
+            }
+        }
 
-        using var stream = new MemoryStream();
-        using var writer = new BinaryWriter(stream);
-        writer.Write((byte)0x11); // Sub-command
-        writer.Write(fetchRequest.RewardValue); // uint64_t v
-        var payoutBytes = fetchResponse.ToBytes();
-        writer.Write((uint)payoutBytes.Length); // uint32_t x
-        writer.Write(payoutBytes);
-        var responsePayload = stream.ToArray();
+        Console.WriteLine(
+            $"⚠️ pool_payout_script '{value}' is neither a recognized address nor hex scriptPubKey. Falling back to legacy UTF-8 bytes.");
+        return Encoding.UTF8.GetBytes(value);
+    }
 
-        //Console.WriteLine($"📦 Coinbase fetch response payload: {BitConverter.ToString(responsePayload)}");
-        await SendEncryptedMessageAsync(0x05, responsePayload, isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false);
-        //Console.WriteLine($"[SEND] Coinbaser Fetch Response (0x05, 0x11)");
+    private static bool IsHexString(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length % 2 != 0)
+        {
+            return false;
+        }
+
+        foreach (char c in value)
+        {
+            if (!Uri.IsHexDigit(c))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private async Task HandlePowSubmitAsync(byte[] payload)
@@ -1251,6 +1543,10 @@ public class ClientHandler
             _clientPayoutAddress = submittedAddress;
             _sessionPayoutAddressLocked = true;
             RememberClientPayoutAddress(_clientPayoutAddress);
+            _stateService.RecordExternalNetworkEvent(
+                "datum-session-lock",
+                "datum",
+                $"Locked DATUM session {_client.Client.RemoteEndPoint} to payout address {_clientPayoutAddress}.");
             Console.WriteLine(
                 $"🔒 Locked DATUM session {_client.Client.RemoteEndPoint} to payout address {_clientPayoutAddress}.");
         }
@@ -1259,8 +1555,14 @@ public class ClientHandler
                  !string.Equals(submittedAddress, _clientPayoutAddress, StringComparison.OrdinalIgnoreCase) &&
                  _loggedUnexpectedPayoutAddresses.Add(submittedAddress))
         {
+            string warningMessage =
+                $"DATUM session {_client.Client.RemoteEndPoint} submitted usernames for alternate payout address {submittedAddress} after locking to {_clientPayoutAddress}. Treating the session as payout address {_clientPayoutAddress} and ignoring alternate address metadata.";
+            _stateService.RecordExternalNetworkEvent(
+                "datum-session-warning",
+                "datum",
+                warningMessage);
             Console.WriteLine(
-                $"⚠️ DATUM session {_client.Client.RemoteEndPoint} submitted share usernames for unexpected payout address {submittedAddress} after locking to {_clientPayoutAddress}. Treating the session as a single payout address.");
+                $"⚠️ {warningMessage}");
         }
 
         powSubmit.Address = _clientPayoutAddress;
@@ -1271,7 +1573,7 @@ public class ClientHandler
             {
                 Console.WriteLine(
                     $"⚠️ Missing cached DATUM job {powSubmit.JobId} for nonce-only update from {powSubmit.Address}. Requesting fresh templates.");
-                await RequestBlockTemplateRefreshAsync();
+                await RequestBlockTemplateRefreshAsync("missing-job-cache");
                 await SendShareResponseAsync(powSubmit, accepted: false);
                 return;
             }

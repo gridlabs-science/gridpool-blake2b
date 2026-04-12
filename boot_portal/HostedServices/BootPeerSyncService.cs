@@ -61,9 +61,14 @@ public class BootPeerSyncService : BackgroundService
                 {
                     await PollPeerAsync(peer, stoppingToken);
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
                     throw;
+                }
+                catch (OperationCanceledException ex)
+                {
+                    _logger.LogWarning(ex, "Peer poll timed out for {Peer}.", peer);
+                    _stateService.MarkPeerFailure(peer, "timeout");
                 }
                 catch (Exception ex)
                 {
@@ -102,13 +107,19 @@ public class BootPeerSyncService : BackgroundService
                 {
                     await RelayShareAsync(peer, proof, stoppingToken);
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
                     throw;
+                }
+                catch (OperationCanceledException ex)
+                {
+                    _logger.LogDebug(ex, "Timed out relaying share {ShareId} to {Peer}.", proof.ShareId, peer);
+                    _stateService.MarkPeerFailure(peer, "relay-timeout");
                 }
                 catch (Exception ex)
                 {
                     _logger.LogDebug(ex, "Failed to relay share {ShareId} to {Peer}.", proof.ShareId, peer);
+                    _stateService.MarkPeerFailure(peer, "relay-error");
                 }
             }
         }

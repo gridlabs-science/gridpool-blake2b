@@ -37,5 +37,5 @@
   "winners_list_size": 299,
   "coinbase_tag": "Boot protocol",
   "prime_id": 21,
-  "min_diff": 1024
+  "min_diff": 300
 }

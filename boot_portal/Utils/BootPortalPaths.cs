@@ -8,6 +8,11 @@ public static class BootPortalPaths
     public static string PoolStateFilePath =>
         ResolvePath(Environment.GetEnvironmentVariable("BOOT_PORTAL_STATE_PATH"), "pool_state.json");
 
+    public static string PoolStateHistoryFilePath =>
+        ResolvePath(
+            Environment.GetEnvironmentVariable("BOOT_PORTAL_HISTORY_PATH"),
+            BuildHistoryFallbackPath(PoolStateFilePath));
+
     public static void EnsureParentDirectory(string path)
     {
         string? directory = Path.GetDirectoryName(path);
@@ -21,5 +26,19 @@ public static class BootPortalPaths
     {
         string value = string.IsNullOrWhiteSpace(candidate) ? fallbackFileName : candidate.Trim();
         return Path.GetFullPath(value);
+    }
+
+    private static string BuildHistoryFallbackPath(string coreStatePath)
+    {
+        string directory = Path.GetDirectoryName(coreStatePath) ?? string.Empty;
+        string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(coreStatePath);
+        string extension = Path.GetExtension(coreStatePath);
+        string historyFileName = string.IsNullOrWhiteSpace(extension)
+            ? $"{Path.GetFileName(coreStatePath)}.history.json"
+            : $"{fileNameWithoutExtension}.history{extension}";
+
+        return string.IsNullOrWhiteSpace(directory)
+            ? historyFileName
+            : Path.Combine(directory, historyFileName);
     }
 }

@@ -239,6 +239,12 @@ public class BootShareVerifier
             return;
         }
 
+        if (LooksLikeSingleRecipientFallbackTemplate(outputs))
+        {
+            throw new InvalidOperationException(
+                $"Coinbase appears to use a non-Boot single-recipient template (likely stale or solo fallback work). Expected {DescribeExpectedOutputs(compressedOutputs)}; actual {DescribeActualOutputs(outputs)}.");
+        }
+
         throw new InvalidOperationException(
             $"Coinbase winners payouts do not match the required Boot outputs. Expected {DescribeExpectedOutputs(compressedOutputs)}; actual {DescribeActualOutputs(outputs)}.");
     }
@@ -388,6 +394,15 @@ public class BootShareVerifier
         }
 
         return totals;
+    }
+
+    private static bool LooksLikeSingleRecipientFallbackTemplate(IReadOnlyList<BitcoinTransactionOutput> outputs)
+    {
+        List<BitcoinTransactionOutput> positiveOutputs = outputs
+            .Where(output => output.Value > 0)
+            .ToList();
+
+        return positiveOutputs.Count == 1;
     }
 
     private static string DescribeExpectedOutputs(IReadOnlyList<ExpectedWinnerOutput> outputs)

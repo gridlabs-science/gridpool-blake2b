@@ -112,7 +112,7 @@ public class DatumServer : BackgroundService
         {
             try
             {
-                bool refreshSent = await entry.Value.Handler.RequestBlockTemplateRefreshAsync();
+                bool refreshSent = await entry.Value.Handler.RequestBlockTemplateRefreshAsync(reason);
                 if (refreshSent)
                 {
                     refreshed++;

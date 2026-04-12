@@ -54,6 +54,41 @@ public class BootNetworkController : ControllerBase
         return Ok(_stateService.GetHashrateSeries(window));
     }
 
+    [EnableRateLimiting("network-read")]
+    [HttpGet("share-diagnostics")]
+    public IActionResult GetShareDiagnostics(
+        [FromQuery] string? window = "12h",
+        [FromQuery] string? source = "datum",
+        [FromQuery] bool? accepted = false,
+        [FromQuery] int limit = 500,
+        [FromQuery] string? minerAddress = null,
+        [FromQuery] string? category = null)
+    {
+        return Ok(_stateService.GetShareDiagnostics(window, source, accepted, limit, minerAddress, category));
+    }
+
+    [EnableRateLimiting("network-read")]
+    [HttpGet("events")]
+    public IActionResult GetNetworkEvents(
+        [FromQuery] string? window = "12h",
+        [FromQuery] int limit = 500,
+        [FromQuery] string? eventType = null,
+        [FromQuery] string? source = null)
+    {
+        return Ok(_stateService.GetNetworkEvents(window, limit, eventType, source));
+    }
+
+    [EnableRateLimiting("network-read")]
+    [HttpGet("coinbaser-diagnostics")]
+    public IActionResult GetCoinbaserDiagnostics(
+        [FromQuery] string? window = "12h",
+        [FromQuery] int limit = 500,
+        [FromQuery] string? remoteEndpoint = null,
+        [FromQuery] bool? temporarySlotZero = null)
+    {
+        return Ok(_stateService.GetCoinbaserDiagnostics(window, limit, remoteEndpoint, temporarySlotZero));
+    }
+
     [EnableRateLimiting("admin-write")]
     [HttpPost("admin/reset")]
     public async Task<IActionResult> ResetRound()

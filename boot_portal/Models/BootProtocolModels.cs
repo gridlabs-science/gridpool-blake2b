@@ -64,6 +64,27 @@ public class BootDatumDiagnosticsDto
     public List<BootReasonCountDto> RejectionReasons { get; set; } = [];
 }
 
+public class BootCoinbaserDiagnosticsSummaryDto
+{
+    public int WindowSeconds { get; set; }
+    public int TotalFetches { get; set; }
+    public DateTime? LastFetchUtc { get; set; }
+    public double? AverageDurationMs { get; set; }
+    public double? P95DurationMs { get; set; }
+    public double? AverageParseDurationMs { get; set; }
+    public double? AverageStateReadDurationMs { get; set; }
+    public double? AverageBuildDurationMs { get; set; }
+    public double? AverageSerializeDurationMs { get; set; }
+    public double? AverageSendDurationMs { get; set; }
+    public double? P95SendDurationMs { get; set; }
+    public int TemporarySlotZeroCount { get; set; }
+    public int SlowFetchCount { get; set; }
+    public int SlowStateReadCount { get; set; }
+    public int SlowBuildCount { get; set; }
+    public int SlowSerializeCount { get; set; }
+    public int SlowSendCount { get; set; }
+}
+
 public class BootNetworkStatusDto
 {
     public string SelfEndpoint { get; set; } = string.Empty;
@@ -93,6 +114,7 @@ public class BootNetworkStatusDto
     public string? LastTestingTriggerBlockHash { get; set; }
     public long? LastTestingTriggerBlockHeight { get; set; }
     public BootDatumDiagnosticsDto LocalDatumDiagnostics { get; set; } = new();
+    public BootCoinbaserDiagnosticsSummaryDto CoinbaserDiagnostics { get; set; } = new();
     public List<BootPeerStatus> Peers { get; set; } = [];
     public BootCommitmentInfo Commitment { get; set; } = new();
 }
@@ -116,7 +138,76 @@ public class BootShareDiagnosticTelemetry
     public string? RejectionReason { get; set; }
     public string? RejectionCategory { get; set; }
     public double Difficulty { get; set; }
+    public int CurrentRoundNumber { get; set; }
+    public string CurrentStateId { get; set; } = string.Empty;
+    public string CandidateStateId { get; set; } = string.Empty;
+    public string? CurrentTipBlockHash { get; set; }
+    public long? CurrentTipBlockHeight { get; set; }
     public DateTime TimestampUtc { get; set; }
+}
+
+public class BootCoinbaserFetchTelemetry
+{
+    public string Source { get; set; } = "datum";
+    public string RemoteEndpoint { get; set; } = string.Empty;
+    public string ClientIdentityPreview { get; set; } = string.Empty;
+    public long RequestSequence { get; set; }
+    public ulong RewardValue { get; set; }
+    public ulong TeamPayoutTotal { get; set; }
+    public ulong SlotZeroValue { get; set; }
+    public string SlotZeroAddress { get; set; } = string.Empty;
+    public bool UsingTemporarySlotZero { get; set; }
+    public int WinnersCount { get; set; }
+    public int CoinbaseOutputCount { get; set; }
+    public int ResponsePayloadBytes { get; set; }
+    public double DurationMs { get; set; }
+    public double ParseDurationMs { get; set; }
+    public double StateReadDurationMs { get; set; }
+    public double BuildDurationMs { get; set; }
+    public double SerializeDurationMs { get; set; }
+    public double SendDurationMs { get; set; }
+    public int CurrentRoundNumber { get; set; }
+    public string CurrentStateId { get; set; } = string.Empty;
+    public string CandidateStateId { get; set; } = string.Empty;
+    public string? CurrentTipBlockHash { get; set; }
+    public long? CurrentTipBlockHeight { get; set; }
+    public DateTime TimestampUtc { get; set; }
+}
+
+public class BootNetworkEvent
+{
+    public string EventType { get; set; } = string.Empty;
+    public string Source { get; set; } = string.Empty;
+    public string? Message { get; set; }
+    public string? BlockHash { get; set; }
+    public long? BlockHeight { get; set; }
+    public int CurrentRoundNumber { get; set; }
+    public string CurrentStateId { get; set; } = string.Empty;
+    public string CandidateStateId { get; set; } = string.Empty;
+    public string? CurrentTipBlockHash { get; set; }
+    public long? CurrentTipBlockHeight { get; set; }
+    public DateTime TimestampUtc { get; set; }
+}
+
+public class BootCoinbaserDiagnosticsSeriesDto
+{
+    public int WindowSeconds { get; set; }
+    public int TotalEvents { get; set; }
+    public List<BootCoinbaserFetchTelemetry> Events { get; set; } = [];
+}
+
+public class BootShareDiagnosticsSeriesDto
+{
+    public int WindowSeconds { get; set; }
+    public int TotalEvents { get; set; }
+    public List<BootShareDiagnosticTelemetry> Events { get; set; } = [];
+}
+
+public class BootNetworkEventSeriesDto
+{
+    public int WindowSeconds { get; set; }
+    public int TotalEvents { get; set; }
+    public List<BootNetworkEvent> Events { get; set; } = [];
 }
 
 public class BootHashratePoint

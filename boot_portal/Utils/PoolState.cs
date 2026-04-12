@@ -16,11 +16,24 @@ public class PoolState
     public List<PayoutInfo> OnDeckList { get; set; } = [];
     public List<BootShareProof> OnDeckProofs { get; set; } = [];
     public List<BootAcceptedShareTelemetry> RecentAcceptedShares { get; set; } = [];
+    public List<BootShareDiagnosticTelemetry> RecentRejectedShareDiagnostics { get; set; } = [];
+    public List<BootCoinbaserFetchTelemetry> RecentCoinbaserDiagnostics { get; set; } = [];
+    public List<BootNetworkEvent> RecentNetworkEvents { get; set; } = [];
     public List<BootHashratePoint> HashrateSamples { get; set; } = [];
     public List<BootStateBundle> ArchivedStateBundles { get; set; } = [];
     public List<BootPeerStatus> Peers { get; set; } = [];
     public Dictionary<string, string> KnownDatumPayoutAddresses { get; set; } = [];
     public BestShareRecord BestShare { get; set; } = new();
+}
+
+public class PoolStateHistory
+{
+    public List<BootAcceptedShareTelemetry> RecentAcceptedShares { get; set; } = [];
+    public List<BootShareDiagnosticTelemetry> RecentRejectedShareDiagnostics { get; set; } = [];
+    public List<BootCoinbaserFetchTelemetry> RecentCoinbaserDiagnostics { get; set; } = [];
+    public List<BootNetworkEvent> RecentNetworkEvents { get; set; } = [];
+    public List<BootHashratePoint> HashrateSamples { get; set; } = [];
+    public List<BootStateBundle> ArchivedStateBundles { get; set; } = [];
 }
 
 public class BootProtocolMetadata
