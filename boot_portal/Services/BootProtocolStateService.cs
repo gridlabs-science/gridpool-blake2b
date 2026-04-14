@@ -1914,6 +1914,7 @@ public class BootProtocolStateService
         double? currentRoundObservedHashrateThs = EstimateRankAdjustedHashrateThs(onDeckDifficulties, currentRoundElapsedSeconds);
         double? localDatumHashrateThs = EstimateLocalDatumHashrateThsNoLock(nowUtc);
         BootDatumDiagnosticsDto localDatumDiagnostics = BuildLocalDatumDiagnosticsNoLock(nowUtc);
+        List<BootLocalDatumMinerSummaryDto> localDatumMiners = BuildLocalDatumMinerSummariesNoLock(nowUtc);
         BootCoinbaserDiagnosticsSummaryDto coinbaserDiagnostics = BuildCoinbaserDiagnosticsSummaryNoLock(nowUtc);
 
         return new BootNetworkStatusDto
@@ -1945,6 +1946,7 @@ public class BootProtocolStateService
             LastTestingTriggerBlockHash = _state.LastTestingTriggerBlockHash,
             LastTestingTriggerBlockHeight = _state.LastTestingTriggerBlockHeight,
             LocalDatumDiagnostics = localDatumDiagnostics,
+            LocalDatumMiners = localDatumMiners,
             CoinbaserDiagnostics = coinbaserDiagnostics,
             Peers = _state.Peers.Select(ClonePeer).ToList(),
             Commitment = BuildCommitmentNoLock()
@@ -2475,6 +2477,68 @@ public class BootProtocolStateService
             : windowStartUtc;
         long? elapsedSeconds = GetElapsedSeconds(effectiveStartUtc, nowUtc);
         return EstimateRankAdjustedHashrateThs(localDatumShares.Select(share => share.Difficulty), elapsedSeconds);
+    }
+
+    private List<BootLocalDatumMinerSummaryDto> BuildLocalDatumMinerSummariesNoLock(DateTime nowUtc)
+    {
+        TrimAcceptedShareTelemetryNoLock(nowUtc);
+
+        int localWindowSeconds = GetHashrateLocalWindowSeconds();
+        DateTime windowStartUtc = nowUtc.AddSeconds(-localWindowSeconds);
+        DateTime? roundStartUtc = _state.LastRotationUtc;
+
+        return _state.RecentAcceptedShares
+            .Where(share =>
+                string.Equals(share.Source, "datum", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(share.MinerAddress))
+            .GroupBy(share => BitcoinScript.NormalizeAddress(share.MinerAddress), StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                List<BootAcceptedShareTelemetry> shares = group
+                    .OrderBy(share => share.TimestampUtc)
+                    .ToList();
+                List<BootAcceptedShareTelemetry> rateShares = shares
+                    .Where(share => share.TimestampUtc >= windowStartUtc && share.Difficulty > 0)
+                    .ToList();
+                DateTime? firstRateShareUtc = rateShares.Count > 0 ? rateShares[0].TimestampUtc : null;
+                DateTime effectiveRateStartUtc = firstRateShareUtc.HasValue && firstRateShareUtc.Value > windowStartUtc
+                    ? firstRateShareUtc.Value
+                    : windowStartUtc;
+                long? rateElapsedSeconds = rateShares.Count > 0
+                    ? GetElapsedSeconds(effectiveRateStartUtc, nowUtc)
+                    : null;
+                double? hashrateThs = rateShares.Count > 0
+                    ? EstimateRankAdjustedHashrateThs(rateShares.Select(share => share.Difficulty), rateElapsedSeconds)
+                    : null;
+
+                IEnumerable<BootAcceptedShareTelemetry> currentRoundShares = roundStartUtc.HasValue
+                    ? shares.Where(share => share.TimestampUtc >= roundStartUtc.Value)
+                    : shares;
+                double currentRoundBestDifficulty = currentRoundShares
+                    .Select(share => share.Difficulty)
+                    .DefaultIfEmpty(0)
+                    .Max();
+                string username = shares
+                    .Select(share => string.IsNullOrWhiteSpace(share.Username) ? string.Empty : share.Username)
+                    .LastOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? group.Key;
+
+                return new BootLocalDatumMinerSummaryDto
+                {
+                    Address = group.Key,
+                    Username = username,
+                    RecentAcceptedShareCount = shares.Count,
+                    CurrentRoundAcceptedShareCount = currentRoundShares.Count(),
+                    CurrentHashrateThs = hashrateThs,
+                    CurrentHashrateDisplay = FormatObservedHashrate(hashrateThs),
+                    CurrentRoundBestDifficulty = currentRoundBestDifficulty,
+                    CurrentRoundBestDifficultyDisplay = ClientHandler.FormatDifficulty(currentRoundBestDifficulty),
+                    LastShareUtc = shares[^1].TimestampUtc
+                };
+            })
+            .OrderByDescending(item => item.CurrentHashrateThs ?? 0)
+            .ThenByDescending(item => item.CurrentRoundBestDifficulty)
+            .ThenBy(item => item.Address, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private void TrimShareDiagnosticsNoLock(DateTime nowUtc)

@@ -187,6 +187,411 @@
             font-weight: bold;
         }
 
+        .mode-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin: 20px 0 16px 0;
+            padding: 14px 16px;
+            border: 1px solid var(--border-color);
+            background: #0c0c0c;
+        }
+
+        .mode-toolbar-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .mode-toolbar-label {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            text-transform: uppercase;
+        }
+
+        .mode-toolbar-right {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            flex-wrap: wrap;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        .mode-status-item strong {
+            color: var(--text-color);
+            font-weight: 700;
+        }
+
+        .mode-intro {
+            border-left: 3px solid var(--accent-color);
+            padding: 10px 14px;
+            margin-bottom: 24px;
+            background: rgba(189, 89, 255, 0.08);
+            color: var(--text-muted);
+        }
+
+        .mode-intro strong {
+            color: var(--text-color);
+        }
+
+        .mode-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+
+        .mode-card {
+            border: 1px solid var(--border-color);
+            padding: 15px;
+            background: #0c0c0c;
+        }
+
+        .mode-card-kicker {
+            color: var(--text-muted);
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+            letter-spacing: 1px;
+        }
+
+        .mode-card-title {
+            font-size: 1rem;
+            color: var(--text-color);
+            margin-bottom: 8px;
+        }
+
+        .mode-card-value {
+            font-size: 1.15rem;
+            color: var(--accent-color);
+            margin-bottom: 8px;
+            word-break: break-word;
+        }
+
+        .mode-card-detail,
+        .mode-card-note {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        .mode-card-note {
+            margin-top: 10px;
+            min-height: 1em;
+        }
+
+        .mode-focus-section {
+            margin-bottom: 28px;
+        }
+
+        .mode-focus-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 16px;
+        }
+
+        .mode-focus-card {
+            border: 1px solid var(--border-color);
+            padding: 15px;
+            background: #0c0c0c;
+            min-height: 160px;
+        }
+
+        .mode-focus-kicker {
+            color: var(--text-muted);
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+            letter-spacing: 1px;
+        }
+
+        .mode-focus-value {
+            font-size: 1.15rem;
+            color: var(--accent-color);
+            margin-bottom: 10px;
+            word-break: break-word;
+        }
+
+        .mode-focus-body {
+            color: var(--text-color);
+            font-size: 0.9rem;
+        }
+
+        .mode-focus-metric {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 14px;
+            color: var(--text-muted);
+            font-size: 0.84rem;
+            margin-bottom: 6px;
+        }
+
+        .mode-focus-metric strong {
+            color: var(--text-color);
+            font-weight: 700;
+            text-align: right;
+        }
+
+        .mode-focus-note {
+            color: var(--text-muted);
+            font-size: 0.82rem;
+            margin-top: 10px;
+        }
+
+        .mode-focus-list {
+            margin-top: 10px;
+            display: grid;
+            gap: 6px;
+        }
+
+        .mode-focus-list-item {
+            color: var(--text-muted);
+            font-size: 0.82rem;
+            border-top: 1px solid #1d1d1d;
+            padding-top: 6px;
+        }
+
+        .mode-focus-card.hero,
+        .mode-focus-card.wide {
+            grid-column: 1 / -1;
+        }
+
+        .mode-focus-card.hero {
+            background: radial-gradient(circle at top left, rgba(189, 89, 255, 0.18), rgba(12, 12, 12, 0.96) 55%);
+            border-color: rgba(189, 89, 255, 0.45);
+        }
+
+        .mode-focus-rich {
+            display: grid;
+            gap: 12px;
+        }
+
+        .mode-hero-title {
+            font-size: 1.55rem;
+            color: var(--text-color);
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .mode-hero-copy {
+            color: var(--text-muted);
+            font-size: 0.92rem;
+            max-width: 70ch;
+        }
+
+        .mode-hero-metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px;
+        }
+
+        .mode-mini-panel {
+            border: 1px solid #1d1d1d;
+            padding: 10px 12px;
+            background: rgba(0, 0, 0, 0.28);
+        }
+
+        .mode-mini-panel strong {
+            display: block;
+            color: var(--text-color);
+            font-size: 0.94rem;
+            margin-top: 4px;
+        }
+
+        .mode-mini-kicker {
+            color: var(--text-muted);
+            font-size: 0.74rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .metric-list {
+            display: grid;
+            gap: 7px;
+        }
+
+        .metric-row {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 14px;
+            color: var(--text-muted);
+            font-size: 0.84rem;
+        }
+
+        .metric-row strong {
+            color: var(--text-color);
+            text-align: right;
+            font-size: 0.9rem;
+        }
+
+        .shortcut-strip {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .shortcut-chip {
+            border: 1px solid var(--border-color);
+            background: #0c0c0c;
+            color: var(--text-color);
+            padding: 8px 10px;
+            cursor: pointer;
+            font-family: inherit;
+            text-align: left;
+            min-width: 180px;
+        }
+
+        .shortcut-chip.active {
+            border-color: var(--accent-color);
+            box-shadow: inset 0 0 0 1px var(--accent-color);
+        }
+
+        .shortcut-chip-label {
+            display: block;
+            color: var(--text-muted);
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 4px;
+        }
+
+        .shortcut-chip-value {
+            display: block;
+            color: var(--text-color);
+            font-size: 0.9rem;
+        }
+
+        .shortcut-chip-note {
+            display: block;
+            color: var(--accent-color);
+            font-size: 0.78rem;
+            margin-top: 4px;
+        }
+
+        .gauge-wrap {
+            display: grid;
+            gap: 12px;
+        }
+
+        .gauge-rail {
+            position: relative;
+            height: 12px;
+            background: linear-gradient(90deg, rgba(57, 217, 138, 0.18), rgba(189, 89, 255, 0.2), rgba(255, 200, 87, 0.22));
+            border: 1px solid var(--border-color);
+            overflow: visible;
+        }
+
+        .gauge-fill {
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, rgba(57, 217, 138, 0.68), rgba(189, 89, 255, 0.68));
+        }
+
+        .gauge-marker {
+            position: absolute;
+            top: -5px;
+            width: 2px;
+            height: 20px;
+            background: var(--text-color);
+            transform: translateX(-1px);
+        }
+
+        .gauge-marker.threshold {
+            background: #39d98a;
+        }
+
+        .gauge-marker.mine {
+            background: var(--accent-color);
+        }
+
+        .gauge-marker.team {
+            background: #ffc857;
+        }
+
+        .gauge-marker.network {
+            background: #4ea8de;
+        }
+
+        .gauge-labels {
+            display: grid;
+            gap: 7px;
+        }
+
+        .gauge-label {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+            color: var(--text-muted);
+            font-size: 0.82rem;
+        }
+
+        .gauge-label strong {
+            color: var(--text-color);
+        }
+
+        .gauge-chip {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            margin-right: 8px;
+        }
+
+        .gauge-chip.threshold { background: #39d98a; }
+        .gauge-chip.mine { background: var(--accent-color); }
+        .gauge-chip.team { background: #ffc857; }
+        .gauge-chip.network { background: #4ea8de; }
+
+        .technical-disclosure {
+            margin-top: 10px;
+            margin-bottom: 30px;
+            border: 1px solid var(--border-color);
+            background: #0c0c0c;
+        }
+
+        .technical-disclosure summary {
+            list-style: none;
+            cursor: pointer;
+            padding: 14px 16px;
+            color: var(--text-color);
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .technical-disclosure summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .technical-disclosure[open] summary {
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .technical-summary-note {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            font-weight: 400;
+            text-transform: none;
+        }
+
+        .technical-content {
+            padding: 0 0 16px 0;
+        }
+
+        .list-disclosure {
+            margin-top: 26px;
+        }
+
         /* Info Grids */
         .info-grid {
             display: grid;
@@ -268,6 +673,16 @@
             color: var(--text-muted);
             font-size: 0.85rem;
             margin-bottom: 10px;
+        }
+
+        .round-history-content {
+            display: grid;
+            gap: 18px;
+        }
+
+        .round-history-primary {
+            display: grid;
+            gap: 16px;
         }
 
         .round-history-toolbar {
@@ -442,7 +857,6 @@
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
             gap: 16px;
-            margin-top: 16px;
         }
 
         .round-history-chart-toolbar {
@@ -481,6 +895,10 @@
         /* Tables */
         .table-container {
             overflow-x: auto;
+        }
+
+        .full-label {
+            white-space: nowrap;
         }
 
         .list-toolbar {
@@ -653,6 +1071,18 @@
                 flex-direction: column;
                 align-items: flex-start;
             }
+
+            .mode-toolbar {
+                align-items: flex-start;
+            }
+
+            .mode-toolbar-right {
+                width: 100%;
+            }
+
+            .mode-hero-title {
+                font-size: 1.2rem;
+            }
         }
     </style>
 </head>
@@ -667,6 +1097,24 @@
 <div class="main-container">
     <h1>BOOT PROTOCOL</h1>
 
+    <div class="mode-toolbar">
+        <div class="mode-toolbar-left">
+            <div class="mode-toolbar-label">View</div>
+            <div class="view-toggle">
+                <button class="toggle-btn" id="mode-lottery-btn" onclick="setUiMode('lottery')">LOTTERY</button>
+                <button class="toggle-btn" id="mode-business-btn" onclick="setUiMode('business')">BUSINESS</button>
+                <button class="toggle-btn" id="mode-nerd-btn" onclick="setUiMode('nerd')">NERD</button>
+            </div>
+        </div>
+        <div class="mode-toolbar-right">
+            <div class="mode-status-item">Round <strong id="mode-header-round">--</strong></div>
+            <div class="mode-status-item">Team <strong id="mode-header-hashrate">--</strong></div>
+            <div class="mode-status-item">Peers <strong id="mode-header-peers">--</strong></div>
+        </div>
+    </div>
+
+    <div class="mode-intro" id="mode-intro">Loading view...</div>
+
     <div class="search-section">
         <div class="search-box-container">
             <input type="text" id="search-input" class="search-input" placeholder="Enter Wallet Address..."
@@ -674,8 +1122,46 @@
             <button class="search-btn" onclick="performSearch()">SEARCH</button>
         </div>
         <div id="search-results" class="search-results"></div>
+        <div id="local-miner-shortcuts" class="shortcut-strip" hidden></div>
     </div>
 
+    <div class="mode-summary-grid">
+        <div class="mode-card">
+            <div class="mode-card-kicker" id="mode-card-1-kicker">Loading</div>
+            <div class="mode-card-title" id="mode-card-1-title">--</div>
+            <div class="mode-card-value" id="mode-card-1-value">--</div>
+            <div class="mode-card-detail" id="mode-card-1-detail">--</div>
+            <div class="mode-card-note" id="mode-card-1-note"></div>
+        </div>
+        <div class="mode-card">
+            <div class="mode-card-kicker" id="mode-card-2-kicker">Loading</div>
+            <div class="mode-card-title" id="mode-card-2-title">--</div>
+            <div class="mode-card-value" id="mode-card-2-value">--</div>
+            <div class="mode-card-detail" id="mode-card-2-detail">--</div>
+            <div class="mode-card-note" id="mode-card-2-note"></div>
+        </div>
+        <div class="mode-card">
+            <div class="mode-card-kicker" id="mode-card-3-kicker">Loading</div>
+            <div class="mode-card-title" id="mode-card-3-title">--</div>
+            <div class="mode-card-value" id="mode-card-3-value">--</div>
+            <div class="mode-card-detail" id="mode-card-3-detail">--</div>
+            <div class="mode-card-note" id="mode-card-3-note"></div>
+        </div>
+    </div>
+
+    <section class="mode-focus-section">
+        <div class="section-toolbar">
+            <h2 id="mode-focus-heading">Mode Focus</h2>
+        </div>
+        <div class="mode-focus-grid" id="mode-focus-grid"></div>
+    </section>
+
+    <details class="technical-disclosure" id="technical-disclosure">
+        <summary>
+            <span id="technical-details-title">Show Technical Details</span>
+            <span class="technical-summary-note" id="technical-details-summary-note">State IDs, peer status, diagnostics, and full protocol tooling.</span>
+        </summary>
+        <div class="technical-content">
     <div class="info-grid">
         <div class="info-box">
             <h3>🏆 All-Time Best Diff</h3>
@@ -727,24 +1213,26 @@
         </div>
     </div>
 
-    <div class="section-toolbar">
-        <h2>Difficulty Distribution</h2>
-        <div class="view-toggle">
-            <button class="toggle-btn active" id="chart-linear-btn" onclick="setChartScaleMode('linear')">LINEAR</button>
-            <button class="toggle-btn" id="chart-log-btn" onclick="setChartScaleMode('log')">LOG</button>
+    <section id="difficulty-section">
+        <div class="section-toolbar">
+            <h2>Difficulty Distribution</h2>
+            <div class="view-toggle">
+                <button class="toggle-btn active" id="chart-linear-btn" onclick="setChartScaleMode('linear')">LINEAR</button>
+                <button class="toggle-btn" id="chart-log-btn" onclick="setChartScaleMode('log')">LOG</button>
+            </div>
         </div>
-    </div>
-    <div class="charts-section">
-        <div class="chart-container">
-            <canvas id="winnersChart"></canvas>
+        <div class="charts-section">
+            <div class="chart-container">
+                <canvas id="winnersChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <canvas id="onDeckChart"></canvas>
+            </div>
         </div>
-        <div class="chart-container">
-            <canvas id="onDeckChart"></canvas>
-        </div>
-    </div>
+    </section>
 
     <section>
-        <h2>
+        <h2 id="peer-status-heading">
             Peer Status
             <span class="info-icon"
                   data-tooltip="configured: manually seeded peer. discovered: learned from another peer. connected: recent summary poll succeeded. share: peer submitted a share to this node. relayed: this node recently relayed a share to that peer. empty/error/foreign-network: recent peer sync failed or was incompatible.">i</span>
@@ -763,9 +1251,11 @@
             </table>
         </div>
     </section>
+        </div>
+    </details>
 
     <section style="margin-top: 30px;">
-        <h2>Round History</h2>
+        <h2 id="round-history-heading">Round History</h2>
         <div class="round-history-toolbar">
             <div class="round-history-note" id="round-history-note">Loading round history...</div>
             <div class="view-toggle">
@@ -773,39 +1263,49 @@
                 <button class="toggle-btn" id="rounds-newest-left-btn" onclick="setRoundHistoryOrder('newest-left')">NEW LEFT</button>
             </div>
         </div>
-        <div class="round-history-scroller" id="round-history-scroller"></div>
-        <div class="round-detail" id="round-history-detail">
-            <div class="round-history-empty">No completed rounds recorded yet.</div>
-        </div>
-        <div class="round-history-chart-grid">
-            <div class="chart-container round-history-chart">
-                <canvas id="roundShareChart"></canvas>
-                <div class="round-history-search-note" id="round-history-search-note"></div>
-            </div>
-            <div class="chart-container round-history-chart">
-                <div class="round-history-chart-toolbar">
-                    <h3>Estimated Hashrate Through Time</h3>
-                    <div class="view-toggle">
-                        <button class="toggle-btn" id="hashrate-window-6h-btn" onclick="setHashrateWindow('6h')">6H</button>
-                        <button class="toggle-btn active" id="hashrate-window-24h-btn" onclick="setHashrateWindow('24h')">24H</button>
-                        <button class="toggle-btn" id="hashrate-window-7d-btn" onclick="setHashrateWindow('7d')">7D</button>
-                        <button class="toggle-btn" id="hashrate-window-30d-btn" onclick="setHashrateWindow('30d')">30D</button>
-                        <button class="toggle-btn" id="hashrate-window-all-btn" onclick="setHashrateWindow('all')">ALL</button>
-                    </div>
-                    <div class="view-toggle">
-                        <button class="toggle-btn active" id="hashrate-scale-linear-btn" onclick="setHashrateScaleMode('linear')">LINEAR</button>
-                        <button class="toggle-btn" id="hashrate-scale-log-btn" onclick="setHashrateScaleMode('log')">LOG</button>
-                    </div>
+        <div class="round-history-content" id="round-history-content">
+            <div class="round-history-primary" id="round-history-primary">
+                <div class="round-history-scroller" id="round-history-scroller"></div>
+                <div class="round-detail" id="round-history-detail">
+                    <div class="round-history-empty">No completed rounds recorded yet.</div>
                 </div>
-                <canvas id="roundHashrateChart"></canvas>
-                <div class="round-history-search-note" id="round-hashrate-chart-note"></div>
+            </div>
+            <div class="round-history-chart-grid" id="round-history-chart-grid">
+                <div class="chart-container round-history-chart" id="round-share-panel">
+                    <canvas id="roundShareChart"></canvas>
+                    <div class="round-history-search-note" id="round-history-search-note"></div>
+                </div>
+                <div class="chart-container round-history-chart" id="round-hashrate-panel">
+                    <div class="round-history-chart-toolbar">
+                        <h3>Estimated Hashrate Through Time</h3>
+                        <div class="view-toggle">
+                            <button class="toggle-btn" id="hashrate-window-6h-btn" onclick="setHashrateWindow('6h')">6H</button>
+                            <button class="toggle-btn active" id="hashrate-window-24h-btn" onclick="setHashrateWindow('24h')">24H</button>
+                            <button class="toggle-btn" id="hashrate-window-7d-btn" onclick="setHashrateWindow('7d')">7D</button>
+                            <button class="toggle-btn" id="hashrate-window-30d-btn" onclick="setHashrateWindow('30d')">30D</button>
+                            <button class="toggle-btn" id="hashrate-window-all-btn" onclick="setHashrateWindow('all')">ALL</button>
+                        </div>
+                        <div class="view-toggle">
+                            <button class="toggle-btn active" id="hashrate-scale-linear-btn" onclick="setHashrateScaleMode('linear')">LINEAR</button>
+                            <button class="toggle-btn" id="hashrate-scale-log-btn" onclick="setHashrateScaleMode('log')">LOG</button>
+                        </div>
+                    </div>
+                    <canvas id="roundHashrateChart"></canvas>
+                    <div class="round-history-search-note" id="round-hashrate-chart-note"></div>
+                </div>
             </div>
         </div>
     </section>
 
-    <div class="lists-container">
+    <details class="technical-disclosure list-disclosure" id="list-disclosure">
+        <summary>
+            <span id="list-disclosure-title">Show Full Winner Lists</span>
+            <span class="technical-summary-note" id="list-disclosure-summary-note">Current paid team and next payout queue.</span>
+        </summary>
+        <div class="technical-content">
+    <div class="lists-container" id="lists-container">
         <section>
-            <h2>
+            <h2 id="winners-heading">
                 Current Winners List
                 <span class="info-icon"
                       data-tooltip="High difficulty shares that won the last round.  Miners put these payouts in their coinbase transaction (including one spot for their own) to compete in the current round.">i</span>
@@ -832,7 +1332,7 @@
         </section>
 
         <section style="margin-top: 30px;">
-            <h2>
+            <h2 id="ondeck-heading">
                 On-Deck List
                 <span class="info-icon"
                       data-tooltip="The current round of competition. When the team finds a new block, these addresses get locked into the Winners List.">i</span>
@@ -858,12 +1358,14 @@
             </div>
         </section>
     </div>
+        </div>
+    </details>
 
         <footer>
             <a href="https://github.com/gridlabs-science/boot-protocol" target="_blank">SOURCE CODE</a> |
             <a onclick="toggleModal('theory-modal')">THEORY</a> |
             <a onclick="toggleModal('help-modal')">HELP</a> |
-            <a onclick="toggleModal('test-modal')">TEST TOOLS</a>
+            <a id="test-tools-link" onclick="toggleModal('test-modal')">TEST TOOLS</a>
         </footer>
     </div> 
 
@@ -932,11 +1434,19 @@
     let globalRoundHistory = [];
     let globalHashrateSeries = { points: [], sampleIntervalSeconds: 60, localWindowSeconds: 1800 };
     let selectedRoundStateId = null;
+    let activeUiMode = "lottery";
     let roundHistoryOrder = localStorage.getItem("boot-round-history-order") || "oldest-left";
     let chartScaleMode = localStorage.getItem("boot-chart-scale-mode") || "linear";
     let hashrateWindow = localStorage.getItem("boot-hashrate-window") || "24h";
     let hashrateScaleMode = localStorage.getItem("boot-hashrate-scale-mode") || "linear";
     let currentRoundEstimateTimer = null;
+    let globalBitcoinMetrics = {
+        currentNetworkHashrateHps: null,
+        sevenDayAverageHashrateHps: null,
+        lastUpdatedMs: null
+    };
+    let autoSelectedLocalMinerAddress = null;
+    let userTouchedSearch = false;
 
     // Global state for client-side searching
     let globalWinnersList = [];
@@ -957,6 +1467,17 @@
             input.value = path;
             currentSearchTerm = path; // Set immediate state
         }
+
+        document.getElementById('search-input').addEventListener('input', () => {
+            userTouchedSearch = true;
+        });
+
+        const requestedMode = new URLSearchParams(window.location.search).get("mode");
+        if (["lottery", "business", "nerd"].includes(requestedMode)) {
+            setUiMode(requestedMode, { persist: false, resetDisclosure: true });
+        } else {
+            setUiMode(localStorage.getItem("boot-ui-mode") || "lottery", { persist: false, resetDisclosure: true });
+        }
     });
 
     const connection = new signalR.HubConnectionBuilder()
@@ -970,6 +1491,7 @@
         const rawTerm = input.value.trim();
         currentSearchTerm = rawTerm;
         const resultDiv = document.getElementById('search-results');
+        const labels = getModeListLabels();
 
         if (!rawTerm) {
             resultDiv.innerHTML = "";
@@ -999,12 +1521,12 @@
             if (deckMatches.length > 0) {
                 const deckIndices = deckMatches.map(x => '#' + x.index).join(', ');
                 const deckBtc = (deckTotal / 100000000.0).toFixed(8);
-                msg += `<div><span class="result-highlight">On Deck List:</span> ${deckIndices}. Potential payout: ${deckBtc} BTC</div>`;
+                msg += `<div><span class="result-highlight">${labels.ondeck}:</span> ${deckIndices}. Potential payout: ${deckBtc} BTC</div>`;
             }
             if (winnerMatches.length > 0) {
                 const winIndices = winnerMatches.map(x => '#' + x.index).join(', ');
                 const winBtc = (winnerTotal / 100000000.0).toFixed(8);
-                msg += `<div><span class="result-highlight">Winners List:</span> ${winIndices}. Locked payout: ${winBtc} BTC</div>`;
+                msg += `<div><span class="result-highlight">${labels.winners}:</span> ${winIndices}. Locked payout: ${winBtc} BTC</div>`;
             }
             resultDiv.innerHTML = msg;
         }
@@ -1014,15 +1536,19 @@
     }
 
     function refreshUI() {
+        const labels = getModeListLabels();
         updateTable("winners-list", globalWinnersList);
         updateTable("ondeck-list", globalOnDeckList);
         renderRoundHistory(globalRoundHistory);
         updateCurrentRoundTelemetry();
         updateHashrateHistoryChart();
+        renderModeSummaryCards();
+        renderModeFocusSection();
+        renderLocalMinerShortcuts();
 
         // Re-draw charts with the vertical lines
-        winnersChartInstance = updateChart("winnersChart", globalWinnersList, "Winners List Depth", winnersChartInstance);
-        onDeckChartInstance = updateChart("onDeckChart", globalOnDeckList, "On-Deck List Depth", onDeckChartInstance);
+        winnersChartInstance = updateChart("winnersChart", globalWinnersList, `${labels.winners} Depth`, winnersChartInstance);
+        onDeckChartInstance = updateChart("onDeckChart", globalOnDeckList, `${labels.ondeck} Depth`, onDeckChartInstance);
     }
 
 
@@ -1170,6 +1696,942 @@
 
     function currentSearchValue() {
         return normalizeSearchValue(currentSearchTerm);
+    }
+
+    function setUiMode(mode, options = {}) {
+        activeUiMode = ["lottery", "business", "nerd"].includes(mode) ? mode : "lottery";
+
+        if (options.persist !== false) {
+            localStorage.setItem("boot-ui-mode", activeUiMode);
+        }
+
+        document.body.dataset.uiMode = activeUiMode;
+        document.getElementById("mode-lottery-btn").classList.toggle("active", activeUiMode === "lottery");
+        document.getElementById("mode-business-btn").classList.toggle("active", activeUiMode === "business");
+        document.getElementById("mode-nerd-btn").classList.toggle("active", activeUiMode === "nerd");
+
+        updateModeChrome(options.resetDisclosure === true);
+        if (options.skipRefresh) {
+            renderModeSummaryCards();
+            renderModeFocusSection();
+            return;
+        }
+
+        refreshUI();
+    }
+
+    function setElementHidden(id, hidden) {
+        const element = document.getElementById(id);
+        if (element) {
+            element.hidden = !!hidden;
+        }
+    }
+
+    function getCanonicalRoundHistory(limit = null) {
+        const canonical = (globalRoundHistory || []).filter(entry => !entry?.isOrphaned);
+        return limit == null ? canonical : canonical.slice(0, limit);
+    }
+
+    function getRoundHistoryForMode() {
+        if (activeUiMode === "nerd") {
+            return globalRoundHistory || [];
+        }
+
+        return getCanonicalRoundHistory();
+    }
+
+    function getModeListLabels() {
+        switch (activeUiMode) {
+            case "lottery":
+                return { winners: "Current Paid Team", ondeck: "Next Payout Queue" };
+            case "business":
+                return { winners: "Current Winners", ondeck: "Pending Winners" };
+            default:
+                return { winners: "Winners List", ondeck: "On-Deck List" };
+        }
+    }
+
+    function getSearchContext() {
+        const term = currentSearchValue();
+        const winnerMatches = !term ? [] : globalWinnersList.filter(item => normalizeSearchValue(item.username || item.address).includes(term));
+        const onDeckMatches = !term ? [] : globalOnDeckList.filter(item => normalizeSearchValue(item.username || item.address).includes(term));
+        const recentCanonicalRounds = getCanonicalRoundHistory(12);
+        const paidRounds = term
+            ? recentCanonicalRounds.filter(entry => (computeRecipientShare(entry.paidRecipients, entry.paidTotalValue)?.value || 0) > 0)
+            : [];
+        const nextRounds = term
+            ? recentCanonicalRounds.filter(entry => (computeRecipientShare(entry.nextRecipients, entry.nextWinnerTotalValue)?.value || 0) > 0)
+            : [];
+
+        const avgPaidShare = paidRounds.length > 0
+            ? paidRounds.reduce((sum, entry) => sum + (computeRecipientShare(entry.paidRecipients, entry.paidTotalValue)?.percent || 0), 0) / paidRounds.length
+            : 0;
+
+        return {
+            hasSearch: !!term,
+            winnerMatches,
+            onDeckMatches,
+            winnerSlots: winnerMatches.length,
+            onDeckSlots: onDeckMatches.length,
+            winnerValue: winnerMatches.reduce((sum, item) => sum + (item.value || 0), 0),
+            onDeckValue: onDeckMatches.reduce((sum, item) => sum + (item.value || 0), 0),
+            paidRounds,
+            nextRounds,
+            recentCanonicalRounds,
+            avgPaidShare
+        };
+    }
+
+    function getAverageRoundDurationSeconds() {
+        const rounds = getCanonicalRoundHistory().filter(entry => Number(entry?.roundElapsedSeconds) > 0);
+        if (rounds.length === 0) return null;
+        return rounds.reduce((sum, entry) => sum + Number(entry.roundElapsedSeconds), 0) / rounds.length;
+    }
+
+    function getLatestMatchingRound(rounds, recipientSelector) {
+        const entries = rounds || [];
+        for (const entry of entries) {
+            const share = recipientSelector(entry);
+            if (share && share.value > 0) {
+                return { entry, share };
+            }
+        }
+
+        return null;
+    }
+
+    function formatRoundReference(entry) {
+        if (!entry) return "--";
+        return `Round ${entry.roundNumber} · ${formatBlockLabel(entry.triggerBlockHash, entry.triggerBlockHeight)}`;
+    }
+
+    function summarizeRecentMatchingRounds(rounds, recipientSelector, limit = 3) {
+        const lines = [];
+        for (const entry of rounds || []) {
+            const share = recipientSelector(entry);
+            if (!share || share.value <= 0) continue;
+            lines.push(`${formatRoundReference(entry)} · ${share.percent.toFixed(1)}% · ${formatBtcFromSats(share.value)} BTC`);
+            if (lines.length >= limit) break;
+        }
+
+        return lines;
+    }
+
+    function getRoundsInLastHours(hours) {
+        const cutoff = Date.now() - (hours * 60 * 60 * 1000);
+        return getCanonicalRoundHistory().filter(entry => {
+            const timestamp = entry?.lockedAtUtc ? new Date(entry.lockedAtUtc).getTime() : Number.NaN;
+            return !Number.isNaN(timestamp) && timestamp >= cutoff;
+        }).length;
+    }
+
+    function currentTeamHashrateThs() {
+        return getCurrentRoundEstimatedHashrateThs()
+            ?? latestNetworkState?.currentRoundObservedHashrateThs
+            ?? null;
+    }
+
+    function currentTeamHashrateDisplay() {
+        const formatted = formatHashrateFromThs(currentTeamHashrateThs());
+        return formatted !== "--"
+            ? formatted
+            : (latestNetworkState?.currentRoundObservedHashrateDisplay || "--");
+    }
+
+    function setModeCard(index, kicker, title, value, detail, note = "") {
+        document.getElementById(`mode-card-${index}-kicker`).innerText = kicker;
+        document.getElementById(`mode-card-${index}-title`).innerText = title;
+        document.getElementById(`mode-card-${index}-value`).innerText = value;
+        document.getElementById(`mode-card-${index}-detail`).innerText = detail;
+        document.getElementById(`mode-card-${index}-note`).innerText = note;
+    }
+
+    function buildFocusMetric(label, value) {
+        return `<div class="mode-focus-metric"><span>${label}</span><strong>${value}</strong></div>`;
+    }
+
+    function buildFocusCard(kicker, value, bodyHtml, note = "", listItems = []) {
+        const listHtml = listItems.length > 0
+            ? `<div class="mode-focus-list">${listItems.map(item => `<div class="mode-focus-list-item">${item}</div>`).join("")}</div>`
+            : "";
+
+        return `
+            <div class="mode-focus-card">
+                <div class="mode-focus-kicker">${kicker}</div>
+                <div class="mode-focus-value">${value}</div>
+                <div class="mode-focus-body">${bodyHtml || ""}</div>
+                ${note ? `<div class="mode-focus-note">${note}</div>` : ""}
+                ${listHtml}
+            </div>
+        `;
+    }
+
+    function getConnectionSummary() {
+        const host = document.getElementById("server-host")?.innerText || "--";
+        const port = document.getElementById("server-port")?.innerText || "--";
+        const endpoint = host && port && host !== "Loading..." && port !== "Loading..."
+            ? `${host}:${port}`
+            : "--";
+        const pubkey = fullServerPubKey && fullServerPubKey.length > 16
+            ? `${fullServerPubKey.substring(0, 8)}...${fullServerPubKey.substring(fullServerPubKey.length - 8)}`
+            : (fullServerPubKey || "--");
+        return { endpoint, pubkey };
+    }
+
+    function getLocalDatumMiners() {
+        return Array.isArray(latestNetworkState?.localDatumMiners) ? latestNetworkState.localDatumMiners : [];
+    }
+
+    function getSelectedLocalMinerSummary() {
+        const miners = getLocalDatumMiners();
+        const term = currentSearchValue();
+        if (term) {
+            return miners.find(miner =>
+                normalizeSearchValue(miner.address).includes(term) ||
+                normalizeSearchValue(miner.username).includes(term)) || null;
+        }
+
+        return miners.length === 1 ? miners[0] : null;
+    }
+
+    function selectLocalMiner(address) {
+        const input = document.getElementById("search-input");
+        input.value = address;
+        currentSearchTerm = address;
+        userTouchedSearch = false;
+        performSearch();
+        renderLocalMinerShortcuts();
+    }
+
+    function maybeAutoselectLocalMiner() {
+        const miners = getLocalDatumMiners();
+        const input = document.getElementById("search-input");
+        if (!input || miners.length !== 1) return;
+        if (currentSearchTerm || input.value.trim() || userTouchedSearch) return;
+        if (autoSelectedLocalMinerAddress === miners[0].address) return;
+
+        autoSelectedLocalMinerAddress = miners[0].address;
+        input.value = miners[0].address;
+        currentSearchTerm = miners[0].address;
+        performSearch();
+    }
+
+    function renderLocalMinerShortcuts() {
+        const container = document.getElementById("local-miner-shortcuts");
+        const miners = getLocalDatumMiners();
+        const selected = getSelectedLocalMinerSummary();
+
+        if (!container) return;
+        if (miners.length === 0) {
+            container.hidden = true;
+            container.innerHTML = "";
+            return;
+        }
+
+        container.hidden = false;
+        container.innerHTML = miners.map(miner => `
+            <button type="button" class="shortcut-chip${selected?.address === miner.address ? " active" : ""}" onclick="selectLocalMiner('${miner.address}')">
+                <span class="shortcut-chip-label">Local DATUM Miner</span>
+                <span class="shortcut-chip-value">${miner.username || miner.address}</span>
+                <span class="shortcut-chip-note">${miner.currentHashrateDisplay || "--"} · best this round ${miner.currentRoundBestDifficultyDisplay || "--"}</span>
+            </button>
+        `).join("");
+    }
+
+    async function loadBitcoinNetworkMetrics() {
+        try {
+            const response = await fetch("https://mempool.space/api/v1/mining/hashrate/1m");
+            if (!response.ok) {
+                throw new Error(`Network metrics request failed with ${response.status}`);
+            }
+
+            const payload = await response.json();
+            const points = Array.isArray(payload?.hashrates) ? payload.hashrates : [];
+            if (points.length === 0) {
+                return;
+            }
+
+            const current = Number(points[points.length - 1]?.avgHashrate) || null;
+            const trailingWindow = points
+                .slice(-7)
+                .map(point => Number(point?.avgHashrate) || 0)
+                .filter(value => value > 0);
+
+            globalBitcoinMetrics = {
+                currentNetworkHashrateHps: current,
+                sevenDayAverageHashrateHps: trailingWindow.length > 0
+                    ? trailingWindow.reduce((sum, value) => sum + value, 0) / trailingWindow.length
+                    : current,
+                lastUpdatedMs: Date.now()
+            };
+
+            renderModeSummaryCards();
+            renderModeFocusSection();
+        } catch (error) {
+            console.error(error);
+        }
+    }
+
+    function hashrateThsToHps(hashrateThs) {
+        if (hashrateThs == null || !isFinite(hashrateThs) || hashrateThs <= 0) return null;
+        return hashrateThs * 1_000_000_000_000;
+    }
+
+    function getBitcoinNetworkHashrateHps(preferSevenDay = false) {
+        return preferSevenDay
+            ? (globalBitcoinMetrics.sevenDayAverageHashrateHps || globalBitcoinMetrics.currentNetworkHashrateHps)
+            : globalBitcoinMetrics.currentNetworkHashrateHps;
+    }
+
+    function getBitcoinNetworkDifficulty(preferSevenDay = false) {
+        const networkHashrateHps = getBitcoinNetworkHashrateHps(preferSevenDay);
+        if (!networkHashrateHps) return null;
+        return (networkHashrateHps * 600) / 4294967296;
+    }
+
+    function getBlocksUntilNextHalving() {
+        const height = Number(latestNetworkState?.currentTipBlockHeight);
+        if (!Number.isFinite(height) || height < 0) return null;
+        const nextHalvingHeight = (Math.floor(height / 210000) + 1) * 210000;
+        return Math.max(0, nextHalvingHeight - height);
+    }
+
+    function poissonProbabilityAtLeastOne(ratePerSecond, seconds) {
+        if (ratePerSecond == null || seconds == null || ratePerSecond <= 0 || seconds <= 0) return null;
+        return 1 - Math.exp(-ratePerSecond * seconds);
+    }
+
+    function quantileTimeForPoissonEvent(ratePerSecond, confidence) {
+        if (ratePerSecond == null || ratePerSecond <= 0 || confidence <= 0 || confidence >= 1) return null;
+        return -Math.log(1 - confidence) / ratePerSecond;
+    }
+
+    function formatDurationLong(seconds) {
+        if (seconds == null || !isFinite(seconds) || seconds <= 0) return "--";
+        const total = Math.floor(seconds);
+        const days = Math.floor(total / 86400);
+        const hours = Math.floor((total % 86400) / 3600);
+        const minutes = Math.floor((total % 3600) / 60);
+
+        if (days >= 365) return `${(days / 365).toFixed(days >= 730 ? 0 : 1)} years`;
+        if (days >= 30) return `${(days / 30).toFixed(days >= 180 ? 0 : 1)} months`;
+        if (days >= 7) return `${(days / 7).toFixed(days >= 28 ? 0 : 1)} weeks`;
+        if (days > 0) return `${days}d ${hours}h`;
+        if (hours > 0) return `${hours}h ${minutes}m`;
+        if (minutes > 0) return `${minutes}m`;
+        return `${total}s`;
+    }
+
+    function formatChance(probability) {
+        if (probability == null || !isFinite(probability) || probability <= 0) return "--";
+        if (probability >= 0.995) return ">99.5%";
+        if (probability >= 0.10) return `${(probability * 100).toFixed(0)}%`;
+        if (probability >= 0.01) return `${(probability * 100).toFixed(1)}%`;
+        const oneIn = Math.max(1, Math.round(1 / probability));
+        return `1 in ${oneIn.toLocaleString()}`;
+    }
+
+    function formatChanceDetail(probability) {
+        if (probability == null || !isFinite(probability) || probability <= 0) return "--";
+        if (probability >= 0.01) {
+            return `${(probability * 100).toFixed(probability >= 0.1 ? 0 : 1)}%`;
+        }
+
+        return formatChance(probability);
+    }
+
+    function getTeamBlockFindRatePerSecond(hashrateThs, preferSevenDay = false) {
+        const networkHashrateHps = getBitcoinNetworkHashrateHps(preferSevenDay);
+        const hashrateHps = hashrateThsToHps(hashrateThs);
+        if (!networkHashrateHps || !hashrateHps) return null;
+        return (hashrateHps / networkHashrateHps) / 600;
+    }
+
+    function getShareThresholdHitRatePerSecond(hashrateThs, difficulty) {
+        const hashrateHps = hashrateThsToHps(hashrateThs);
+        if (!hashrateHps || difficulty == null || difficulty <= 0) return null;
+        return hashrateHps / (difficulty * 4294967296);
+    }
+
+    function getCurrentOnDeckThresholdDifficulty() {
+        const difficulties = (globalOnDeckList || [])
+            .map(item => Number(item.difficulty) || 0)
+            .filter(value => value > 0);
+        if (difficulties.length === 0) return null;
+        return Math.min(...difficulties);
+    }
+
+    function getCurrentOnDeckThresholdDisplay() {
+        const threshold = getCurrentOnDeckThresholdDifficulty();
+        return threshold == null ? "--" : formatDifficultyDisplay(threshold);
+    }
+
+    function getCurrentTeamBestDifficulty() {
+        const difficulties = (globalOnDeckList || [])
+            .map(item => Number(item.difficulty) || 0)
+            .filter(value => value > 0);
+        if (difficulties.length === 0) return null;
+        return Math.max(...difficulties);
+    }
+
+    function formatDifficultyDisplay(value) {
+        if (value == null || !isFinite(value) || value <= 0) return "--";
+        if (value < 1000) return value.toFixed(2).replace(/\.00$/, "");
+        if (value < 1_000_000) return `${(value / 1_000).toFixed(2).replace(/\.00$/, "")}k`;
+        if (value < 1_000_000_000) return `${(value / 1_000_000).toFixed(2).replace(/\.00$/, "")}M`;
+        if (value < 1_000_000_000_000) return `${(value / 1_000_000_000).toFixed(2).replace(/\.00$/, "")}G`;
+        if (value < 1_000_000_000_000_000) return `${(value / 1_000_000_000_000).toFixed(2).replace(/\.00$/, "")}T`;
+        return `${(value / 1_000_000_000_000_000).toFixed(2).replace(/\.00$/, "")}P`;
+    }
+
+    function buildMetricList(items) {
+        return `<div class="metric-list">${items.map(item => `
+            <div class="metric-row">
+                <span>${item.label}</span>
+                <strong>${item.value}</strong>
+            </div>
+        `).join("")}</div>`;
+    }
+
+    function buildHeroPanel(title, copy, metrics) {
+        return `
+            <div class="mode-focus-card hero">
+                <div class="mode-focus-kicker">Current Position</div>
+                <div class="mode-focus-rich">
+                    <div class="mode-hero-title">${title}</div>
+                    <div class="mode-hero-copy">${copy}</div>
+                    <div class="mode-hero-metrics">
+                        ${metrics.map(metric => `
+                            <div class="mode-mini-panel">
+                                <div class="mode-mini-kicker">${metric.kicker}</div>
+                                <strong>${metric.value}</strong>
+                            </div>
+                        `).join("")}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    function buildDifficultyGaugeCard(localMiner) {
+        const myBest = Number(localMiner?.currentRoundBestDifficulty) || 0;
+        const threshold = getCurrentOnDeckThresholdDifficulty();
+        const teamBest = getCurrentTeamBestDifficulty();
+        const networkDifficulty = getBitcoinNetworkDifficulty();
+        const values = [myBest, threshold, teamBest, networkDifficulty]
+            .map(value => Number(value) || 0)
+            .filter(value => value > 0);
+
+        if (values.length === 0) {
+            return buildFocusCard(
+                "Difficulty Chase",
+                "--",
+                buildMetricList([
+                    { label: "Need to beat now", value: "--" },
+                    { label: "Your best this round", value: "--" },
+                    { label: "Team best this round", value: "--" }
+                ]),
+                "The live threshold appears once the next payout queue has difficulty data."
+            );
+        }
+
+        const maxValue = Math.max(...values) * 1.05;
+        const logPosition = (value) => {
+            if (!value || value <= 0 || !maxValue) return 0;
+            return (Math.log10(value + 1) / Math.log10(maxValue + 1)) * 100;
+        };
+        const progressPercent = threshold ? Math.min(100, logPosition(Math.min(myBest, threshold))) : 0;
+
+        return `
+            <div class="mode-focus-card">
+                <div class="mode-focus-kicker">Difficulty Chase</div>
+                <div class="mode-focus-value">${threshold ? `${formatDifficultyDisplay(myBest)} / ${formatDifficultyDisplay(threshold)}` : formatDifficultyDisplay(myBest)}</div>
+                <div class="gauge-wrap">
+                    <div class="gauge-rail">
+                        <div class="gauge-fill" style="width:${progressPercent}%;"></div>
+                        ${threshold ? `<div class="gauge-marker threshold" style="left:${logPosition(threshold)}%;"></div>` : ""}
+                        ${myBest ? `<div class="gauge-marker mine" style="left:${logPosition(myBest)}%;"></div>` : ""}
+                        ${teamBest ? `<div class="gauge-marker team" style="left:${logPosition(teamBest)}%;"></div>` : ""}
+                        ${networkDifficulty ? `<div class="gauge-marker network" style="left:${logPosition(networkDifficulty)}%;"></div>` : ""}
+                    </div>
+                    <div class="gauge-labels">
+                        <div class="gauge-label"><span><span class="gauge-chip mine"></span>Your best hit</span><strong>${formatDifficultyDisplay(myBest)}</strong></div>
+                        <div class="gauge-label"><span><span class="gauge-chip threshold"></span>Need to make the queue now</span><strong>${getCurrentOnDeckThresholdDisplay()}</strong></div>
+                        <div class="gauge-label"><span><span class="gauge-chip team"></span>Best share on the team</span><strong>${formatDifficultyDisplay(teamBest)}</strong></div>
+                        <div class="gauge-label"><span><span class="gauge-chip network"></span>Bitcoin network difficulty</span><strong>${formatDifficultyDisplay(networkDifficulty)}</strong></div>
+                    </div>
+                </div>
+                <div class="mode-focus-note">Log-scale view. The left side is “make the queue.” The far right is “hit a real block.”</div>
+            </div>
+        `;
+    }
+
+    function describeHealthAssessment(localDiagnostics) {
+        const reasons = Array.isArray(localDiagnostics?.rejectionReasons) ? localDiagnostics.rejectionReasons : [];
+        const totalRejected = Number(localDiagnostics?.rejectedCount) || 0;
+        const lastRejectedUtc = localDiagnostics?.lastRejectedUtc ? new Date(localDiagnostics.lastRejectedUtc).getTime() : null;
+        const lastRotationUtc = latestNetworkState?.lastRotationUtc ? new Date(latestNetworkState.lastRotationUtc).getTime() : null;
+        const secondsSinceRotation = lastRotationUtc ? (Date.now() - lastRotationUtc) / 1000 : null;
+        const secondsAfterRotationForLastReject = (lastRejectedUtc && lastRotationUtc) ? (lastRejectedUtc - lastRotationUtc) / 1000 : null;
+        const topReason = reasons[0]?.reason || null;
+
+        if (totalRejected === 0) {
+            return {
+                label: "Stable",
+                note: "No recent local rejects.",
+                detail: "Healthy"
+            };
+        }
+
+        const transitionNoise = ["Payout mismatch", "Wrong parent block"];
+        if (topReason && transitionNoise.includes(topReason) && secondsAfterRotationForLastReject != null && secondsAfterRotationForLastReject <= 60) {
+            return {
+                label: "Transition Noise",
+                note: `${topReason} clustered right after a round or tip change is usually normal.`,
+                detail: "Usually benign"
+            };
+        }
+
+        if (topReason === "Solo fallback template") {
+            return {
+                label: "Template Churn",
+                note: "This usually means DATUM kept miners on local fallback work instead of the Boot coinbase split.",
+                detail: "Needs attention"
+            };
+        }
+
+        return {
+            label: secondsSinceRotation != null && secondsSinceRotation <= 60
+                ? "Warm-up"
+                : "Attention",
+            note: topReason ? `Top recent reject: ${topReason}.` : "Recent rejects need review.",
+            detail: secondsSinceRotation != null && secondsSinceRotation <= 60 ? "Early round" : "Persistent issue"
+        };
+    }
+
+    function buildWindowChanceRows(ratePerSecond, windows) {
+        return buildMetricList(windows.map(window => ({
+            label: window.label,
+            value: formatChanceDetail(poissonProbabilityAtLeastOne(ratePerSecond, window.seconds))
+        })));
+    }
+
+    function renderModeFocusSection() {
+        const heading = document.getElementById("mode-focus-heading");
+        const container = document.getElementById("mode-focus-grid");
+        const search = getSearchContext();
+        const averageRoundSeconds = getAverageRoundDurationSeconds();
+        const teamHashrateThs = currentTeamHashrateThs();
+        const teamHashrateDisplay = currentTeamHashrateDisplay();
+        const localMiner = getSelectedLocalMinerSummary();
+        const localHashrateThs = localMiner?.currentHashrateThs ?? latestNetworkState?.localDatumHashrateThs ?? null;
+        const localHashrateDisplay = formatHashrateFromThs(localHashrateThs);
+        const currentRoundAge = formatElapsedSeconds(getCurrentRoundElapsedSeconds() ?? latestNetworkState?.currentRoundElapsedSeconds);
+        const connection = getConnectionSummary();
+        const localDiagnostics = latestNetworkState?.localDatumDiagnostics || {};
+        const acceptanceRate = formatAcceptanceRate(localDiagnostics.acceptedCount ?? 0, localDiagnostics.totalSubmissions ?? 0);
+        const localSharePercent = teamHashrateThs && localHashrateThs
+            ? `${((localHashrateThs / teamHashrateThs) * 100).toFixed(1)}%`
+            : "--";
+        const health = describeHealthAssessment(localDiagnostics);
+        const thresholdDifficulty = getCurrentOnDeckThresholdDifficulty();
+        const teamBestDifficulty = getCurrentTeamBestDifficulty();
+        const teamBlockRate = getTeamBlockFindRatePerSecond(teamHashrateThs);
+        const localQueueRate = getShareThresholdHitRatePerSecond(localMiner?.currentHashrateThs ?? null, thresholdDifficulty);
+        const blocksUntilHalving = getBlocksUntilNextHalving();
+        const timeToHalvingSeconds = blocksUntilHalving != null ? blocksUntilHalving * 600 : null;
+        const latestPaidRound = getLatestMatchingRound(search.recentCanonicalRounds, entry => computeRecipientShare(entry.paidRecipients, entry.paidTotalValue));
+        const latestNextRound = getLatestMatchingRound(search.recentCanonicalRounds, entry => computeRecipientShare(entry.nextRecipients, entry.nextWinnerTotalValue));
+        const recentPaidLines = summarizeRecentMatchingRounds(search.recentCanonicalRounds, entry => computeRecipientShare(entry.paidRecipients, entry.paidTotalValue));
+        const localPayoutProbabilityPerTeamBlock = teamHashrateThs && localHashrateThs
+            ? 1 - Math.exp(-((localHashrateThs / teamHashrateThs) * (latestNetworkState?.sharedWinnerSlotCount ?? 299)))
+            : null;
+        const localPayoutRate = teamBlockRate && localPayoutProbabilityPerTeamBlock != null
+            ? teamBlockRate * localPayoutProbabilityPerTeamBlock
+            : null;
+        let cards = [];
+
+        if (activeUiMode === "lottery") {
+            const lotteryStatus = !search.hasSearch
+                ? "Choose your miner"
+                : search.winnerSlots > 0
+                    ? "Locked For Payout"
+                    : search.onDeckSlots > 0
+                        ? "You Made The Queue"
+                        : "Still Chasing A Slot";
+            const heroCopy = !search.hasSearch
+                ? "Search a payout address or tap one of your directly connected DATUM miners to turn on personal odds and queue tracking."
+                : search.winnerSlots > 0
+                    ? `Your share is locked into the current paid team. Average wait to be paid is about ${formatDurationLong(quantileTimeForPoissonEvent(teamBlockRate, 0.5))}.`
+                    : search.onDeckSlots > 0
+                        ? `You are in the live next-payout queue. This position is temporary until the round locks, and then it still needs one more team-found block to pay.`
+                        : `You are not on the queue yet. The live target right now is ${getCurrentOnDeckThresholdDisplay()}.`;
+
+            heading.innerText = "Lottery View";
+            cards = [
+                buildHeroPanel(lotteryStatus, heroCopy, [
+                    {
+                        kicker: search.winnerSlots > 0 ? "Locked payout" : "Potential payout",
+                        value: search.hasSearch ? `${formatBtcFromSats(search.winnerSlots > 0 ? search.winnerValue : search.onDeckValue)} BTC` : "--"
+                    },
+                    {
+                        kicker: "Team block cadence",
+                        value: teamBlockRate ? formatDurationLong(1 / teamBlockRate) : "--"
+                    },
+                    {
+                        kicker: "Round age",
+                        value: currentRoundAge
+                    }
+                ]),
+                buildFocusCard(
+                    "Team Block Odds",
+                    teamHashrateDisplay,
+                    buildWindowChanceRows(teamBlockRate, [
+                        { label: "Next 10 minutes", seconds: 600 },
+                        { label: "Next day", seconds: 86400 },
+                        { label: "Next week", seconds: 604800 },
+                        { label: "Next year", seconds: 31557600 },
+                        { label: "Before the next halving", seconds: timeToHalvingSeconds }
+                    ]),
+                    `Average time between team blocks at the current estimate: ${teamBlockRate ? formatDurationLong(1 / teamBlockRate) : "--"}.`
+                ),
+                buildFocusCard(
+                    "Make The Queue",
+                    localMiner?.currentHashrateDisplay || "--",
+                    buildWindowChanceRows(localQueueRate, [
+                        { label: "Next 10 minutes", seconds: 600 },
+                        { label: "Next day", seconds: 86400 },
+                        { label: "Next week", seconds: 604800 },
+                        { label: "Next year", seconds: 31557600 },
+                        { label: "Before the next halving", seconds: timeToHalvingSeconds }
+                    ]),
+                    localMiner
+                        ? `Expected time between queue-quality hits at the current threshold: ${localQueueRate ? formatDurationLong(1 / localQueueRate) : "--"}.`
+                        : "Connect your miner through this node to estimate personal queue odds."
+                ),
+                buildDifficultyGaugeCard(localMiner),
+                buildFocusCard(
+                    "Connect DATUM",
+                    connection.endpoint,
+                    buildMetricList([
+                        { label: "Pool pubkey", value: connection.pubkey },
+                        { label: "Network", value: latestNetworkState?.networkId || "--" },
+                        { label: "Help", value: "Open HELP below" }
+                    ]),
+                    "Start with DATUM. If you only run one sovereign stack here, the page will auto-select that local payout address.",
+                    search.hasSearch ? recentPaidLines : []
+                )
+            ];
+        } else if (activeUiMode === "business") {
+            heading.innerText = "Business View";
+            cards = [
+                buildFocusCard(
+                    "Network Health",
+                    health.label,
+                    buildMetricList([
+                        { label: "Local acceptance", value: acceptanceRate },
+                        { label: "Peers", value: (latestNetworkState?.peerCount ?? 0).toLocaleString() },
+                        { label: "Tip block", value: latestNetworkState?.currentTipBlockHeight?.toLocaleString() || "--" },
+                        { label: "Round age", value: currentRoundAge }
+                    ]),
+                    health.note
+                ),
+                buildFocusCard(
+                    "Team Cadence",
+                    teamBlockRate ? formatDurationLong(1 / teamBlockRate) : "--",
+                    buildMetricList([
+                        { label: "Median next team payout", value: teamBlockRate ? formatDurationLong(quantileTimeForPoissonEvent(teamBlockRate, 0.5)) : "--" },
+                        { label: "75% confidence", value: teamBlockRate ? formatDurationLong(quantileTimeForPoissonEvent(teamBlockRate, 0.75)) : "--" },
+                        { label: "90% confidence", value: teamBlockRate ? formatDurationLong(quantileTimeForPoissonEvent(teamBlockRate, 0.90)) : "--" },
+                        { label: "Historical round average", value: averageRoundSeconds != null ? formatDurationLong(averageRoundSeconds) : "--" }
+                    ]),
+                    "Use this to think in payout cadence rather than per-block lottery odds."
+                ),
+                buildFocusCard(
+                    "Local vs Team",
+                    localSharePercent,
+                    buildMetricList([
+                        { label: "Local hashrate", value: localHashrateDisplay },
+                        { label: "Team hashrate", value: teamHashrateDisplay },
+                        { label: "Expected slots per team block", value: teamHashrateThs && localHashrateThs ? `${((localHashrateThs / teamHashrateThs) * (latestNetworkState?.sharedWinnerSlotCount ?? 299)).toFixed(1)}` : "--" },
+                        { label: "Approx monthly shared BTC", value: teamBlockRate && teamHashrateThs && localHashrateThs ? `${formatBtcFromSats((localHashrateThs / teamHashrateThs) * (299 / 300) * 312500000 * ((30 * 24 * 3600) * teamBlockRate))} BTC` : "--" }
+                    ]),
+                    `Local view uses directly connected DATUM shares. Team view uses the live next-winner queue.`
+                ),
+                buildFocusCard(
+                    "Forecasted Local Payouts",
+                    localPayoutRate ? formatDurationLong(1 / localPayoutRate) : "--",
+                    buildMetricList([
+                        { label: "Median next local payout", value: localPayoutRate ? formatDurationLong(quantileTimeForPoissonEvent(localPayoutRate, 0.5)) : "--" },
+                        { label: "75% confidence", value: localPayoutRate ? formatDurationLong(quantileTimeForPoissonEvent(localPayoutRate, 0.75)) : "--" },
+                        { label: "90% confidence", value: localPayoutRate ? formatDurationLong(quantileTimeForPoissonEvent(localPayoutRate, 0.90)) : "--" },
+                        { label: "Chance to appear in a team block", value: formatChanceDetail(localPayoutProbabilityPerTeamBlock) }
+                    ]),
+                    search.hasSearch
+                        ? `Last paid appearance: ${latestPaidRound ? formatRoundReference(latestPaidRound.entry) : "none in the visible recent window"}.`
+                        : "Search or click a local DATUM address to turn the payout forecast into an address-specific view.",
+                    search.hasSearch ? recentPaidLines : []
+                )
+            ];
+        } else {
+            heading.innerText = "Nerd Snapshot";
+            cards = [
+                buildFocusCard(
+                    "Protocol State",
+                    `R${latestNetworkState?.currentRoundNumber ?? "--"}`,
+                    [
+                        buildFocusMetric("Current state", shortenHash(latestNetworkState?.currentStateId)),
+                        buildFocusMetric("Candidate state", shortenHash(latestNetworkState?.candidateStateId)),
+                        buildFocusMetric("Tip", latestNetworkState?.currentTipBlockHeight?.toLocaleString() || "--")
+                    ].join(""),
+                    "The raw dashboard remains below inside the technical disclosure."
+                ),
+                buildFocusCard(
+                    "Mining Pipeline",
+                    acceptanceRate === "--" ? "--" : `${acceptanceRate} acceptance`,
+                    [
+                        buildFocusMetric("Accepted", (localDiagnostics.acceptedCount ?? 0).toLocaleString()),
+                        buildFocusMetric("Rejected", (localDiagnostics.rejectedCount ?? 0).toLocaleString()),
+                        buildFocusMetric("On Deck accepts", (localDiagnostics.acceptedOnDeckCount ?? 0).toLocaleString())
+                    ].join(""),
+                    "Use the technical disclosure for peer status, diagnostics, and commitment preview."
+                ),
+                buildFocusCard(
+                    "Hashrate",
+                    teamHashrateDisplay,
+                    [
+                        buildFocusMetric("Local DATUM", localHashrateDisplay),
+                        buildFocusMetric("Local/team share", localSharePercent),
+                        buildFocusMetric("Round age", currentRoundAge)
+                    ].join(""),
+                    "Team estimate comes from the On Deck list. Local DATUM uses the direct-share rolling window."
+                ),
+                buildFocusCard(
+                    "Connection Target",
+                    connection.endpoint,
+                    [
+                        buildFocusMetric("Pool pubkey", connection.pubkey),
+                        buildFocusMetric("Network", latestNetworkState?.networkId || "--"),
+                        buildFocusMetric("Peers", (latestNetworkState?.peerCount ?? 0).toLocaleString())
+                    ].join(""),
+                    search.hasSearch
+                        ? `Search match recent paid rounds: ${search.paidRounds.length}/${search.recentCanonicalRounds.length || 0}.`
+                        : "Use search to trace a payout address across winners, On Deck, and round history."
+                )
+            ];
+        }
+
+        container.innerHTML = cards.join("");
+    }
+
+    function updateModeChrome(resetDisclosure = false) {
+        const intro = document.getElementById("mode-intro");
+        const details = document.getElementById("technical-disclosure");
+        const listDisclosure = document.getElementById("list-disclosure");
+        const labels = getModeListLabels();
+
+        document.getElementById("mode-header-round").innerText = latestNetworkState?.currentRoundNumber ?? "--";
+        document.getElementById("mode-header-hashrate").innerText = currentTeamHashrateDisplay();
+        document.getElementById("mode-header-peers").innerText = latestNetworkState?.peerCount ?? "--";
+
+        document.getElementById("winners-heading").childNodes[0].textContent = labels.winners;
+        document.getElementById("ondeck-heading").childNodes[0].textContent = labels.ondeck;
+
+        if (activeUiMode === "lottery") {
+            intro.innerHTML = "<strong>Lottery mode</strong> is the fun view: team block odds, your live chance to make the queue, and a clearer sense of how close your best share is to something that matters.";
+            document.getElementById("round-history-heading").innerText = "Recent Payout Timeline";
+            document.getElementById("mode-focus-heading").innerText = "Lottery View";
+            document.getElementById("list-disclosure-title").innerText = "Show Full Winner Lists";
+            document.getElementById("list-disclosure-summary-note").innerText = "Current paid team and live next payout queue.";
+        } else if (activeUiMode === "business") {
+            intro.innerHTML = "<strong>Business mode</strong> focuses on operational health, local-vs-team contribution, and payout cadence with approximate confidence bands for planning.";
+            document.getElementById("round-history-heading").innerText = "Recent Payout Timeline";
+            document.getElementById("mode-focus-heading").innerText = "Business View";
+            document.getElementById("list-disclosure-title").innerText = "Show Full Winner Lists";
+            document.getElementById("list-disclosure-summary-note").innerText = "Expand for the raw current winners and pending queue.";
+        } else {
+            intro.innerHTML = "<strong>Nerd mode</strong> keeps the protocol exposed: state IDs, peer visibility, diagnostics, charts, and the raw signals you want when testing convergence and mining behavior.";
+            document.getElementById("round-history-heading").innerText = "Round History";
+            document.getElementById("mode-focus-heading").innerText = "Nerd Snapshot";
+            document.getElementById("technical-details-title").innerText = "Technical Details";
+            document.getElementById("technical-details-summary-note").innerText = "Nerd mode keeps the raw dashboard visible by default.";
+            document.getElementById("list-disclosure-title").innerText = "Winner Lists";
+            document.getElementById("list-disclosure-summary-note").innerText = "Current winners and live On Deck queue.";
+        }
+
+        setElementHidden("difficulty-section", activeUiMode !== "nerd");
+        setElementHidden("test-tools-link", activeUiMode !== "nerd");
+        setElementHidden("technical-disclosure", activeUiMode !== "nerd");
+        setElementHidden("round-share-panel", activeUiMode === "lottery");
+
+        if (resetDisclosure) {
+            details.open = activeUiMode === "nerd";
+            listDisclosure.open = activeUiMode === "nerd";
+        }
+
+        if (activeUiMode !== "nerd" && details.open) {
+            details.open = false;
+        }
+
+        if (activeUiMode !== "nerd" && listDisclosure.open) {
+            listDisclosure.open = false;
+        }
+
+        const roundHistoryContent = document.getElementById("round-history-content");
+        const roundHistoryPrimary = document.getElementById("round-history-primary");
+        const roundHistoryCharts = document.getElementById("round-history-chart-grid");
+        if (roundHistoryContent && roundHistoryPrimary && roundHistoryCharts) {
+            if (activeUiMode === "nerd") {
+                roundHistoryContent.appendChild(roundHistoryPrimary);
+                roundHistoryContent.appendChild(roundHistoryCharts);
+            } else {
+                roundHistoryContent.appendChild(roundHistoryCharts);
+                roundHistoryContent.appendChild(roundHistoryPrimary);
+            }
+        }
+    }
+
+    function renderModeSummaryCards() {
+        const search = getSearchContext();
+        const averageRoundSeconds = getAverageRoundDurationSeconds();
+        const teamHashrateThs = currentTeamHashrateThs();
+        const localMiner = getSelectedLocalMinerSummary();
+        const localHashrateThs = localMiner?.currentHashrateThs ?? latestNetworkState?.localDatumHashrateThs ?? null;
+        const localDiagnostics = latestNetworkState?.localDatumDiagnostics || {};
+        const acceptanceRate = formatAcceptanceRate(localDiagnostics.acceptedCount ?? 0, localDiagnostics.totalSubmissions ?? 0);
+        const health = describeHealthAssessment(localDiagnostics);
+        const teamBlockRate = getTeamBlockFindRatePerSecond(teamHashrateThs);
+        const localQueueRate = getShareThresholdHitRatePerSecond(localMiner?.currentHashrateThs ?? null, getCurrentOnDeckThresholdDifficulty());
+        const blocksUntilHalving = getBlocksUntilNextHalving();
+        const timeToHalvingSeconds = blocksUntilHalving != null ? blocksUntilHalving * 600 : null;
+
+        if (activeUiMode === "lottery") {
+            const inStatus = !search.hasSearch
+                ? "SEARCH OR CLICK YOUR MINER"
+                : search.winnerSlots > 0
+                    ? "LOCKED FOR PAYOUT"
+                    : search.onDeckSlots > 0
+                        ? "YOU ARE ON DECK"
+                        : "STILL CHASING";
+            const inDetail = !search.hasSearch
+                ? "The page will auto-focus one directly connected DATUM miner if this node only has one."
+                : search.winnerSlots > 0
+                    ? `Estimated locked payout ${formatBtcFromSats(search.winnerValue)} BTC`
+                    : search.onDeckSlots > 0
+                        ? `Potential next payout ${formatBtcFromSats(search.onDeckValue)} BTC`
+                        : `Current live threshold ${getCurrentOnDeckThresholdDisplay()}`;
+            const inNote = !search.hasSearch
+                ? "Use a local miner shortcut for live personal odds."
+                : search.winnerSlots > 0
+                    ? `Average wait to be paid: ${teamBlockRate ? formatDurationLong(1 / teamBlockRate) : "--"}.`
+                    : search.onDeckSlots > 0
+                        ? "You still need this queue to survive until lock."
+                        : `Your best hit this round: ${localMiner?.currentRoundBestDifficultyDisplay || "--"}.`;
+
+            setModeCard(
+                1,
+                "Current Position",
+                "Status",
+                inStatus,
+                inDetail,
+                inNote
+            );
+
+            setModeCard(
+                2,
+                "Team Odds",
+                "Block Find Chance",
+                formatChanceDetail(poissonProbabilityAtLeastOne(teamBlockRate, 86400)),
+                `Next 10m ${formatChanceDetail(poissonProbabilityAtLeastOne(teamBlockRate, 600))} · week ${formatChanceDetail(poissonProbabilityAtLeastOne(teamBlockRate, 604800))}`,
+                `Before the next halving: ${formatChanceDetail(poissonProbabilityAtLeastOne(teamBlockRate, timeToHalvingSeconds))}`
+            );
+
+            setModeCard(
+                3,
+                "Your Queue Odds",
+                "Make The List",
+                localMiner ? formatChanceDetail(poissonProbabilityAtLeastOne(localQueueRate, 86400)) : "--",
+                localMiner
+                    ? `Next 10m ${formatChanceDetail(poissonProbabilityAtLeastOne(localQueueRate, 600))} · week ${formatChanceDetail(poissonProbabilityAtLeastOne(localQueueRate, 604800))}`
+                    : "Connect through this node to estimate your personal queue odds.",
+                localMiner
+                    ? `Average time between queue-quality hits: ${localQueueRate ? formatDurationLong(1 / localQueueRate) : "--"}`
+                    : "Uses your directly connected DATUM share stream."
+            );
+            return;
+        }
+
+        if (activeUiMode === "business") {
+            const localSharePercent = teamHashrateThs && localHashrateThs
+                ? `${((localHashrateThs / teamHashrateThs) * 100).toFixed(1)}% of team`
+                : "--";
+            const localPayoutProbabilityPerTeamBlock = teamHashrateThs && localHashrateThs
+                ? 1 - Math.exp(-((localHashrateThs / teamHashrateThs) * (latestNetworkState?.sharedWinnerSlotCount ?? 299)))
+                : null;
+            const localPayoutRate = teamBlockRate && localPayoutProbabilityPerTeamBlock != null
+                ? teamBlockRate * localPayoutProbabilityPerTeamBlock
+                : null;
+            setModeCard(
+                1,
+                "Operational Summary",
+                "Network Health",
+                health.label,
+                `Round ${latestNetworkState?.currentRoundNumber ?? "--"} · ${latestNetworkState?.peerCount ?? 0} peers · tip ${latestNetworkState?.currentTipBlockHeight ?? "--"}`,
+                `${acceptanceRate} local acceptance · ${health.note}`
+            );
+
+            setModeCard(
+                2,
+                "Hashrate",
+                "Local vs Team",
+                localSharePercent,
+                `${formatHashrateFromThs(localHashrateThs)} local · ${currentTeamHashrateDisplay()} team`,
+                `Current team block cadence: ${teamBlockRate ? formatDurationLong(1 / teamBlockRate) : "--"}`
+            );
+
+            setModeCard(
+                3,
+                "Cadence",
+                "Forecasted Payout Pace",
+                localPayoutRate ? formatDurationLong(1 / localPayoutRate) : "--",
+                `75% by ${localPayoutRate ? formatDurationLong(quantileTimeForPoissonEvent(localPayoutRate, 0.75)) : "--"} · 90% by ${localPayoutRate ? formatDurationLong(quantileTimeForPoissonEvent(localPayoutRate, 0.90)) : "--"}`,
+                averageRoundSeconds != null
+                    ? `Historical round average ${formatDurationLong(averageRoundSeconds)}.`
+                    : "Historical cadence appears after more completed rounds accumulate."
+            );
+            return;
+        }
+
+        setModeCard(
+            1,
+            "Protocol State",
+            `Round ${latestNetworkState?.currentRoundNumber ?? "--"}`,
+            `Current ${shortenHash(latestNetworkState?.currentStateId)} · Candidate ${shortenHash(latestNetworkState?.candidateStateId)}`,
+            latestNetworkState?.currentTipBlockHeight != null
+                ? `Tip ${latestNetworkState.currentTipBlockHeight.toLocaleString()} · trigger ${latestNetworkState.lastTestingTriggerBlockHeight ?? "--"}`
+                : "Waiting for chain tip.",
+            latestNetworkState?.selfEndpoint || "--"
+        );
+
+        setModeCard(
+            2,
+            "Mining Telemetry",
+            "Team / Local Hashrate",
+            `${currentTeamHashrateDisplay()} / ${formatHashrateFromThs(localHashrateThs)}`,
+            `${localDiagnostics.acceptedCount ?? 0}/${localDiagnostics.totalSubmissions ?? 0} accepted · ${latestNetworkState?.onDeckCount ?? 0} On Deck`,
+            Array.isArray(localDiagnostics.rejectionReasons) && localDiagnostics.rejectionReasons.length > 0
+                ? localDiagnostics.rejectionReasons.map(item => `${item.reason} (${item.count})`).join(", ")
+                : "No recent local rejects."
+        );
+
+        setModeCard(
+            3,
+            "Node / Record",
+            "Best Share Seen",
+            document.getElementById("record-diff").innerText || "--",
+            `${document.getElementById("record-miner").innerText || "--"} · ${document.getElementById("record-time").innerText || "--"}`,
+            `${document.getElementById("server-host").innerText || "--"}:${document.getElementById("server-port").innerText || "--"}`
+        );
     }
 
     function formatTimestamp(value) {
@@ -1360,6 +2822,11 @@
         const useLogScale = hashrateScaleMode === "log" && hasPositiveValues;
         const accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim();
         const secondaryColor = "#39d98a";
+        const chartTitle = activeUiMode === "lottery"
+            ? "Team Hashrate Through Time"
+            : activeUiMode === "business"
+                ? "Team / Local Hashrate"
+                : "Sampled Team / Local DATUM Hashrate";
 
         roundHashrateChartInstance = new Chart(ctx, {
             type: "line",
@@ -1399,7 +2866,7 @@
                     },
                     title: {
                         display: true,
-                        text: "Sampled Team / Local DATUM Hashrate",
+                        text: chartTitle,
                         color: "#888"
                     },
                     tooltip: {
@@ -1445,6 +2912,20 @@
             : null;
         const localWindowMinutes = Math.round((globalHashrateSeries?.localWindowSeconds || 1800) / 60);
         const scaleText = hashrateScaleMode === "log" ? "Log scale emphasizes relative swings and prevents one lucky spike from flattening the rest of the series." : "Linear scale shows absolute swings in estimated hashrate.";
+        if (activeUiMode === "lottery") {
+            note.innerText = currentPoint?.isCurrent && averageHashrateThs != null
+                ? `Team estimate updates every second from the current next-payout queue. Recent average: ${formatHashrateFromThs(averageHashrateThs)}. ${scaleText}`
+                : `This chart estimates the active team hashrate from recent winning-quality shares. ${scaleText}`;
+            return;
+        }
+
+        if (activeUiMode === "business") {
+            note.innerText = currentPoint?.isCurrent && averageHashrateThs != null
+                ? `Team window average: ${formatHashrateFromThs(averageHashrateThs)}. Local DATUM estimate uses a rolling ${localWindowMinutes}-minute window. ${scaleText}`
+                : `Local DATUM estimate uses a rolling ${localWindowMinutes}-minute window of directly connected DATUM shares. ${scaleText}`;
+            return;
+        }
+
         note.innerText = currentPoint?.isCurrent && averageHashrateThs != null
             ? `Live team point updates every second from the current On Deck list. Local DATUM estimate uses a rolling ${localWindowMinutes}-minute window. Team window average: ${formatHashrateFromThs(averageHashrateThs)}. ${scaleText}`
             : `Local DATUM estimate uses a rolling ${localWindowMinutes}-minute window of directly connected DATUM shares. ${scaleText}`;
@@ -1485,11 +2966,12 @@
         const note = document.getElementById("round-history-note");
         const scroller = document.getElementById("round-history-scroller");
         const detail = document.getElementById("round-history-detail");
+        const visibleHistory = getRoundHistoryForMode();
         scroller.innerHTML = "";
         document.getElementById("rounds-oldest-left-btn").classList.toggle("active", roundHistoryOrder === "oldest-left");
         document.getElementById("rounds-newest-left-btn").classList.toggle("active", roundHistoryOrder === "newest-left");
 
-        if (!history || history.length === 0) {
+        if (!visibleHistory || visibleHistory.length === 0) {
             note.innerText = "No completed rounds recorded yet.";
             detail.innerHTML = '<div class="round-history-empty">Completed rounds will appear here after the next lock.</div>';
             updateRoundShareChart([]);
@@ -1497,14 +2979,20 @@
             return;
         }
 
-        const orphanedCount = history.filter(entry => entry.isOrphaned).length;
-        note.innerText = `Showing the most recent ${history.length} completed rounds (${orphanedCount} orphaned). Order is ${roundHistoryOrder === "oldest-left" ? "oldest to newest" : "newest to oldest"}.`;
-
-        if (!selectedRoundStateId || !history.some(entry => entry.stateId === selectedRoundStateId)) {
-            selectedRoundStateId = history[0].stateId;
+        const orphanedCount = (history || []).filter(entry => entry.isOrphaned).length;
+        if (activeUiMode === "nerd") {
+            note.innerText = `Showing the most recent ${visibleHistory.length} completed rounds (${orphanedCount} orphaned). Order is ${roundHistoryOrder === "oldest-left" ? "oldest to newest" : "newest to oldest"}.`;
+        } else if (orphanedCount > 0) {
+            note.innerText = `Showing ${visibleHistory.length} canonical rounds. ${orphanedCount} orphaned rounds are hidden in ${activeUiMode === "lottery" ? "Lottery" : "Business"} mode.`;
+        } else {
+            note.innerText = `Showing ${visibleHistory.length} canonical rounds in ${roundHistoryOrder === "oldest-left" ? "oldest to newest" : "newest to oldest"} order.`;
         }
 
-        const displayHistory = roundHistoryDisplayOrder(history);
+        if (!selectedRoundStateId || !visibleHistory.some(entry => entry.stateId === selectedRoundStateId)) {
+            selectedRoundStateId = visibleHistory[0].stateId;
+        }
+
+        const displayHistory = roundHistoryDisplayOrder(visibleHistory);
         displayHistory.forEach((entry) => {
             const card = document.createElement("button");
             card.type = "button";
@@ -1530,9 +3018,9 @@
             scroller.appendChild(card);
         });
 
-        const selected = history.find(entry => entry.stateId === selectedRoundStateId) || history[0];
+        const selected = visibleHistory.find(entry => entry.stateId === selectedRoundStateId) || visibleHistory[0];
         renderRoundHistoryDetail(selected, detail);
-        updateRoundShareChart(history);
+        updateRoundShareChart(visibleHistory);
     }
 
     function renderRoundHistoryDetail(entry, container) {
@@ -1547,37 +3035,60 @@
         const orphanedWarning = entry.isOrphaned
             ? `<div class="round-detail-warning">This round was observed locally but is not on the node's current canonical Boot state chain. It was superseded by a competing state after convergence.</div>`
             : "";
+        const isLottery = activeUiMode === "lottery";
+        const isBusiness = activeUiMode === "business";
+        const topSubline = isLottery || isBusiness
+            ? `<div class="round-detail-subline">${formatBlockLabel(entry.triggerBlockHash, entry.triggerBlockHeight)} · ${formatTimestamp(entry.lockedAtUtc)}</div>`
+            : `<div class="round-detail-subline">${formatBlockLabel(entry.triggerBlockHash, entry.triggerBlockHeight)}</div>
+               <div class="round-detail-subline">${entry.triggerBlockHash || "--"}</div>
+               <div class="round-detail-subline">${describeRoundStatus(entry)}</div>`;
 
-        const renderRecipientRows = (recipients, totalValue) => {
-            if (!recipients || recipients.length === 0) {
-                return '<tr><td colspan="5">No payouts recorded.</td></tr>';
-            }
+        const paidSectionTitle = isLottery ? "Paid This Round" : "Paid Recipients";
+        const nextSectionTitle = isLottery ? "Next Payout Queue" : (isBusiness ? "Pending Winners" : "Locked Next Winners");
+        const winningDifficultyBox = isLottery
+            ? ""
+            : `<div class="round-detail-box">
+                    <h3>Winning Difficulty</h3>
+                    <div class="round-detail-value">${entry.winningTotalDifficultyDisplay || "--"} across ${entry.winningShareCount} shares</div>
+               </div>`;
 
-            return recipients.map(item => `
-                <tr class="${recipientMatchesSearch(item) ? 'highlight-row' : ''}">
-                    <td class="compact-label" title="${item.username || item.address}">${formatMinerLabel(item.username || item.address)}</td>
-                    <td>${item.slotCount}</td>
-                    <td>${formatBtcFromSats(item.totalValue)}</td>
-                    <td>${formatPercent(item.totalValue, totalValue)}</td>
-                    <td>${item.totalDifficultyDisplay || '--'}</td>
-                </tr>
-            `).join("");
-        };
+        const searchBoxes = paidSearchShare ? `
+                <div class="round-detail-box">
+                    <h3>${isLottery ? "You Were Paid" : "Search Match Paid Share"}</h3>
+                    <div class="round-detail-value">${paidSearchShare.percent.toFixed(1)}% (${formatBtcFromSats(paidSearchShare.value)} BTC)</div>
+                </div>` : "";
+        const nextSearchBoxes = nextSearchShare ? `
+                <div class="round-detail-box">
+                    <h3>${isLottery ? "You Are Next" : "Search Match Next Share"}</h3>
+                    <div class="round-detail-value">${nextSearchShare.percent.toFixed(1)}% (${formatBtcFromSats(nextSearchShare.value)} BTC)</div>
+                </div>` : "";
 
-        container.innerHTML = `
-            <div class="round-detail-head">
-                <div>
-                    <h3>Round ${entry.roundNumber}</h3>
-                    <div class="round-detail-subline">${formatBlockLabel(entry.triggerBlockHash, entry.triggerBlockHeight)}</div>
-                    <div class="round-detail-subline">${entry.triggerBlockHash || "--"}</div>
-                    <div class="round-detail-subline">${describeRoundStatus(entry)}</div>
+        const gridHtml = isLottery
+            ? `
+                <div class="round-detail-box">
+                    <h3>Trigger Block</h3>
+                    <div class="round-detail-value">${formatBlockLabel(entry.triggerBlockHash, entry.triggerBlockHeight)}</div>
                 </div>
-                <div>
-                    ${explorerUrl ? `<a class="round-card-link" href="${explorerUrl}" target="_blank" rel="noopener noreferrer">Open On Mempool.Space</a>` : ""}
+                <div class="round-detail-box">
+                    <h3>Round Duration</h3>
+                    <div class="round-detail-value">${formatElapsedSeconds(entry.roundElapsedSeconds)}</div>
                 </div>
-            </div>
-            ${orphanedWarning}
-            <div class="round-detail-grid">
+                <div class="round-detail-box">
+                    <h3>Team Estimate</h3>
+                    <div class="round-detail-value">${entry.observedHashrateDisplay || "--"}</div>
+                </div>
+                <div class="round-detail-box">
+                    <h3>Paid This Block</h3>
+                    <div class="round-detail-value">${entry.paidRecipientCount} recipients · ${formatBtcFromSats(entry.paidTotalValue)} BTC</div>
+                </div>
+                <div class="round-detail-box">
+                    <h3>Next Queue Locked</h3>
+                    <div class="round-detail-value">${entry.nextWinnerRecipientCount} recipients · ${entry.nextWinnerSlotCount} shared slots</div>
+                </div>
+                ${searchBoxes}
+                ${nextSearchBoxes}`
+            : isBusiness
+                ? `
                 <div class="round-detail-box">
                     <h3>Trigger Block</h3>
                     <div class="round-detail-value">${formatBlockLabel(entry.triggerBlockHash, entry.triggerBlockHeight)}</div>
@@ -1595,9 +3106,37 @@
                     <div class="round-detail-value">${entry.observedHashrateDisplay || "--"}</div>
                 </div>
                 <div class="round-detail-box">
-                    <h3>Winning Difficulty</h3>
-                    <div class="round-detail-value">${entry.winningTotalDifficultyDisplay || "--"} across ${entry.winningShareCount} shares</div>
+                    <h3>Paid Total</h3>
+                    <div class="round-detail-value">${formatBtcFromSats(entry.paidTotalValue)} BTC</div>
                 </div>
+                <div class="round-detail-box">
+                    <h3>Paid This Block</h3>
+                    <div class="round-detail-value">${entry.paidRecipientCount} recipients across ${entry.paidSlotCount} shared slots</div>
+                </div>
+                <div class="round-detail-box">
+                    <h3>Next Round Locked</h3>
+                    <div class="round-detail-value">${entry.nextWinnerRecipientCount} recipients across ${entry.nextWinnerSlotCount} shared slots</div>
+                </div>
+                ${searchBoxes}
+                ${nextSearchBoxes}`
+                : `
+                <div class="round-detail-box">
+                    <h3>Trigger Block</h3>
+                    <div class="round-detail-value">${formatBlockLabel(entry.triggerBlockHash, entry.triggerBlockHeight)}</div>
+                </div>
+                <div class="round-detail-box">
+                    <h3>Locked At</h3>
+                    <div class="round-detail-value">${formatTimestamp(entry.lockedAtUtc)}</div>
+                </div>
+                <div class="round-detail-box">
+                    <h3>Round Duration</h3>
+                    <div class="round-detail-value">${formatElapsedSeconds(entry.roundElapsedSeconds)}</div>
+                </div>
+                <div class="round-detail-box">
+                    <h3>Estimated Hashrate</h3>
+                    <div class="round-detail-value">${entry.observedHashrateDisplay || "--"}</div>
+                </div>
+                ${winningDifficultyBox}
                 <div class="round-detail-box">
                     <h3>Paid This Block</h3>
                     <div class="round-detail-value">${entry.paidRecipientCount} recipients across ${entry.paidSlotCount} shared slots</div>
@@ -1610,20 +3149,42 @@
                     <h3>Locked For Next Round</h3>
                     <div class="round-detail-value">${entry.nextWinnerRecipientCount} recipients across ${entry.nextWinnerSlotCount} shared slots</div>
                 </div>
-                ${paidSearchShare ? `
-                <div class="round-detail-box">
-                    <h3>Search Match Paid Share</h3>
-                    <div class="round-detail-value">${paidSearchShare.percent.toFixed(1)}% (${formatBtcFromSats(paidSearchShare.value)} BTC)</div>
-                </div>` : ""}
-                ${nextSearchShare ? `
-                <div class="round-detail-box">
-                    <h3>Search Match Next Share</h3>
-                    <div class="round-detail-value">${nextSearchShare.percent.toFixed(1)}% (${formatBtcFromSats(nextSearchShare.value)} BTC)</div>
-                </div>` : ""}
+                ${searchBoxes}
+                ${nextSearchBoxes}`;
+
+        const renderRecipientRows = (recipients, totalValue) => {
+            if (!recipients || recipients.length === 0) {
+                return '<tr><td colspan="5">No payouts recorded.</td></tr>';
+            }
+
+            return recipients.map(item => `
+                <tr class="${recipientMatchesSearch(item) ? 'highlight-row' : ''}">
+                    <td class="${isLottery || isBusiness ? 'full-label' : 'compact-label'}" title="${item.username || item.address}">${isLottery || isBusiness ? (item.username || item.address) : formatMinerLabel(item.username || item.address)}</td>
+                    <td>${item.slotCount}</td>
+                    <td>${formatBtcFromSats(item.totalValue)}</td>
+                    <td>${formatPercent(item.totalValue, totalValue)}</td>
+                    <td>${item.totalDifficultyDisplay || '--'}</td>
+                </tr>
+            `).join("");
+        };
+
+        container.innerHTML = `
+            <div class="round-detail-head">
+                <div>
+                    <h3>Round ${entry.roundNumber}</h3>
+                    ${topSubline}
+                </div>
+                <div>
+                    ${explorerUrl ? `<a class="round-card-link" href="${explorerUrl}" target="_blank" rel="noopener noreferrer">Open On Mempool.Space</a>` : ""}
+                </div>
+            </div>
+            ${orphanedWarning}
+            <div class="round-detail-grid">
+                ${gridHtml}
             </div>
             <div class="round-detail-columns">
                 <div class="round-detail-section">
-                    <h3>Paid Recipients</h3>
+                    <h3>${paidSectionTitle}</h3>
                     <div class="table-container">
                         <table>
                             <thead>
@@ -1640,7 +3201,7 @@
                     </div>
                 </div>
                 <div class="round-detail-section">
-                    <h3>Locked Next Winners</h3>
+                    <h3>${nextSectionTitle}</h3>
                     <div class="table-container">
                         <table>
                             <thead>
@@ -1677,6 +3238,11 @@
 
         const displayHistory = roundHistoryDisplayOrder(history);
         const totalsByAddress = new Map();
+        const chartTitle = activeUiMode === "lottery"
+            ? "Recent Paid Share"
+            : activeUiMode === "business"
+                ? "Paid Share By Address"
+                : "Paid Share By Address Across Recent Rounds";
         displayHistory.forEach(entry => {
             (entry.paidRecipients || []).forEach(recipient => {
                 const key = recipient.address || recipient.username || "unknown";
@@ -1740,7 +3306,7 @@
                     },
                     title: {
                         display: true,
-                        text: "Paid Share By Address Across Recent Rounds",
+                        text: chartTitle,
                         color: "#888"
                     },
                     tooltip: {
@@ -1778,9 +3344,13 @@
                 const share = computeRecipientShare(entry.paidRecipients, entry.paidTotalValue);
                 return sum + (share ? share.percent : 0);
             }, 0) / displayHistory.length;
-            note.innerText = `Search match average paid share across these rounds: ${avgPaidShare.toFixed(1)}%.`;
+            note.innerText = activeUiMode === "lottery"
+                ? `Search match average paid share across these recent rounds: ${avgPaidShare.toFixed(1)}%.`
+                : `Search match average paid share across these rounds: ${avgPaidShare.toFixed(1)}%.`;
         } else {
-            note.innerText = "Use the search box to see a per-round share percentage for a specific address.";
+            note.innerText = activeUiMode === "lottery"
+                ? "Search an address to highlight whether it was getting paid in recent rounds."
+                : "Use the search box to see a per-round share percentage for a specific address.";
         }
     }
 
@@ -1895,29 +3465,30 @@
 
     function updateListSummary(tableId, list, displayMeta) {
         const prefix = tableId === "winners-list" ? "winners" : "ondeck";
+        const labels = getModeListLabels();
+        const label = tableId === "winners-list" ? labels.winners : labels.ondeck;
         document.getElementById(`${prefix}-summary-btn`).classList.toggle('active', listViewModes[tableId] === 'summary');
         document.getElementById(`${prefix}-full-btn`).classList.toggle('active', listViewModes[tableId] === 'full');
 
         const note = document.getElementById(`${prefix}-summary-note`);
         const total = (list || []).length;
-        const slotLabel = tableId === "winners-list" ? "shared slots plus slot 0" : "shared slots";
 
         if (currentSearchTerm) {
-            note.innerText = `Search active. Showing all ${total} ${slotLabel}.`;
+            note.innerText = `Search active. Showing all ${total} ${label.toLowerCase()} slots.`;
             return;
         }
 
         if (total === 0) {
-            note.innerText = 'No qualifying entries yet.';
+            note.innerText = `No entries on the ${label.toLowerCase()} yet.`;
             return;
         }
 
         if (displayMeta.summarized) {
-            note.innerText = `Showing top 5 and bottom 5 of ${total} ${slotLabel}.`;
+            note.innerText = `Showing top 5 and bottom 5 of ${total} ${label.toLowerCase()} slots.`;
             return;
         }
 
-        note.innerText = `Showing all ${total} ${slotLabel}.`;
+        note.innerText = `Showing all ${total} ${label.toLowerCase()} slots.`;
     }
 
     function updateTable(tableId, list) {
@@ -1927,7 +3498,13 @@
         updateListSummary(tableId, list, displayMeta);
 
         if (tableId === "winners-list") {
-            tableBody.innerHTML += `<tr class="static-row"><td>[YourAddressHere]</td><td>1 share + fees</td><td>>NetworkDiff</td></tr>`;
+            const finderLabel = activeUiMode === "lottery"
+                ? "Your finder slot"
+                : activeUiMode === "business"
+                    ? "Finder slot"
+                    : "[YourAddressHere]";
+            const finderValue = activeUiMode === "nerd" ? "1 share + fees" : "Finder share + fees";
+            tableBody.innerHTML += `<tr class="static-row"><td>${finderLabel}</td><td>${finderValue}</td><td>>NetworkDiff</td></tr>`;
         }
 
         if (!list) return;
@@ -1939,7 +3516,10 @@
             }
 
             const btcValue = payout.value / 100000000.0;
-            const formattedAddr = formatMinerLabel(payout.username || payout.address);
+            const useFullLabel = listViewModes[tableId] === 'full' && activeUiMode !== 'nerd';
+            const formattedAddr = useFullLabel
+                ? (payout.username || payout.address)
+                : formatMinerLabel(payout.username || payout.address);
             const diffVal = payout.difficulty || 0;
             const diffDisplay = payout.diffString || diffVal.toLocaleString(undefined, {maximumFractionDigits: 2});
 
@@ -1950,7 +3530,7 @@
             }
 
             const row = `<tr class="${rowClass}">
-                    <td class="compact-label" title="${payout.username || payout.address}">${formattedAddr}</td>
+                    <td class="${useFullLabel ? 'full-label' : 'compact-label'}" title="${payout.username || payout.address}">${formattedAddr}</td>
                     <td>${btcValue.toFixed(8)}</td>
                     <td>${diffDisplay}</td>
                 </tr>`;
@@ -2095,6 +3675,8 @@
         } else {
             document.getElementById("server-pubkey-display").innerText = info.pubKey;
         }
+        renderModeSummaryCards();
+        renderModeFocusSection();
     });
 
     connection.on("UpdateNetworkState", (state) => {
@@ -2116,8 +3698,13 @@
         document.getElementById("testing-trigger-note").innerText = state.testingRoundResetDescription || "";
         renderPeerTable(state.peers || []);
         renderLocalDatumDiagnostics();
+        renderLocalMinerShortcuts();
+        maybeAutoselectLocalMiner();
         updateCurrentRoundTelemetry();
         updateHashrateHistoryChart();
+        updateModeChrome();
+        renderModeSummaryCards();
+        renderModeFocusSection();
     });
 
     async function start() {
@@ -2129,6 +3716,7 @@
             await connection.start();
             await connection.invoke("GetInitialData");
             await setHashrateWindow(hashrateWindow);
+            await loadBitcoinNetworkMetrics();
         } catch (err) {
             console.error(err);
             setTimeout(start, 5000);
@@ -2143,6 +3731,10 @@
     setInterval(() => {
         loadHashrateSeries();
     }, 60000);
+
+    setInterval(() => {
+        loadBitcoinNetworkMetrics();
+    }, 300000);
 
     start();
 </script>
