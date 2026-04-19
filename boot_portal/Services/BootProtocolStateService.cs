@@ -390,7 +390,7 @@ public class BootProtocolStateService
 
     public bool IsAdminAuthorized(string? suppliedApiKey)
     {
-        if (string.IsNullOrWhiteSpace(_poolConfig.AdminApiKey))
+        if (!_poolConfig.EnableAdminApi || string.IsNullOrWhiteSpace(_poolConfig.AdminApiKey))
         {
             return false;
         }
@@ -1939,6 +1939,7 @@ public class BootProtocolStateService
             LocalDatumHashrateThs = localDatumHashrateThs,
             LocalDatumHashrateDisplay = FormatObservedHashrate(localDatumHashrateThs),
             PeerCount = _state.Peers.Count,
+            AdminApiEnabled = _poolConfig.EnableAdminApi,
             TestingRoundResetEnabled = _poolConfig.TestingRoundResetEnabled,
             TestingRoundResetMode = _poolConfig.TestingRoundResetMode,
             TestingRoundResetLowNibbleThreshold = _poolConfig.TestingRoundResetLowNibbleThreshold,
@@ -2895,7 +2896,7 @@ public class BootProtocolStateService
         string minerAddress = string.IsNullOrWhiteSpace(payout.Address) ? _poolConfig.PoolPayoutScript : payout.Address;
         return new BootShareProof
         {
-            ShareId = ComputeShareId(minerAddress, payout.DiffString, payout.Address),
+            ShareId = ComputePlaceholderShareId(minerAddress, payout.DiffString, payout.Address),
             MinerAddress = minerAddress,
             Username = string.IsNullOrWhiteSpace(payout.Username) ? minerAddress : payout.Username,
             ScriptPubKeyHex = BitcoinScript.TryAddressToScriptPubKey(minerAddress, out var script)
@@ -3332,9 +3333,9 @@ public class BootProtocolStateService
         }
     }
 
-    private static string ComputeShareId(string headerHex, string coinbaseHex, string minerAddress)
+    private static string ComputePlaceholderShareId(string minerAddress, string diffString, string payoutAddress)
     {
-        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes($"{headerHex}|{coinbaseHex}|{minerAddress}"));
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes($"{minerAddress}|{diffString}|{payoutAddress}"));
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 

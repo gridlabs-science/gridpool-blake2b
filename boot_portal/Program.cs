@@ -75,6 +75,9 @@ public class PoolConfig
     [JsonPropertyName("admin_api_key")]
     public string? AdminApiKey { get; set; }
 
+    [JsonPropertyName("enable_admin_api")]
+    public bool EnableAdminApi { get; set; } = true;
+
     [JsonPropertyName("max_state_bundle_history")]
     public int MaxStateBundleHistory { get; set; } = 32;
 
@@ -150,6 +153,9 @@ public class PoolConfig
     [JsonPropertyName("share_diagnostic_retention_hours")]
     public int ShareDiagnosticRetentionHours { get; set; } = 12;
 
+    [JsonPropertyName("trusted_forwarded_proxy_ranges")]
+    public List<string> TrustedForwardedProxyRanges { get; set; } = [];
+
     [JsonPropertyName("stale_datum_payout_mismatch_threshold")]
     public int StaleDatumPayoutMismatchThreshold { get; set; } = 4;
 
@@ -205,22 +211,28 @@ public class Program
             Key x25519Key;
             bool keysGenerated = false;
             bool configCanBeSafelyRewritten = false;
-            JsonObject? configJsonObject = null;
+            JsonObject? writableConfigJsonObject = null;
 
             var signatureAlgorithm = SignatureAlgorithm.Ed25519;
             var keyExchangeAlgorithm = KeyAgreementAlgorithm.X25519;
 
-            // Load config from boot_portal_config.json if it exists
+            // Load config from boot_portal_config.json and an optional adjacent local override if it exists
             ServerConfig config = new ServerConfig();
             string configFilePath = BootPortalPaths.ConfigFilePath;
+            string localConfigFilePath = BootPortalPaths.LocalConfigFilePath;
+            bool localConfigPathExplicit = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("BOOT_PORTAL_LOCAL_CONFIG_PATH"));
+            bool useLocalConfigOverlay = !string.Equals(configFilePath, localConfigFilePath, StringComparison.OrdinalIgnoreCase) &&
+                                         (localConfigPathExplicit || File.Exists(localConfigFilePath));
+            JsonObject? baseConfigJsonObject = null;
+            JsonObject? localConfigJsonObject = null;
+
             if (File.Exists(configFilePath))
             {
                 try
                 {
                     var json = await File.ReadAllTextAsync(configFilePath);
-                    configJsonObject = JsonNode.Parse(json) as JsonObject;
-                    config = configJsonObject?.Deserialize<ServerConfig>() ?? new ServerConfig();
-                    configCanBeSafelyRewritten = configJsonObject != null;
+                    baseConfigJsonObject = JsonNode.Parse(json) as JsonObject;
+                    configCanBeSafelyRewritten = baseConfigJsonObject != null;
                     Console.WriteLine($"✅ Loaded config from {configFilePath}");
                 }
                 catch (Exception ex)
@@ -233,6 +245,35 @@ public class Program
             {
                 configCanBeSafelyRewritten = true;
             }
+
+            if (useLocalConfigOverlay && File.Exists(localConfigFilePath))
+            {
+                try
+                {
+                    var json = await File.ReadAllTextAsync(localConfigFilePath);
+                    localConfigJsonObject = JsonNode.Parse(json) as JsonObject;
+                    if (localConfigJsonObject == null)
+                    {
+                        Console.WriteLine($"⚠️ Failed to parse local config from {localConfigFilePath}. Ignoring local override.");
+                        useLocalConfigOverlay = false;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"✅ Loaded local config override from {localConfigFilePath}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"⚠️ Failed to load local config override from {localConfigFilePath}: {ex.Message}. Ignoring local override.");
+                    useLocalConfigOverlay = false;
+                }
+            }
+
+            JsonObject? effectiveConfigJsonObject = MergeJsonObjects(baseConfigJsonObject, useLocalConfigOverlay ? localConfigJsonObject : null);
+            config = effectiveConfigJsonObject?.Deserialize<ServerConfig>() ?? new ServerConfig();
+            writableConfigJsonObject = useLocalConfigOverlay
+                ? (localConfigJsonObject ?? new JsonObject())
+                : (baseConfigJsonObject ?? new JsonObject());
 
             // Handle Ed25519 key
             //TODO: These load as NSec Key objects, but I don't really use the NSec library anywhere else.
@@ -295,25 +336,35 @@ public class Program
             {
                 try
                 {
-                    if (!configCanBeSafelyRewritten && File.Exists(configFilePath))
+                    string writableConfigPath = useLocalConfigOverlay ? localConfigFilePath : configFilePath;
+                    bool writableTargetExists = File.Exists(writableConfigPath);
+
+                    if (!configCanBeSafelyRewritten && File.Exists(configFilePath) && !useLocalConfigOverlay)
                     {
                         Console.WriteLine($"⚠️ Skipping config rewrite for {configFilePath} because the existing JSON could not be parsed. Generated keys are only in memory for this run.");
                     }
                     else
                     {
-                        configJsonObject ??= new JsonObject();
-                        configJsonObject["ed25519_private_key"] = config.Ed25519PrivateKey;
-                        configJsonObject["x25519_private_key"] = config.X25519PrivateKey;
+                        writableConfigJsonObject ??= new JsonObject();
+                        writableConfigJsonObject["ed25519_private_key"] = config.Ed25519PrivateKey;
+                        writableConfigJsonObject["x25519_private_key"] = config.X25519PrivateKey;
 
-                        BootPortalPaths.EnsureParentDirectory(configFilePath);
-                        var json = configJsonObject.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
-                        await File.WriteAllTextAsync(configFilePath, json);
-                        Console.WriteLine($"✅ Saved keys to {configFilePath}");
+                        if (!writableTargetExists || useLocalConfigOverlay || configCanBeSafelyRewritten)
+                        {
+                            BootPortalPaths.EnsureParentDirectory(writableConfigPath);
+                            var json = writableConfigJsonObject.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+                            await File.WriteAllTextAsync(writableConfigPath, json);
+                            Console.WriteLine($"✅ Saved keys to {writableConfigPath}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"⚠️ Skipping config rewrite for {writableConfigPath} because the existing JSON could not be parsed. Generated keys are only in memory for this run.");
+                        }
                     }
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"❌ Failed to save {configFilePath}: {ex.Message}");
+                    Console.WriteLine($"❌ Failed to save generated keys: {ex.Message}");
                 }
             }
 
@@ -332,7 +383,7 @@ public class Program
             var combinedPubKeyHex = Convert.ToHexString(combinedPubKey).ToLower(); // 128 hex characters
 
             //Now load or setup the pool config options, like default payout address and coinbase tag
-            PoolConfig _poolConfig = LoadPoolConfig(configFilePath);
+            PoolConfig _poolConfig = LoadPoolConfig(configFilePath, useLocalConfigOverlay ? localConfigFilePath : null);
             Program.TeamSize = _poolConfig.TotalPayoutSlotCount;
             DatumPort = _poolConfig.DatumPort;
 
@@ -347,6 +398,10 @@ public class Program
             //UI Server stuff:
             var builder = WebApplication.CreateBuilder(args);
             builder.Configuration.AddJsonFile(configFilePath, optional: false, reloadOnChange: true);
+            if (useLocalConfigOverlay)
+            {
+                builder.Configuration.AddJsonFile(localConfigFilePath, optional: true, reloadOnChange: true);
+            }
 
             var listenUrls = new List<string>();
             if (_poolConfig.WebUiPortHttp > 0)
@@ -396,13 +451,13 @@ public class Program
                 };
 
                 options.AddPolicy("network-read", context =>
-                    CreateRateLimitPartition(context, "network-read", _poolConfig.NetworkReadRateLimitPerMinute));
+                    CreateRateLimitPartition(context, _poolConfig, "network-read", _poolConfig.NetworkReadRateLimitPerMinute));
                 options.AddPolicy("peer-write", context =>
-                    CreateRateLimitPartition(context, "peer-write", _poolConfig.PeerWriteRateLimitPerMinute));
+                    CreateRateLimitPartition(context, _poolConfig, "peer-write", _poolConfig.PeerWriteRateLimitPerMinute));
                 options.AddPolicy("mining-write", context =>
-                    CreateRateLimitPartition(context, "mining-write", _poolConfig.MiningApiShareRateLimitPerMinute));
+                    CreateRateLimitPartition(context, _poolConfig, "mining-write", _poolConfig.MiningApiShareRateLimitPerMinute));
                 options.AddPolicy("admin-write", context =>
-                    CreateRateLimitPartition(context, "admin-write", _poolConfig.AdminRateLimitPerMinute));
+                    CreateRateLimitPartition(context, _poolConfig, "admin-write", _poolConfig.AdminRateLimitPerMinute));
             });
             
             // Start your background services
@@ -479,18 +534,36 @@ public class Program
         await rootCommand.InvokeAsync(args);
     }
 
-    private static PoolConfig LoadPoolConfig(string configPath)
+    private static PoolConfig LoadPoolConfig(string configPath, string? localConfigPath = null)
     {
         try
         {
+            JsonObject? baseConfig = null;
+            JsonObject? localConfig = null;
+
             if (File.Exists(configPath))
             {
                 string json = File.ReadAllText(configPath);
-                var config = JsonSerializer.Deserialize<PoolConfig>(json);
+                baseConfig = JsonNode.Parse(json) as JsonObject;
+            }
+
+            if (!string.IsNullOrWhiteSpace(localConfigPath) && File.Exists(localConfigPath))
+            {
+                string json = File.ReadAllText(localConfigPath);
+                localConfig = JsonNode.Parse(json) as JsonObject;
+            }
+
+            JsonObject? effectiveConfig = MergeJsonObjects(baseConfig, localConfig);
+            if (effectiveConfig != null)
+            {
+                var config = effectiveConfig.Deserialize<PoolConfig>();
                 if (config != null)
                 {
                     ApplyPoolConfigDefaults(config);
-                    Console.WriteLine($"🔧 Loaded config from {configPath}");
+                    Console.WriteLine(
+                        string.IsNullOrWhiteSpace(localConfigPath) || !File.Exists(localConfigPath)
+                            ? $"🔧 Loaded config from {configPath}"
+                            : $"🔧 Loaded config from {configPath} with local override {localConfigPath}");
                     return config;
                 }
             }
@@ -503,6 +576,45 @@ public class Program
         var fallbackConfig = new PoolConfig();
         ApplyPoolConfigDefaults(fallbackConfig);
         return fallbackConfig;
+    }
+
+    private static JsonObject? MergeJsonObjects(JsonObject? baseConfig, JsonObject? overrideConfig)
+    {
+        if (baseConfig == null && overrideConfig == null)
+        {
+            return null;
+        }
+
+        JsonObject result = baseConfig?.DeepClone() as JsonObject ?? new JsonObject();
+        if (overrideConfig == null)
+        {
+            return result;
+        }
+
+        MergeInto(result, overrideConfig);
+        return result;
+    }
+
+    private static void MergeInto(JsonObject target, JsonObject source)
+    {
+        foreach ((string key, JsonNode? value) in source)
+        {
+            if (value is JsonObject sourceObject)
+            {
+                if (target[key] is JsonObject targetObject)
+                {
+                    MergeInto(targetObject, sourceObject);
+                }
+                else
+                {
+                    target[key] = sourceObject.DeepClone();
+                }
+            }
+            else
+            {
+                target[key] = value?.DeepClone();
+            }
+        }
     }
 
     private static void ApplyPoolConfigDefaults(PoolConfig config)
@@ -526,6 +638,13 @@ public class Program
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        config.TrustedForwardedProxyRanges ??= [];
+        config.TrustedForwardedProxyRanges = config.TrustedForwardedProxyRanges
+            .Where(range => !string.IsNullOrWhiteSpace(range))
+            .Select(range => range.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         if (string.Equals(config.BootNetworkId, "public-beta", StringComparison.OrdinalIgnoreCase) &&
             config.BootstrapPeers.Count == 0)
         {
@@ -533,9 +652,9 @@ public class Program
         }
     }
 
-    private static RateLimitPartition<string> CreateRateLimitPartition(HttpContext context, string policyName, int permitLimit)
+    private static RateLimitPartition<string> CreateRateLimitPartition(HttpContext context, PoolConfig poolConfig, string policyName, int permitLimit)
     {
-        string clientKey = BootRequestIdentity.GetClientKey(context);
+        string clientKey = BootRequestIdentity.GetClientKey(context, poolConfig);
         return RateLimitPartition.GetFixedWindowLimiter(
             $"{policyName}:{clientKey}",
             _ => new FixedWindowRateLimiterOptions

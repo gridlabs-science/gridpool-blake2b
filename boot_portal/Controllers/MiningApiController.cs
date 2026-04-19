@@ -53,7 +53,7 @@ public class MiningApiController : ControllerBase
             var result = await _stateService.SubmitShareAsync(new RecordedShareSubmission
             {
                 MinerAddress = share.MinerAddress,
-                Username = string.IsNullOrWhiteSpace(share.Username) ? share.MinerAddress : share.Username,
+                Username = string.IsNullOrWhiteSpace(share.Username) ? string.Empty : share.Username,
                 HeaderHex = share.HeaderHex,
                 CoinbaseHex = share.CoinbaseHex,
                 MerklePath = share.MerklePath,

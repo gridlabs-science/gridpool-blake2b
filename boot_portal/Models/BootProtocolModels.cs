@@ -120,6 +120,7 @@ public class BootNetworkStatusDto
     public double? LocalDatumHashrateThs { get; set; }
     public string LocalDatumHashrateDisplay { get; set; } = "--";
     public int PeerCount { get; set; }
+    public bool AdminApiEnabled { get; set; }
     public bool TestingRoundResetEnabled { get; set; }
     public string TestingRoundResetMode { get; set; } = "none";
     public int TestingRoundResetLowNibbleThreshold { get; set; }

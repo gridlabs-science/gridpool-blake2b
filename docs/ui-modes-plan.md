@@ -7,6 +7,15 @@ The current WebUI is excellent for protocol testing, debugging, and ops visibili
 - `Business Mode`: for operators who care about payout cadence, variance reduction, operational confidence, and expected revenue share.
 - `Nerd Mode`: the current data-heavy dashboard for protocol debugging, testing, and advanced node operators.
 
+## Branding Note
+- Current experimental UI name: `Grid Anti-Pool`
+- Do not fully propagate branding/copy changes through the product until the final name is chosen
+- Once the name is finalized, do one deliberate propagation pass across:
+  - page title / hero copy
+  - connection instructions
+  - docs and proposal materials
+  - deployment/sample config naming where relevant
+
 This document defines a UI architecture that can support all three without maintaining three separate pages.
 
 ## Product Principle

@@ -43,10 +43,9 @@ public class BootShareVerifier
         IReadOnlyList<PayoutInfo> expectedWinners,
         IReadOnlyCollection<string> expectedPrevBlockHashes)
     {
-        string username = string.IsNullOrWhiteSpace(share.Username) ? share.MinerAddress : share.Username;
         return ValidateCore(
             share.MinerAddress,
-            username,
+            share.Username,
             share.HeaderHex,
             share.CoinbaseHex,
             share.MerklePath,
@@ -97,12 +96,6 @@ public class BootShareVerifier
     {
         try
         {
-            string normalizedMinerAddress = BitcoinScript.NormalizeAddress(minerAddress);
-            if (!BitcoinScript.TryAddressToScriptPubKey(normalizedMinerAddress, out byte[] minerScript))
-            {
-                return Invalid("Invalid miner payout address.");
-            }
-
             string normalizedHeaderHex = BitcoinHashes.NormalizeHex(headerHex);
             if (normalizedHeaderHex.Length != 160)
             {
@@ -171,6 +164,13 @@ public class BootShareVerifier
             }
 
             List<BitcoinTransactionOutput> outputs = BitcoinTransactionParser.ParseOutputs(coinbaseBytes);
+            if (outputs.Count == 0)
+            {
+                return Invalid("Coinbase payout list is too short.");
+            }
+
+            string normalizedMinerAddress = ExtractSlotZeroAddress(outputs[0].ScriptPubKey);
+            string scriptPubKeyHex = Convert.ToHexString(outputs[0].ScriptPubKey).ToLowerInvariant();
             ValidatePayoutOutputs(outputs, expectedWinners);
 
             byte[] headerHash = DoubleSha256(headerBytes);
@@ -185,10 +185,12 @@ public class BootShareVerifier
             BigInteger hashValue = ToPositiveBigInteger(headerHash);
             double difficulty = hashValue.IsZero ? double.MaxValue : (double)DifficultyOneTarget / (double)hashValue;
             bool isBlock = hashValue <= target;
-            string shareId = ComputeShareId(normalizedHeaderHex, normalizedCoinbaseHex, normalizedMinerAddress);
+            string shareId = ComputeShareId(normalizedHeaderHex, normalizedCoinbaseHex);
+            string legacyShareId = ComputeLegacyShareId(normalizedHeaderHex, normalizedCoinbaseHex, normalizedMinerAddress);
 
             if (!string.IsNullOrWhiteSpace(expectedShareId) &&
-                !string.Equals(BitcoinHashes.NormalizeHex(expectedShareId), shareId, StringComparison.OrdinalIgnoreCase))
+                !string.Equals(BitcoinHashes.NormalizeHex(expectedShareId), shareId, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(BitcoinHashes.NormalizeHex(expectedShareId), legacyShareId, StringComparison.OrdinalIgnoreCase))
             {
                 return Invalid("Share identifier mismatch.");
             }
@@ -199,7 +201,7 @@ public class BootShareVerifier
                 ShareId = shareId,
                 MinerAddress = normalizedMinerAddress,
                 Username = string.IsNullOrWhiteSpace(username) ? normalizedMinerAddress : username,
-                ScriptPubKeyHex = Convert.ToHexString(minerScript).ToLowerInvariant(),
+                ScriptPubKeyHex = scriptPubKeyHex,
                 HeaderHex = normalizedHeaderHex,
                 CoinbaseHex = normalizedCoinbaseHex,
                 MerklePath = normalizedMerklePath,
@@ -217,6 +219,17 @@ public class BootShareVerifier
         {
             return Invalid(ex.Message);
         }
+    }
+
+    private static string ExtractSlotZeroAddress(byte[] scriptPubKey)
+    {
+        string address = BitcoinScript.ScriptToAddress(scriptPubKey);
+        if (string.IsNullOrWhiteSpace(address) || string.Equals(address, "UNKNOWN", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Slot 0 payout address is not a supported standard script.");
+        }
+
+        return BitcoinScript.NormalizeAddress(address);
     }
 
     private static void ValidatePayoutOutputs(
@@ -260,7 +273,13 @@ public class BootShareVerifier
         return current;
     }
 
-    private static string ComputeShareId(string headerHex, string coinbaseHex, string minerAddress)
+    private static string ComputeShareId(string headerHex, string coinbaseHex)
+    {
+        byte[] hash = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{headerHex}|{coinbaseHex}"));
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static string ComputeLegacyShareId(string headerHex, string coinbaseHex, string minerAddress)
     {
         byte[] hash = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{headerHex}|{coinbaseHex}|{minerAddress}"));
         return Convert.ToHexString(hash).ToLowerInvariant();

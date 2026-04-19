@@ -18,6 +18,11 @@ This checklist is written against the current architecture:
 - Boot nodes form a decentralized peer network
 - the public WebUI has `Lottery`, `Business`, and `Nerd` modes
 
+Related execution docs:
+
+- [launch-infra-plan.md](/home/keegreil/Documents/GitHub/boot-protocol/docs/launch-infra-plan.md)
+- [stress-test-plan.md](/home/keegreil/Documents/GitHub/boot-protocol/docs/stress-test-plan.md)
+
 ## Core Protocol Assumption: Share Attribution
 
 Launch work must preserve this protocol rule:
@@ -60,10 +65,15 @@ Launch gates:
 
 ## Gate 1: Security And Protocol Correctness
 
+Latest verification snapshot:
+- `2026-04-18`
+- targeted suite: `dotnet test boot.tests/boot.tests.csproj --no-restore`
+- result: `Passed 28 / 28`
+
 ### G1.1 Slot-0 attribution on all untrusted share paths
 
 Status:
-- `BLOCKING`
+- `DONE`
 
 Required implementation:
 - For HTTP share submission:
@@ -91,10 +101,23 @@ Evidence to capture:
 - test output from `boot.tests`
 - one JSON example from each path showing forged request fields but correct slot-0 attribution
 
+Current evidence:
+- automated coverage in:
+  - [ShareAttributionTests.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot.tests/ShareAttributionTests.cs)
+  - `ValidateShareAttributesToSlotZeroInsteadOfClaimedMinerAddress`
+  - `HttpShareWithForgedMinerAddressIsAcceptedAndAttributedToSlotZeroAsync`
+  - `PeerShareWithForgedMinerAddressIsAcceptedAndAttributedToSlotZeroAsync`
+  - `ValidateShareRejectsSlotZeroMutationWithoutHeaderRecompute`
+  - `SlotZeroMutationWithRecomputedHeaderButLowPowIsRejectedAsync`
+- implementation lives in:
+  - [BootShareVerifier.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/Services/BootShareVerifier.cs)
+  - [MiningApiController.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/Controllers/MiningApiController.cs)
+  - [BootPeerController.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/Controllers/BootPeerController.cs)
+
 ### G1.2 Exact duplicate and replay resistance
 
 Status:
-- `PARTIALLY DONE`
+- `DONE`
 
 Current known behavior:
 - exact duplicate share IDs are rejected via `_seenShareIds` in [BootProtocolStateService.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/Services/BootProtocolStateService.cs)
@@ -127,10 +150,20 @@ Evidence to capture:
 - API responses for first/second submit
 - state summary before/after duplicate replay
 
+Current evidence:
+- automated coverage in [ShareAttributionTests.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot.tests/ShareAttributionTests.cs):
+  - `LocalSubmitFollowedByPeerReplayReturnsDuplicateWithoutChangingCandidateStateAsync`
+  - `LocalSubmitFollowedByDuplicateLocalSubmitReturnsDuplicateWithoutChangingCandidateStateAsync`
+  - `PeerSubmitFollowedByDuplicatePeerSubmitReturnsDuplicateWithoutChangingCandidateStateAsync`
+  - `DuplicateBlockRotationIsIgnoredAfterFirstApplyAsync`
+- implementation continues to use `_seenShareIds` in [BootProtocolStateService.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/Services/BootProtocolStateService.cs)
+- duplicate winning-block protection is currently covered at the rotation boundary by block-hash reapplication suppression
+- suite currently green in the `2026-04-18` snapshot above
+
 ### G1.3 Forwarded-IP trust and rate-limit hardening
 
 Status:
-- `BLOCKING`
+- `DONE`
 
 Current known issue:
 - request identity currently trusts `CF-Connecting-IP`, `X-Forwarded-For`, and `X-Real-IP` unconditionally in [BootRequestIdentity.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/Utils/BootRequestIdentity.cs)
@@ -153,10 +186,19 @@ Evidence to capture:
 - test log showing same partition key for spoofed direct requests
 - rate-limit rejection after expected threshold
 
+Current evidence:
+- automated coverage in [BootRequestIdentityTests.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot.tests/BootRequestIdentityTests.cs):
+  - `GetClientKeyIgnoresForwardedHeadersFromUntrustedDirectClient`
+  - `GetClientKeyUsesForwardedHeadersFromTrustedProxy`
+  - `TrustedProxyRangesHonorCidrMatching`
+- implementation lives in:
+  - [BootRequestIdentity.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/Utils/BootRequestIdentity.cs)
+  - [Program.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/Program.cs)
+
 ### G1.4 Request validation hardening
 
 Status:
-- `IN PROGRESS`
+- `DONE`
 
 Required implementation:
 - keep request size limits
@@ -183,10 +225,36 @@ Evidence to capture:
 - corpus test output
 - no `BackgroundService failed` or unhandled exceptions in logs
 
+Current evidence:
+- cheap-fail request corpus currently covered in [BootRequestGuardsTests.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot.tests/BootRequestGuardsTests.cs):
+  - well-formed payload
+  - missing caller miner address
+  - oversized payload
+  - oversized coinbase
+  - oversized merkle path
+  - malformed hex header
+  - malformed header length
+  - malformed hex coinbase
+  - malformed merkle entry
+- peer compatibility rejection coverage in [ShareAttributionTests.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot.tests/ShareAttributionTests.cs):
+  - `PeerSubmitWithWrongNetworkIsRejectedBeforeInsertionAsync`
+  - `PeerSubmitWithWrongProtocolVersionIsRejectedBeforeInsertionAsync`
+- live malformed-request smoke run:
+  - [malformed-request-smoke.sh](/home/keegreil/Documents/GitHub/boot-protocol/scripts/malformed-request-smoke.sh)
+  - executed successfully on `2026-04-18`
+  - validated:
+    - `400` for missing header
+    - `400` for malformed coinbase hex
+    - `400` for malformed merkle entry
+    - `413` for oversized share payload
+    - `400` for peer network mismatch
+  - server remained alive and post-run `/api/network/summary` stayed under the smoke-test threshold
+- suite currently green in the `2026-04-18` snapshot above
+
 ### G1.5 Admin surface hardening
 
 Status:
-- `BLOCKING`
+- `DONE`
 
 Required implementation:
 - ensure no default production admin key is shipped
@@ -205,6 +273,23 @@ Acceptance criteria:
 Evidence to capture:
 - config diff
 - operator docs section
+
+Current progress:
+- config support now exists for `enable_admin_api`
+- admin reset endpoints can be disabled completely by config
+- tracked Docker sample [boot_portal_config.sample.json](/home/keegreil/Documents/GitHub/boot-protocol/docker/boot_portal_config.sample.json) now defaults `enable_admin_api` to `false`
+- tracked runtime config [boot_portal_config.json](/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/boot_portal_config.json) now contains placeholder values only
+- adjacent untracked local override config is supported via `boot_portal_config.local.json`
+- operator guidance is documented in [README.md](/home/keegreil/Documents/GitHub/boot-protocol/README.md)
+
+Evidence:
+- code/config:
+  - [Program.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/Program.cs)
+  - [BootPortalPaths.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/Utils/BootPortalPaths.cs)
+  - [boot_portal_config.json](/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/boot_portal_config.json)
+  - [boot_portal_config.sample.json](/home/keegreil/Documents/GitHub/boot-protocol/docker/boot_portal_config.sample.json)
+- operator docs:
+  - [README.md](/home/keegreil/Documents/GitHub/boot-protocol/README.md)
 
 ## Gate 2: Reliability And Convergence
 
@@ -227,6 +312,14 @@ Evidence to capture:
 - `share-diagnostics` correlated with `events`
 - one summary report per soak
 
+Current tooling:
+- [boot-soak-report.mjs](/home/keegreil/Documents/GitHub/boot-protocol/scripts/boot-soak-report.mjs)
+  - summarizes local DATUM acceptance, reject categories, late reject counts, and coinbaser timings from the current APIs
+- [boot-g2-monitor.mjs](/home/keegreil/Documents/GitHub/boot-protocol/scripts/boot-g2-monitor.mjs)
+  - polls one or two nodes over time
+  - measures candidate/current/tip divergence intervals
+  - emits G2-oriented verdict hints from live API data
+
 ### G2.2 Candidate convergence is self-healing
 
 Status:
@@ -246,6 +339,12 @@ Evidence to capture:
 - timestamped summaries from both nodes
 - event log around each disruption
 
+Current tooling:
+- [boot-soak-report.mjs](/home/keegreil/Documents/GitHub/boot-protocol/scripts/boot-soak-report.mjs)
+  - captures current-state and candidate-state convergence at the time of sampling for one or two nodes
+- [boot-g2-monitor.mjs](/home/keegreil/Documents/GitHub/boot-protocol/scripts/boot-g2-monitor.mjs)
+  - captures longest candidate/current/tip divergence windows during an actual polling run
+
 ### G2.3 Coinbaser hot-path performance stays inside budget
 
 Status:
@@ -262,6 +361,10 @@ Evidence to capture:
 - `/api/network/coinbaser-diagnostics`
 - summary snapshots every hour
 
+Current tooling:
+- [boot-soak-report.mjs](/home/keegreil/Documents/GitHub/boot-protocol/scripts/boot-soak-report.mjs)
+- [boot-g2-monitor.mjs](/home/keegreil/Documents/GitHub/boot-protocol/scripts/boot-g2-monitor.mjs)
+
 ### G2.4 No host crash on peer/network turbulence
 
 Status:
@@ -277,6 +380,12 @@ Evidence to capture:
 - `journalctl -u bootserverapp.service`
 - explicit restart count = `0`
 
+Current tooling:
+- [boot-g2-monitor.mjs](/home/keegreil/Documents/GitHub/boot-protocol/scripts/boot-g2-monitor.mjs)
+  - captures API availability interruptions and peer-side instability during a soak
+- [boot-main.sh](/home/keegreil/Documents/GitHub/boot-protocol/scripts/boot-main.sh)
+  - existing wrapper for service status and journal access on the main node
+
 ### G2.5 Round-history invariants hold
 
 Status:
@@ -291,6 +400,12 @@ Acceptance criteria:
 Evidence to capture:
 - test output
 - API sample from `/api/network/history`
+
+Current tooling:
+- [boot-history-check.mjs](/home/keegreil/Documents/GitHub/boot-protocol/scripts/boot-history-check.mjs)
+  - validates canonical round-history consistency from the live API
+  - checks `Round N nextRecipients == Round N+1 paidRecipients`
+  - compares current/candidate/tip alignment across two nodes when both URLs are provided
 
 ## Gate 3: Load, Abuse, And Stress Readiness
 

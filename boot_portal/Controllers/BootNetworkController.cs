@@ -9,10 +9,12 @@ namespace boot_portal.Controllers;
 public class BootNetworkController : ControllerBase
 {
     private readonly BootProtocolStateService _stateService;
+    private readonly PoolConfig _poolConfig;
     private readonly ILogger<BootNetworkController> _logger;
 
-    public BootNetworkController(BootProtocolStateService stateService, ILogger<BootNetworkController> logger)
+    public BootNetworkController(PoolConfig poolConfig, BootProtocolStateService stateService, ILogger<BootNetworkController> logger)
     {
+        _poolConfig = poolConfig;
         _stateService = stateService;
         _logger = logger;
     }
@@ -93,6 +95,11 @@ public class BootNetworkController : ControllerBase
     [HttpPost("admin/reset")]
     public async Task<IActionResult> ResetRound()
     {
+        if (!_poolConfig.EnableAdminApi)
+        {
+            return NotFound();
+        }
+
         string? apiKey = Request.Headers["X-Boot-Admin-Key"].FirstOrDefault();
         if (!_stateService.IsAdminAuthorized(apiKey))
         {
@@ -108,6 +115,11 @@ public class BootNetworkController : ControllerBase
     [HttpPost("admin/reset-genesis")]
     public async Task<IActionResult> ResetHistoryToGenesis()
     {
+        if (!_poolConfig.EnableAdminApi)
+        {
+            return NotFound();
+        }
+
         string? apiKey = Request.Headers["X-Boot-Admin-Key"].FirstOrDefault();
         if (!_stateService.IsAdminAuthorized(apiKey))
         {

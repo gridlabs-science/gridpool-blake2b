@@ -32,6 +32,7 @@
   "testing_round_reset_low_nibble_threshold": 0,
   "boot_network_id": "public-beta",
   "boot_protocol_version": 1,
+  "enable_admin_api": false,
   "admin_api_key": "change-this-admin-key",
   "pool_payout_script": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
   "winners_list_size": 299,

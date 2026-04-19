@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>BOOT PROTOCOL</title>
+    <title>Grid Anti-Pool</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
@@ -82,6 +82,14 @@
             color: var(--accent-color);
             text-align: center;
             margin-top: 0;
+        }
+
+        .brand-subtitle {
+            text-align: center;
+            color: var(--text-muted);
+            max-width: 720px;
+            margin: -8px auto 24px auto;
+            font-size: 0.95rem;
         }
 
         h2 {
@@ -667,6 +675,8 @@
             border: 1px solid var(--border-color);
             padding: 15px;
             height: 250px;
+            min-width: 0;
+            overflow: hidden;
         }
 
         .round-history-note {
@@ -678,11 +688,13 @@
         .round-history-content {
             display: grid;
             gap: 18px;
+            min-width: 0;
         }
 
         .round-history-primary {
             display: grid;
             gap: 16px;
+            min-width: 0;
         }
 
         .round-history-toolbar {
@@ -857,6 +869,7 @@
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
             gap: 16px;
+            min-width: 0;
         }
 
         .round-history-chart-toolbar {
@@ -877,6 +890,8 @@
         .round-history-chart canvas {
             width: 100%;
             height: 220px;
+            display: block;
+            max-width: 100%;
         }
 
         .round-history-search-note {
@@ -917,8 +932,10 @@
 
         .view-toggle {
             display: inline-flex;
+            flex-wrap: wrap;
             border: 1px solid var(--border-color);
             background: #000;
+            max-width: 100%;
         }
 
         .toggle-btn {
@@ -1084,6 +1101,37 @@
                 font-size: 1.2rem;
             }
         }
+
+        @@media (max-width: 700px) {
+            .brand-subtitle {
+                font-size: 0.85rem;
+                margin-bottom: 20px;
+            }
+
+            .search-box-container {
+                display: flex;
+                width: 100%;
+                max-width: 100%;
+            }
+
+            .search-input {
+                width: 100%;
+                min-width: 0;
+            }
+
+            .round-history-chart-toolbar {
+                align-items: stretch;
+            }
+
+            .round-history-chart-toolbar .view-toggle {
+                width: 100%;
+            }
+
+            .round-history-chart-toolbar .toggle-btn {
+                flex: 1 1 auto;
+                text-align: center;
+            }
+        }
     </style>
 </head>
 <body>
@@ -1095,7 +1143,8 @@
 <img src="logo.png" alt="Grid Labs" class="logo-img"/>
 
 <div class="main-container">
-    <h1>BOOT PROTOCOL</h1>
+    <h1>GRID ANTI-POOL</h1>
+    <div class="brand-subtitle">The un-pool for sovereign Bitcoin miners.</div>
 
     <div class="mode-toolbar">
         <div class="mode-toolbar-left">
@@ -1372,8 +1421,8 @@
 <div id="theory-modal" class="modal-overlay" onclick="if(event.target === this) toggleModal('theory-modal')">
     <div class="modal-content">
         <span class="close-modal" onclick="toggleModal('theory-modal')">&times;</span>
-        <h2>Pool Theory</h2>
-        <p>Boot Protocol operates differently than traditional pools. It's more like a protocol for solo miners to split
+        <h2>Why It's Not A Pool</h2>
+        <p>Grid Anti-Pool operates differently than traditional pools. It's more like a protocol for solo miners to split
             rewards in exchange for better odds.</p>
         <p>Nodes maintain a "Winners List", which defines the 299 shared payout slots for the coinbase split. Slot 0 always belongs to the block finder, so a full template has 300 total payout slots.
             Miners make their own templates using this coinbase payout, and submit the highest difficulty shares to the
@@ -1396,14 +1445,14 @@
     <div class="modal-content">
         <span class="close-modal" onclick="toggleModal('help-modal')">&times;</span>
         <h2>How to Connect</h2>
-        <p>There are two options to join the Boot team and compete to get on the Winner's List:</p>
+        <p>There are two options to join the Grid Anti-Pool team and compete to get on the Winner's List:</p>
         <h3>The easy way (start with this):</h3>
         <p>1. Download the DATUM client.</p>
         <p>2. Configure your client with the host, port, and public key listed above.</p>
         <p>3. Start mining. Your highest difficulty shares will automatically be submitted.</p>
         <h3>The better way (after the above steps):</h3>
-        <p>4. Go to the Boot Protocol repository and choose an installation method (bare metal or Docker)</p>
-        <p>5. Start up the Boot Server, visit http://localhost:5000 and copy the public key</p>
+        <p>4. Go to the Grid Anti-Pool repository and choose an installation method (bare metal or Docker)</p>
+        <p>5. Start up the Grid Anti-Pool server, visit http://localhost:5000 and copy the public key</p>
         <p>6. Edit your DATUM Config to point towards your new Datum Server</p>
         <p>7. Get your friends to do the same!</p>
     </div>
@@ -1440,6 +1489,9 @@
     let hashrateWindow = localStorage.getItem("boot-hashrate-window") || "24h";
     let hashrateScaleMode = localStorage.getItem("boot-hashrate-scale-mode") || "linear";
     let currentRoundEstimateTimer = null;
+    let hashrateChartRefreshTimer = null;
+    let scheduledHashrateChartRender = null;
+    let lastHashrateChartRenderMs = 0;
     let globalBitcoinMetrics = {
         currentNetworkHashrateHps: null,
         sevenDayAverageHashrateHps: null,
@@ -1452,6 +1504,10 @@
     let globalWinnersList = [];
     let globalOnDeckList = [];
     let currentSearchTerm = "";
+    const TEAM_HASHRATE_SMOOTHING_WINDOW_MS = 30 * 60 * 1000;
+    const HASHRATE_CHART_RENDER_INTERVAL_MS = 10000;
+    const HASHRATE_CHART_MAX_POINTS_DESKTOP = 240;
+    const HASHRATE_CHART_MAX_POINTS_MOBILE = 120;
     const listViewModes = {
         "winners-list": "summary",
         "ondeck-list": "summary"
@@ -1541,7 +1597,7 @@
         updateTable("ondeck-list", globalOnDeckList);
         renderRoundHistory(globalRoundHistory);
         updateCurrentRoundTelemetry();
-        updateHashrateHistoryChart();
+        scheduleHashrateHistoryChartRender();
         renderModeSummaryCards();
         renderModeFocusSection();
         renderLocalMinerShortcuts();
@@ -2460,7 +2516,7 @@
         }
 
         setElementHidden("difficulty-section", activeUiMode !== "nerd");
-        setElementHidden("test-tools-link", activeUiMode !== "nerd");
+        setElementHidden("test-tools-link", activeUiMode !== "nerd" || latestNetworkState?.adminApiEnabled !== true);
         setElementHidden("technical-disclosure", activeUiMode !== "nerd");
         setElementHidden("round-share-panel", activeUiMode === "lottery");
 
@@ -2697,7 +2753,7 @@
         localStorage.setItem("boot-hashrate-scale-mode", hashrateScaleMode);
         document.getElementById("hashrate-scale-linear-btn").classList.toggle("active", hashrateScaleMode === "linear");
         document.getElementById("hashrate-scale-log-btn").classList.toggle("active", hashrateScaleMode === "log");
-        updateHashrateHistoryChart();
+        scheduleHashrateHistoryChartRender(true);
     }
 
     async function loadHashrateSeries() {
@@ -2708,7 +2764,7 @@
             }
 
             globalHashrateSeries = await response.json();
-            updateHashrateHistoryChart();
+            scheduleHashrateHistoryChartRender(true);
         } catch (error) {
             console.error(error);
             document.getElementById("round-hashrate-chart-note").innerText = "Failed to load sampled hashrate series.";
@@ -2749,6 +2805,100 @@
         }
     }
 
+    function getHashrateChartMaxPoints() {
+        return window.innerWidth <= 700
+            ? HASHRATE_CHART_MAX_POINTS_MOBILE
+            : HASHRATE_CHART_MAX_POINTS_DESKTOP;
+    }
+
+    function smoothTeamHashratePoints(points) {
+        const window = [];
+        let windowSum = 0;
+
+        return points.map(point => {
+            const value = Number(point.teamHashrateThs);
+            if (value > 0) {
+                window.push({ timestampMs: point.timestampMs, value: value });
+                windowSum += value;
+            }
+
+            while (window.length > 0 && (point.timestampMs - window[0].timestampMs) > TEAM_HASHRATE_SMOOTHING_WINDOW_MS) {
+                windowSum -= window[0].value;
+                window.shift();
+            }
+
+            const smoothedTeamHashrateThs = window.length > 0 ? (windowSum / window.length) : point.teamHashrateThs;
+            return {
+                ...point,
+                smoothedTeamHashrateThs: smoothedTeamHashrateThs,
+                smoothedTeamDisplay: formatHashrateFromThs(smoothedTeamHashrateThs)
+            };
+        });
+    }
+
+    function downsampleHashratePoints(points, maxPoints) {
+        if (!Array.isArray(points) || points.length <= maxPoints || maxPoints <= 0) {
+            return points;
+        }
+
+        const currentPoint = points[points.length - 1]?.isCurrent ? points[points.length - 1] : null;
+        const historicalPoints = currentPoint ? points.slice(0, -1) : [...points];
+        const targetHistoricalCount = Math.max(1, maxPoints - (currentPoint ? 1 : 0));
+
+        if (historicalPoints.length <= targetHistoricalCount) {
+            return currentPoint ? [...historicalPoints, currentPoint] : historicalPoints;
+        }
+
+        const bucketSize = Math.ceil(historicalPoints.length / targetHistoricalCount);
+        const reduced = [];
+
+        for (let index = 0; index < historicalPoints.length; index += bucketSize) {
+            const bucket = historicalPoints.slice(index, index + bucketSize);
+            const last = bucket[bucket.length - 1];
+            const teamValues = bucket
+                .map(point => Number(point.smoothedTeamHashrateThs))
+                .filter(value => Number.isFinite(value) && value > 0);
+            const localValues = bucket
+                .map(point => Number(point.localHashrateThs))
+                .filter(value => Number.isFinite(value) && value > 0);
+            const averageTeamHashrateThs = teamValues.length > 0
+                ? teamValues.reduce((sum, value) => sum + value, 0) / teamValues.length
+                : last.smoothedTeamHashrateThs;
+            const averageLocalHashrateThs = localValues.length > 0
+                ? localValues.reduce((sum, value) => sum + value, 0) / localValues.length
+                : last.localHashrateThs;
+
+            reduced.push({
+                ...last,
+                smoothedTeamHashrateThs: averageTeamHashrateThs,
+                smoothedTeamDisplay: formatHashrateFromThs(averageTeamHashrateThs),
+                localHashrateThs: averageLocalHashrateThs,
+                localDisplay: formatHashrateFromThs(averageLocalHashrateThs)
+            });
+        }
+
+        return currentPoint ? [...reduced, currentPoint] : reduced;
+    }
+
+    function scheduleHashrateHistoryChartRender(immediate = false) {
+        const now = Date.now();
+        const delayMs = immediate
+            ? 0
+            : Math.max(0, HASHRATE_CHART_RENDER_INTERVAL_MS - (now - lastHashrateChartRenderMs));
+
+        if (scheduledHashrateChartRender) {
+            if (!immediate) return;
+            clearTimeout(scheduledHashrateChartRender);
+            scheduledHashrateChartRender = null;
+        }
+
+        scheduledHashrateChartRender = setTimeout(() => {
+            scheduledHashrateChartRender = null;
+            lastHashrateChartRenderMs = Date.now();
+            updateHashrateHistoryChart();
+        }, delayMs);
+    }
+
     function updateCurrentRoundTelemetry() {
         const elapsedSeconds = getCurrentRoundElapsedSeconds();
         const estimatedHashrateThs = getCurrentRoundEstimatedHashrateThs();
@@ -2778,7 +2928,7 @@
             roundHashrateChartInstance = null;
         }
 
-        const points = [...(globalHashrateSeries?.points || [])]
+        const points = smoothTeamHashratePoints([...(globalHashrateSeries?.points || [])]
             .filter(point => point && point.timestampUtc)
             .map(point => ({
                 roundNumber: point.currentRoundNumber,
@@ -2788,7 +2938,7 @@
                 teamDisplay: point.teamEstimatedHashrateDisplay || formatHashrateFromThs(point.teamEstimatedHashrateThs),
                 localHashrateThs: point.localDatumHashrateThs,
                 localDisplay: point.localDatumHashrateDisplay || formatHashrateFromThs(point.localDatumHashrateThs)
-            }));
+            })));
 
         const currentHashrateThs = getCurrentRoundEstimatedHashrateThs();
         const currentLocalDatumHashrateThs = latestNetworkState?.localDatumHashrateThs ?? null;
@@ -2800,20 +2950,35 @@
                 label: `R${latestNetworkState?.currentRoundNumber ?? "?"}`,
                 teamHashrateThs: currentHashrateThs,
                 teamDisplay: formatHashrateFromThs(currentHashrateThs),
+                smoothedTeamHashrateThs: currentHashrateThs,
+                smoothedTeamDisplay: formatHashrateFromThs(currentHashrateThs),
                 localHashrateThs: currentLocalDatumHashrateThs,
                 localDisplay: formatHashrateFromThs(currentLocalDatumHashrateThs),
                 isCurrent: true
             });
+
+            const currentPoint = points[points.length - 1];
+            const smoothingValues = points
+                .filter(point => point.teamHashrateThs != null && (currentTimestampMs - point.timestampMs) <= TEAM_HASHRATE_SMOOTHING_WINDOW_MS)
+                .map(point => Number(point.teamHashrateThs))
+                .filter(value => Number.isFinite(value) && value > 0);
+
+            if (smoothingValues.length > 0) {
+                currentPoint.smoothedTeamHashrateThs = smoothingValues.reduce((sum, value) => sum + value, 0) / smoothingValues.length;
+                currentPoint.smoothedTeamDisplay = formatHashrateFromThs(currentPoint.smoothedTeamHashrateThs);
+            }
         }
 
-        if (points.length === 0) {
+        const displayPoints = downsampleHashratePoints(points, getHashrateChartMaxPoints());
+
+        if (displayPoints.length === 0) {
             note.innerText = "Not enough completed round data yet for a hashrate timeline.";
             return;
         }
 
-        const labels = points.map(point => formatHashratePointLabel(point.timestampMs, !!point.isCurrent));
-        const teamData = points.map(point => point.teamHashrateThs);
-        const localData = points.map(point => point.localHashrateThs);
+        const labels = displayPoints.map(point => formatHashratePointLabel(point.timestampMs, !!point.isCurrent));
+        const teamData = displayPoints.map(point => point.smoothedTeamHashrateThs ?? point.teamHashrateThs);
+        const localData = displayPoints.map(point => point.localHashrateThs);
         const positiveValues = [...teamData, ...localData]
             .map(value => Number(value) || 0)
             .filter(value => value > 0);
@@ -2833,13 +2998,13 @@
             data: {
                 labels: labels,
                 datasets: [{
-                    label: "Team Estimate",
+                    label: "Team Estimate (30m avg)",
                     data: teamData,
                     borderColor: accentColor,
                     backgroundColor: `${accentColor}33`,
                     borderWidth: 2,
-                    pointRadius: points.map(point => point.isCurrent ? 5 : 3),
-                    pointHoverRadius: points.map(point => point.isCurrent ? 7 : 5),
+                    pointRadius: displayPoints.map(point => point.isCurrent ? 4 : 2),
+                    pointHoverRadius: displayPoints.map(point => point.isCurrent ? 6 : 4),
                     fill: true,
                     tension: 0.25
                 },
@@ -2849,8 +3014,8 @@
                     borderColor: secondaryColor,
                     backgroundColor: `${secondaryColor}22`,
                     borderWidth: 2,
-                    pointRadius: points.map(point => point.isCurrent ? 4 : 2),
-                    pointHoverRadius: points.map(point => point.isCurrent ? 6 : 4),
+                    pointRadius: displayPoints.map(point => point.isCurrent ? 4 : 2),
+                    pointHoverRadius: displayPoints.map(point => point.isCurrent ? 6 : 4),
                     fill: false,
                     tension: 0.2
                 }]
@@ -2858,6 +3023,9 @@
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                animation: false,
+                normalized: true,
+                resizeDelay: 150,
                 plugins: {
                     legend: {
                         display: true,
@@ -2872,13 +3040,13 @@
                     tooltip: {
                         callbacks: {
                             title: function(context) {
-                                const point = points[context[0].dataIndex];
+                                const point = displayPoints[context[0].dataIndex];
                                 return `${point.label} · ${new Date(point.timestampMs).toLocaleString()}`;
                             },
                             label: function(context) {
-                                const point = points[context.dataIndex];
+                                const point = displayPoints[context.dataIndex];
                                 return context.datasetIndex === 0
-                                    ? `Team: ${point.teamDisplay}`
+                                    ? `Team: ${point.smoothedTeamDisplay || point.teamDisplay}`
                                     : `Local DATUM: ${point.localDisplay}`;
                             }
                         }
@@ -2905,29 +3073,29 @@
             }
         });
 
-        const currentPoint = points[points.length - 1];
+        const currentPoint = displayPoints[displayPoints.length - 1];
         const historyOnlyPoints = points.filter(point => !point.isCurrent && point.teamHashrateThs != null);
         const averageHashrateThs = historyOnlyPoints.length > 0
-            ? historyOnlyPoints.reduce((sum, point) => sum + point.teamHashrateThs, 0) / historyOnlyPoints.length
+            ? historyOnlyPoints.reduce((sum, point) => sum + (point.smoothedTeamHashrateThs ?? point.teamHashrateThs), 0) / historyOnlyPoints.length
             : null;
         const localWindowMinutes = Math.round((globalHashrateSeries?.localWindowSeconds || 1800) / 60);
         const scaleText = hashrateScaleMode === "log" ? "Log scale emphasizes relative swings and prevents one lucky spike from flattening the rest of the series." : "Linear scale shows absolute swings in estimated hashrate.";
         if (activeUiMode === "lottery") {
             note.innerText = currentPoint?.isCurrent && averageHashrateThs != null
-                ? `Team estimate updates every second from the current next-payout queue. Recent average: ${formatHashrateFromThs(averageHashrateThs)}. ${scaleText}`
-                : `This chart estimates the active team hashrate from recent winning-quality shares. ${scaleText}`;
+                ? `Team line is smoothed over the last 30 minutes to suppress reset spikes. Recent average: ${formatHashrateFromThs(averageHashrateThs)}. ${scaleText}`
+                : `This chart shows the team hashrate smoothed over the last 30 minutes from recent winning-quality shares. ${scaleText}`;
             return;
         }
 
         if (activeUiMode === "business") {
             note.innerText = currentPoint?.isCurrent && averageHashrateThs != null
-                ? `Team window average: ${formatHashrateFromThs(averageHashrateThs)}. Local DATUM estimate uses a rolling ${localWindowMinutes}-minute window. ${scaleText}`
+                ? `Team line is a 30-minute smoothing window. Team window average: ${formatHashrateFromThs(averageHashrateThs)}. Local DATUM estimate uses a rolling ${localWindowMinutes}-minute window. ${scaleText}`
                 : `Local DATUM estimate uses a rolling ${localWindowMinutes}-minute window of directly connected DATUM shares. ${scaleText}`;
             return;
         }
 
         note.innerText = currentPoint?.isCurrent && averageHashrateThs != null
-            ? `Live team point updates every second from the current On Deck list. Local DATUM estimate uses a rolling ${localWindowMinutes}-minute window. Team window average: ${formatHashrateFromThs(averageHashrateThs)}. ${scaleText}`
+            ? `Live team line uses a 30-minute smoothing window over the current and sampled queue estimates. Local DATUM estimate uses a rolling ${localWindowMinutes}-minute window. Team window average: ${formatHashrateFromThs(averageHashrateThs)}. ${scaleText}`
             : `Local DATUM estimate uses a rolling ${localWindowMinutes}-minute window of directly connected DATUM shares. ${scaleText}`;
     }
 
@@ -3701,7 +3869,7 @@
         renderLocalMinerShortcuts();
         maybeAutoselectLocalMiner();
         updateCurrentRoundTelemetry();
-        updateHashrateHistoryChart();
+        scheduleHashrateHistoryChartRender();
         updateModeChrome();
         renderModeSummaryCards();
         renderModeFocusSection();
@@ -3725,8 +3893,11 @@
 
     currentRoundEstimateTimer = setInterval(() => {
         updateCurrentRoundTelemetry();
-        updateHashrateHistoryChart();
     }, 1000);
+
+    hashrateChartRefreshTimer = setInterval(() => {
+        scheduleHashrateHistoryChartRender();
+    }, HASHRATE_CHART_RENDER_INTERVAL_MS);
 
     setInterval(() => {
         loadHashrateSeries();

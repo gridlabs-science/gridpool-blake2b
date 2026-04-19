@@ -23,6 +23,35 @@ Notes:
 - The public beta bootstrap seed remains `https://boot.gridlabs.science` unless you override `bootstrap_peers`.
 - Health probes are exposed at `/health/live` and `/health/ready`.
 
+## Config And Secret Handling
+Tracked config files are now treated as safe defaults, not as the place to keep live secrets.
+
+Rules:
+- Keep placeholder values in tracked `boot_portal_config.json`.
+- Put real private keys, admin keys, and machine-specific overrides in an adjacent untracked file:
+  - `boot_portal_config.local.json`
+- The app loads:
+  1. `boot_portal_config.json`
+  2. `boot_portal_config.local.json` if it exists
+- The local file wins on key conflicts.
+
+Examples:
+- repo root dev path:
+  - tracked: `./boot_portal/boot_portal_config.json`
+  - local override: `./boot_portal/boot_portal_config.local.json`
+- Docker data path:
+  - tracked/sample: `./data/boot_portal_config.json`
+  - local override: `./data/boot_portal_config.local.json`
+
+Environment variables:
+- `BOOT_PORTAL_CONFIG_PATH` overrides the base config path
+- `BOOT_PORTAL_LOCAL_CONFIG_PATH` optionally overrides the local config path
+
+Production guidance:
+- keep `enable_admin_api` disabled unless you actively need admin reset endpoints
+- if admin is enabled, use a strong random `admin_api_key`
+- never commit live private keys or admin keys into the repository
+
 ## The Problem
 Block construction, and therefore transaction selection are laughably centralized.  The vast majority of new coinbase rewards go to one of only a handful of wallets.  
 This happened because centralized, low variance payout structures (FPPS) can outcompete higher variance methods like PPLNS.  It is difficult for any small competing pool to get past the minimum hashrate required to have a manageable variance.  

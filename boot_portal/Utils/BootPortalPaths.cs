@@ -5,6 +5,11 @@ public static class BootPortalPaths
     public static string ConfigFilePath =>
         ResolvePath(Environment.GetEnvironmentVariable("BOOT_PORTAL_CONFIG_PATH"), "boot_portal_config.json");
 
+    public static string LocalConfigFilePath =>
+        ResolvePath(
+            Environment.GetEnvironmentVariable("BOOT_PORTAL_LOCAL_CONFIG_PATH"),
+            BuildLocalConfigFallbackPath(ConfigFilePath));
+
     public static string PoolStateFilePath =>
         ResolvePath(Environment.GetEnvironmentVariable("BOOT_PORTAL_STATE_PATH"), "pool_state.json");
 
@@ -40,5 +45,19 @@ public static class BootPortalPaths
         return string.IsNullOrWhiteSpace(directory)
             ? historyFileName
             : Path.Combine(directory, historyFileName);
+    }
+
+    private static string BuildLocalConfigFallbackPath(string baseConfigPath)
+    {
+        string directory = Path.GetDirectoryName(baseConfigPath) ?? string.Empty;
+        string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(baseConfigPath);
+        string extension = Path.GetExtension(baseConfigPath);
+        string localConfigFileName = string.IsNullOrWhiteSpace(extension)
+            ? $"{Path.GetFileName(baseConfigPath)}.local"
+            : $"{fileNameWithoutExtension}.local{extension}";
+
+        return string.IsNullOrWhiteSpace(directory)
+            ? localConfigFileName
+            : Path.Combine(directory, localConfigFileName);
     }
 }

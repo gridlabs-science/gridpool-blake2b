@@ -61,7 +61,7 @@ public class BootPeerController : ControllerBase
         var result = await _stateService.SubmitShareAsync(new RecordedShareSubmission
         {
             MinerAddress = announcement.Share.MinerAddress,
-            Username = announcement.Share.Username,
+            Username = string.IsNullOrWhiteSpace(announcement.Share.Username) ? string.Empty : announcement.Share.Username,
             HeaderHex = announcement.Share.HeaderHex,
             CoinbaseHex = announcement.Share.CoinbaseHex,
             MerklePath = announcement.Share.MerklePath,

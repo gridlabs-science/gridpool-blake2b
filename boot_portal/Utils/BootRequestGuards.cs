@@ -17,11 +17,6 @@ public static class BootRequestGuards
             return new BootRequestValidationFailure(StatusCodes.Status413PayloadTooLarge, "Share payload exceeds configured size limit");
         }
 
-        if (string.IsNullOrWhiteSpace(minerAddress))
-        {
-            return new BootRequestValidationFailure(StatusCodes.Status400BadRequest, "Missing miner address");
-        }
-
         if (string.IsNullOrWhiteSpace(headerHex))
         {
             return new BootRequestValidationFailure(StatusCodes.Status400BadRequest, "Missing block header");

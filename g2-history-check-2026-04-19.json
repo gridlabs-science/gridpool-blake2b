@@ -1,0 +1,3106 @@
+{
+  "generatedAtUtc": "2026-04-19T19:51:05.853Z",
+  "limit": 200,
+  "main": {
+    "baseUrl": "http://127.0.0.1:5000",
+    "summary": {
+      "selfEndpoint": "https://boot.gridlabs.science",
+      "protocolVersion": 1,
+      "networkId": "public-beta",
+      "currentRoundNumber": 682,
+      "sharedWinnerSlotCount": 299,
+      "totalPayoutSlotCount": 300,
+      "currentStateId": "e8d104a804cd479368a846d45d48cfde30bb201c9e4f691f3622c5f2faf08701",
+      "candidateStateId": "af0f037b1915dd62bd39c29dff694d33aab0cb3d02c908bbd061932b3e6a981b",
+      "currentTipBlockHash": "00000000000000000000f84f7a9f2f9c387de3449b05c803c7b7fc74abb9ebdd",
+      "currentTipBlockHeight": 945825,
+      "lastRotationUtc": "2026-04-19T19:11:08.6125697Z",
+      "winnersCount": 299,
+      "onDeckCount": 299,
+      "onDeckTotalDifficulty": 46366871.90368054,
+      "currentRoundElapsedSeconds": 2397,
+      "currentRoundObservedHashrateThs": 8.508916599036105,
+      "currentRoundObservedHashrateDisplay": "8.51 TH/s",
+      "localDatumHashrateThs": 0.9717448373328044,
+      "localDatumHashrateDisplay": "971.74 GH/s",
+      "peerCount": 2,
+      "testingRoundResetEnabled": true,
+      "testingRoundResetMode": "block_hash_low_nibble",
+      "testingRoundResetLowNibbleThreshold": 6,
+      "testingRoundResetDescription": "Auto-rotate when a new Bitcoin block hash ends in hex 0-5.",
+      "lastTestingTriggerBlockHash": "00000000000000000000cb54f4880c96e85818a261161fc6b0ac653ecae8ae80",
+      "lastTestingTriggerBlockHeight": 945823,
+      "localDatumDiagnostics": {
+        "windowSeconds": 43200,
+        "totalSubmissions": 7745,
+        "acceptedCount": 7694,
+        "acceptedOnDeckCount": 4529,
+        "rejectedCount": 51,
+        "lastAcceptedUtc": "2026-04-19T19:51:03.6458953Z",
+        "lastRejectedUtc": "2026-04-19T19:48:30.0627101Z",
+        "rejectionReasons": [
+          {
+            "reason": "Wrong parent block",
+            "count": 46
+          },
+          {
+            "reason": "Payout mismatch",
+            "count": 4
+          },
+          {
+            "reason": "Low difficulty",
+            "count": 1
+          }
+        ]
+      },
+      "localDatumMiners": [
+        {
+          "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+          "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+          "recentAcceptedShareCount": 3210,
+          "currentRoundAcceptedShareCount": 1071,
+          "currentHashrateThs": 0.9717448373328044,
+          "currentHashrateDisplay": "971.74 GH/s",
+          "currentRoundBestDifficulty": 7599705.11327829,
+          "currentRoundBestDifficultyDisplay": "7.60M",
+          "lastShareUtc": "2026-04-19T19:51:03.6458953Z"
+        }
+      ],
+      "coinbaserDiagnostics": {
+        "windowSeconds": 1800,
+        "totalFetches": 334,
+        "lastFetchUtc": "2026-04-19T19:51:02.1106926Z",
+        "averageDurationMs": 0.41103712574850304,
+        "p95DurationMs": 0.618,
+        "averageParseDurationMs": 0.00047455089820359306,
+        "averageStateReadDurationMs": 0.3729407185628747,
+        "averageBuildDurationMs": 0.002531137724550895,
+        "averageSerializeDurationMs": 0.008072754491017964,
+        "averageSendDurationMs": 0.026247904191616746,
+        "p95SendDurationMs": 0.0403,
+        "temporarySlotZeroCount": 0,
+        "slowFetchCount": 0,
+        "slowStateReadCount": 0,
+        "slowBuildCount": 0,
+        "slowSerializeCount": 0,
+        "slowSendCount": 0
+      },
+      "peers": [
+        {
+          "endpoint": "https://boot.gridlabs.science",
+          "status": "discovered",
+          "latencyMs": 28.4197,
+          "lastSeenUtc": "2026-04-02T01:32:34.8362131Z"
+        },
+        {
+          "endpoint": "http://100.96.249.123:5000",
+          "status": "share",
+          "latencyMs": 44.0526,
+          "lastSeenUtc": "2026-04-19T19:51:02.0693735Z"
+        }
+      ],
+      "commitment": {
+        "protocolVersion": 1,
+        "networkId": "public-beta",
+        "nextStateId": "af0f037b1915dd62bd39c29dff694d33aab0cb3d02c908bbd061932b3e6a981b",
+        "onChainSupported": false,
+        "tagPreview": "BOOT|v1|public-beta|af0f037b1915dd62",
+        "supportNote": "Per-round on-chain commitments require miner-side template support. The server computes state IDs now, but DATUM/Hydrapool must expose a dynamic coinbase hook before this can be embedded on-chain."
+      }
+    },
+    "history": [
+      {
+        "roundNumber": 681,
+        "stateId": "e8d104a804cd479368a846d45d48cfde30bb201c9e4f691f3622c5f2faf08701",
+        "previousStateId": "590e99aebb31f3f7fc1b251bc06ca0e15b3029e18baa8de34333bed91b0455b6",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000000cb54f4880c96e85818a261161fc6b0ac653ecae8ae80",
+        "triggerBlockHeight": 945823,
+        "parentBlockHash": "00000000000000000001156a3022c2f8eeeb61f4c3dd115d2c4661c85e92c6d3",
+        "parentBlockHeight": 945822,
+        "lockedAtUtc": "2026-04-19T19:11:08.6124891Z",
+        "roundElapsedSeconds": 0,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 10187126.04173726,
+        "winningTotalDifficultyDisplay": "10.19M",
+        "observedHashrateThs": null,
+        "observedHashrateDisplay": "--",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 25354533.743038323,
+            "totalDifficultyDisplay": "25.35M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 10187126.04173726,
+            "totalDifficultyDisplay": "10.19M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 681,
+        "stateId": "41d8b51f4fc24903c28e7678731421a350f16dee14b8de40ff6005c1ed213880",
+        "previousStateId": "d2ea7319aa8dd41a596c430b15fd67658b58db47e10d2d6fb45c84369f31ca7d",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000000cb54f4880c96e85818a261161fc6b0ac653ecae8ae80",
+        "triggerBlockHeight": 945823,
+        "parentBlockHash": "00000000000000000001156a3022c2f8eeeb61f4c3dd115d2c4661c85e92c6d3",
+        "parentBlockHeight": 945822,
+        "lockedAtUtc": "2026-04-19T19:11:08.2519349Z",
+        "roundElapsedSeconds": 588,
+        "winningShareCount": 261,
+        "winningTotalDifficulty": 1396245.0503952517,
+        "winningTotalDifficultyDisplay": "1.40M",
+        "observedHashrateThs": 0.9473327075080827,
+        "observedHashrateDisplay": "947.33 GH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 261,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311307228,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 2556654.1868937425,
+            "totalDifficultyDisplay": "2.56M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 261,
+            "totalValue": 311307228,
+            "totalDifficulty": 1396245.0503952517,
+            "totalDifficultyDisplay": "1.40M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 680,
+        "stateId": "d2ea7319aa8dd41a596c430b15fd67658b58db47e10d2d6fb45c84369f31ca7d",
+        "previousStateId": "efd0f343323c4c288457b18c744e82b4eeb9c7dd12ecd236e046af8ca4b3a68f",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000001156a3022c2f8eeeb61f4c3dd115d2c4661c85e92c6d3",
+        "triggerBlockHeight": 945822,
+        "parentBlockHash": "00000000000000000001ae02c14efc0e5b512246001ee33cc0842efb2ce29c2c",
+        "parentBlockHeight": 945821,
+        "lockedAtUtc": "2026-04-19T19:01:19.7048745Z",
+        "roundElapsedSeconds": 1640,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 2556654.1868937425,
+        "winningTotalDifficultyDisplay": "2.56M",
+        "observedHashrateThs": 0.9971100508373982,
+        "observedHashrateDisplay": "997.11 GH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 11440633.416750709,
+            "totalDifficultyDisplay": "11.44M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 2556654.1868937425,
+            "totalDifficultyDisplay": "2.56M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 679,
+        "stateId": "efd0f343323c4c288457b18c744e82b4eeb9c7dd12ecd236e046af8ca4b3a68f",
+        "previousStateId": "bc3e5ded120243987dc222e46ebf1b2a45021d95f0156b032a04b18aaac5df85",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "000000000000000000019b7aeeb8849302b8b39b4cffc0b52cbdc022218d11c1",
+        "triggerBlockHeight": 945819,
+        "parentBlockHash": "00000000000000000000b1cd42e81170bbba72b26f9883e587f01f6db5f12896",
+        "parentBlockHeight": 945818,
+        "lockedAtUtc": "2026-04-19T18:33:59.4736648Z",
+        "roundElapsedSeconds": 2607,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 11440633.416750709,
+        "winningTotalDifficultyDisplay": "11.44M",
+        "observedHashrateThs": 0.9193667866814144,
+        "observedHashrateDisplay": "919.37 GH/s",
+        "paidSlotCount": 210,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311018820,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 210,
+            "totalValue": 311018820,
+            "totalDifficulty": 705420.0914312166,
+            "totalDifficultyDisplay": "705.42k"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 11440633.416750709,
+            "totalDifficultyDisplay": "11.44M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 678,
+        "stateId": "bc3e5ded120243987dc222e46ebf1b2a45021d95f0156b032a04b18aaac5df85",
+        "previousStateId": "15dd029c59043562cc146e51f3a29b6bc3e5a1bfb239299536d43ff738973128",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000001ef354a95213d069e90cf80090e05a495a9cbb11fc461",
+        "triggerBlockHeight": 945816,
+        "parentBlockHash": "0000000000000000000192b1a8145c7cea90574b834886a3fd40da3768e4a835",
+        "parentBlockHeight": 945815,
+        "lockedAtUtc": "2026-04-19T17:50:31.6762208Z",
+        "roundElapsedSeconds": 481,
+        "winningShareCount": 210,
+        "winningTotalDifficulty": 705420.0914312166,
+        "winningTotalDifficultyDisplay": "705.42k",
+        "observedHashrateThs": 1.040728960200675,
+        "observedHashrateDisplay": "1.04 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 210,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311018820,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 1182787.533728927,
+            "totalDifficultyDisplay": "1.18M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 210,
+            "totalValue": 311018820,
+            "totalDifficulty": 705420.0914312166,
+            "totalDifficultyDisplay": "705.42k"
+          }
+        ]
+      },
+      {
+        "roundNumber": 677,
+        "stateId": "15dd029c59043562cc146e51f3a29b6bc3e5a1bfb239299536d43ff738973128",
+        "previousStateId": "c4960004c50201600d57a931b554207d00161eb7f524c372ba5eec466b1756e8",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "0000000000000000000192b1a8145c7cea90574b834886a3fd40da3768e4a835",
+        "triggerBlockHeight": 945815,
+        "parentBlockHash": "000000000000000000004a49fe4703371d44fb7decda48a19433fdecb8c9518d",
+        "parentBlockHeight": 945814,
+        "lockedAtUtc": "2026-04-19T17:42:30.0950487Z",
+        "roundElapsedSeconds": 986,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 1182787.533728927,
+        "winningTotalDifficultyDisplay": "1.18M",
+        "observedHashrateThs": 0.8665363459147947,
+        "observedHashrateDisplay": "866.54 GH/s",
+        "paidSlotCount": 88,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 308988680,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 88,
+            "totalValue": 308988680,
+            "totalDifficulty": 276957.69204114546,
+            "totalDifficultyDisplay": "276.96k"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 1182787.533728927,
+            "totalDifficultyDisplay": "1.18M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 676,
+        "stateId": "c4960004c50201600d57a931b554207d00161eb7f524c372ba5eec466b1756e8",
+        "previousStateId": "8266b15196d98d2f0b1466177f0e2423000675dae838463a18d7073f0756a07d",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000000b2539a69c7e554ef12649faf515876df17acb32de2d1",
+        "triggerBlockHeight": 945813,
+        "parentBlockHash": "000000000000000000013c3c92754ea75516f030c4f92fbc6d586cc8c33db017",
+        "parentBlockHeight": 945812,
+        "lockedAtUtc": "2026-04-19T17:26:03.4900805Z",
+        "roundElapsedSeconds": 215,
+        "winningShareCount": 88,
+        "winningTotalDifficulty": 276957.69204114546,
+        "winningTotalDifficultyDisplay": "276.96k",
+        "observedHashrateThs": 0.8828771518425685,
+        "observedHashrateDisplay": "882.88 GH/s",
+        "paidSlotCount": 149,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 310416617,
+        "nextWinnerSlotCount": 88,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 308988680,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 149,
+            "totalValue": 310416617,
+            "totalDifficulty": 419726.9445348887,
+            "totalDifficultyDisplay": "419.73k"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 88,
+            "totalValue": 308988680,
+            "totalDifficulty": 276957.69204114546,
+            "totalDifficultyDisplay": "276.96k"
+          }
+        ]
+      },
+      {
+        "roundNumber": 675,
+        "stateId": "8266b15196d98d2f0b1466177f0e2423000675dae838463a18d7073f0756a07d",
+        "previousStateId": "88fb0f5167b49f352e0d7e483f60edd56dceb89bdd812769e54929a363fc84f0",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "0000000000000000000128c559050e838f23d4a87d77d657e0cb84ebf17b49d3",
+        "triggerBlockHeight": 945811,
+        "parentBlockHash": "00000000000000000001d7ce1420e6fa306835fac99d3b81fd85022521a49155",
+        "parentBlockHeight": 945810,
+        "lockedAtUtc": "2026-04-19T17:22:27.9009408Z",
+        "roundElapsedSeconds": 325,
+        "winningShareCount": 149,
+        "winningTotalDifficulty": 419726.9445348887,
+        "winningTotalDifficultyDisplay": "419.73k",
+        "observedHashrateThs": 0.9990818672639156,
+        "observedHashrateDisplay": "999.08 GH/s",
+        "paidSlotCount": 84,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 308823480,
+        "nextWinnerSlotCount": 149,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 310416617,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 84,
+            "totalValue": 308823480,
+            "totalDifficulty": 222147.143208622,
+            "totalDifficultyDisplay": "222.15k"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 149,
+            "totalValue": 310416617,
+            "totalDifficulty": 419726.9445348887,
+            "totalDifficultyDisplay": "419.73k"
+          }
+        ]
+      },
+      {
+        "roundNumber": 674,
+        "stateId": "88fb0f5167b49f352e0d7e483f60edd56dceb89bdd812769e54929a363fc84f0",
+        "previousStateId": "2a4d9268c0c646e3ae538cbb5d00b2c93699fa9d51d01e95628df897701ec72d",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000001d7ce1420e6fa306835fac99d3b81fd85022521a49155",
+        "triggerBlockHeight": 945810,
+        "parentBlockHash": "0000000000000000000046df302144e000241684019c8aa26cbfbc08a4a317e2",
+        "parentBlockHeight": 945809,
+        "lockedAtUtc": "2026-04-19T17:17:02.5247206Z",
+        "roundElapsedSeconds": 187,
+        "winningShareCount": 84,
+        "winningTotalDifficulty": 222147.143208622,
+        "winningTotalDifficultyDisplay": "222.15k",
+        "observedHashrateThs": 0.9921698036293467,
+        "observedHashrateDisplay": "992.17 GH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 84,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 308823480,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 2015396.1677578643,
+            "totalDifficultyDisplay": "2.02M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 84,
+            "totalValue": 308823480,
+            "totalDifficulty": 222147.143208622,
+            "totalDifficultyDisplay": "222.15k"
+          }
+        ]
+      },
+      {
+        "roundNumber": 673,
+        "stateId": "2a4d9268c0c646e3ae538cbb5d00b2c93699fa9d51d01e95628df897701ec72d",
+        "previousStateId": "f5aa4e9d0519f3b60d1cedd4839187de8d491b12bb58ebe510ce13827ecda04f",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "0000000000000000000046df302144e000241684019c8aa26cbfbc08a4a317e2",
+        "triggerBlockHeight": 945809,
+        "parentBlockHash": "000000000000000000004d3899fe686326cec5e5b7831a516499d546a2bb91da",
+        "parentBlockHeight": 945808,
+        "lockedAtUtc": "2026-04-19T17:13:54.8319662Z",
+        "roundElapsedSeconds": 1285,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 2015396.1677578643,
+        "winningTotalDifficultyDisplay": "2.02M",
+        "observedHashrateThs": 1.0471921790207095,
+        "observedHashrateDisplay": "1.05 TH/s",
+        "paidSlotCount": 220,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311085940,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 220,
+            "totalValue": 311085940,
+            "totalDifficulty": 793654.5116766572,
+            "totalDifficultyDisplay": "793.65k"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 2015396.1677578643,
+            "totalDifficultyDisplay": "2.02M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 672,
+        "stateId": "f5aa4e9d0519f3b60d1cedd4839187de8d491b12bb58ebe510ce13827ecda04f",
+        "previousStateId": "a3de6f32d0a56ed59f2751c20923160023cb73f2b4e214798d04736602751dbd",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000000ac806d330cc0a6918827bf933b9a936997815eb6c6f0",
+        "triggerBlockHeight": 945806,
+        "parentBlockHash": "000000000000000000006737024b4dcdb4063390cc7d8a7a817417528ebe5529",
+        "parentBlockHeight": 945805,
+        "lockedAtUtc": "2026-04-19T16:52:29.2462138Z",
+        "roundElapsedSeconds": 523,
+        "winningShareCount": 220,
+        "winningTotalDifficulty": 793654.5116766572,
+        "winningTotalDifficultyDisplay": "793.65k",
+        "observedHashrateThs": 0.8818510304413891,
+        "observedHashrateDisplay": "881.85 GH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 220,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311085940,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 1239375.544208468,
+            "totalDifficultyDisplay": "1.24M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 220,
+            "totalValue": 311085940,
+            "totalDifficulty": 793654.5116766572,
+            "totalDifficultyDisplay": "793.65k"
+          }
+        ]
+      },
+      {
+        "roundNumber": 671,
+        "stateId": "a3de6f32d0a56ed59f2751c20923160023cb73f2b4e214798d04736602751dbd",
+        "previousStateId": "01b794126dec3bbd78f6b4d0b7b56d0da065eacac37340e0c81878738c3c4faf",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "000000000000000000010f58b237096dd512786dfe0e25f2a17d23f0e8729dc4",
+        "triggerBlockHeight": 945804,
+        "parentBlockHash": "00000000000000000001e303aa966839926347e838810795fada9477169b1124",
+        "parentBlockHeight": 945803,
+        "lockedAtUtc": "2026-04-19T16:43:45.4899557Z",
+        "roundElapsedSeconds": 746,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 1239375.544208468,
+        "winningTotalDifficultyDisplay": "1.24M",
+        "observedHashrateThs": 1.0468120891368033,
+        "observedHashrateDisplay": "1.05 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 18094346.178279657,
+            "totalDifficultyDisplay": "18.09M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 1239375.544208468,
+            "totalDifficultyDisplay": "1.24M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 670,
+        "stateId": "01b794126dec3bbd78f6b4d0b7b56d0da065eacac37340e0c81878738c3c4faf",
+        "previousStateId": "a3c77fda9c4d2d0780f680222d4d1e4a385ad23f8ae66380d0750f4f23218f03",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000001e303aa966839926347e838810795fada9477169b1124",
+        "triggerBlockHeight": 945803,
+        "parentBlockHash": "00000000000000000001209bd2701a09d426cd59a2cbf262a93d11b812536ff9",
+        "parentBlockHeight": 945802,
+        "lockedAtUtc": "2026-04-19T16:31:18.7357722Z",
+        "roundElapsedSeconds": 7996,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 18094346.178279657,
+        "winningTotalDifficultyDisplay": "18.09M",
+        "observedHashrateThs": 1.026639994765193,
+        "observedHashrateDisplay": "1.03 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 3611841.5136299552,
+            "totalDifficultyDisplay": "3.61M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 18094346.178279657,
+            "totalDifficultyDisplay": "18.09M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 669,
+        "stateId": "a3c77fda9c4d2d0780f680222d4d1e4a385ad23f8ae66380d0750f4f23218f03",
+        "previousStateId": "85ccdaf10737d61c82f07585467d0bfe0f58a83343eb34e55f7f5cde19ba47e3",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000000a2aa2df27f2e4a3f8ce1eda35f76b6d803118c364134",
+        "triggerBlockHeight": 945792,
+        "parentBlockHash": "00000000000000000000b54453acd42673cd944649ed6718d55f2572795021c2",
+        "parentBlockHeight": 945791,
+        "lockedAtUtc": "2026-04-19T14:18:02.3946536Z",
+        "roundElapsedSeconds": 1459,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 3611841.5136299552,
+        "winningTotalDifficultyDisplay": "3.61M",
+        "observedHashrateThs": 1.1529097334764906,
+        "observedHashrateDisplay": "1.15 TH/s",
+        "paidSlotCount": 31,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 302734375,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 31,
+            "totalValue": 302734375,
+            "totalDifficulty": 13089901.401753547,
+            "totalDifficultyDisplay": "13.09M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 3611841.5136299552,
+            "totalDifficultyDisplay": "3.61M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 668,
+        "stateId": "85ccdaf10737d61c82f07585467d0bfe0f58a83343eb34e55f7f5cde19ba47e3",
+        "previousStateId": "479e42b3059fac544f6fc3a47f9f37b2102e7268e29b3535aaaeea360956db6f",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000000b54453acd42673cd944649ed6718d55f2572795021c2",
+        "triggerBlockHeight": 945791,
+        "parentBlockHash": "00000000000000000000e83d5cf159c2dd92ea276aaaa225dc6d126a01475d01",
+        "parentBlockHeight": 945790,
+        "lockedAtUtc": "2026-04-19T13:53:42.7002951Z",
+        "roundElapsedSeconds": 72,
+        "winningShareCount": 31,
+        "winningTotalDifficulty": 13089901.401753547,
+        "winningTotalDifficultyDisplay": "13.09M",
+        "observedHashrateThs": 0.9571725583509706,
+        "observedHashrateDisplay": "957.17 GH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 31,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 302734375,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 1867937.6750663111,
+            "totalDifficultyDisplay": "1.87M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 31,
+            "totalValue": 302734375,
+            "totalDifficulty": 13089901.401753547,
+            "totalDifficultyDisplay": "13.09M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 667,
+        "stateId": "479e42b3059fac544f6fc3a47f9f37b2102e7268e29b3535aaaeea360956db6f",
+        "previousStateId": "5950ba3a37095e4c1f3e052b8c2018e11847d9118b08c397fef3521b7f199e28",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000000e83d5cf159c2dd92ea276aaaa225dc6d126a01475d01",
+        "triggerBlockHeight": 945790,
+        "parentBlockHash": "00000000000000000001d3567767430516572f7ba3e9d950c8a0beb88c843ab9",
+        "parentBlockHeight": 945789,
+        "lockedAtUtc": "2026-04-19T13:52:29.7241852Z",
+        "roundElapsedSeconds": 1500,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 1867937.6750663111,
+        "winningTotalDifficultyDisplay": "1.87M",
+        "observedHashrateThs": 0.9503081180138213,
+        "observedHashrateDisplay": "950.31 GH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 2755447.5215794505,
+            "totalDifficultyDisplay": "2.76M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 1867937.6750663111,
+            "totalDifficultyDisplay": "1.87M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 666,
+        "stateId": "5950ba3a37095e4c1f3e052b8c2018e11847d9118b08c397fef3521b7f199e28",
+        "previousStateId": "8ca693dd5d9621563b92e00e8d710cd5a0beab053fcc638611af66706f37f991",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "000000000000000000008badda4603ee15b2537e7db79d1667854a1dac3fc280",
+        "triggerBlockHeight": 945786,
+        "parentBlockHash": "000000000000000000009ffa4d4c671b6e73f32bd498bc9b1d64c1761fecf4d7",
+        "parentBlockHeight": 945785,
+        "lockedAtUtc": "2026-04-19T13:27:29.6366723Z",
+        "roundElapsedSeconds": 1752,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 2755447.5215794505,
+        "winningTotalDifficultyDisplay": "2.76M",
+        "observedHashrateThs": 1.103626830563385,
+        "observedHashrateDisplay": "1.1 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 3124223.1664301963,
+            "totalDifficultyDisplay": "3.12M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 2755447.5215794505,
+            "totalDifficultyDisplay": "2.76M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 665,
+        "stateId": "8ca693dd5d9621563b92e00e8d710cd5a0beab053fcc638611af66706f37f991",
+        "previousStateId": "100be89b6b73a27a34a9941a5c0a6b75738ece020a153f4890165f22a40b41a5",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "000000000000000000015137af886a29fff43a2f450850e8a80cd878d5add1a2",
+        "triggerBlockHeight": 945782,
+        "parentBlockHash": "00000000000000000001e31fe92185e7b349d51b8ebd4d87057fc573a5219387",
+        "parentBlockHeight": 945781,
+        "lockedAtUtc": "2026-04-19T12:58:17.3873261Z",
+        "roundElapsedSeconds": 2529,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 3124223.1664301963,
+        "winningTotalDifficultyDisplay": "3.12M",
+        "observedHashrateThs": 0.9587524480289921,
+        "observedHashrateDisplay": "958.75 GH/s",
+        "paidSlotCount": 25,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 300480750,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 25,
+            "totalValue": 300480750,
+            "totalDifficulty": 37617.50952111422,
+            "totalDifficultyDisplay": "37.62k"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 3124223.1664301963,
+            "totalDifficultyDisplay": "3.12M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 664,
+        "stateId": "100be89b6b73a27a34a9941a5c0a6b75738ece020a153f4890165f22a40b41a5",
+        "previousStateId": "3a201acf51a4489982fecb91f4eb2cbf55a74eb7e984bbccf66a9e178d97a127",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000001f87beba8c5c08a3079f560c8cef98bdb14c14d3dd662",
+        "triggerBlockHeight": 945772,
+        "parentBlockHash": "00000000000000000000e1b57ed7494da9e70f7f6aa030ebb6e877399f29c5c1",
+        "parentBlockHeight": 945771,
+        "lockedAtUtc": "2026-04-19T12:16:08.3053213Z",
+        "roundElapsedSeconds": 68,
+        "winningShareCount": 25,
+        "winningTotalDifficulty": 37617.50952111422,
+        "winningTotalDifficultyDisplay": "37.62k",
+        "observedHashrateThs": 0.703546984741062,
+        "observedHashrateDisplay": "703.55 GH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 25,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 300480750,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 8438317.989860035,
+            "totalDifficultyDisplay": "8.44M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 25,
+            "totalValue": 300480750,
+            "totalDifficulty": 37617.50952111422,
+            "totalDifficultyDisplay": "37.62k"
+          }
+        ]
+      },
+      {
+        "roundNumber": 663,
+        "stateId": "3a201acf51a4489982fecb91f4eb2cbf55a74eb7e984bbccf66a9e178d97a127",
+        "previousStateId": "924c0df4ca8f12dd86d9a29b39ba658524fbd67abc448fcf214e43983aedfc51",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000000e1b57ed7494da9e70f7f6aa030ebb6e877399f29c5c1",
+        "triggerBlockHeight": 945771,
+        "parentBlockHash": "00000000000000000001be7a4621f4dcc83225b4acad44fec5a718748f8f0956",
+        "parentBlockHeight": 945770,
+        "lockedAtUtc": "2026-04-19T12:14:59.8224057Z",
+        "roundElapsedSeconds": 1459,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 8438317.989860035,
+        "winningTotalDifficultyDisplay": "8.44M",
+        "observedHashrateThs": 1.0953342100516639,
+        "observedHashrateDisplay": "1.1 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 6036764.755788664,
+            "totalDifficultyDisplay": "6.04M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 8438317.989860035,
+            "totalDifficultyDisplay": "8.44M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 662,
+        "stateId": "924c0df4ca8f12dd86d9a29b39ba658524fbd67abc448fcf214e43983aedfc51",
+        "previousStateId": "087a8bd86fd851f65fd3bbf4532dd71f9925ef79c274b0a58c66d6692a4d7c87",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000000a5694d07210a64f1ba7dd33175e1c31ea3fc7d9516f1",
+        "triggerBlockHeight": 945767,
+        "parentBlockHash": "0000000000000000000169ee29d398ed3531f205f0f4307428a330f001a2c289",
+        "parentBlockHeight": 945766,
+        "lockedAtUtc": "2026-04-19T11:50:40.5662191Z",
+        "roundElapsedSeconds": 4294,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 6036764.755788664,
+        "winningTotalDifficultyDisplay": "6.04M",
+        "observedHashrateThs": 0.9431323475110649,
+        "observedHashrateDisplay": "943.13 GH/s",
+        "paidSlotCount": 132,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 310150368,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 132,
+            "totalValue": 310150368,
+            "totalDifficulty": 381208.1160779836,
+            "totalDifficultyDisplay": "381.21k"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 6036764.755788664,
+            "totalDifficultyDisplay": "6.04M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 661,
+        "stateId": "087a8bd86fd851f65fd3bbf4532dd71f9925ef79c274b0a58c66d6692a4d7c87",
+        "previousStateId": "3afc7419941afbe98272ca369043c002ad26f88a2f36b011c89920a6fcfd02e6",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000000db26f4d3b8f214b629f7fb4f9dca9c16bbe2b39f85f5",
+        "triggerBlockHeight": 945760,
+        "parentBlockHash": "00000000000000000001706352f5b5451e31c53f82baacfc49f768ec751a6f44",
+        "parentBlockHeight": 945759,
+        "lockedAtUtc": "2026-04-19T10:39:06.1948185Z",
+        "roundElapsedSeconds": 280,
+        "winningShareCount": 132,
+        "winningTotalDifficulty": 381208.1160779836,
+        "winningTotalDifficultyDisplay": "381.21k",
+        "observedHashrateThs": 1.1654456391717578,
+        "observedHashrateDisplay": "1.17 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 132,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 310150368,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 2736393.244401363,
+            "totalDifficultyDisplay": "2.74M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 132,
+            "totalValue": 310150368,
+            "totalDifficulty": 381208.1160779836,
+            "totalDifficultyDisplay": "381.21k"
+          }
+        ]
+      },
+      {
+        "roundNumber": 660,
+        "stateId": "3afc7419941afbe98272ca369043c002ad26f88a2f36b011c89920a6fcfd02e6",
+        "previousStateId": "0d13713b50f607ec8a60b2c33e8bacae430a8ad5c3e9ffead3b78de0605ad422",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000001706352f5b5451e31c53f82baacfc49f768ec751a6f44",
+        "triggerBlockHeight": 945759,
+        "parentBlockHash": "000000000000000000006fc6e5b67d362a031af5b6bffe5d3b36819b3dd80b59",
+        "parentBlockHeight": 945758,
+        "lockedAtUtc": "2026-04-19T10:34:26.1778628Z",
+        "roundElapsedSeconds": 1075,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 2736393.244401363,
+        "winningTotalDifficultyDisplay": "2.74M",
+        "observedHashrateThs": 0.9183440677932204,
+        "observedHashrateDisplay": "918.34 GH/s",
+        "paidSlotCount": 240,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311203200,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 240,
+            "totalValue": 311203200,
+            "totalDifficulty": 682627.8554186313,
+            "totalDifficultyDisplay": "682.63k"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 2736393.244401363,
+            "totalDifficultyDisplay": "2.74M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 659,
+        "stateId": "0d13713b50f607ec8a60b2c33e8bacae430a8ad5c3e9ffead3b78de0605ad422",
+        "previousStateId": "829a7dea4affa5c5ab22da7b507d528ef2f0d1648e71e396a8261c8bf0783054",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000001191e72de781c89ac1bed2f0f429f276b55681df72eb3",
+        "triggerBlockHeight": 945757,
+        "parentBlockHash": "000000000000000000016e5c17f70338e81cb88e3fc17bd9c0880d69506a1151",
+        "parentBlockHeight": 945756,
+        "lockedAtUtc": "2026-04-19T10:16:30.2033766Z",
+        "roundElapsedSeconds": 570,
+        "winningShareCount": 240,
+        "winningTotalDifficulty": 682627.8554186313,
+        "winningTotalDifficultyDisplay": "682.63k",
+        "observedHashrateThs": 0.8880975174176503,
+        "observedHashrateDisplay": "888.1 GH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 240,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311203200,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 3010927.06916836,
+            "totalDifficultyDisplay": "3.01M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 240,
+            "totalValue": 311203200,
+            "totalDifficulty": 682627.8554186313,
+            "totalDifficultyDisplay": "682.63k"
+          }
+        ]
+      },
+      {
+        "roundNumber": 658,
+        "stateId": "829a7dea4affa5c5ab22da7b507d528ef2f0d1648e71e396a8261c8bf0783054",
+        "previousStateId": "63aee52198867a2ccb569a0a2dc068dafa76c66fb70748131198c0edf53e39d3",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "000000000000000000016e5c17f70338e81cb88e3fc17bd9c0880d69506a1151",
+        "triggerBlockHeight": 945756,
+        "parentBlockHash": "0000000000000000000172a69b92d5c7a051e3d8d8421dd332ca4d7d7c1454ea",
+        "parentBlockHeight": 945755,
+        "lockedAtUtc": "2026-04-19T10:06:59.2745338Z",
+        "roundElapsedSeconds": 2314,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 3010927.06916836,
+        "winningTotalDifficultyDisplay": "3.01M",
+        "observedHashrateThs": 1.0937010980197082,
+        "observedHashrateDisplay": "1.09 TH/s",
+        "paidSlotCount": 203,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 310967986,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 203,
+            "totalValue": 310967986,
+            "totalDifficulty": 901654.43791642,
+            "totalDifficultyDisplay": "901.65k"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 3010927.06916836,
+            "totalDifficultyDisplay": "3.01M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 657,
+        "stateId": "63aee52198867a2ccb569a0a2dc068dafa76c66fb70748131198c0edf53e39d3",
+        "previousStateId": "7cde3c59f9c0d8e8f9ae49479edf350931d0fbd1a3818dfc780621f3a64189b9",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000000b8a1b7e25706b9b8a6448f0b93a6e49c28979f8d1cd3",
+        "triggerBlockHeight": 945754,
+        "parentBlockHash": "00000000000000000000760bc9e8168e1bcd31fce4e1f4fa11283eef68ebe3f2",
+        "parentBlockHeight": 945753,
+        "lockedAtUtc": "2026-04-19T09:28:24.3074861Z",
+        "roundElapsedSeconds": 436,
+        "winningShareCount": 203,
+        "winningTotalDifficulty": 901654.43791642,
+        "winningTotalDifficultyDisplay": "901.65k",
+        "observedHashrateThs": 1.1130165757413644,
+        "observedHashrateDisplay": "1.11 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 203,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 310967986,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 4112615.068327729,
+            "totalDifficultyDisplay": "4.11M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 203,
+            "totalValue": 310967986,
+            "totalDifficulty": 901654.43791642,
+            "totalDifficultyDisplay": "901.65k"
+          }
+        ]
+      },
+      {
+        "roundNumber": 656,
+        "stateId": "7cde3c59f9c0d8e8f9ae49479edf350931d0fbd1a3818dfc780621f3a64189b9",
+        "previousStateId": "bedeed456edb04d6c5e0b3d3d5286b9cba8e5bf739848aa4dccc6f55e83a081b",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000000760bc9e8168e1bcd31fce4e1f4fa11283eef68ebe3f2",
+        "triggerBlockHeight": 945753,
+        "parentBlockHash": "00000000000000000000e2de0f86088923b72eee650b9e48dc004d109563d546",
+        "parentBlockHeight": 945752,
+        "lockedAtUtc": "2026-04-19T09:21:07.9050164Z",
+        "roundElapsedSeconds": 2443,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 4112615.068327729,
+        "winningTotalDifficultyDisplay": "4.11M",
+        "observedHashrateThs": 1.009705546023197,
+        "observedHashrateDisplay": "1.01 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 2635506.1584102563,
+            "totalDifficultyDisplay": "2.64M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 4112615.068327729,
+            "totalDifficultyDisplay": "4.11M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 655,
+        "stateId": "bedeed456edb04d6c5e0b3d3d5286b9cba8e5bf739848aa4dccc6f55e83a081b",
+        "previousStateId": "474cbed51b6ffb985845402f398964f553da9051e9bda63ab3a557dcd4994aec",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000000fc2b0dd0055e947736ebd9c4b70b78b49e8291c14eb2",
+        "triggerBlockHeight": 945749,
+        "parentBlockHash": "00000000000000000001e8f3b1f48ef793db9d96ed510ec9177836eb9594147a",
+        "parentBlockHeight": 945748,
+        "lockedAtUtc": "2026-04-19T08:40:24.2426976Z",
+        "roundElapsedSeconds": 1186,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 2635506.1584102563,
+        "winningTotalDifficultyDisplay": "2.64M",
+        "observedHashrateThs": 1.1201762599660485,
+        "observedHashrateDisplay": "1.12 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 2370958.458291033,
+            "totalDifficultyDisplay": "2.37M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 2635506.1584102563,
+            "totalDifficultyDisplay": "2.64M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 654,
+        "stateId": "474cbed51b6ffb985845402f398964f553da9051e9bda63ab3a557dcd4994aec",
+        "previousStateId": "99dff0186813f10a099558b6e3738ce33677a2d4142e2456138e55f44fe6eb16",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "0000000000000000000002c5a1d82f8ccc2242f2b7175938606a0ab363b915d0",
+        "triggerBlockHeight": 945747,
+        "parentBlockHash": "00000000000000000001f07cf4a46b610c70ca23ad76cc3d6e3029e29ba4d320",
+        "parentBlockHeight": 945746,
+        "lockedAtUtc": "2026-04-19T08:20:38.0242346Z",
+        "roundElapsedSeconds": 890,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 2370958.458291033,
+        "winningTotalDifficultyDisplay": "2.37M",
+        "observedHashrateThs": 1.0637093335911194,
+        "observedHashrateDisplay": "1.06 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 2544125.4810785856,
+            "totalDifficultyDisplay": "2.54M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 2370958.458291033,
+            "totalDifficultyDisplay": "2.37M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 653,
+        "stateId": "99dff0186813f10a099558b6e3738ce33677a2d4142e2456138e55f44fe6eb16",
+        "previousStateId": "a7b1cbaabe5f8227087be51f3a98c81d888e3c81c1e207c39923fc6f36e6cfce",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000001f07cf4a46b610c70ca23ad76cc3d6e3029e29ba4d320",
+        "triggerBlockHeight": 945746,
+        "parentBlockHash": "000000000000000000010c30e1001dfb57cb141e07c019f9f199bfdf7f5d5a7f",
+        "parentBlockHeight": 945745,
+        "lockedAtUtc": "2026-04-19T08:05:47.4009026Z",
+        "roundElapsedSeconds": 1179,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 2544125.4810785856,
+        "winningTotalDifficultyDisplay": "2.54M",
+        "observedHashrateThs": 1.0933401794354263,
+        "observedHashrateDisplay": "1.09 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 1754496.5568852636,
+            "totalDifficultyDisplay": "1.75M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 2544125.4810785856,
+            "totalDifficultyDisplay": "2.54M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 652,
+        "stateId": "a7b1cbaabe5f8227087be51f3a98c81d888e3c81c1e207c39923fc6f36e6cfce",
+        "previousStateId": "6ed3bd4b19773217fbda1817069174badffa44bfde70ae93de079d0e3cd30558",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "0000000000000000000117cf5c843a95796c2ce778cab8c697d8de92b2d43800",
+        "triggerBlockHeight": 945744,
+        "parentBlockHash": "00000000000000000001712440bfa37532290096fd599c50060d2cedc60ebcc5",
+        "parentBlockHeight": 945743,
+        "lockedAtUtc": "2026-04-19T07:46:07.8236456Z",
+        "roundElapsedSeconds": 705,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 1754496.5568852636,
+        "winningTotalDifficultyDisplay": "1.75M",
+        "observedHashrateThs": 0.985322610472989,
+        "observedHashrateDisplay": "985.32 GH/s",
+        "paidSlotCount": 230,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311146990,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 230,
+            "totalValue": 311146990,
+            "totalDifficulty": 1060933.0408843264,
+            "totalDifficultyDisplay": "1.06M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 1754496.5568852636,
+            "totalDifficultyDisplay": "1.75M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 651,
+        "stateId": "6ed3bd4b19773217fbda1817069174badffa44bfde70ae93de079d0e3cd30558",
+        "previousStateId": "e63727eee2a9e0228db79709cc4cecaa086a5c30fb0746115deb8dc000877bf0",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": false,
+        "isOrphaned": true,
+        "triggerBlockHash": "00000000000000000001712440bfa37532290096fd599c50060d2cedc60ebcc5",
+        "triggerBlockHeight": 945743,
+        "parentBlockHash": "000000000000000000000d8c70c8247a43ed35d37367d7be4193990e46c003e7",
+        "parentBlockHeight": 945742,
+        "lockedAtUtc": "2026-04-19T07:34:22.3837621Z",
+        "roundElapsedSeconds": null,
+        "winningShareCount": 230,
+        "winningTotalDifficulty": 1060933.0408843264,
+        "winningTotalDifficultyDisplay": "1.06M",
+        "observedHashrateThs": null,
+        "observedHashrateDisplay": "--",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 230,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311146990,
+        "paidRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 3055742.407982066,
+            "totalDifficultyDisplay": "3.06M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "username": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+            "slotCount": 230,
+            "totalValue": 311146990,
+            "totalDifficulty": 1060933.0408843264,
+            "totalDifficultyDisplay": "1.06M"
+          }
+        ]
+      }
+    ],
+    "analysis": {
+      "canonicalCount": 1,
+      "orphanCount": 31,
+      "issues": []
+    }
+  },
+  "peer": {
+    "baseUrl": "http://100.96.249.123:5000",
+    "summary": {
+      "selfEndpoint": "http://100.96.249.123:5000",
+      "protocolVersion": 1,
+      "networkId": "public-beta",
+      "currentRoundNumber": 682,
+      "sharedWinnerSlotCount": 299,
+      "totalPayoutSlotCount": 300,
+      "currentStateId": "e8d104a804cd479368a846d45d48cfde30bb201c9e4f691f3622c5f2faf08701",
+      "candidateStateId": "af0f037b1915dd62bd39c29dff694d33aab0cb3d02c908bbd061932b3e6a981b",
+      "currentTipBlockHash": "00000000000000000000f84f7a9f2f9c387de3449b05c803c7b7fc74abb9ebdd",
+      "currentTipBlockHeight": 945825,
+      "lastRotationUtc": "2026-04-19T19:11:08.6125697Z",
+      "winnersCount": 299,
+      "onDeckCount": 299,
+      "onDeckTotalDifficulty": 46366871.90368054,
+      "currentRoundElapsedSeconds": 2397,
+      "currentRoundObservedHashrateThs": 8.508916599036105,
+      "currentRoundObservedHashrateDisplay": "8.51 TH/s",
+      "localDatumHashrateThs": 8.903783388021996,
+      "localDatumHashrateDisplay": "8.9 TH/s",
+      "peerCount": 1,
+      "testingRoundResetEnabled": true,
+      "testingRoundResetMode": "block_hash_low_nibble",
+      "testingRoundResetLowNibbleThreshold": 6,
+      "testingRoundResetDescription": "Auto-rotate when a new Bitcoin block hash ends in hex 0-5.",
+      "lastTestingTriggerBlockHash": "00000000000000000000cb54f4880c96e85818a261161fc6b0ac653ecae8ae80",
+      "lastTestingTriggerBlockHeight": 945823,
+      "localDatumDiagnostics": {
+        "windowSeconds": 43200,
+        "totalSubmissions": 19730,
+        "acceptedCount": 19656,
+        "acceptedOnDeckCount": 6894,
+        "rejectedCount": 74,
+        "lastAcceptedUtc": "2026-04-19T19:51:06.0171217Z",
+        "lastRejectedUtc": "2026-04-19T19:46:49.7363288Z",
+        "rejectionReasons": [
+          {
+            "reason": "Wrong parent block",
+            "count": 74
+          }
+        ]
+      },
+      "localDatumMiners": [
+        {
+          "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+          "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+          "recentAcceptedShareCount": 14623,
+          "currentRoundAcceptedShareCount": 4893,
+          "currentHashrateThs": 8.903783388021996,
+          "currentHashrateDisplay": "8.9 TH/s",
+          "currentRoundBestDifficulty": 13359151.230277931,
+          "currentRoundBestDifficultyDisplay": "13.36M",
+          "lastShareUtc": "2026-04-19T19:51:06.0171217Z"
+        }
+      ],
+      "coinbaserDiagnostics": {
+        "windowSeconds": 1800,
+        "totalFetches": 337,
+        "lastFetchUtc": "2026-04-19T19:51:05.7221379Z",
+        "averageDurationMs": 0.8921635014836794,
+        "p95DurationMs": 1.262,
+        "averageParseDurationMs": 0.001199109792284867,
+        "averageStateReadDurationMs": 0.7728433234421368,
+        "averageBuildDurationMs": 0.004493175074183974,
+        "averageSerializeDurationMs": 0.013431157270029673,
+        "averageSendDurationMs": 0.09904925816023734,
+        "p95SendDurationMs": 0.1735,
+        "temporarySlotZeroCount": 337,
+        "slowFetchCount": 0,
+        "slowStateReadCount": 0,
+        "slowBuildCount": 0,
+        "slowSerializeCount": 0,
+        "slowSendCount": 0
+      },
+      "peers": [
+        {
+          "endpoint": "https://boot.gridlabs.science",
+          "status": "discovered",
+          "latencyMs": 123.7709,
+          "lastSeenUtc": "2026-04-19T19:51:05.548411Z"
+        }
+      ],
+      "commitment": {
+        "protocolVersion": 1,
+        "networkId": "public-beta",
+        "nextStateId": "af0f037b1915dd62bd39c29dff694d33aab0cb3d02c908bbd061932b3e6a981b",
+        "onChainSupported": false,
+        "tagPreview": "BOOT|v1|public-beta|af0f037b1915dd62",
+        "supportNote": "Per-round on-chain commitments require miner-side template support. The server computes state IDs now, but DATUM/Hydrapool must expose a dynamic coinbase hook before this can be embedded on-chain."
+      }
+    },
+    "history": [
+      {
+        "roundNumber": 681,
+        "stateId": "e8d104a804cd479368a846d45d48cfde30bb201c9e4f691f3622c5f2faf08701",
+        "previousStateId": "590e99aebb31f3f7fc1b251bc06ca0e15b3029e18baa8de34333bed91b0455b6",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000000cb54f4880c96e85818a261161fc6b0ac653ecae8ae80",
+        "triggerBlockHeight": 945823,
+        "parentBlockHash": "00000000000000000001156a3022c2f8eeeb61f4c3dd115d2c4661c85e92c6d3",
+        "parentBlockHeight": 945822,
+        "lockedAtUtc": "2026-04-19T19:11:08.6124891Z",
+        "roundElapsedSeconds": 588,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 10187126.04173726,
+        "winningTotalDifficultyDisplay": "10.19M",
+        "observedHashrateThs": 8.951251257824373,
+        "observedHashrateDisplay": "8.95 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 25354533.743038323,
+            "totalDifficultyDisplay": "25.35M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 10187126.04173726,
+            "totalDifficultyDisplay": "10.19M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 680,
+        "stateId": "590e99aebb31f3f7fc1b251bc06ca0e15b3029e18baa8de34333bed91b0455b6",
+        "previousStateId": "442c225d6a41950b4994ebaa51736b2a65da4dd217f7d942c02f512c8b19f724",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000001156a3022c2f8eeeb61f4c3dd115d2c4661c85e92c6d3",
+        "triggerBlockHeight": 945822,
+        "parentBlockHash": "00000000000000000001ae02c14efc0e5b512246001ee33cc0842efb2ce29c2c",
+        "parentBlockHeight": 945821,
+        "lockedAtUtc": "2026-04-19T19:01:20.0442299Z",
+        "roundElapsedSeconds": 1640,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 25354533.743038323,
+        "winningTotalDifficultyDisplay": "25.35M",
+        "observedHashrateThs": 8.943481418027295,
+        "observedHashrateDisplay": "8.94 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 44857734.149482846,
+            "totalDifficultyDisplay": "44.86M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 25354533.743038323,
+            "totalDifficultyDisplay": "25.35M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 679,
+        "stateId": "442c225d6a41950b4994ebaa51736b2a65da4dd217f7d942c02f512c8b19f724",
+        "previousStateId": "0b1f30c876646ec85ed977916229abc23fbd9ee9ca5b1c9f2ffa1a1ddc871101",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "000000000000000000019b7aeeb8849302b8b39b4cffc0b52cbdc022218d11c1",
+        "triggerBlockHeight": 945819,
+        "parentBlockHash": "00000000000000000000b1cd42e81170bbba72b26f9883e587f01f6db5f12896",
+        "parentBlockHeight": 945818,
+        "lockedAtUtc": "2026-04-19T18:33:59.763696Z",
+        "roundElapsedSeconds": 2607,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 44857734.149482846,
+        "winningTotalDifficultyDisplay": "44.86M",
+        "observedHashrateThs": 8.516817963908325,
+        "observedHashrateDisplay": "8.52 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 11073139.333695073,
+            "totalDifficultyDisplay": "11.07M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 44857734.149482846,
+            "totalDifficultyDisplay": "44.86M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 678,
+        "stateId": "0b1f30c876646ec85ed977916229abc23fbd9ee9ca5b1c9f2ffa1a1ddc871101",
+        "previousStateId": "bc0112bc83966058175e4ab6262a2ad3a538f5951e14462d2dd297e7e0dc619d",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000001ef354a95213d069e90cf80090e05a495a9cbb11fc461",
+        "triggerBlockHeight": 945816,
+        "parentBlockHash": "0000000000000000000192b1a8145c7cea90574b834886a3fd40da3768e4a835",
+        "parentBlockHeight": 945815,
+        "lockedAtUtc": "2026-04-19T17:50:32.0166313Z",
+        "roundElapsedSeconds": 481,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 11073139.333695073,
+        "winningTotalDifficultyDisplay": "11.07M",
+        "observedHashrateThs": 10.188007618193248,
+        "observedHashrateDisplay": "10.19 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 36899059.36566358,
+            "totalDifficultyDisplay": "36.90M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 11073139.333695073,
+            "totalDifficultyDisplay": "11.07M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 677,
+        "stateId": "bc0112bc83966058175e4ab6262a2ad3a538f5951e14462d2dd297e7e0dc619d",
+        "previousStateId": "bf20293752040d3484cfaa4fb275de90493d2596e1dcd0138fcc07331af3e0fa",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "0000000000000000000192b1a8145c7cea90574b834886a3fd40da3768e4a835",
+        "triggerBlockHeight": 945815,
+        "parentBlockHash": "000000000000000000004a49fe4703371d44fb7decda48a19433fdecb8c9518d",
+        "parentBlockHeight": 945814,
+        "lockedAtUtc": "2026-04-19T17:42:30.4095955Z",
+        "roundElapsedSeconds": 986,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 36899059.36566358,
+        "winningTotalDifficultyDisplay": "36.90M",
+        "observedHashrateThs": 9.443482057588637,
+        "observedHashrateDisplay": "9.44 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 2739974.763649694,
+            "totalDifficultyDisplay": "2.74M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 36899059.36566358,
+            "totalDifficultyDisplay": "36.90M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 676,
+        "stateId": "bf20293752040d3484cfaa4fb275de90493d2596e1dcd0138fcc07331af3e0fa",
+        "previousStateId": "c8de9e7c7c9e4c53e207c1fa5749c1406adbc6d68dd2093ec8297957d4773b0f",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000000b2539a69c7e554ef12649faf515876df17acb32de2d1",
+        "triggerBlockHeight": 945813,
+        "parentBlockHash": "000000000000000000013c3c92754ea75516f030c4f92fbc6d586cc8c33db017",
+        "parentBlockHeight": 945812,
+        "lockedAtUtc": "2026-04-19T17:26:03.7643635Z",
+        "roundElapsedSeconds": 215,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 2739974.763649694,
+        "winningTotalDifficultyDisplay": "2.74M",
+        "observedHashrateThs": 9.648749163943165,
+        "observedHashrateDisplay": "9.65 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 3601775.898847611,
+            "totalDifficultyDisplay": "3.60M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 2739974.763649694,
+            "totalDifficultyDisplay": "2.74M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 675,
+        "stateId": "c8de9e7c7c9e4c53e207c1fa5749c1406adbc6d68dd2093ec8297957d4773b0f",
+        "previousStateId": "fddbaf65788213517acaf2166c26da82f345da86b7c7b00d1e18532b9a751ab4",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "0000000000000000000128c559050e838f23d4a87d77d657e0cb84ebf17b49d3",
+        "triggerBlockHeight": 945811,
+        "parentBlockHash": "00000000000000000001d7ce1420e6fa306835fac99d3b81fd85022521a49155",
+        "parentBlockHeight": 945810,
+        "lockedAtUtc": "2026-04-19T17:22:28.1375387Z",
+        "roundElapsedSeconds": 325,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 3601775.898847611,
+        "winningTotalDifficultyDisplay": "3.60M",
+        "observedHashrateThs": 9.127119648082337,
+        "observedHashrateDisplay": "9.13 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 2701837.0694775516,
+            "totalDifficultyDisplay": "2.70M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 3601775.898847611,
+            "totalDifficultyDisplay": "3.60M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 674,
+        "stateId": "fddbaf65788213517acaf2166c26da82f345da86b7c7b00d1e18532b9a751ab4",
+        "previousStateId": "f05094faf1f695314e74a7cd06158de5d4b876e602b107c9384f8e9b7a75d4a6",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000001d7ce1420e6fa306835fac99d3b81fd85022521a49155",
+        "triggerBlockHeight": 945810,
+        "parentBlockHash": "0000000000000000000046df302144e000241684019c8aa26cbfbc08a4a317e2",
+        "parentBlockHeight": 945809,
+        "lockedAtUtc": "2026-04-19T17:17:02.7742247Z",
+        "roundElapsedSeconds": 187,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 2701837.0694775516,
+        "winningTotalDifficultyDisplay": "2.70M",
+        "observedHashrateThs": 8.953750194929402,
+        "observedHashrateDisplay": "8.95 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 13090958.659757514,
+            "totalDifficultyDisplay": "13.09M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 2701837.0694775516,
+            "totalDifficultyDisplay": "2.70M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 673,
+        "stateId": "f05094faf1f695314e74a7cd06158de5d4b876e602b107c9384f8e9b7a75d4a6",
+        "previousStateId": "1fd501f13d152f32f637d422026c49f4a421f3770021e0d02ab1dd124b6dc10c",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "0000000000000000000046df302144e000241684019c8aa26cbfbc08a4a317e2",
+        "triggerBlockHeight": 945809,
+        "parentBlockHash": "000000000000000000004d3899fe686326cec5e5b7831a516499d546a2bb91da",
+        "parentBlockHeight": 945808,
+        "lockedAtUtc": "2026-04-19T17:13:55.1124249Z",
+        "roundElapsedSeconds": 1285,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 13090958.659757514,
+        "winningTotalDifficultyDisplay": "13.09M",
+        "observedHashrateThs": 10.144443532470548,
+        "observedHashrateDisplay": "10.14 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 44916181.969414786,
+            "totalDifficultyDisplay": "44.92M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 13090958.659757514,
+            "totalDifficultyDisplay": "13.09M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 672,
+        "stateId": "1fd501f13d152f32f637d422026c49f4a421f3770021e0d02ab1dd124b6dc10c",
+        "previousStateId": "ff63dd261b575c940e311ce0b3988be9bcd2d5255d097333e0c174c502d86d10",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000000ac806d330cc0a6918827bf933b9a936997815eb6c6f0",
+        "triggerBlockHeight": 945806,
+        "parentBlockHash": "000000000000000000006737024b4dcdb4063390cc7d8a7a817417528ebe5529",
+        "parentBlockHeight": 945805,
+        "lockedAtUtc": "2026-04-19T16:52:29.5537201Z",
+        "roundElapsedSeconds": 523,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 44916181.969414786,
+        "winningTotalDifficultyDisplay": "44.92M",
+        "observedHashrateThs": 8.70798634140539,
+        "observedHashrateDisplay": "8.71 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 13304273.848224752,
+            "totalDifficultyDisplay": "13.30M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 44916181.969414786,
+            "totalDifficultyDisplay": "44.92M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 671,
+        "stateId": "ff63dd261b575c940e311ce0b3988be9bcd2d5255d097333e0c174c502d86d10",
+        "previousStateId": "cd7f846130b83d24f913c976954fb7a7c28d8e147f62e0c0dac58ffa1e58e531",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "000000000000000000010f58b237096dd512786dfe0e25f2a17d23f0e8729dc4",
+        "triggerBlockHeight": 945804,
+        "parentBlockHash": "00000000000000000001e303aa966839926347e838810795fada9477169b1124",
+        "parentBlockHeight": 945803,
+        "lockedAtUtc": "2026-04-19T16:43:45.7635311Z",
+        "roundElapsedSeconds": 746,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 13304273.848224752,
+        "winningTotalDifficultyDisplay": "13.30M",
+        "observedHashrateThs": 9.369621265284767,
+        "observedHashrateDisplay": "9.37 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 100948001.26474868,
+            "totalDifficultyDisplay": "100.95M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 13304273.848224752,
+            "totalDifficultyDisplay": "13.30M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 670,
+        "stateId": "cd7f846130b83d24f913c976954fb7a7c28d8e147f62e0c0dac58ffa1e58e531",
+        "previousStateId": "5015e091f6bd931d1bfee02ce9950334836dcc9f6270fb0bd872bcb8e90b8687",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000001e303aa966839926347e838810795fada9477169b1124",
+        "triggerBlockHeight": 945803,
+        "parentBlockHash": "00000000000000000001209bd2701a09d426cd59a2cbf262a93d11b812536ff9",
+        "parentBlockHeight": 945802,
+        "lockedAtUtc": "2026-04-19T16:31:18.996057Z",
+        "roundElapsedSeconds": 7996,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 100948001.26474868,
+        "winningTotalDifficultyDisplay": "100.95M",
+        "observedHashrateThs": 8.82544425671685,
+        "observedHashrateDisplay": "8.83 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 18477793.665730596,
+            "totalDifficultyDisplay": "18.48M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 100948001.26474868,
+            "totalDifficultyDisplay": "100.95M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 669,
+        "stateId": "5015e091f6bd931d1bfee02ce9950334836dcc9f6270fb0bd872bcb8e90b8687",
+        "previousStateId": "b2a92ff74af26164d2ba751f5f236af80b27eb19fd7d34c0723a43b5db70e07d",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000000a2aa2df27f2e4a3f8ce1eda35f76b6d803118c364134",
+        "triggerBlockHeight": 945792,
+        "parentBlockHash": "00000000000000000000b54453acd42673cd944649ed6718d55f2572795021c2",
+        "parentBlockHeight": 945791,
+        "lockedAtUtc": "2026-04-19T14:18:02.6981021Z",
+        "roundElapsedSeconds": 1459,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 18477793.665730596,
+        "winningTotalDifficultyDisplay": "18.48M",
+        "observedHashrateThs": 9.896880919252151,
+        "observedHashrateDisplay": "9.9 TH/s",
+        "paidSlotCount": 145,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 310359450,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 145,
+            "totalValue": 310359450,
+            "totalDifficulty": 635607.8580616895,
+            "totalDifficultyDisplay": "635.61k"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 18477793.665730596,
+            "totalDifficultyDisplay": "18.48M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 668,
+        "stateId": "b2a92ff74af26164d2ba751f5f236af80b27eb19fd7d34c0723a43b5db70e07d",
+        "previousStateId": "2c483e57a0625b742393c12e0267ca71345bd30485a26e0dbc944d2dcbebb4ac",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000000b54453acd42673cd944649ed6718d55f2572795021c2",
+        "triggerBlockHeight": 945791,
+        "parentBlockHash": "00000000000000000000e83d5cf159c2dd92ea276aaaa225dc6d126a01475d01",
+        "parentBlockHeight": 945790,
+        "lockedAtUtc": "2026-04-19T13:53:43.0452694Z",
+        "roundElapsedSeconds": 73,
+        "winningShareCount": 145,
+        "winningTotalDifficulty": 635607.8580616895,
+        "winningTotalDifficultyDisplay": "635.61k",
+        "observedHashrateThs": 8.93222634435014,
+        "observedHashrateDisplay": "8.93 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 145,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 310359450,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 21194593.654043857,
+            "totalDifficultyDisplay": "21.19M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 145,
+            "totalValue": 310359450,
+            "totalDifficulty": 635607.8580616895,
+            "totalDifficultyDisplay": "635.61k"
+          }
+        ]
+      },
+      {
+        "roundNumber": 667,
+        "stateId": "2c483e57a0625b742393c12e0267ca71345bd30485a26e0dbc944d2dcbebb4ac",
+        "previousStateId": "4a2293c188eeaf98768de49390b75646cce51656ed751fab6617b61ca8f4ac34",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000000e83d5cf159c2dd92ea276aaaa225dc6d126a01475d01",
+        "triggerBlockHeight": 945790,
+        "parentBlockHash": "00000000000000000001d3567767430516572f7ba3e9d950c8a0beb88c843ab9",
+        "parentBlockHeight": 945789,
+        "lockedAtUtc": "2026-04-19T13:52:29.9479827Z",
+        "roundElapsedSeconds": 1500,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 21194593.654043857,
+        "winningTotalDifficultyDisplay": "21.19M",
+        "observedHashrateThs": 10.054014213096803,
+        "observedHashrateDisplay": "10.05 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 20955301.909205806,
+            "totalDifficultyDisplay": "20.96M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 21194593.654043857,
+            "totalDifficultyDisplay": "21.19M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 666,
+        "stateId": "4a2293c188eeaf98768de49390b75646cce51656ed751fab6617b61ca8f4ac34",
+        "previousStateId": "da5796cbdcef0c88bea1fd11b86bd900332ac42479fe687a095eec2ca378efb8",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "000000000000000000008badda4603ee15b2537e7db79d1667854a1dac3fc280",
+        "triggerBlockHeight": 945786,
+        "parentBlockHash": "000000000000000000009ffa4d4c671b6e73f32bd498bc9b1d64c1761fecf4d7",
+        "parentBlockHeight": 945785,
+        "lockedAtUtc": "2026-04-19T13:27:29.86226Z",
+        "roundElapsedSeconds": 1752,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 20955301.909205806,
+        "winningTotalDifficultyDisplay": "20.96M",
+        "observedHashrateThs": 9.71291058637032,
+        "observedHashrateDisplay": "9.71 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 133370858.79981376,
+            "totalDifficultyDisplay": "133.37M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 20955301.909205806,
+            "totalDifficultyDisplay": "20.96M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 665,
+        "stateId": "da5796cbdcef0c88bea1fd11b86bd900332ac42479fe687a095eec2ca378efb8",
+        "previousStateId": "6b12390c02ef482f22274ae72f734b2377b0df16aabd75e0adac7178d98243e5",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "000000000000000000015137af886a29fff43a2f450850e8a80cd878d5add1a2",
+        "triggerBlockHeight": 945782,
+        "parentBlockHash": "00000000000000000001e31fe92185e7b349d51b8ebd4d87057fc573a5219387",
+        "parentBlockHeight": 945781,
+        "lockedAtUtc": "2026-04-19T12:58:17.6007282Z",
+        "roundElapsedSeconds": 2528,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 133370858.79981376,
+        "winningTotalDifficultyDisplay": "133.37M",
+        "observedHashrateThs": 10.45489369695997,
+        "observedHashrateDisplay": "10.45 TH/s",
+        "paidSlotCount": 128,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 310077440,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 128,
+            "totalValue": 310077440,
+            "totalDifficulty": 819620.5910772488,
+            "totalDifficultyDisplay": "819.62k"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 133370858.79981376,
+            "totalDifficultyDisplay": "133.37M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 664,
+        "stateId": "6b12390c02ef482f22274ae72f734b2377b0df16aabd75e0adac7178d98243e5",
+        "previousStateId": "b9f395716556c685eab022b0e64e405cfffe7de6459f5f61fff9d9013c74a31e",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000001f87beba8c5c08a3079f560c8cef98bdb14c14d3dd662",
+        "triggerBlockHeight": 945772,
+        "parentBlockHash": "00000000000000000000e1b57ed7494da9e70f7f6aa030ebb6e877399f29c5c1",
+        "parentBlockHeight": 945771,
+        "lockedAtUtc": "2026-04-19T12:16:08.6239231Z",
+        "roundElapsedSeconds": 68,
+        "winningShareCount": 128,
+        "winningTotalDifficulty": 819620.5910772488,
+        "winningTotalDifficultyDisplay": "819.62k",
+        "observedHashrateThs": 7.8792757901489585,
+        "observedHashrateDisplay": "7.88 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 128,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 310077440,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 24427572.775934912,
+            "totalDifficultyDisplay": "24.43M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 128,
+            "totalValue": 310077440,
+            "totalDifficulty": 819620.5910772488,
+            "totalDifficultyDisplay": "819.62k"
+          }
+        ]
+      },
+      {
+        "roundNumber": 663,
+        "stateId": "b9f395716556c685eab022b0e64e405cfffe7de6459f5f61fff9d9013c74a31e",
+        "previousStateId": "e03f5daa8f822d78a98d12c1556b447d0ac9b8e345920917c07ee470462b884d",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000000e1b57ed7494da9e70f7f6aa030ebb6e877399f29c5c1",
+        "triggerBlockHeight": 945771,
+        "parentBlockHash": "00000000000000000001be7a4621f4dcc83225b4acad44fec5a718748f8f0956",
+        "parentBlockHeight": 945770,
+        "lockedAtUtc": "2026-04-19T12:15:00.0430898Z",
+        "roundElapsedSeconds": 1459,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 24427572.775934912,
+        "winningTotalDifficultyDisplay": "24.43M",
+        "observedHashrateThs": 9.574149747250484,
+        "observedHashrateDisplay": "9.57 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 312868068.2658712,
+            "totalDifficultyDisplay": "312.87M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 24427572.775934912,
+            "totalDifficultyDisplay": "24.43M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 662,
+        "stateId": "e03f5daa8f822d78a98d12c1556b447d0ac9b8e345920917c07ee470462b884d",
+        "previousStateId": "dc2c3e9cd4752b02f67ad28fc250722ccb5a52fe37fd16100acb6e39076feeaf",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000000a5694d07210a64f1ba7dd33175e1c31ea3fc7d9516f1",
+        "triggerBlockHeight": 945767,
+        "parentBlockHash": "0000000000000000000169ee29d398ed3531f205f0f4307428a330f001a2c289",
+        "parentBlockHeight": 945766,
+        "lockedAtUtc": "2026-04-19T11:50:40.8439447Z",
+        "roundElapsedSeconds": 4294,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 312868068.2658712,
+        "winningTotalDifficultyDisplay": "312.87M",
+        "observedHashrateThs": 9.180846134421543,
+        "observedHashrateDisplay": "9.18 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 4251306.184225737,
+            "totalDifficultyDisplay": "4.25M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 312868068.2658712,
+            "totalDifficultyDisplay": "312.87M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 661,
+        "stateId": "dc2c3e9cd4752b02f67ad28fc250722ccb5a52fe37fd16100acb6e39076feeaf",
+        "previousStateId": "808571c98947f20876f202052aa7636bc48fec8a02deecc68b6900a3f0282abe",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000000db26f4d3b8f214b629f7fb4f9dca9c16bbe2b39f85f5",
+        "triggerBlockHeight": 945760,
+        "parentBlockHash": "00000000000000000001706352f5b5451e31c53f82baacfc49f768ec751a6f44",
+        "parentBlockHeight": 945759,
+        "lockedAtUtc": "2026-04-19T10:39:06.548003Z",
+        "roundElapsedSeconds": 280,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 4251306.184225737,
+        "winningTotalDifficultyDisplay": "4.25M",
+        "observedHashrateThs": 9.592445039052409,
+        "observedHashrateDisplay": "9.59 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 13995770.721063588,
+            "totalDifficultyDisplay": "14.00M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 4251306.184225737,
+            "totalDifficultyDisplay": "4.25M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 660,
+        "stateId": "808571c98947f20876f202052aa7636bc48fec8a02deecc68b6900a3f0282abe",
+        "previousStateId": "6321c0ceb575766418a2fc404599953643051843ba203182d3c27aebad804baa",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000001706352f5b5451e31c53f82baacfc49f768ec751a6f44",
+        "triggerBlockHeight": 945759,
+        "parentBlockHash": "000000000000000000006fc6e5b67d362a031af5b6bffe5d3b36819b3dd80b59",
+        "parentBlockHeight": 945758,
+        "lockedAtUtc": "2026-04-19T10:34:26.423041Z",
+        "roundElapsedSeconds": 1075,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 13995770.721063588,
+        "winningTotalDifficultyDisplay": "14.00M",
+        "observedHashrateThs": 8.817055432651069,
+        "observedHashrateDisplay": "8.82 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 9751150.353819067,
+            "totalDifficultyDisplay": "9.75M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 13995770.721063588,
+            "totalDifficultyDisplay": "14.00M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 659,
+        "stateId": "6321c0ceb575766418a2fc404599953643051843ba203182d3c27aebad804baa",
+        "previousStateId": "af4b5aaa4d8891f0f4486ecd4c5bb179e8d6f03ea76a149a16c3b86ebd7fa80f",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000001191e72de781c89ac1bed2f0f429f276b55681df72eb3",
+        "triggerBlockHeight": 945757,
+        "parentBlockHash": "000000000000000000016e5c17f70338e81cb88e3fc17bd9c0880d69506a1151",
+        "parentBlockHeight": 945756,
+        "lockedAtUtc": "2026-04-19T10:16:30.4410331Z",
+        "roundElapsedSeconds": 570,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 9751150.353819067,
+        "winningTotalDifficultyDisplay": "9.75M",
+        "observedHashrateThs": 9.751437353524214,
+        "observedHashrateDisplay": "9.75 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 34036030.55845019,
+            "totalDifficultyDisplay": "34.04M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 9751150.353819067,
+            "totalDifficultyDisplay": "9.75M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 658,
+        "stateId": "af4b5aaa4d8891f0f4486ecd4c5bb179e8d6f03ea76a149a16c3b86ebd7fa80f",
+        "previousStateId": "835bd368bcea51b5ec3f9a7b7fd2406ec158e43abc7cd993b914548b352ea098",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "000000000000000000016e5c17f70338e81cb88e3fc17bd9c0880d69506a1151",
+        "triggerBlockHeight": 945756,
+        "parentBlockHash": "0000000000000000000172a69b92d5c7a051e3d8d8421dd332ca4d7d7c1454ea",
+        "parentBlockHeight": 945755,
+        "lockedAtUtc": "2026-04-19T10:06:59.4827044Z",
+        "roundElapsedSeconds": 2314,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 34036030.55845019,
+        "winningTotalDifficultyDisplay": "34.04M",
+        "observedHashrateThs": 9.470270857594883,
+        "observedHashrateDisplay": "9.47 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 5646938.526405192,
+            "totalDifficultyDisplay": "5.65M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 34036030.55845019,
+            "totalDifficultyDisplay": "34.04M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 657,
+        "stateId": "835bd368bcea51b5ec3f9a7b7fd2406ec158e43abc7cd993b914548b352ea098",
+        "previousStateId": "c694da8a2945183e197986f5709aa7877783bb4cfada3aa7d65898776a53ee9c",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000000b8a1b7e25706b9b8a6448f0b93a6e49c28979f8d1cd3",
+        "triggerBlockHeight": 945754,
+        "parentBlockHash": "00000000000000000000760bc9e8168e1bcd31fce4e1f4fa11283eef68ebe3f2",
+        "parentBlockHeight": 945753,
+        "lockedAtUtc": "2026-04-19T09:28:24.661748Z",
+        "roundElapsedSeconds": 436,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 5646938.526405192,
+        "winningTotalDifficultyDisplay": "5.65M",
+        "observedHashrateThs": 8.902019272050971,
+        "observedHashrateDisplay": "8.9 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 35581355.5206216,
+            "totalDifficultyDisplay": "35.58M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 5646938.526405192,
+            "totalDifficultyDisplay": "5.65M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 656,
+        "stateId": "c694da8a2945183e197986f5709aa7877783bb4cfada3aa7d65898776a53ee9c",
+        "previousStateId": "337fee4b5d0402727f22ac96eccf50a0fc35ef836fd1fa152b2e9d6904f5625a",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000000760bc9e8168e1bcd31fce4e1f4fa11283eef68ebe3f2",
+        "triggerBlockHeight": 945753,
+        "parentBlockHash": "00000000000000000000e2de0f86088923b72eee650b9e48dc004d109563d546",
+        "parentBlockHeight": 945752,
+        "lockedAtUtc": "2026-04-19T09:21:08.1096342Z",
+        "roundElapsedSeconds": 2443,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 35581355.5206216,
+        "winningTotalDifficultyDisplay": "35.58M",
+        "observedHashrateThs": 9.13365240179434,
+        "observedHashrateDisplay": "9.13 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 17479757.511704013,
+            "totalDifficultyDisplay": "17.48M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 35581355.5206216,
+            "totalDifficultyDisplay": "35.58M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 655,
+        "stateId": "337fee4b5d0402727f22ac96eccf50a0fc35ef836fd1fa152b2e9d6904f5625a",
+        "previousStateId": "5ff886455ef530a7f2380b0faf8cba13e8ca4ce26095425aad3f76918a483c7a",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000000fc2b0dd0055e947736ebd9c4b70b78b49e8291c14eb2",
+        "triggerBlockHeight": 945749,
+        "parentBlockHash": "00000000000000000001e8f3b1f48ef793db9d96ed510ec9177836eb9594147a",
+        "parentBlockHeight": 945748,
+        "lockedAtUtc": "2026-04-19T08:40:24.5009059Z",
+        "roundElapsedSeconds": 1186,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 17479757.511704013,
+        "winningTotalDifficultyDisplay": "17.48M",
+        "observedHashrateThs": 8.244653519277072,
+        "observedHashrateDisplay": "8.24 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 16065364.560935616,
+            "totalDifficultyDisplay": "16.07M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 17479757.511704013,
+            "totalDifficultyDisplay": "17.48M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 654,
+        "stateId": "5ff886455ef530a7f2380b0faf8cba13e8ca4ce26095425aad3f76918a483c7a",
+        "previousStateId": "09b64fa29d33007ffe06ac82568363abc86e4acf6724805669006dfa62f13aca",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "0000000000000000000002c5a1d82f8ccc2242f2b7175938606a0ab363b915d0",
+        "triggerBlockHeight": 945747,
+        "parentBlockHash": "00000000000000000001f07cf4a46b610c70ca23ad76cc3d6e3029e29ba4d320",
+        "parentBlockHeight": 945746,
+        "lockedAtUtc": "2026-04-19T08:20:38.3734916Z",
+        "roundElapsedSeconds": 890,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 16065364.560935616,
+        "winningTotalDifficultyDisplay": "16.07M",
+        "observedHashrateThs": 8.413036118819956,
+        "observedHashrateDisplay": "8.41 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 24173681.85776326,
+            "totalDifficultyDisplay": "24.17M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 16065364.560935616,
+            "totalDifficultyDisplay": "16.07M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 653,
+        "stateId": "09b64fa29d33007ffe06ac82568363abc86e4acf6724805669006dfa62f13aca",
+        "previousStateId": "107cb64040bcd45f7a0ca6d89fc675e55b46a97906542c1c400080129a3583b3",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000001f07cf4a46b610c70ca23ad76cc3d6e3029e29ba4d320",
+        "triggerBlockHeight": 945746,
+        "parentBlockHash": "000000000000000000010c30e1001dfb57cb141e07c019f9f199bfdf7f5d5a7f",
+        "parentBlockHeight": 945745,
+        "lockedAtUtc": "2026-04-19T08:05:47.5929683Z",
+        "roundElapsedSeconds": 1179,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 24173681.85776326,
+        "winningTotalDifficultyDisplay": "24.17M",
+        "observedHashrateThs": 8.913895120208135,
+        "observedHashrateDisplay": "8.91 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 15215895.182692211,
+            "totalDifficultyDisplay": "15.22M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 24173681.85776326,
+            "totalDifficultyDisplay": "24.17M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 652,
+        "stateId": "107cb64040bcd45f7a0ca6d89fc675e55b46a97906542c1c400080129a3583b3",
+        "previousStateId": "f8bdf54b63acb8255ebbc867acec64ea4863a56e2db600df691d0a0c3a1c7d45",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "0000000000000000000117cf5c843a95796c2ce778cab8c697d8de92b2d43800",
+        "triggerBlockHeight": 945744,
+        "parentBlockHash": "00000000000000000001712440bfa37532290096fd599c50060d2cedc60ebcc5",
+        "parentBlockHeight": 945743,
+        "lockedAtUtc": "2026-04-19T07:46:08.1457062Z",
+        "roundElapsedSeconds": 705,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 15215895.182692211,
+        "winningTotalDifficultyDisplay": "15.22M",
+        "observedHashrateThs": 9.274776331908793,
+        "observedHashrateDisplay": "9.27 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 9337944.936049853,
+            "totalDifficultyDisplay": "9.34M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 15215895.182692211,
+            "totalDifficultyDisplay": "15.22M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 651,
+        "stateId": "f8bdf54b63acb8255ebbc867acec64ea4863a56e2db600df691d0a0c3a1c7d45",
+        "previousStateId": "1b94e80f67cd7bc743ed19b391ad868fa66c38cdd8528b7ee7996b48c18bdf7f",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000001712440bfa37532290096fd599c50060d2cedc60ebcc5",
+        "triggerBlockHeight": 945743,
+        "parentBlockHash": "000000000000000000000d8c70c8247a43ed35d37367d7be4193990e46c003e7",
+        "parentBlockHeight": 945742,
+        "lockedAtUtc": "2026-04-19T07:34:22.994945Z",
+        "roundElapsedSeconds": 524,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 9337944.936049853,
+        "winningTotalDifficultyDisplay": "9.34M",
+        "observedHashrateThs": 9.869145989909441,
+        "observedHashrateDisplay": "9.87 TH/s",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 36684512.5248643,
+            "totalDifficultyDisplay": "36.68M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 9337944.936049853,
+            "totalDifficultyDisplay": "9.34M"
+          }
+        ]
+      },
+      {
+        "roundNumber": 650,
+        "stateId": "1b94e80f67cd7bc743ed19b391ad868fa66c38cdd8528b7ee7996b48c18bdf7f",
+        "previousStateId": "3181e00f42784e29a46e03c79485f95175362f1527029d1eb6ee89faeb618195",
+        "kind": "test-trigger:mempool.space",
+        "isCanonical": true,
+        "isOrphaned": false,
+        "triggerBlockHash": "00000000000000000001b8784b1a77a00473bb9219dff598add22c2992e03541",
+        "triggerBlockHeight": 945741,
+        "parentBlockHash": "000000000000000000005bf1d07ee169c471fbdaf01d1f6cb7d666140241f11f",
+        "parentBlockHeight": 945740,
+        "lockedAtUtc": "2026-04-19T07:25:38.8813371Z",
+        "roundElapsedSeconds": null,
+        "winningShareCount": 299,
+        "winningTotalDifficulty": 36684512.5248643,
+        "winningTotalDifficultyDisplay": "36.68M",
+        "observedHashrateThs": null,
+        "observedHashrateDisplay": "--",
+        "paidSlotCount": 299,
+        "paidRecipientCount": 1,
+        "paidTotalValue": 311458134,
+        "nextWinnerSlotCount": 299,
+        "nextWinnerRecipientCount": 1,
+        "nextWinnerTotalValue": 311458134,
+        "paidRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 82998143.90703566,
+            "totalDifficultyDisplay": "83.00M"
+          }
+        ],
+        "nextRecipients": [
+          {
+            "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "username": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+            "slotCount": 299,
+            "totalValue": 311458134,
+            "totalDifficulty": 36684512.5248643,
+            "totalDifficultyDisplay": "36.68M"
+          }
+        ]
+      }
+    ],
+    "analysis": {
+      "canonicalCount": 32,
+      "orphanCount": 0,
+      "issues": []
+    }
+  },
+  "comparison": {
+    "currentRoundMatches": true,
+    "currentStateMatches": true,
+    "candidateStateMatches": true,
+    "tipMatches": true
+  }
+}
