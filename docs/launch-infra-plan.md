@@ -104,6 +104,185 @@ Alternative location mapping:
 - `euw1` -> `ams3` or `fra1`
 - `ap1` later -> `sgp1`
 
+## Concrete Shopping List
+
+This section converts the topology recommendation into a buying decision.
+
+### Recommended Hetzner Shopping List
+
+For the first public seed-only cluster, buy:
+
+1. `use1`
+   - provider: `Hetzner`
+   - region: `Ashburn`
+   - plan: `CPX21`
+   - current price: about `$13.99/mo`
+2. `usw1`
+   - provider: `Hetzner`
+   - region: `Hillsboro`
+   - plan: `CPX21`
+   - current price: about `$13.99/mo`
+3. `euw1`
+   - provider: `Hetzner`
+   - region: `Falkenstein` or `Helsinki`
+   - plan: `CAX21`
+   - current price: about `$9.49/mo`
+4. `ap1` optional
+   - provider: `Hetzner`
+   - region: `Singapore`
+   - plan: `CPX22`
+   - current price: about `$18.49/mo`
+
+Current total:
+
+- `3 nodes` without AP:
+  - about `$37.47/mo`
+  - about `$449.64/year`
+- `4 nodes` with AP:
+  - about `$55.96/mo`
+  - about `$671.52/year`
+
+### Why These Plans
+
+Reasoning:
+
+- US nodes are more expensive on Hetzner, so `CPX21` is the practical seed-only recommendation there
+- EU has a better price/performance option in `CAX21`
+- Singapore is materially more expensive, so it stays optional in phase 1
+- all of these are enough for:
+  - Boot
+  - reverse proxy
+  - Tailscale
+  - logs
+  - monitoring
+  - light future expansion
+
+### DigitalOcean Comparison
+
+Closest simple comparison:
+
+- `Basic Droplet`
+- `4 GiB RAM`
+- `80 GiB storage`
+- `4,000 GiB bandwidth`
+- current price: `$24/mo` per node
+
+Equivalent DigitalOcean totals:
+
+- `3 nodes` without AP:
+  - `$72/mo`
+  - `$864/year`
+- `4 nodes` with AP:
+  - `$96/mo`
+  - `$1,152/year`
+
+Practical interpretation:
+
+- DigitalOcean is still reasonable, but materially more expensive for this seed-only use case
+- Hetzner remains the better default unless you strongly prefer DigitalOcean’s ecosystem
+
+### Payment Method Comparison
+
+Hetzner:
+
+- accepts:
+  - credit card
+  - SEPA direct debit
+  - bank / wire transfer
+  - PayPal
+- does **not** accept cryptocurrencies
+
+DigitalOcean:
+
+- accepts:
+  - credit / debit cards
+  - PayPal and other third-party providers
+  - crypto wallets using stablecoin payments
+  - ACH direct debit for qualifying customers
+- does **not** document direct Bitcoin payment support
+
+Current practical answer:
+
+- if you specifically want to pay in BTC, neither provider currently looks like a clean direct-Bitcoin fit
+- DigitalOcean does support crypto-wallet payments, but the official docs describe this as stablecoin payments, not Bitcoin
+
+## Domain Shortlist
+
+Checked on `2026-04-19` via WHOIS / DNS lookup:
+
+### Taken
+
+- `gridpool.com`
+  - registered
+  - currently listed through HugeDomains / NameBright
+
+### Appears Available
+
+- `gridpool.io`
+- `gridpool.org`
+- `gridpool.net`
+- `gridpool.science`
+- `gridantipool.com`
+- `gridantipool.io`
+- `gridantipool.org`
+- `gridantipool.net`
+- `gridantipool.science`
+
+Notes:
+
+- availability was checked via WHOIS and DNS, but final registrability should still be confirmed in the registrar checkout flow
+- `gridpool.com` is the only clearly unavailable option from this first shortlist
+
+### Domain Cost Guidance
+
+Recommended registrar assumption:
+
+- `Cloudflare Registrar`
+
+Reason:
+
+- you already use Cloudflare
+- Cloudflare charges registry + ICANN cost with no markup
+
+Current price guidance:
+
+- `.com`
+  - about `$10.46/year`
+  - based on current Verisign registry fee plus current ICANN fee
+- `.net`
+  - about `$11.11/year`
+  - based on current registry fee plus ICANN fee
+- `.org`
+  - roughly `$10-11/year`
+  - exact current price should be confirmed in Cloudflare search
+- `.io`
+  - expensive
+  - expect roughly `mid-$40s/year`
+  - exact current price should be confirmed in Cloudflare search
+- `.science`
+  - exact current price not verified here
+  - likely cheap, but confirm in registrar search
+
+### Naming Recommendation
+
+Best short option from the checked shortlist:
+
+- `gridpool.io`
+
+Best descriptive option from the checked shortlist:
+
+- `gridantipool.com`
+
+Conservative low-cost option:
+
+- `gridpool.org`
+
+Lowest-friction option:
+
+- keep `gridlabs.science` for infrastructure now
+- reserve one cleaner public brand domain now
+- migrate the landing page first, then node hostnames later if desired
+
 ## Naming And DNS Plan
 
 ### Public Hostnames
@@ -738,4 +917,3 @@ Do these next, in order:
 4. Let me standardize the Linux deploy path on those nodes.
 5. Move Boot peer traffic to public DNS hostnames.
 6. Re-run `G2` in that environment before doing more protocol surgery.
-
