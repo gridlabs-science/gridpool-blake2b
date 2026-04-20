@@ -12,6 +12,10 @@ It is designed to be:
 
 This is not the final global architecture. It is the first stable public seed/relay cluster.
 
+Companion setup guide:
+
+- [launch-infra-clickthrough.md](/home/keegreil/Documents/GitHub/boot-protocol/docs/launch-infra-clickthrough.md)
+
 ## Core Infrastructure Decision
 
 Use:
