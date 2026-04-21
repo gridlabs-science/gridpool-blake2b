@@ -29,6 +29,7 @@ boot_portal/pool_state*.json
 boot_portal/pool_state*.json.bak
 boot_portal/pool_state copy.json
 g2-*.json
+logs/
 
 # Visual Studio 2015 cache/options directory
 .vs/

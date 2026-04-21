@@ -22,6 +22,7 @@ public sealed class ShareAttributionTests
     private const string SampleSlotZeroAddress = "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3";
     private const string AlternateAddress = "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y";
     private const string SamplePrevBlockHash = "00000000000000000002029d47c98d2ad5c020ce9a92af8ace14b882abfa1643";
+    private const string OlderTipBlockHash = "0000000000000000000000000000000000000000000000000000000000012345";
     private const string SampleHeaderHex = "00804f274316faab82b814ce8aaf929ace20c0d52a8dc9479d02020000000000000000002e0c639c7934a697d14a314cea5da30f0c45660248d534db3cfb2036b5ac0d8a65a6e3696913021778491e84";
     private const string SampleCoinbaseHex = "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff2003e16d0e13426f6f742070726f746f636f6c0f626f6f74000709921015000000ffffffff06128e120000000000160014c64b1b9283ba1ea86bb9e7b696b0c8f68dad040004cc041000000000160014c64b1b9283ba1ea86bb9e7b696b0c8f68dad04000000000000000000106a0e9113b1ccf00d0000000000b9bb1952ad8b02000000001600141ba063a60ffe85ee2034c3044d7ef087a5f20f910000000000000000036a01000000000000000000266a24aa21a9edcddc611f6111ea75c5a265fba065e8eccb3d1ec8f954c738ea4586b3fffab1ce00000000";
     private static readonly List<string> SampleMerklePath =
@@ -155,6 +156,66 @@ public sealed class ShareAttributionTests
         List<PayoutInfo> onDeckList = harness.StateService.GetOnDeckList();
         Assert.AreEqual(1, onDeckList.Count);
         Assert.AreEqual(SampleSlotZeroAddress, onDeckList[0].Address);
+    }
+
+    [TestMethod]
+    public async Task PeerShareOnPeerObservedFutureTipIsAcceptedAfterTipAdvanceAsync()
+    {
+        using var harness = TestHarness.Create(currentTipBlockHash: OlderTipBlockHash);
+
+        IActionResult response = await harness.PeerController.SubmitPeerShare(CreateSamplePeerAnnouncement(harness.Config));
+        JsonObject payload = ParseObjectResult(response, StatusCodes.Status200OK);
+
+        Assert.AreEqual("accepted", payload["status"]?.GetValue<string>());
+
+        BootNetworkStatusDto status = harness.StateService.GetNetworkStatus();
+        Assert.AreEqual(SamplePrevBlockHash, status.CurrentTipBlockHash);
+        Assert.AreEqual(1, harness.StateService.GetOnDeckList().Count);
+    }
+
+    [TestMethod]
+    public async Task DatumShareOnFreshParentIsAcceptedAndLearnsParentWithoutTipAdvanceAsync()
+    {
+        using var harness = TestHarness.Create(currentTipBlockHash: OlderTipBlockHash);
+
+        ShareRecordingResult result = await harness.StateService.SubmitShareAsync(new RecordedShareSubmission
+        {
+            MinerAddress = AlternateAddress,
+            Username = string.Empty,
+            HeaderHex = SampleHeaderHex,
+            CoinbaseHex = SampleCoinbaseHex,
+            MerklePath = SampleMerklePath.ToList(),
+            PrevBlockHash = SamplePrevBlockHash,
+            Source = "datum"
+        }, "datum-block");
+
+        Assert.IsTrue(result.Accepted, result.RejectionReason);
+        Assert.AreEqual(SamplePrevBlockHash, result.AcceptedProof?.PrevBlockHash);
+
+        BootNetworkStatusDto status = harness.StateService.GetNetworkStatus();
+        Assert.AreEqual(OlderTipBlockHash, status.CurrentTipBlockHash);
+        Assert.AreEqual(1, harness.StateService.GetOnDeckList().Count);
+
+        Thread.Sleep(1200);
+        PoolState persisted = JsonSerializer.Deserialize<PoolState>(File.ReadAllText(harness.StatePath))!;
+        CollectionAssert.Contains(persisted.AcceptedParentBlockHashes, OlderTipBlockHash);
+        CollectionAssert.Contains(persisted.AcceptedParentBlockHashes, SamplePrevBlockHash);
+    }
+
+    [TestMethod]
+    public async Task HttpShareOnFreshParentIsRejectedUntilTipIsKnownAsync()
+    {
+        using var harness = TestHarness.Create(currentTipBlockHash: OlderTipBlockHash);
+
+        IActionResult response = await harness.MiningController.SubmitShare(CreateSampleShareDto());
+        JsonObject payload = ParseObjectResult(response, StatusCodes.Status400BadRequest);
+
+        Assert.AreEqual("rejected", payload["status"]?.GetValue<string>());
+        StringAssert.StartsWith(
+            payload["reason"]?.GetValue<string>() ?? string.Empty,
+            "Share builds on the wrong parent block");
+        Assert.AreEqual(0, harness.StateService.GetOnDeckList().Count);
+        Assert.AreEqual(OlderTipBlockHash, harness.StateService.GetNetworkStatus().CurrentTipBlockHash);
     }
 
     [TestMethod]
@@ -305,6 +366,31 @@ public sealed class ShareAttributionTests
         Assert.AreEqual("Block already applied", secondRotation.Reason);
         Assert.AreEqual(stateAfterFirstRotation, secondRotation.NetworkStatus.CurrentStateId);
         Assert.AreEqual(roundAfterFirstRotation, secondRotation.NetworkStatus.CurrentRoundNumber);
+    }
+
+    [TestMethod]
+    public async Task RotationPreservesImmediatePreviousParentInAcceptedParentSetAsync()
+    {
+        using var harness = TestHarness.Create();
+
+        IActionResult shareResponse = await harness.MiningController.SubmitShare(CreateSampleShareDto());
+        JsonObject sharePayload = ParseObjectResult(shareResponse, StatusCodes.Status200OK);
+        Assert.AreEqual("accepted", sharePayload["status"]?.GetValue<string>());
+
+        const string newBlockHash = "0000000000000000000000000000000000000000000000000000000000def456";
+        RoundRotationResult rotation = await harness.StateService.RotateToNextRoundAsync(
+            newBlockHash,
+            "test-block",
+            manual: false,
+            blockHeight: 945002);
+
+        Assert.IsTrue(rotation.Rotated);
+
+        Thread.Sleep(1200);
+
+        PoolState persisted = JsonSerializer.Deserialize<PoolState>(File.ReadAllText(harness.StatePath))!;
+        CollectionAssert.Contains(persisted.AcceptedParentBlockHashes, SamplePrevBlockHash);
+        CollectionAssert.Contains(persisted.AcceptedParentBlockHashes, newBlockHash);
     }
 
     [TestMethod]
@@ -542,6 +628,7 @@ public sealed class ShareAttributionTests
         public BootProtocolStateService StateService { get; }
         public MiningApiController MiningController { get; }
         public BootPeerController PeerController { get; }
+        public string StatePath => Path.Combine(_tempDirectory, "pool_state.json");
 
         private TestHarness(
             string tempDirectory,
@@ -565,7 +652,7 @@ public sealed class ShareAttributionTests
             };
         }
 
-        public static TestHarness Create()
+        public static TestHarness Create(string? currentTipBlockHash = null)
         {
             string? previousStatePath = Environment.GetEnvironmentVariable("BOOT_PORTAL_STATE_PATH");
             string? previousHistoryPath = Environment.GetEnvironmentVariable("BOOT_PORTAL_HISTORY_PATH");
@@ -594,9 +681,9 @@ public sealed class ShareAttributionTests
                 CurrentStateId = "seed-current",
                 CandidateStateId = "seed-candidate",
                 CurrentRoundNumber = 1,
-                CurrentTipBlockHash = SamplePrevBlockHash,
+                CurrentTipBlockHash = currentTipBlockHash ?? SamplePrevBlockHash,
                 CurrentTipBlockHeight = 945000,
-                AcceptedParentBlockHashes = [SamplePrevBlockHash],
+                AcceptedParentBlockHashes = [currentTipBlockHash ?? SamplePrevBlockHash],
                 WinnersList = SampleExpectedWinners.Select(ClonePayout).ToList(),
                 OnDeckList = [],
                 OnDeckProofs = []

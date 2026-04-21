@@ -478,6 +478,20 @@ public class BootProtocolStateService
         }
 
         BootShareValidationResult validation = _shareVerifier.ValidateShare(share, winnersSnapshot, acceptedParentBlockHashesSnapshot);
+        if (!validation.IsValid && IsWrongParentRejection(validation.RejectionReason))
+        {
+            BootShareValidationResult freshParentValidation = _shareVerifier.ValidateShare(
+                share,
+                winnersSnapshot,
+                expectedPrevBlockHashes: []);
+            if (freshParentValidation.IsValid &&
+                freshParentValidation.Difficulty >= 1 &&
+                TryLearnFreshParentFromTrustedShare(share.Source, freshParentValidation, currentStateSnapshot))
+            {
+                validation = freshParentValidation;
+            }
+        }
+
         if (!validation.IsValid)
         {
             BootNetworkStatusDto networkStatus;
@@ -793,7 +807,7 @@ public class BootProtocolStateService
 
                 _state.CurrentTipBlockHash = effectiveBlockHash;
                 _state.CurrentTipBlockHeight = effectiveBlockHeight;
-                ResetAcceptedParentBlockHashesNoLock(effectiveBlockHash);
+                PreserveAcceptedParentContinuityAfterRotationNoLock(previousTipBlockHash, effectiveBlockHash);
                 _state.LastRotationUtc = DateTime.UtcNow;
                 _state.CurrentStateId = lockedBundle.StateId;
                 _state.CurrentRoundNumber = lockedBundle.CurrentRoundNumber;
@@ -1130,15 +1144,11 @@ public class BootProtocolStateService
         List<PayoutInfo> currentWinnersSnapshot;
         string? currentTipSnapshot;
         string currentStateSnapshot;
-        DateTime? localLastRotationUtc;
-        int localCurrentRoundNumber;
         lock (_sync)
         {
             currentWinnersSnapshot = ClonePayouts(_state.WinnersList);
             currentTipSnapshot = _state.CurrentTipBlockHash;
             currentStateSnapshot = _state.CurrentStateId;
-            localLastRotationUtc = _state.LastRotationUtc;
-            localCurrentRoundNumber = _state.CurrentRoundNumber;
         }
 
         string? lockedTipSnapshot = NormalizeCanonicalBlockHash(bundle.LockedByBlockHash) ??
@@ -1160,19 +1170,6 @@ public class BootProtocolStateService
         if (!localStateIsEmpty &&
             !string.IsNullOrWhiteSpace(observedTipSnapshot) &&
             !BitcoinHashes.AreEquivalent(currentTipSnapshot, observedTipSnapshot))
-        {
-            return false;
-        }
-
-        DateTime remoteRotationUtc = bundle.CreatedAtUtc == default ? DateTime.MinValue : bundle.CreatedAtUtc;
-        DateTime localRotationUtc = localLastRotationUtc ?? DateTime.MinValue;
-        bool remoteLooksNewer =
-            localStateIsEmpty ||
-            bundle.CurrentRoundNumber > localCurrentRoundNumber ||
-            remoteRotationUtc > localRotationUtc ||
-            (remoteRotationUtc == localRotationUtc &&
-             string.CompareOrdinal(bundle.StateId ?? string.Empty, currentStateSnapshot ?? string.Empty) > 0);
-        if (!remoteLooksNewer)
         {
             return false;
         }
@@ -1235,6 +1232,22 @@ public class BootProtocolStateService
                 return false;
             }
 
+            double remoteLockedTotalDifficulty = validatedProofs.Sum(x => x.Difficulty);
+            double localLockedTotalDifficulty = _state.WinnersList.Sum(x => x.Difficulty);
+            const double difficultyEpsilon = 0.0000001;
+            bool remoteLooksStronger =
+                localStateIsEmpty ||
+                bundle.CurrentRoundNumber > _state.CurrentRoundNumber ||
+                (bundle.CurrentRoundNumber == _state.CurrentRoundNumber &&
+                 remoteLockedTotalDifficulty > localLockedTotalDifficulty + difficultyEpsilon) ||
+                (bundle.CurrentRoundNumber == _state.CurrentRoundNumber &&
+                 Math.Abs(remoteLockedTotalDifficulty - localLockedTotalDifficulty) <= difficultyEpsilon &&
+                 string.CompareOrdinal(bundle.StateId ?? string.Empty, _state.CurrentStateId ?? string.Empty) > 0);
+            if (!remoteLooksStronger)
+            {
+                return false;
+            }
+
             _state.CurrentStateId = bundle.StateId;
             _state.CurrentRoundNumber = Math.Max(0, bundle.CurrentRoundNumber);
             _state.LastRotationUtc = bundle.CreatedAtUtc == default ? DateTime.UtcNow : bundle.CreatedAtUtc;
@@ -1258,7 +1271,7 @@ public class BootProtocolStateService
             lockedBundle.PreviousStateId = bundle.PreviousStateId;
             lockedBundle.CurrentRoundNumber = Math.Max(0, bundle.CurrentRoundNumber);
             lockedBundle.StateId = string.IsNullOrWhiteSpace(bundle.LockedByBlockHash) ? legacyExpectedStateId : expectedStateId;
-            lockedBundle.TotalDifficulty = validatedProofs.Sum(x => x.Difficulty);
+            lockedBundle.TotalDifficulty = remoteLockedTotalDifficulty;
             lockedBundle.LockedByBlockHash = lockedTipSnapshot;
             lockedBundle.LockedByBlockHeight = lockedTipHeightSnapshot;
             lockedBundle.ParentBlockHash = BitcoinHashes.NormalizeHex(bundle.ParentBlockHash);
@@ -1910,6 +1923,7 @@ public class BootProtocolStateService
             .Select(x => x.Difficulty)
             .Where(x => x > 0)
             .ToList();
+        double currentStateTotalDifficulty = _state.WinnersList.Sum(x => x.Difficulty);
         double onDeckTotalDifficulty = onDeckDifficulties.Sum();
         double? currentRoundObservedHashrateThs = EstimateRankAdjustedHashrateThs(onDeckDifficulties, currentRoundElapsedSeconds);
         double? localDatumHashrateThs = EstimateLocalDatumHashrateThsNoLock(nowUtc);
@@ -1931,6 +1945,7 @@ public class BootProtocolStateService
             CurrentTipBlockHeight = _state.CurrentTipBlockHeight,
             LastRotationUtc = _state.LastRotationUtc,
             WinnersCount = _state.WinnersList.Count,
+            CurrentStateTotalDifficulty = currentStateTotalDifficulty,
             OnDeckCount = _state.OnDeckList.Count,
             OnDeckTotalDifficulty = onDeckTotalDifficulty,
             CurrentRoundElapsedSeconds = currentRoundElapsedSeconds,
@@ -2980,6 +2995,13 @@ public class BootProtocolStateService
         RememberAcceptedParentBlockHashNoLock(primaryHash);
     }
 
+    private void PreserveAcceptedParentContinuityAfterRotationNoLock(string? previousTipBlockHash, string? newTipBlockHash)
+    {
+        _state.AcceptedParentBlockHashes = [];
+        RememberAcceptedParentBlockHashNoLock(previousTipBlockHash);
+        RememberAcceptedParentBlockHashNoLock(newTipBlockHash);
+    }
+
     private void SetAcceptedParentBlockHashesNoLock(IEnumerable<string> hashes, string? currentTipBlockHash)
     {
         _state.AcceptedParentBlockHashes = [];
@@ -3529,6 +3551,53 @@ public class BootProtocolStateService
         }
 
         return endpoint.Trim().TrimEnd('/');
+    }
+
+    private bool TryLearnFreshParentFromTrustedShare(
+        string source,
+        BootShareValidationResult validation,
+        string expectedStateId)
+    {
+        if (!IsTrustedFreshParentSource(source) ||
+            string.IsNullOrWhiteSpace(validation.PrevBlockHash))
+        {
+            return false;
+        }
+
+        lock (_sync)
+        {
+            if (!string.Equals(expectedStateId, _state.CurrentStateId, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (IsAcceptedParentBlockHashNoLock(validation.PrevBlockHash))
+            {
+                return true;
+            }
+
+            RememberAcceptedParentBlockHashNoLock(validation.PrevBlockHash);
+            RecordNetworkEventNoLock(
+                "fresh-parent-learned",
+                source,
+                $"Learned fresh parent from otherwise-valid local share at difficulty {ClientHandler.FormatDifficulty(validation.Difficulty)}.",
+                validation.PrevBlockHash,
+                blockHeight: null);
+            RequestDeferredSaveNoLock();
+            RequestDeferredHistorySaveNoLock();
+            return true;
+        }
+    }
+
+    private static bool IsTrustedFreshParentSource(string source)
+    {
+        return string.Equals(source, "datum", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsWrongParentRejection(string? rejectionReason)
+    {
+        return !string.IsNullOrWhiteSpace(rejectionReason) &&
+               rejectionReason.StartsWith("Share builds on the wrong parent block", StringComparison.OrdinalIgnoreCase);
     }
 
     private void SeedSeenSharesNoLock()

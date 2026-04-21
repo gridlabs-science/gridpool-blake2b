@@ -70,6 +70,29 @@ public class BootPeerController : ControllerBase
             Source = string.IsNullOrWhiteSpace(senderEndpoint) ? "peer" : $"peer:{senderEndpoint}"
         }, "peer-block");
 
+        if (!result.Accepted &&
+            !string.IsNullOrWhiteSpace(result.RejectionReason) &&
+            result.RejectionReason.StartsWith("Share builds on the wrong parent block", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(senderEndpoint) &&
+            !string.IsNullOrWhiteSpace(announcement.Share.PrevBlockHash))
+        {
+            await _stateService.ObserveChainTipAsync(
+                announcement.Share.PrevBlockHash,
+                $"peer-share:{senderEndpoint}");
+
+            result = await _stateService.SubmitShareAsync(new RecordedShareSubmission
+            {
+                MinerAddress = announcement.Share.MinerAddress,
+                Username = string.IsNullOrWhiteSpace(announcement.Share.Username) ? string.Empty : announcement.Share.Username,
+                HeaderHex = announcement.Share.HeaderHex,
+                CoinbaseHex = announcement.Share.CoinbaseHex,
+                MerklePath = announcement.Share.MerklePath,
+                PrevBlockHash = announcement.Share.PrevBlockHash,
+                Difficulty = announcement.Share.Difficulty,
+                Source = string.IsNullOrWhiteSpace(senderEndpoint) ? "peer" : $"peer:{senderEndpoint}"
+            }, "peer-block");
+        }
+
         if (!result.Accepted && !string.Equals(result.RejectionReason, "Duplicate share", StringComparison.Ordinal))
         {
             _logger.LogWarning("Rejected peer share from {SenderEndpoint}: {Reason}", senderEndpoint, result.RejectionReason);

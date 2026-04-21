@@ -10,6 +10,7 @@
   "enable_admin_api": false,
   "admin_api_key": "",
   "min_diff": 300,
+  "peer_write_rate_limit_per_minute": 3000,
   "testing_round_reset_mode": "none",
   "testing_round_reset_low_nibble_threshold": 0
 }

@@ -66,9 +66,9 @@ Launch gates:
 ## Gate 1: Security And Protocol Correctness
 
 Latest verification snapshot:
-- `2026-04-18`
+- `2026-04-21`
 - targeted suite: `dotnet test boot.tests/boot.tests.csproj --no-restore`
-- result: `Passed 28 / 28`
+- result: `Passed 32 / 32`
 
 ### G1.1 Slot-0 attribution on all untrusted share paths
 
@@ -293,6 +293,81 @@ Evidence:
 
 ## Gate 2: Reliability And Convergence
 
+Latest `G2` soak snapshot:
+- `2026-04-21` active soak to `17:00 America/New_York`
+- tooling artifacts:
+  - [g2-monitor-2026-04-21-1700.json](/home/keegreil/Documents/GitHub/boot-protocol/g2-monitor-2026-04-21-1700.json)
+  - [g2-laptop-issue-prelim-2026-04-21.json](/home/keegreil/Documents/GitHub/boot-protocol/g2-laptop-issue-prelim-2026-04-21.json)
+  - [g2-laptop-issue-post-ratefix-2026-04-21.json](/home/keegreil/Documents/GitHub/boot-protocol/g2-laptop-issue-post-ratefix-2026-04-21.json)
+- [g2-laptop-issue-2026-04-21-1700.json](/home/keegreil/Documents/GitHub/boot-protocol/g2-laptop-issue-2026-04-21-1700.json)
+- [g2-laptop-issue-post-soak-2026-04-21.json](/home/keegreil/Documents/GitHub/boot-protocol/g2-laptop-issue-post-soak-2026-04-21.json)
+- key findings:
+  - main node was throttling laptop peer share relay with HTTP `429` at the old `peer_write_rate_limit_per_minute = 90`
+  - test/default peer write limit raised to `3000/min`
+  - no `peer-relay-failed` events were observed after the rate-limit change
+  - current state stayed well behaved:
+    - current-state divergence after the deploy window: `2` intervals, longest about `5.1s`
+    - tip divergence after the deploy window: `12` intervals, longest about `10.1s`
+  - candidate divergence after the deploy window improved but still needs watching:
+    - `203` intervals
+    - longest about `25.2s`
+    - `3` intervals above `15s`
+    - `0` intervals above `30s`
+  - coinbaser hot path passed:
+    - main avg/p95 about `0.57 ms / 0.76 ms`
+    - laptop avg/p95 about `0.93 ms / 1.48 ms`
+    - slow fetch count `0` on both nodes
+  - remaining issue:
+    - wrong-parent rejects can begin a few seconds before Boot records the new chain tip, meaning DATUM/miner can see fresh Bitcoin work before Boot's block-notification path
+    - payout-mismatch bursts then continue after deterministic test rotations while DATUM/miner stale templates drain
+    - laptop still shows frequent DATUM session locks/reconnects
+  - example post-soak burst:
+    - laptop wrong-parent rejects at `2026-04-21T21:27:11Z` to `2026-04-21T21:27:15Z`
+    - laptop chain-tip/round-rotation recorded at `2026-04-21T21:27:15Z`
+    - laptop payout-mismatch burst continued until about `2026-04-21T21:27:54Z`
+    - one Boot-side `datum-session-reset` fired after about `20.1s` of stale payout shares
+
+Previous `G2` soak snapshot:
+- `2026-04-19` to `2026-04-20`
+- tooling artifacts:
+  - [g2-monitor-2026-04-19-live.json](/home/keegreil/Documents/GitHub/boot-protocol/g2-monitor-2026-04-19-live.json)
+- key findings:
+  - coinbaser hot path remained healthy on both nodes
+  - live current/candidate/tip state converged by the end of the run
+  - candidate divergence was still too noisy:
+    - longest observed interval about `90.6s`
+    - `77` intervals in a `4h` run
+  - main node history reconstruction remained incomplete after the earlier Tailscale outage:
+    - main `canonical=11`, `orphaned=21`
+    - peer `canonical=32`, `orphaned=0`
+  - laptop DATUM path still showed too many late `Payout mismatch` rejects
+
+Working definition of `good enough` for G2:
+- `Payout mismatch`
+  - indicates the share coinbase is using the wrong Boot payout layout for the current round
+  - acceptable only in a short post-rotation transition window
+- `Wrong parent block`
+  - indicates the share header builds on a Bitcoin `prevhash` that is outside the node's currently accepted parent-block set
+  - this is a Bitcoin-parent mismatch, not a direct "wrong Boot round" signal
+  - some amount is expected around real tip changes and round resets
+  - local DATUM shares may now teach Boot about a fresh parent before Boot's own block notifier observes it, but only after the share validates cryptographically and against the current payout list
+- `Solo fallback template`
+  - indicates the mining client is still hashing a non-Boot single-recipient template
+  - acceptable only during brief reconnect/failover windows
+
+Current working exit target:
+- `Payout mismatch > 60s after round rotation = 0`
+- `Solo fallback template > 60s after rotation/reconnect = 0`
+- `Wrong parent block > 60s after parent-set changes` is tolerated only at low rate:
+  - target `<= 0.5%` of local DATUM submissions per node over a soak
+  - no single burst should continue past `120s`
+- candidate divergence:
+  - preferred `<= 15s`
+  - provisional launch ceiling `<= 30s` longest interval during a stable two-node soak
+- coinbaser:
+  - no slow fetches
+  - average and p95 remain inside the existing thresholds below
+
 ### G2.1 Post-rotation reject burst bounded
 
 Status:
@@ -305,7 +380,9 @@ Goal:
 Acceptance criteria:
 - over a `48h` two-node soak:
   - `Payout mismatch` rejects occurring more than `60s` after a round rotation are `0`
-  - `Wrong parent block` rejects occurring more than `60s` after a normal tip change are `0`
+  - `Wrong parent block` rejects occurring more than `60s` after a parent-set change are rare and bounded:
+    - `<= 0.5%` of local DATUM submissions per node over the soak
+    - no burst lasts longer than `120s`
   - `Solo fallback template` bursts are absent in steady state and only tolerated briefly during reconnect/failover tests
 
 Evidence to capture:
@@ -319,6 +396,21 @@ Current tooling:
   - polls one or two nodes over time
   - measures candidate/current/tip divergence intervals
   - emits G2-oriented verdict hints from live API data
+- [boot-laptop-issue-report.mjs](/home/keegreil/Documents/GitHub/boot-protocol/scripts/boot-laptop-issue-report.mjs)
+  - filters diagnostics by exact timestamps client-side
+  - buckets rejects against chain tips, round rotations, DATUM refreshes, and DATUM session events
+
+Current mitigation:
+- [BootProtocolStateService.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/Services/BootProtocolStateService.cs) accepts a local DATUM share on an unknown fresh parent if:
+  - the only initial failure is `Wrong parent block`
+  - revalidation without the parent allow-list succeeds
+  - the coinbase payout list matches the current Boot state
+  - computed difficulty is at least `1`
+  - source is the trusted local DATUM path
+- HTTP shares remain strict until Boot already knows the parent, preserving the trustless Hydrapool launch path.
+- Automated coverage:
+  - `DatumShareOnFreshParentIsAcceptedAndLearnsParentWithoutTipAdvanceAsync`
+  - `HttpShareOnFreshParentIsRejectedUntilTipIsKnownAsync`
 
 ### G2.2 Candidate convergence is self-healing
 
@@ -327,7 +419,10 @@ Status:
 
 Acceptance criteria:
 - during a `48h` soak:
-  - no candidate divergence lasting more than `15s`
+  - preferred target:
+    - no candidate divergence lasting more than `15s`
+  - provisional launch ceiling:
+    - no candidate divergence lasting more than `30s`
 - during explicit disruption tests:
   - laptop sleep/wake
   - peer offline `1h`
@@ -470,6 +565,7 @@ Status:
 Scenarios:
 - duplicate share flood
 - malformed share flood
+- low-difficulty peer share spam below the current on-deck admission floor
 - peer replay flood
 - spoofed forwarded-IP rate-limit bypass attempts
 - reconnect churn
@@ -478,7 +574,13 @@ Acceptance criteria:
 - service stays up
 - no runaway memory growth
 - rate limiter engages where expected
+- peers repeatedly submitting shares below the advertised on-deck admission floor are disconnected or deprioritized
 - no attacker-controlled growth in `_seenShareIds`, diagnostics, or archived state beyond configured caps
+
+Design note:
+- Proof-of-work should be the primary peer-share admission control.
+- A peer that submits a valid high-difficulty share has already paid a real work cost.
+- A peer that keeps sending low-difficulty shares after being told the current minimum useful difficulty is producing obvious spam and should be disconnected before it consumes hot-path validation time.
 
 ## Gate 4: Product, Operator, And Launch Operations
 

@@ -196,6 +196,7 @@ These should be expected occasionally:
 - a few single-recipient fallback templates right after initial connect
 - a few fallback shares right after upstream reconnect
 - a few stale/wrong-parent shares right after block changes
+- a local DATUM share built on a fresh Bitcoin parent before Boot's own block notifier has observed that parent
 - some single-output work during coinbaser delay windows
 
 ### Suspicious
@@ -214,9 +215,65 @@ These findings support the following Boot-side policy:
 1. A small burst of `Solo fallback template` rejects immediately after DATUM connect/reconnect is normal.
 2. Boot should not overreact to the first few rejects right after session lock.
 3. Forced Boot-side DATUM disconnects can make things worse by pushing DATUM back into the same fallback window.
-4. The remaining health signal to watch is:
+4. Boot may learn a fresh parent from its directly connected DATUM client after validating the submitted share without the parent allow-list.
+5. The remaining health signal to watch is:
    - how often DATUM reconnects
    - how long fallback rejects persist after each reconnect
+
+## Fresh Parent Handling
+
+DATUM can observe a new Bitcoin tip and begin generating work before Boot's own notifier path sees that same tip.
+
+Boot now treats that case as normal only on the trusted local DATUM path:
+
+- validate the share header, merkle root, slot-0 attribution, payout list, and difficulty
+- if the only failure was that the parent is unknown, add the share's `prevhash` to the accepted parent set
+- accept the share without advancing Boot's displayed `currentTipBlockHash`
+- let the normal Bitcoin notifier or peer state update advance the displayed tip and trigger any deterministic test rotation
+
+This deliberately does not apply to the public HTTP path. Hydrapool/HTTP shares must remain trustless: Boot should not accept an unknown parent from an untrusted caller unless it also has a way to verify the parent header.
+
+## DATUM Flush/Refresh Controls
+
+The local DATUM source scan did not show a stronger upstream command that forces all downstream miners to discard old work beyond the existing block-notify mechanism.
+
+Relevant code:
+
+- `src/datum_protocol.c` handles mining command `0xF9` as `DATUM server blocknotify` and calls `datum_blocktemplates_notifynew(NULL, 0)`.
+- `src/datum_stratum.c` sends `mining.notify` with `clean_jobs = true` for some new-block empty-work blasts.
+- `src/datum_stratum.c` later sends full/paced job updates that can use `clean_jobs = false`.
+
+Implication:
+
+- Boot can ask DATUM to check for new work quickly.
+- Boot cannot currently guarantee that every ASIC immediately drops already-buffered old templates.
+- Squashing late payout-mismatch rejects to zero may require a DATUM fork, miner firmware changes, or both.
+
+## 2026-04-21 Laptop Soak Finding
+
+During the laptop/main two-node soak, the laptop showed two separate problems:
+
+- High-rate laptop share relays were being throttled by the main node's `peer-write` limiter at the old `90/min` default.
+- The laptop DATUM process repeatedly opened new upstream DATUM sessions, visible as frequent `datum-session-lock` events from changing source ports.
+
+The relay-throttle issue is a Boot configuration/design issue, not a DATUM issue. At roughly `8-9 TH/s` and low min difficulty, the laptop can produce hundreds of accepted shares per minute, so `90/min` is too low for peer relay. The test default was raised to `3000/min`, and `peer-relay-failed` events were added so future throttling can be seen through `/api/network/events` instead of only by scraping logs.
+
+The reconnect churn appears DATUM-side from Boot's perspective:
+
+- Boot logs show `Client <endpoint> disconnected (no data)`.
+- Laptop DATUM logs show repeated `Starting DATUM v0.2-beta client...`.
+- DATUM only refreshes its internal share-acceptance watchdog on accepted share responses, not rejected ones.
+
+Interpretation:
+
+- If Boot rejects every share from a stale/fallback window for long enough, DATUM can reconnect even when the TCP path is otherwise healthy.
+- Reconnects then create another short temporary/fallback-template window.
+- After the peer-write limit was raised, the immediate post-fix window showed `100%` DATUM acceptance on both nodes and converged candidate state, while session-lock churn still appeared. That means reconnect churn should be treated as a warning signal, but it is only a launch blocker if it correlates with sustained reject bursts or convergence failure.
+
+Tooling:
+
+- `scripts/boot-laptop-issue-report.mjs` compares main/peer summaries and buckets rejects against chain tips, round rotations, DATUM refresh requests, and session events.
+- Current 5pm soak monitor: `g2-monitor-2026-04-21-1700.json`.
 
 ## Likely Next Steps
 

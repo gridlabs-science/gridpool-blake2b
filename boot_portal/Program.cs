@@ -115,7 +115,7 @@ public class PoolConfig
     public int NetworkReadRateLimitPerMinute { get; set; } = 180;
 
     [JsonPropertyName("peer_write_rate_limit_per_minute")]
-    public int PeerWriteRateLimitPerMinute { get; set; } = 90;
+    public int PeerWriteRateLimitPerMinute { get; set; } = 3000;
 
     [JsonPropertyName("mining_api_share_rate_limit_per_minute")]
     public int MiningApiShareRateLimitPerMinute { get; set; } = 120;

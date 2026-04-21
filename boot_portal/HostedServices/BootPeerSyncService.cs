@@ -152,6 +152,16 @@ public class BootPeerSyncService : BackgroundService
 
         BootNetworkStatusDto local = _stateService.GetNetworkStatus();
 
+        if (!string.IsNullOrWhiteSpace(remote.CurrentTipBlockHash) &&
+            (!BitcoinHashes.AreEquivalent(remote.CurrentTipBlockHash, local.CurrentTipBlockHash) ||
+             (remote.CurrentTipBlockHeight.HasValue && remote.CurrentTipBlockHeight != local.CurrentTipBlockHeight)))
+        {
+            local = await _stateService.ObserveChainTipAsync(
+                remote.CurrentTipBlockHash,
+                $"peer-tip:{remoteEndpoint}",
+                remote.CurrentTipBlockHeight);
+        }
+
         if (!string.IsNullOrWhiteSpace(remote.CurrentStateId) &&
             !string.Equals(remote.CurrentStateId, local.CurrentStateId, StringComparison.OrdinalIgnoreCase) &&
             ShouldFetchRemoteCurrentState(local, remote))
@@ -196,16 +206,6 @@ public class BootPeerSyncService : BackgroundService
                 remote.LastRotationUtc,
                 remoteEndpoint);
             local = _stateService.GetNetworkStatus();
-        }
-
-        if (!string.IsNullOrWhiteSpace(remote.CurrentTipBlockHash) &&
-            (!BitcoinHashes.AreEquivalent(remote.CurrentTipBlockHash, local.CurrentTipBlockHash) ||
-             (remote.CurrentTipBlockHeight.HasValue && remote.CurrentTipBlockHeight != local.CurrentTipBlockHeight)))
-        {
-            local = await _stateService.ObserveChainTipAsync(
-                remote.CurrentTipBlockHash,
-                $"peer-tip:{remoteEndpoint}",
-                remote.CurrentTipBlockHeight);
         }
 
         if (string.IsNullOrWhiteSpace(remote.CandidateStateId) ||
@@ -256,7 +256,19 @@ public class BootPeerSyncService : BackgroundService
         if (response.IsSuccessStatusCode)
         {
             _stateService.UpdatePeerHeartbeat(peer, "relayed", null, DateTime.UtcNow);
+            return;
         }
+
+        string status = response.StatusCode == HttpStatusCode.TooManyRequests
+            ? "relay-rate-limited"
+            : $"relay-http-{(int)response.StatusCode}";
+        _stateService.MarkPeerFailure(peer, status);
+        _stateService.RecordExternalNetworkEvent(
+            "peer-relay-failed",
+            peer,
+            $"Share relay failed with HTTP {(int)response.StatusCode} {response.ReasonPhrase}.",
+            proof.PrevBlockHash,
+            null);
     }
 
     private static string NormalizeEndpoint(string endpoint)
@@ -266,20 +278,28 @@ public class BootPeerSyncService : BackgroundService
 
     private static bool ShouldFetchRemoteCurrentState(BootNetworkStatusDto local, BootNetworkStatusDto remote)
     {
-        DateTime localRotation = local.LastRotationUtc ?? DateTime.MinValue;
-        DateTime remoteRotation = remote.LastRotationUtc ?? DateTime.MinValue;
-
         if (local.WinnersCount == 0 || (local.WinnersCount == 1 && local.OnDeckCount == 0))
         {
             return true;
         }
 
-        if (remoteRotation > localRotation)
+        if (remote.CurrentRoundNumber > local.CurrentRoundNumber)
         {
             return true;
         }
 
-        if (remoteRotation < localRotation)
+        if (remote.CurrentRoundNumber < local.CurrentRoundNumber)
+        {
+            return false;
+        }
+
+        const double epsilon = 0.0000001;
+        if (remote.CurrentStateTotalDifficulty > local.CurrentStateTotalDifficulty + epsilon)
+        {
+            return true;
+        }
+
+        if (remote.CurrentStateTotalDifficulty + epsilon < local.CurrentStateTotalDifficulty)
         {
             return false;
         }

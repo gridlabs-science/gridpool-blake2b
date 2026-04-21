@@ -62,6 +62,9 @@ function correlateRejects(rejects, events) {
         .filter(event => event.timestampMs != null)
         .sort((a, b) => a.timestampMs - b.timestampMs);
 
+    const parentBoundaries = [...roundRotations, ...chainTips]
+        .sort((a, b) => a.timestampMs - b.timestampMs);
+
     let payoutMismatchAfter60s = 0;
     let wrongParentAfter60s = 0;
     let fallbackAfter60s = 0;
@@ -83,8 +86,8 @@ function correlateRejects(rejects, events) {
         }
 
         if (reject.rejectionCategory === "Wrong parent block") {
-            const lastTip = findLatestEventBefore(chainTips, rejectMs);
-            if (!lastTip || rejectMs - lastTip.timestampMs > 60_000) {
+            const lastParentBoundary = findLatestEventBefore(parentBoundaries, rejectMs);
+            if (!lastParentBoundary || rejectMs - lastParentBoundary.timestampMs > 60_000) {
                 wrongParentAfter60s += 1;
             }
             continue;

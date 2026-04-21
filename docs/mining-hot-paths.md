@@ -134,6 +134,13 @@ Why it matters:
 Current expectations:
 - peer timeouts should degrade peer health, not stop the process
 - candidate fetch races should be handled via cached recent candidate bundles
+- peer share relay limits must scale with expected per-node share rate, especially while test min difficulty is low
+- relay failures should be visible as protocol telemetry, not only as HTTP client logs
+
+Recent finding:
+- the old `peer_write_rate_limit_per_minute = 90` throttled the high-hashrate laptop node and produced many HTTP `429` responses
+- this caused candidate divergence risk because the main node was rejecting valid peer relays before share validation
+- the test/default value is now `3000/min`, and non-success peer relay responses record `peer-relay-failed` events
 
 ## Locking Principles
 
