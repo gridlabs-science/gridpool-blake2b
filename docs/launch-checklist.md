@@ -396,6 +396,10 @@ Current tooling:
   - polls one or two nodes over time
   - measures candidate/current/tip divergence intervals
   - emits G2-oriented verdict hints from live API data
+- [boot-g2-soak.sh](/home/keegreil/Documents/GitHub/boot-protocol/scripts/boot-g2-soak.sh)
+  - starts a repeatable soak with the default main/laptop URLs
+  - writes both a monitor JSON and a post-run summary JSON under `logs/`
+  - example: `scripts/boot-g2-soak.sh 2h`
 - [boot-laptop-issue-report.mjs](/home/keegreil/Documents/GitHub/boot-protocol/scripts/boot-laptop-issue-report.mjs)
   - filters diagnostics by exact timestamps client-side
   - buckets rejects against chain tips, round rotations, DATUM refreshes, and DATUM session events
@@ -411,6 +415,18 @@ Current mitigation:
 - Automated coverage:
   - `DatumShareOnFreshParentIsAcceptedAndLearnsParentWithoutTipAdvanceAsync`
   - `HttpShareOnFreshParentIsRejectedUntilTipIsKnownAsync`
+
+Fresh-parent soak signals:
+- `fresh-parent-learned` event counts are included in `boot-g2-monitor`, `boot-soak-report`, and `boot-laptop-issue-report`.
+- `Wrong parent block` rejects are split into:
+  - `within 10s before chain-tip`
+  - `within 10s after chain-tip`
+  - `outside the +/-10s chain-tip window`
+- G2 verdicts use `wrongParentAfter60sOutside10sChainTipWindow` for the noisy wrong-parent alarm, so a DATUM-sees-tip-first reject is reported without being treated the same as an unexplained late stale-parent condition.
+- Desired post-patch shape:
+  - some `fresh-parent-learned` events are acceptable and useful
+  - `Wrong parent block` before-chain-tip rejects should drop materially
+  - `Wrong parent block` outside the +/-10s chain-tip window should trend toward zero
 
 ### G2.2 Candidate convergence is self-healing
 

@@ -122,6 +122,16 @@ function findLatestEventBefore(events, timestampMs) {
     return latest;
 }
 
+function findNextEventAfter(events, timestampMs) {
+    for (const event of events) {
+        if (event.timestampMs >= timestampMs) {
+            return event;
+        }
+    }
+
+    return null;
+}
+
 function correlateRejects(rejects, events) {
     const roundRotations = events
         .filter(event => event.eventType === "round-rotation")
@@ -141,6 +151,10 @@ function correlateRejects(rejects, events) {
     const result = {
         payoutMismatchAfter60s: 0,
         wrongParentAfter60s: 0,
+        wrongParentWithin10sBeforeChainTip: 0,
+        wrongParentWithin10sAfterChainTip: 0,
+        wrongParentOutside10sChainTipWindow: 0,
+        wrongParentAfter60sOutside10sChainTipWindow: 0,
         fallbackAfter60s: 0,
         unmatched: 0
     };
@@ -162,8 +176,27 @@ function correlateRejects(rejects, events) {
 
         if (reject.rejectionCategory === "Wrong parent block") {
             const lastParentBoundary = findLatestEventBefore(parentBoundaries, rejectMs);
-            if (!lastParentBoundary || rejectMs - lastParentBoundary.timestampMs > 60_000) {
+            const afterParentBoundary60s = !lastParentBoundary || rejectMs - lastParentBoundary.timestampMs > 60_000;
+
+            const previousChainTip = findLatestEventBefore(chainTips, rejectMs);
+            const nextChainTip = findNextEventAfter(chainTips, rejectMs);
+            const afterChainTipMs = previousChainTip ? rejectMs - previousChainTip.timestampMs : null;
+            const beforeChainTipMs = nextChainTip ? nextChainTip.timestampMs - rejectMs : null;
+            let outsideChainTipWindow = false;
+            if (beforeChainTipMs != null && beforeChainTipMs <= 10_000) {
+                result.wrongParentWithin10sBeforeChainTip += 1;
+            } else if (afterChainTipMs != null && afterChainTipMs <= 10_000) {
+                result.wrongParentWithin10sAfterChainTip += 1;
+            } else {
+                result.wrongParentOutside10sChainTipWindow += 1;
+                outsideChainTipWindow = true;
+            }
+
+            if (afterParentBoundary60s) {
                 result.wrongParentAfter60s += 1;
+                if (outsideChainTipWindow) {
+                    result.wrongParentAfter60sOutside10sChainTipWindow += 1;
+                }
             }
             continue;
         }
@@ -197,12 +230,15 @@ async function fetchAnalysis(baseUrl, durationSeconds) {
 
     const rejects = Array.isArray(rejectsSeries?.events) ? rejectsSeries.events : [];
     const events = Array.isArray(eventsSeries?.events) ? eventsSeries.events : [];
+    const eventCounts = countBy(events, event => event.eventType);
 
     return {
         summary,
         rejectCount: rejects.length,
         rejectReasons: countBy(rejects, reject => reject.rejectionCategory || reject.rejectionReason),
         lateRejects: correlateRejects(rejects, events),
+        eventCounts,
+        freshParentLearnedCount: eventCounts["fresh-parent-learned"] || 0,
         restartSignalCount: events.filter(event => ["datum-session-reset", "datum-session-close"].includes(event.eventType)).length
     };
 }
@@ -216,11 +252,11 @@ function buildVerdict(report) {
 
     const lateRejectFailures = [];
     if (report.mainAnalysis.lateRejects.payoutMismatchAfter60s > 0) lateRejectFailures.push("main payout mismatch >60s");
-    if (report.mainAnalysis.lateRejects.wrongParentAfter60s > 0) lateRejectFailures.push("main wrong parent >60s");
+    if (report.mainAnalysis.lateRejects.wrongParentAfter60sOutside10sChainTipWindow > 0) lateRejectFailures.push("main wrong parent >60s outside chain-tip window");
     if (report.mainAnalysis.lateRejects.fallbackAfter60s > 0) lateRejectFailures.push("main fallback >60s");
     if (report.peerAnalysis) {
         if (report.peerAnalysis.lateRejects.payoutMismatchAfter60s > 0) lateRejectFailures.push("peer payout mismatch >60s");
-        if (report.peerAnalysis.lateRejects.wrongParentAfter60s > 0) lateRejectFailures.push("peer wrong parent >60s");
+        if (report.peerAnalysis.lateRejects.wrongParentAfter60sOutside10sChainTipWindow > 0) lateRejectFailures.push("peer wrong parent >60s outside chain-tip window");
         if (report.peerAnalysis.lateRejects.fallbackAfter60s > 0) lateRejectFailures.push("peer fallback >60s");
     }
     verdict.g2_1 = lateRejectFailures.length === 0 ? "pass-ish" : `attention: ${lateRejectFailures.join(", ")}`;
@@ -347,9 +383,19 @@ async function main() {
     report.verdict = buildVerdict(report);
 
     console.log(`[g2-monitor] duration=${durationSeconds}s interval=${intervalSeconds}s samples=${samples.length}`);
-    console.log(`[main] acceptance=${formatPercent(report.mainAnalysis.summary.localDatumDiagnostics?.acceptedCount ?? 0, report.mainAnalysis.summary.localDatumDiagnostics?.totalSubmissions ?? 0)} rejects=${report.mainAnalysis.rejectCount} coinbaserAvgMs=${report.mainAnalysis.summary.coinbaserDiagnostics?.averageDurationMs?.toFixed?.(2) ?? "--"}`);
+    console.log(`[main] acceptance=${formatPercent(report.mainAnalysis.summary.localDatumDiagnostics?.acceptedCount ?? 0, report.mainAnalysis.summary.localDatumDiagnostics?.totalSubmissions ?? 0)} rejects=${report.mainAnalysis.rejectCount} freshParents=${report.mainAnalysis.freshParentLearnedCount} coinbaserAvgMs=${report.mainAnalysis.summary.coinbaserDiagnostics?.averageDurationMs?.toFixed?.(2) ?? "--"}`);
+    console.log(`[main] wrongParentChainTipWindow=${JSON.stringify({
+        before10s: report.mainAnalysis.lateRejects.wrongParentWithin10sBeforeChainTip,
+        after10s: report.mainAnalysis.lateRejects.wrongParentWithin10sAfterChainTip,
+        outside10s: report.mainAnalysis.lateRejects.wrongParentOutside10sChainTipWindow
+    })}`);
     if (peerAnalysis) {
-        console.log(`[peer] acceptance=${formatPercent(report.peerAnalysis.summary.localDatumDiagnostics?.acceptedCount ?? 0, report.peerAnalysis.summary.localDatumDiagnostics?.totalSubmissions ?? 0)} rejects=${report.peerAnalysis.rejectCount} coinbaserAvgMs=${report.peerAnalysis.summary.coinbaserDiagnostics?.averageDurationMs?.toFixed?.(2) ?? "--"}`);
+        console.log(`[peer] acceptance=${formatPercent(report.peerAnalysis.summary.localDatumDiagnostics?.acceptedCount ?? 0, report.peerAnalysis.summary.localDatumDiagnostics?.totalSubmissions ?? 0)} rejects=${report.peerAnalysis.rejectCount} freshParents=${report.peerAnalysis.freshParentLearnedCount} coinbaserAvgMs=${report.peerAnalysis.summary.coinbaserDiagnostics?.averageDurationMs?.toFixed?.(2) ?? "--"}`);
+        console.log(`[peer] wrongParentChainTipWindow=${JSON.stringify({
+            before10s: report.peerAnalysis.lateRejects.wrongParentWithin10sBeforeChainTip,
+            after10s: report.peerAnalysis.lateRejects.wrongParentWithin10sAfterChainTip,
+            outside10s: report.peerAnalysis.lateRejects.wrongParentOutside10sChainTipWindow
+        })}`);
         console.log(`[divergence] candidateLongestMs=${report.divergence.candidate.longestMs} currentLongestMs=${report.divergence.current.longestMs} tipLongestMs=${report.divergence.tip.longestMs}`);
     }
     console.log(`[verdict] ${JSON.stringify(report.verdict)}`);

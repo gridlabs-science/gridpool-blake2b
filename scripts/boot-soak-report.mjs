@@ -65,30 +65,55 @@ function correlateRejects(rejects, events) {
     const parentBoundaries = [...roundRotations, ...chainTips]
         .sort((a, b) => a.timestampMs - b.timestampMs);
 
-    let payoutMismatchAfter60s = 0;
-    let wrongParentAfter60s = 0;
-    let fallbackAfter60s = 0;
-    let unmatched = 0;
+    const result = {
+        payoutMismatchAfter60s: 0,
+        wrongParentAfter60s: 0,
+        wrongParentWithin10sBeforeChainTip: 0,
+        wrongParentWithin10sAfterChainTip: 0,
+        wrongParentOutside10sChainTipWindow: 0,
+        wrongParentAfter60sOutside10sChainTipWindow: 0,
+        fallbackAfter60s: 0,
+        unmatched: 0
+    };
 
     for (const reject of rejects) {
         const rejectMs = parseDate(reject.timestampUtc);
         if (rejectMs == null) {
-            unmatched += 1;
+            result.unmatched += 1;
             continue;
         }
 
         if (reject.rejectionCategory === "Payout mismatch") {
             const lastRotation = findLatestEventBefore(roundRotations, rejectMs);
             if (!lastRotation || rejectMs - lastRotation.timestampMs > 60_000) {
-                payoutMismatchAfter60s += 1;
+                result.payoutMismatchAfter60s += 1;
             }
             continue;
         }
 
         if (reject.rejectionCategory === "Wrong parent block") {
             const lastParentBoundary = findLatestEventBefore(parentBoundaries, rejectMs);
-            if (!lastParentBoundary || rejectMs - lastParentBoundary.timestampMs > 60_000) {
-                wrongParentAfter60s += 1;
+            const afterParentBoundary60s = !lastParentBoundary || rejectMs - lastParentBoundary.timestampMs > 60_000;
+
+            const previousChainTip = findLatestEventBefore(chainTips, rejectMs);
+            const nextChainTip = findNextEventAfter(chainTips, rejectMs);
+            const afterChainTipMs = previousChainTip ? rejectMs - previousChainTip.timestampMs : null;
+            const beforeChainTipMs = nextChainTip ? nextChainTip.timestampMs - rejectMs : null;
+            let outsideChainTipWindow = false;
+            if (beforeChainTipMs != null && beforeChainTipMs <= 10_000) {
+                result.wrongParentWithin10sBeforeChainTip += 1;
+            } else if (afterChainTipMs != null && afterChainTipMs <= 10_000) {
+                result.wrongParentWithin10sAfterChainTip += 1;
+            } else {
+                result.wrongParentOutside10sChainTipWindow += 1;
+                outsideChainTipWindow = true;
+            }
+
+            if (afterParentBoundary60s) {
+                result.wrongParentAfter60s += 1;
+                if (outsideChainTipWindow) {
+                    result.wrongParentAfter60sOutside10sChainTipWindow += 1;
+                }
             }
             continue;
         }
@@ -96,18 +121,13 @@ function correlateRejects(rejects, events) {
         if (reject.rejectionCategory === "Solo fallback template") {
             const lastRotation = findLatestEventBefore(roundRotations, rejectMs);
             if (!lastRotation || rejectMs - lastRotation.timestampMs > 60_000) {
-                fallbackAfter60s += 1;
+                result.fallbackAfter60s += 1;
             }
             continue;
         }
     }
 
-    return {
-        payoutMismatchAfter60s,
-        wrongParentAfter60s,
-        fallbackAfter60s,
-        unmatched
-    };
+    return result;
 }
 
 function findLatestEventBefore(events, timestampMs) {
@@ -120,6 +140,16 @@ function findLatestEventBefore(events, timestampMs) {
         }
     }
     return latest;
+}
+
+function findNextEventAfter(events, timestampMs) {
+    for (const event of events) {
+        if (event.timestampMs >= timestampMs) {
+            return event;
+        }
+    }
+
+    return null;
 }
 
 async function fetchJson(baseUrl, path, params = {}) {
@@ -157,6 +187,7 @@ async function fetchNodeReport(baseUrl, window, limit) {
     const eventItems = Array.isArray(events?.events) ? events.events : [];
     const correlated = correlateRejects(rejectEvents, eventItems);
     const rejectionCounts = countBy(rejectEvents, reject => reject.rejectionCategory || reject.rejectionReason);
+    const eventCounts = countBy(eventItems, event => event.eventType);
     const restartSignals = eventItems.filter(event =>
         ["datum-session-reset", "datum-session-close"].includes(event.eventType));
 
@@ -167,6 +198,8 @@ async function fetchNodeReport(baseUrl, window, limit) {
         rejectionCounts,
         correlatedRejects: correlated,
         eventCount: eventItems.length,
+        eventCounts,
+        freshParentLearnedCount: eventCounts["fresh-parent-learned"] || 0,
         restartSignalCount: restartSignals.length
     };
 }
@@ -206,6 +239,8 @@ function printSummary(report, label) {
     console.log(`  Rejects: ${report.rejectCount}`);
     console.log(`  Reject reasons: ${JSON.stringify(report.rejectionCounts)}`);
     console.log(`  Late rejects >60s: ${JSON.stringify(report.correlatedRejects)}`);
+    console.log(`  Fresh parents learned: ${report.freshParentLearnedCount}`);
+    console.log(`  Events: ${JSON.stringify(report.eventCounts)}`);
     console.log(`  Coinbaser avg/p95: ${summary.coinbaserDiagnostics?.averageDurationMs?.toFixed?.(2) ?? "--"} ms / ${summary.coinbaserDiagnostics?.p95DurationMs?.toFixed?.(2) ?? "--"} ms`);
     console.log(`  Slow fetch count: ${summary.coinbaserDiagnostics?.slowFetchCount ?? 0}`);
 }

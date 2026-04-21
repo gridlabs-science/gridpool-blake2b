@@ -45,6 +45,20 @@ function parseBound(value, fallback) {
     return parsed;
 }
 
+function parseWindowMs(window) {
+    const match = /^(\d+)([smhd])$/.exec(window || "");
+    if (!match) {
+        return 12 * 60 * 60 * 1000;
+    }
+
+    const amount = Number(match[1]);
+    const unit = match[2];
+    if (unit === "s") return amount * 1000;
+    if (unit === "m") return amount * 60 * 1000;
+    if (unit === "h") return amount * 60 * 60 * 1000;
+    return amount * 24 * 60 * 60 * 1000;
+}
+
 function countBy(items, selector) {
     const counts = new Map();
     for (const item of items) {
@@ -114,6 +128,16 @@ function findLatestBefore(items, timestamp) {
     return latest;
 }
 
+function findNextAfter(items, timestamp) {
+    for (const item of items) {
+        if (item.timestampMs >= timestamp) {
+            return item;
+        }
+    }
+
+    return null;
+}
+
 function delayBucket(deltaMs) {
     if (deltaMs == null) {
         return "unmatched";
@@ -170,11 +194,18 @@ function summarizeRejectCorrelation(rejects, events) {
         sinceSessionEdge: {}
     };
     const lateByReason = {};
+    const wrongParentChainTipWindow = {
+        before10s: 0,
+        after10s: 0,
+        outside10s: 0,
+        after60sOutside10s: 0
+    };
 
     for (const reject of withTimestamp(rejects)) {
         const reason = reject.rejectionCategory || reject.rejectionReason || "unknown";
         const lastRoundRotation = findLatestBefore(roundRotations, reject.timestampMs);
         const lastChainTip = findLatestBefore(chainTips, reject.timestampMs);
+        const nextChainTip = findNextAfter(chainTips, reject.timestampMs);
         const lastParentEdge = findLatestBefore(parentEdges, reject.timestampMs);
         const lastRefresh = findLatestBefore(refreshes, reject.timestampMs);
         const lastSessionEdge = findLatestBefore(sessionEdges, reject.timestampMs);
@@ -196,10 +227,26 @@ function summarizeRejectCorrelation(rejects, events) {
         if (parentLate) {
             lateByReason[reason] = (lateByReason[reason] || 0) + 1;
         }
+
+        if (reason === "Wrong parent block") {
+            const beforeChainTipMs = nextChainTip ? nextChainTip.timestampMs - reject.timestampMs : null;
+            const afterChainTipMs = lastChainTip ? reject.timestampMs - lastChainTip.timestampMs : null;
+            if (beforeChainTipMs != null && beforeChainTipMs <= 10_000) {
+                wrongParentChainTipWindow.before10s += 1;
+            } else if (afterChainTipMs != null && afterChainTipMs <= 10_000) {
+                wrongParentChainTipWindow.after10s += 1;
+            } else {
+                wrongParentChainTipWindow.outside10s += 1;
+                if (parentLate) {
+                    wrongParentChainTipWindow.after60sOutside10s += 1;
+                }
+            }
+        }
     }
 
     return {
         lateAfterParentEdge60sByReason: Object.fromEntries(Object.entries(lateByReason).sort((a, b) => b[1] - a[1])),
+        wrongParentChainTipWindow,
         buckets
     };
 }
@@ -277,6 +324,7 @@ async function fetchNodeReport(label, baseUrl, args, sinceMs, untilMs) {
             topMinuteBursts: summarizeMinuteBursts(rejects),
             eventCount: events.length,
             eventCounts,
+            freshParentLearnedCount: eventCounts["fresh-parent-learned"] || 0,
             coinbaserFetchCount: coinbaserFetches.length,
             temporarySlotZeroFetchCount: coinbaserFetches.filter(fetch => fetch.usingTemporarySlotZero).length,
             slowCoinbaserFetchCount: coinbaserFetches.filter(fetch => Number(fetch.durationMs) >= 100).length,
@@ -296,8 +344,10 @@ function printNode(report) {
     console.log(`  Reasons: ${JSON.stringify(report.windowed.rejectReasons)}`);
     console.log(`  Reject rounds: ${JSON.stringify(report.windowed.rejectRounds)}`);
     console.log(`  Events: ${JSON.stringify(topEntries(report.windowed.eventCounts, 8))}`);
+    console.log(`  Fresh parents learned: ${report.windowed.freshParentLearnedCount}`);
     console.log(`  Coinbaser fetches: ${report.windowed.coinbaserFetchCount} (temporary slot-0: ${report.windowed.temporarySlotZeroFetchCount}, slow>=100ms: ${report.windowed.slowCoinbaserFetchCount})`);
     console.log(`  Late rejects >60s after chain-tip/round-rotation: ${JSON.stringify(report.windowed.rejectCorrelation.lateAfterParentEdge60sByReason)}`);
+    console.log(`  Wrong-parent timing vs chain-tip: ${JSON.stringify(report.windowed.rejectCorrelation.wrongParentChainTipWindow)}`);
     if (report.windowed.topMinuteBursts.length > 0) {
         console.log(`  Top reject bursts: ${JSON.stringify(report.windowed.topMinuteBursts.slice(0, 5))}`);
     }
@@ -310,7 +360,7 @@ async function main() {
     }
 
     const nowMs = Date.now();
-    const sinceMs = parseBound(args.since, nowMs - 12 * 60 * 60 * 1000);
+    const sinceMs = parseBound(args.since, nowMs - parseWindowMs(args.window || "12h"));
     const untilMs = parseBound(args.until, nowMs);
     if (sinceMs > untilMs) {
         throw new Error("--since must be before --until");
