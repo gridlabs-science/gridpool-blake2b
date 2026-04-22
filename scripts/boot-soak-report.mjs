@@ -119,8 +119,8 @@ function correlateRejects(rejects, events) {
         }
 
         if (reject.rejectionCategory === "Solo fallback template") {
-            const lastRotation = findLatestEventBefore(roundRotations, rejectMs);
-            if (!lastRotation || rejectMs - lastRotation.timestampMs > 60_000) {
+            const lastParentBoundary = findLatestEventBefore(parentBoundaries, rejectMs);
+            if (!lastParentBoundary || rejectMs - lastParentBoundary.timestampMs > 60_000) {
                 result.fallbackAfter60s += 1;
             }
             continue;

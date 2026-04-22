@@ -203,6 +203,32 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public async Task DatumShareOnFreshParentWithInvalidCoinbaseReportsRetryFailureAsync()
+    {
+        using var harness = TestHarness.Create(currentTipBlockHash: OlderTipBlockHash);
+
+        ShareRecordingResult result = await harness.StateService.SubmitShareAsync(new RecordedShareSubmission
+        {
+            MinerAddress = AlternateAddress,
+            Username = string.Empty,
+            HeaderHex = SampleHeaderHex,
+            CoinbaseHex = RewriteSlotZeroAddress(SampleCoinbaseHex, AlternateAddress),
+            MerklePath = SampleMerklePath.ToList(),
+            PrevBlockHash = SamplePrevBlockHash,
+            Source = "datum"
+        }, "datum-block");
+
+        Assert.IsFalse(result.Accepted);
+        StringAssert.Contains(result.RejectionReason ?? string.Empty, "merkle root");
+
+        BootNetworkEventSeriesDto events = harness.StateService.GetNetworkEvents(eventType: "fresh-parent-retry-failed");
+        Assert.AreEqual(1, events.Events.Count);
+        StringAssert.Contains(events.Events[0].Message ?? string.Empty, "merkle root");
+        Assert.AreEqual(SamplePrevBlockHash, events.Events[0].BlockHash);
+        Assert.AreEqual(0, harness.StateService.GetOnDeckList().Count);
+    }
+
+    [TestMethod]
     public async Task HttpShareOnFreshParentIsRejectedUntilTipIsKnownAsync()
     {
         using var harness = TestHarness.Create(currentTipBlockHash: OlderTipBlockHash);

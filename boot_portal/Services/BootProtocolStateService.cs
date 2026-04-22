@@ -22,6 +22,7 @@ public class BootProtocolStateService
     private readonly IHubContext<PoolStatsHub> _hubContext;
     private readonly ILogger<BootProtocolStateService> _logger;
     private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
+    private readonly JsonSerializerOptions _compactJsonOptions = new() { WriteIndented = false };
     private readonly Channel<BootShareProof> _acceptedShares = Channel.CreateUnbounded<BootShareProof>();
     private readonly HashSet<string> _seenShareIds = [];
     private readonly Queue<string> _seenShareQueue = new();
@@ -32,7 +33,7 @@ public class BootProtocolStateService
     private Task? _deferredHistorySaveTask;
     private bool _deferredHistorySavePending;
     private static readonly TimeSpan DeferredSaveInterval = TimeSpan.FromSeconds(1);
-    private static readonly TimeSpan DeferredHistorySaveInterval = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan DeferredHistorySaveInterval = TimeSpan.FromSeconds(60);
     private const double SlowStateLockWaitWarningMs = 250;
     private const double SlowStateSaveWarningMs = 250;
     private const int MaxSeenShareIds = 20000;
@@ -484,11 +485,38 @@ public class BootProtocolStateService
                 share,
                 winnersSnapshot,
                 expectedPrevBlockHashes: []);
-            if (freshParentValidation.IsValid &&
-                freshParentValidation.Difficulty >= 1 &&
-                TryLearnFreshParentFromTrustedShare(share.Source, freshParentValidation, currentStateSnapshot))
+            if (IsTrustedFreshParentSource(share.Source))
             {
-                validation = freshParentValidation;
+                if (!freshParentValidation.IsValid)
+                {
+                    RecordFreshParentRetryEvent(
+                        "fresh-parent-retry-failed",
+                        share.Source,
+                        share.PrevBlockHash,
+                        $"Fresh-parent retry failed validation after ignoring parent mismatch: {freshParentValidation.RejectionReason ?? "Unknown reason"}.");
+                    validation = freshParentValidation;
+                }
+                else if (freshParentValidation.Difficulty < 1)
+                {
+                    RecordFreshParentRetryEvent(
+                        "fresh-parent-retry-low-difficulty",
+                        share.Source,
+                        freshParentValidation.PrevBlockHash,
+                        $"Fresh-parent retry validated but computed difficulty {freshParentValidation.Difficulty.ToString("F2", CultureInfo.InvariantCulture)} was below the floor.");
+                    validation = freshParentValidation;
+                }
+                else if (TryLearnFreshParentFromTrustedShare(share.Source, freshParentValidation, currentStateSnapshot))
+                {
+                    validation = freshParentValidation;
+                }
+                else
+                {
+                    RecordFreshParentRetryEvent(
+                        "fresh-parent-learn-failed",
+                        share.Source,
+                        freshParentValidation.PrevBlockHash,
+                        "Fresh-parent retry validated, but the parent could not be learned before the state changed.");
+                }
             }
         }
 
@@ -1560,7 +1588,7 @@ public class BootProtocolStateService
         CombinedStateSaveSnapshot snapshot = CaptureFullStateSnapshotNoLock();
         string effectiveReason = reason ?? "unknown";
         WriteStateFileSnapshot(snapshot.Core, effectiveReason);
-        WriteStateFileSnapshot(snapshot.History, $"{effectiveReason}-history");
+        WriteStateFileSnapshot(snapshot.History, $"{effectiveReason}-history", compact: true);
     }
 
     private void RequestDeferredSaveNoLock()
@@ -1627,7 +1655,7 @@ public class BootProtocolStateService
 
                 if (snapshot != null)
                 {
-                    WriteStateFileSnapshot(snapshot, "deferred-history");
+                    WriteStateFileSnapshot(snapshot, "deferred-history", compact: true);
                 }
             }
             catch (Exception ex)
@@ -1669,12 +1697,13 @@ public class BootProtocolStateService
         };
     }
 
-    private void WriteStateFileSnapshot<T>(StateFileSnapshot<T> snapshot, string reason)
+    private void WriteStateFileSnapshot<T>(StateFileSnapshot<T> snapshot, string reason, bool compact = false)
     {
         var saveStopwatch = Stopwatch.StartNew();
         BootPortalPaths.EnsureParentDirectory(snapshot.TargetPath);
         string tempPath = $"{snapshot.TargetPath}.tmp";
-        string json = JsonSerializer.Serialize(snapshot.Payload, _jsonOptions);
+        JsonSerializerOptions options = compact ? _compactJsonOptions : _jsonOptions;
+        string json = JsonSerializer.Serialize(snapshot.Payload, options);
 
         File.WriteAllText(tempPath, json);
         if (File.Exists(snapshot.TargetPath))
@@ -3551,6 +3580,19 @@ public class BootProtocolStateService
         }
 
         return endpoint.Trim().TrimEnd('/');
+    }
+
+    private void RecordFreshParentRetryEvent(
+        string eventType,
+        string source,
+        string? blockHash,
+        string message)
+    {
+        lock (_sync)
+        {
+            RecordNetworkEventNoLock(eventType, source, message, blockHash, blockHeight: null);
+            RequestDeferredHistorySaveNoLock();
+        }
     }
 
     private bool TryLearnFreshParentFromTrustedShare(
