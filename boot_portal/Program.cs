@@ -1546,8 +1546,7 @@ public class ClientHandler
                 sendDurationMs,
                 startedUtc);
 
-            if (usingTemporarySlotZero ||
-                stopwatch.Elapsed.TotalMilliseconds >= 1000 ||
+            if (stopwatch.Elapsed.TotalMilliseconds >= 1000 ||
                 stateReadDurationMs >= 250 ||
                 buildDurationMs >= 250 ||
                 serializeDurationMs >= 250 ||

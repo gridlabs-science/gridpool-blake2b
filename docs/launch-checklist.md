@@ -423,6 +423,7 @@ Fresh-parent soak signals:
   - `within 10s after chain-tip`
   - `outside the +/-10s chain-tip window`
 - G2 verdicts use `wrongParentAfter60sOutside10sChainTipWindow` for the noisy wrong-parent alarm, so a DATUM-sees-tip-first reject is reported without being treated the same as an unexplained late stale-parent condition.
+- Routine `datum-coinbaser-fetch` events are kept in `/api/network/coinbaser-diagnostics` instead of `/api/network/events`, so consensus events like `chain-tip`, `round-rotation`, and `fresh-parent-learned` are not pushed out of the network-event retention window during high-churn DATUM sessions.
 - Desired post-patch shape:
   - some `fresh-parent-learned` events are acceptable and useful
   - `Wrong parent block` before-chain-tip rejects should drop materially

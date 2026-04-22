@@ -39,7 +39,7 @@ public class BootProtocolStateService
     private const int MaxAcceptedParentBlockHashes = 100000;
     private const int MaxRecentRejectedShareDiagnostics = 1000;
     private const int MaxRecentCoinbaserDiagnostics = 1000;
-    private const int MaxRecentNetworkEvents = 1000;
+    private const int MaxRecentNetworkEvents = 5000;
     private const int MaxRecentCandidateBundles = 512;
 
     private PoolState _state = new();

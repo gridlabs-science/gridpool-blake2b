@@ -262,13 +262,30 @@ public class BootPeerSyncService : BackgroundService
         string status = response.StatusCode == HttpStatusCode.TooManyRequests
             ? "relay-rate-limited"
             : $"relay-http-{(int)response.StatusCode}";
+        string responsePreview = FormatResponsePreview(await response.Content.ReadAsStringAsync(stoppingToken));
         _stateService.MarkPeerFailure(peer, status);
         _stateService.RecordExternalNetworkEvent(
             "peer-relay-failed",
             peer,
-            $"Share relay failed with HTTP {(int)response.StatusCode} {response.ReasonPhrase}.",
+            string.IsNullOrWhiteSpace(responsePreview)
+                ? $"Share relay failed with HTTP {(int)response.StatusCode} {response.ReasonPhrase}."
+                : $"Share relay failed with HTTP {(int)response.StatusCode} {response.ReasonPhrase}: {responsePreview}",
             proof.PrevBlockHash,
             null);
+    }
+
+    private static string FormatResponsePreview(string? responseBody)
+    {
+        if (string.IsNullOrWhiteSpace(responseBody))
+        {
+            return string.Empty;
+        }
+
+        string preview = responseBody
+            .Replace('\r', ' ')
+            .Replace('\n', ' ')
+            .Trim();
+        return preview.Length <= 300 ? preview : $"{preview[..300]}...";
     }
 
     private static string NormalizeEndpoint(string endpoint)
