@@ -40,6 +40,7 @@ public class BootProtocolStateService
     private const int MaxAcceptedParentBlockHashes = 100000;
     private const int MaxRecentRejectedShareDiagnostics = 1000;
     private const int MaxRecentCoinbaserDiagnostics = 1000;
+    private const int MaxRecentDatumShareResponses = 2000;
     private const int MaxRecentNetworkEvents = 5000;
     private const int MaxRecentCandidateBundles = 512;
 
@@ -258,6 +259,19 @@ public class BootProtocolStateService
         }
     }
 
+    public BootDatumShareResponseSeriesDto GetDatumShareResponses(
+        string? windowKey = "12h",
+        int limit = 500,
+        string? remoteEndpoint = null,
+        bool? accepted = null,
+        string? reason = null)
+    {
+        lock (_sync)
+        {
+            return BuildDatumShareResponseSeriesNoLock(windowKey, limit, remoteEndpoint, accepted, reason);
+        }
+    }
+
     public BootNetworkEventSeriesDto GetNetworkEvents(
         string? windowKey = "12h",
         int limit = 500,
@@ -324,6 +338,42 @@ public class BootProtocolStateService
 
             TrimCoinbaserDiagnosticsNoLock(effectiveTimestampUtc);
             RequestDeferredHistorySaveNoLock();
+        }
+    }
+
+    public void RecordDatumShareResponse(BootDatumShareResponseTelemetry telemetry)
+    {
+        lock (_sync)
+        {
+            DateTime effectiveTimestampUtc = telemetry.TimestampUtc == default
+                ? DateTime.UtcNow
+                : telemetry.TimestampUtc;
+            telemetry.TimestampUtc = effectiveTimestampUtc;
+            telemetry.CurrentRoundNumber = _state.CurrentRoundNumber;
+            telemetry.CurrentStateId = _state.CurrentStateId;
+            telemetry.CandidateStateId = _state.CandidateStateId;
+            telemetry.CurrentTipBlockHash = _state.CurrentTipBlockHash;
+            telemetry.CurrentTipBlockHeight = _state.CurrentTipBlockHeight;
+
+            _state.RecentDatumShareResponses.Add(CloneDatumShareResponse(telemetry));
+            TrimDatumShareResponsesNoLock(effectiveTimestampUtc);
+            RequestDeferredHistorySaveNoLock();
+        }
+
+        double slowThresholdMs = GetDatumShareResponseSlowMs();
+        if (telemetry.TotalDurationMs >= slowThresholdMs)
+        {
+            _logger.LogWarning(
+                "Slow DATUM share response to {RemoteEndpoint}: {TotalMs:F1} ms (accepted={Accepted}, reason={Reason}, job={JobId}, coinbase={CoinbaseId}, nonceOnly={NonceOnly}, cached={Cached}, difficulty={Difficulty}).",
+                telemetry.RemoteEndpoint,
+                telemetry.TotalDurationMs,
+                telemetry.Accepted,
+                telemetry.RejectionReason ?? "none",
+                telemetry.JobId,
+                telemetry.CoinbaseId,
+                telemetry.NonceOnlySubmit,
+                telemetry.UsedCachedJob,
+                telemetry.Difficulty);
         }
     }
 
@@ -591,6 +641,7 @@ public class BootProtocolStateService
 
         ShareRecordingResult result;
         bool shouldRelay = false;
+        bool shouldNotifyNetwork = false;
         lock (_sync)
         {
             if (!string.Equals(currentStateSnapshot, _state.CurrentStateId, StringComparison.OrdinalIgnoreCase))
@@ -713,7 +764,7 @@ public class BootProtocolStateService
                 rejectionReason: null,
                 difficulty: validation.Difficulty,
                 timestampUtc: proof.Timestamp);
-            MaybeCaptureHashrateSampleNoLock(proof.Timestamp, force: false);
+            bool capturedHashrateSample = MaybeCaptureHashrateSampleNoLock(proof.Timestamp, force: false);
             _state.CandidateStateId = ComputeCandidateStateIdNoLock();
             CacheCurrentCandidateBundleNoLock();
             RequestDeferredSaveNoLock();
@@ -734,19 +785,23 @@ public class BootProtocolStateService
             };
 
             shouldRelay = affectedOnDeck;
+            shouldNotifyNetwork = newRecord || affectedOnDeck || capturedHashrateSample;
         }
 
         if (result.NewRecord)
         {
-            await _hubContext.Clients.All.SendAsync("UpdateRecord", result.BestShare);
+            QueueRealtimeSend(_hubContext.Clients.All.SendAsync("UpdateRecord", result.BestShare), "UpdateRecord");
         }
 
         if (result.AffectedOnDeck)
         {
-            await _hubContext.Clients.All.SendAsync("UpdateOnDeck", result.OnDeckList);
+            QueueRealtimeSend(_hubContext.Clients.All.SendAsync("UpdateOnDeck", result.OnDeckList), "UpdateOnDeck");
         }
 
-        await _hubContext.Clients.All.SendAsync("UpdateNetworkState", result.NetworkStatus);
+        if (shouldNotifyNetwork)
+        {
+            QueueRealtimeSend(_hubContext.Clients.All.SendAsync("UpdateNetworkState", result.NetworkStatus), "UpdateNetworkState");
+        }
         if (shouldRelay && result.AcceptedProof != null)
         {
             await _acceptedShares.Writer.WriteAsync(result.AcceptedProof);
@@ -909,6 +964,7 @@ public class BootProtocolStateService
             _state.LastTestingTriggerBlockHeight = null;
             _state.RecentAcceptedShares = [];
             _state.RecentRejectedShareDiagnostics = [];
+            _state.RecentDatumShareResponses = [];
             _state.RecentNetworkEvents = [];
             _recentShareDiagnostics.Clear();
             _state.HashrateSamples = [];
@@ -1665,6 +1721,24 @@ public class BootProtocolStateService
         });
     }
 
+    private void QueueRealtimeSend(Task sendTask, string updateName)
+    {
+        _ = sendTask.ContinueWith(
+            completed =>
+            {
+                if (completed.Exception != null)
+                {
+                    _logger.LogDebug(
+                        completed.Exception,
+                        "Realtime dashboard update {UpdateName} failed.",
+                        updateName);
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
+    }
+
     private CombinedStateSaveSnapshot CaptureFullStateSnapshotNoLock()
     {
         return new CombinedStateSaveSnapshot
@@ -1766,6 +1840,7 @@ public class BootProtocolStateService
             RecentAcceptedShares = [],
             RecentRejectedShareDiagnostics = [],
             RecentCoinbaserDiagnostics = [],
+            RecentDatumShareResponses = [],
             RecentNetworkEvents = [],
             HashrateSamples = [],
             ArchivedStateBundles = []
@@ -1779,6 +1854,7 @@ public class BootProtocolStateService
             RecentAcceptedShares = _state.RecentAcceptedShares.Select(CloneAcceptedShareTelemetry).ToList(),
             RecentRejectedShareDiagnostics = _state.RecentRejectedShareDiagnostics.Select(CloneShareDiagnostic).ToList(),
             RecentCoinbaserDiagnostics = _state.RecentCoinbaserDiagnostics.Select(CloneCoinbaserDiagnostic).ToList(),
+            RecentDatumShareResponses = _state.RecentDatumShareResponses.Select(CloneDatumShareResponse).ToList(),
             RecentNetworkEvents = _state.RecentNetworkEvents.Select(CloneNetworkEvent).ToList(),
             HashrateSamples = _state.HashrateSamples.Select(CloneHashratePoint).ToList(),
             ArchivedStateBundles = _state.ArchivedStateBundles.Select(CloneBundle).ToList()
@@ -1815,6 +1891,7 @@ public class BootProtocolStateService
             _state.RecentAcceptedShares ??= [];
             _state.RecentRejectedShareDiagnostics ??= [];
             _state.RecentCoinbaserDiagnostics ??= [];
+            _state.RecentDatumShareResponses ??= [];
             _state.RecentNetworkEvents ??= [];
             _state.HashrateSamples ??= [];
             NormalizeArchivedBundlesNoLock();
@@ -1825,6 +1902,7 @@ public class BootProtocolStateService
             TrimAcceptedShareTelemetryNoLock(DateTime.UtcNow);
             TrimShareDiagnosticsNoLock(DateTime.UtcNow);
             TrimCoinbaserDiagnosticsNoLock(DateTime.UtcNow);
+            TrimDatumShareResponsesNoLock(DateTime.UtcNow);
             TrimNetworkEventsNoLock(DateTime.UtcNow);
             TrimHashrateSamplesNoLock(DateTime.UtcNow);
             _recentShareDiagnostics.Clear();
@@ -1889,6 +1967,7 @@ public class BootProtocolStateService
             _state.RecentAcceptedShares = loaded.RecentAcceptedShares ?? [];
             _state.RecentRejectedShareDiagnostics = loaded.RecentRejectedShareDiagnostics ?? [];
             _state.RecentCoinbaserDiagnostics = loaded.RecentCoinbaserDiagnostics ?? [];
+            _state.RecentDatumShareResponses = loaded.RecentDatumShareResponses ?? [];
             _state.RecentNetworkEvents = loaded.RecentNetworkEvents ?? [];
             _state.HashrateSamples = loaded.HashrateSamples ?? [];
             _state.ArchivedStateBundles = loaded.ArchivedStateBundles ?? [];
@@ -1898,6 +1977,7 @@ public class BootProtocolStateService
             TrimAcceptedShareTelemetryNoLock(DateTime.UtcNow);
             TrimShareDiagnosticsNoLock(DateTime.UtcNow);
             TrimCoinbaserDiagnosticsNoLock(DateTime.UtcNow);
+            TrimDatumShareResponsesNoLock(DateTime.UtcNow);
             TrimNetworkEventsNoLock(DateTime.UtcNow);
             TrimHashrateSamplesNoLock(DateTime.UtcNow);
             _recentShareDiagnostics.Clear();
@@ -2105,6 +2185,56 @@ public class BootProtocolStateService
             .ToList();
 
         return new BootCoinbaserDiagnosticsSeriesDto
+        {
+            WindowSeconds = (int)Math.Max(0, (nowUtc - cutoffUtc).TotalSeconds),
+            TotalEvents = events.Count,
+            Events = events
+        };
+    }
+
+    private BootDatumShareResponseSeriesDto BuildDatumShareResponseSeriesNoLock(
+        string? windowKey,
+        int limit,
+        string? remoteEndpoint,
+        bool? accepted,
+        string? reason)
+    {
+        DateTime nowUtc = DateTime.UtcNow;
+        TrimDatumShareResponsesNoLock(nowUtc);
+        DateTime cutoffUtc = ResolveTelemetryCutoffUtc(windowKey, nowUtc, GetShareDiagnosticRetentionHours());
+
+        IEnumerable<BootDatumShareResponseTelemetry> query = _state.RecentDatumShareResponses
+            .Where(item => item.TimestampUtc >= cutoffUtc);
+
+        if (!string.IsNullOrWhiteSpace(remoteEndpoint))
+        {
+            query = query.Where(item => string.Equals(item.RemoteEndpoint, remoteEndpoint, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (accepted.HasValue)
+        {
+            query = query.Where(item => item.Accepted == accepted.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(reason))
+        {
+            string? normalizedReason = NormalizeDiagnosticReason(reason);
+            if (!string.IsNullOrWhiteSpace(normalizedReason))
+            {
+                query = query.Where(item => string.Equals(
+                    NormalizeDiagnosticReason(item.RejectionReason),
+                    normalizedReason,
+                    StringComparison.OrdinalIgnoreCase));
+            }
+        }
+
+        List<BootDatumShareResponseTelemetry> events = query
+            .OrderBy(item => item.TimestampUtc)
+            .TakeLast(Math.Clamp(limit, 1, 5000))
+            .Select(CloneDatumShareResponse)
+            .ToList();
+
+        return new BootDatumShareResponseSeriesDto
         {
             WindowSeconds = (int)Math.Max(0, (nowUtc - cutoffUtc).TotalSeconds),
             TotalEvents = events.Count,
@@ -2469,7 +2599,7 @@ public class BootProtocolStateService
         TrimAcceptedShareTelemetryNoLock(proof.Timestamp);
     }
 
-    private void MaybeCaptureHashrateSampleNoLock(DateTime nowUtc, bool force)
+    private bool MaybeCaptureHashrateSampleNoLock(DateTime nowUtc, bool force)
     {
         TrimAcceptedShareTelemetryNoLock(nowUtc);
         TrimHashrateSamplesNoLock(nowUtc);
@@ -2478,7 +2608,7 @@ public class BootProtocolStateService
         BootHashratePoint? lastSample = _state.HashrateSamples.Count > 0 ? _state.HashrateSamples[^1] : null;
         if (!force && lastSample != null && (nowUtc - lastSample.TimestampUtc).TotalSeconds < intervalSeconds)
         {
-            return;
+            return false;
         }
 
         long? currentRoundElapsedSeconds = GetElapsedSeconds(_state.LastRotationUtc, nowUtc);
@@ -2500,6 +2630,7 @@ public class BootProtocolStateService
         });
 
         TrimHashrateSamplesNoLock(nowUtc);
+        return true;
     }
 
     private double? EstimateLocalDatumHashrateThsNoLock(DateTime nowUtc)
@@ -2611,6 +2742,16 @@ public class BootProtocolStateService
             .ToList();
     }
 
+    private void TrimDatumShareResponsesNoLock(DateTime nowUtc)
+    {
+        DateTime cutoffUtc = nowUtc.AddHours(-GetShareDiagnosticRetentionHours());
+        _state.RecentDatumShareResponses = _state.RecentDatumShareResponses
+            .Where(item => item.TimestampUtc >= cutoffUtc)
+            .OrderBy(item => item.TimestampUtc)
+            .TakeLast(MaxRecentDatumShareResponses)
+            .ToList();
+    }
+
     private void TrimNetworkEventsNoLock(DateTime nowUtc)
     {
         DateTime cutoffUtc = nowUtc.AddHours(-GetShareDiagnosticRetentionHours());
@@ -2648,6 +2789,8 @@ public class BootProtocolStateService
     private int GetAcceptedShareTelemetryRetentionHours() => Math.Clamp(_poolConfig.AcceptedShareTelemetryRetentionHours, 1, 168);
 
     private int GetShareDiagnosticRetentionHours() => Math.Clamp(_poolConfig.ShareDiagnosticRetentionHours, 1, 168);
+
+    private int GetDatumShareResponseSlowMs() => Math.Clamp(_poolConfig.DatumShareResponseSlowMs, 50, 30000);
 
     private DateTime ResolveTelemetryCutoffUtc(string? windowKey, DateTime nowUtc, int retentionHours)
     {
@@ -3806,6 +3949,49 @@ public class BootProtocolStateService
             CurrentTipBlockHash = diagnostic.CurrentTipBlockHash,
             CurrentTipBlockHeight = diagnostic.CurrentTipBlockHeight,
             TimestampUtc = diagnostic.TimestampUtc
+        };
+    }
+
+    private static BootDatumShareResponseTelemetry CloneDatumShareResponse(BootDatumShareResponseTelemetry telemetry)
+    {
+        return new BootDatumShareResponseTelemetry
+        {
+            RemoteEndpoint = telemetry.RemoteEndpoint,
+            MinerAddress = telemetry.MinerAddress,
+            Username = telemetry.Username,
+            Accepted = telemetry.Accepted,
+            AffectedOnDeck = telemetry.AffectedOnDeck,
+            RejectionReason = telemetry.RejectionReason,
+            Difficulty = telemetry.Difficulty,
+            PrevBlockHash = telemetry.PrevBlockHash,
+            JobId = telemetry.JobId,
+            CoinbaseId = telemetry.CoinbaseId,
+            Nonce = telemetry.Nonce,
+            IsBlock = telemetry.IsBlock,
+            SubsidyOnly = telemetry.SubsidyOnly,
+            QuickDiff = telemetry.QuickDiff,
+            NonceOnlySubmit = telemetry.NonceOnlySubmit,
+            UsedCachedJob = telemetry.UsedCachedJob,
+            CachedJobAgeMs = telemetry.CachedJobAgeMs,
+            TargetByte = telemetry.TargetByte,
+            TargetByteIndex = telemetry.TargetByteIndex,
+            PayloadBytes = telemetry.PayloadBytes,
+            CoinbaseBytes = telemetry.CoinbaseBytes,
+            Coinb1Bytes = telemetry.Coinb1Bytes,
+            Coinb2Bytes = telemetry.Coinb2Bytes,
+            MerkleBranchCount = telemetry.MerkleBranchCount,
+            ParseDurationMs = telemetry.ParseDurationMs,
+            BuildDurationMs = telemetry.BuildDurationMs,
+            ValidationDurationMs = telemetry.ValidationDurationMs,
+            StaleHandlingDurationMs = telemetry.StaleHandlingDurationMs,
+            ResponseSendDurationMs = telemetry.ResponseSendDurationMs,
+            TotalDurationMs = telemetry.TotalDurationMs,
+            CurrentRoundNumber = telemetry.CurrentRoundNumber,
+            CurrentStateId = telemetry.CurrentStateId,
+            CandidateStateId = telemetry.CandidateStateId,
+            CurrentTipBlockHash = telemetry.CurrentTipBlockHash,
+            CurrentTipBlockHeight = telemetry.CurrentTipBlockHeight,
+            TimestampUtc = telemetry.TimestampUtc
         };
     }
 

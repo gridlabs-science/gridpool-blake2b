@@ -49,6 +49,39 @@ function countBy(items, selector) {
     return Object.fromEntries([...map.entries()].sort((a, b) => b[1] - a[1]));
 }
 
+function percentile(values, p) {
+    const sorted = values
+        .filter(value => Number.isFinite(value))
+        .sort((a, b) => a - b);
+    if (!sorted.length) {
+        return null;
+    }
+
+    const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
+    return sorted[index];
+}
+
+function summarizeDatumResponses(responses) {
+    const items = Array.isArray(responses) ? responses : [];
+    const lowDifficulty = items.filter(item => item.rejectionReason === "Low difficulty");
+    return {
+        count: items.length,
+        acceptedSamples: items.filter(item => item.accepted).length,
+        rejected: items.filter(item => !item.accepted).length,
+        slowOver500ms: items.filter(item => Number(item.totalDurationMs) >= 500).length,
+        p95TotalMs: percentile(items.map(item => Number(item.totalDurationMs)), 95),
+        p95ValidationMs: percentile(items.map(item => Number(item.validationDurationMs)), 95),
+        p95SendMs: percentile(items.map(item => Number(item.responseSendDurationMs)), 95),
+        rejectionReasons: countBy(items.filter(item => !item.accepted), item => item.rejectionReason),
+        lowDifficulty: {
+            count: lowDifficulty.length,
+            nonceOnly: lowDifficulty.filter(item => item.nonceOnlySubmit).length,
+            cached: lowDifficulty.filter(item => item.usedCachedJob).length,
+            quickDiff: lowDifficulty.filter(item => item.quickDiff).length
+        }
+    };
+}
+
 function correlateRejects(rejects, events) {
     const roundRotations = events
         .filter(event => event.eventType === "round-rotation")
@@ -168,8 +201,16 @@ async function fetchJson(baseUrl, path, params = {}) {
     return response.json();
 }
 
+async function fetchOptionalJson(baseUrl, path, params = {}) {
+    try {
+        return await fetchJson(baseUrl, path, params);
+    } catch {
+        return { events: [] };
+    }
+}
+
 async function fetchNodeReport(baseUrl, window, limit) {
-    const [summary, rejects, events] = await Promise.all([
+    const [summary, rejects, events, datumResponses] = await Promise.all([
         fetchJson(baseUrl, "/api/network/summary"),
         fetchJson(baseUrl, "/api/network/share-diagnostics", {
             window,
@@ -180,11 +221,16 @@ async function fetchNodeReport(baseUrl, window, limit) {
         fetchJson(baseUrl, "/api/network/events", {
             window,
             limit
+        }),
+        fetchOptionalJson(baseUrl, "/api/network/datum-share-responses", {
+            window,
+            limit
         })
     ]);
 
     const rejectEvents = Array.isArray(rejects?.events) ? rejects.events : [];
     const eventItems = Array.isArray(events?.events) ? events.events : [];
+    const datumResponseItems = Array.isArray(datumResponses?.events) ? datumResponses.events : [];
     const correlated = correlateRejects(rejectEvents, eventItems);
     const rejectionCounts = countBy(rejectEvents, reject => reject.rejectionCategory || reject.rejectionReason);
     const eventCounts = countBy(eventItems, event => event.eventType);
@@ -196,6 +242,7 @@ async function fetchNodeReport(baseUrl, window, limit) {
         summary,
         rejectCount: rejectEvents.length,
         rejectionCounts,
+        datumResponses: summarizeDatumResponses(datumResponseItems),
         correlatedRejects: correlated,
         eventCount: eventItems.length,
         eventCounts,
@@ -238,6 +285,9 @@ function printSummary(report, label) {
     console.log(`  DATUM acceptance: ${diagnostics.acceptedCount ?? 0}/${diagnostics.totalSubmissions ?? 0} (${formatPercent(diagnostics.acceptedCount ?? 0, diagnostics.totalSubmissions ?? 0)})`);
     console.log(`  Rejects: ${report.rejectCount}`);
     console.log(`  Reject reasons: ${JSON.stringify(report.rejectionCounts)}`);
+    console.log(`  DATUM response p95 total/validation/send: ${report.datumResponses.p95TotalMs?.toFixed?.(1) ?? "--"} ms / ${report.datumResponses.p95ValidationMs?.toFixed?.(1) ?? "--"} ms / ${report.datumResponses.p95SendMs?.toFixed?.(1) ?? "--"} ms`);
+    console.log(`  DATUM response rejects: ${JSON.stringify(report.datumResponses.rejectionReasons)}`);
+    console.log(`  Low-diff context: ${JSON.stringify(report.datumResponses.lowDifficulty)}`);
     console.log(`  Late rejects >60s: ${JSON.stringify(report.correlatedRejects)}`);
     console.log(`  Fresh parents learned: ${report.freshParentLearnedCount}`);
     console.log(`  Events: ${JSON.stringify(report.eventCounts)}`);

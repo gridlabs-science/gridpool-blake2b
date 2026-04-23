@@ -190,6 +190,46 @@ public class BootCoinbaserFetchTelemetry
     public DateTime TimestampUtc { get; set; }
 }
 
+public class BootDatumShareResponseTelemetry
+{
+    public string RemoteEndpoint { get; set; } = string.Empty;
+    public string MinerAddress { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public bool Accepted { get; set; }
+    public bool AffectedOnDeck { get; set; }
+    public string? RejectionReason { get; set; }
+    public double Difficulty { get; set; }
+    public string? PrevBlockHash { get; set; }
+    public byte JobId { get; set; }
+    public byte CoinbaseId { get; set; }
+    public uint Nonce { get; set; }
+    public bool IsBlock { get; set; }
+    public bool SubsidyOnly { get; set; }
+    public bool QuickDiff { get; set; }
+    public bool NonceOnlySubmit { get; set; }
+    public bool UsedCachedJob { get; set; }
+    public double? CachedJobAgeMs { get; set; }
+    public byte TargetByte { get; set; }
+    public ushort? TargetByteIndex { get; set; }
+    public int PayloadBytes { get; set; }
+    public int CoinbaseBytes { get; set; }
+    public int Coinb1Bytes { get; set; }
+    public int Coinb2Bytes { get; set; }
+    public int MerkleBranchCount { get; set; }
+    public double ParseDurationMs { get; set; }
+    public double BuildDurationMs { get; set; }
+    public double ValidationDurationMs { get; set; }
+    public double StaleHandlingDurationMs { get; set; }
+    public double ResponseSendDurationMs { get; set; }
+    public double TotalDurationMs { get; set; }
+    public int CurrentRoundNumber { get; set; }
+    public string CurrentStateId { get; set; } = string.Empty;
+    public string CandidateStateId { get; set; } = string.Empty;
+    public string? CurrentTipBlockHash { get; set; }
+    public long? CurrentTipBlockHeight { get; set; }
+    public DateTime TimestampUtc { get; set; }
+}
+
 public class BootNetworkEvent
 {
     public string EventType { get; set; } = string.Empty;
@@ -217,6 +257,13 @@ public class BootShareDiagnosticsSeriesDto
     public int WindowSeconds { get; set; }
     public int TotalEvents { get; set; }
     public List<BootShareDiagnosticTelemetry> Events { get; set; } = [];
+}
+
+public class BootDatumShareResponseSeriesDto
+{
+    public int WindowSeconds { get; set; }
+    public int TotalEvents { get; set; }
+    public List<BootDatumShareResponseTelemetry> Events { get; set; } = [];
 }
 
 public class BootNetworkEventSeriesDto

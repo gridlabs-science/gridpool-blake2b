@@ -91,6 +91,18 @@ public class BootNetworkController : ControllerBase
         return Ok(_stateService.GetCoinbaserDiagnostics(window, limit, remoteEndpoint, temporarySlotZero));
     }
 
+    [EnableRateLimiting("network-read")]
+    [HttpGet("datum-share-responses")]
+    public IActionResult GetDatumShareResponses(
+        [FromQuery] string? window = "12h",
+        [FromQuery] int limit = 500,
+        [FromQuery] string? remoteEndpoint = null,
+        [FromQuery] bool? accepted = null,
+        [FromQuery] string? reason = null)
+    {
+        return Ok(_stateService.GetDatumShareResponses(window, limit, remoteEndpoint, accepted, reason));
+    }
+
     [EnableRateLimiting("admin-write")]
     [HttpPost("admin/reset")]
     public async Task<IActionResult> ResetRound()

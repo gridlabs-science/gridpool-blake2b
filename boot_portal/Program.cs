@@ -153,6 +153,12 @@ public class PoolConfig
     [JsonPropertyName("share_diagnostic_retention_hours")]
     public int ShareDiagnosticRetentionHours { get; set; } = 12;
 
+    [JsonPropertyName("datum_share_response_slow_ms")]
+    public int DatumShareResponseSlowMs { get; set; } = 500;
+
+    [JsonPropertyName("datum_share_response_accepted_sample_every")]
+    public int DatumShareResponseAcceptedSampleEvery { get; set; } = 100;
+
     [JsonPropertyName("trusted_forwarded_proxy_ranges")]
     public List<string> TrustedForwardedProxyRanges { get; set; } = [];
 
@@ -706,6 +712,7 @@ public class ClientHandler
     private HelloMessage? _helloMessage;
     private readonly PoolConfig _poolConfig;
     private readonly PowSubmitMessage?[] _jobCache = new PowSubmitMessage?[8];
+    private readonly DateTime?[] _jobCacheUpdatedUtc = new DateTime?[8];
     private string _clientPayoutAddress = "";
     private string _clientIdentityKey = "";
     private string _clientEncryptIdentityKey = "";
@@ -719,6 +726,7 @@ public class ClientHandler
     private string? _serverInitiatedCloseMessage;
     private bool _serverInitiatedCloseLogged = false;
     private long _coinbaserFetchSequence = 0;
+    private long _datumShareResponseSequence = 0;
     private readonly CancellationToken _stoppingToken;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
@@ -1628,7 +1636,32 @@ public class ClientHandler
 
     private async Task HandlePowSubmitAsync(byte[] payload)
     {
-        var powSubmit = PowSubmitMessage.FromBytes(payload);
+        DateTime startedUtc = DateTime.UtcNow;
+        var totalStopwatch = Stopwatch.StartNew();
+        var stageStopwatch = Stopwatch.StartNew();
+        PowSubmitMessage powSubmit;
+        try
+        {
+            powSubmit = PowSubmitMessage.FromBytes(payload);
+        }
+        catch (Exception ex)
+        {
+            _stateService.RecordExternalNetworkEvent(
+                "datum-share-parse-failed",
+                "datum",
+                $"Failed to parse DATUM PoW submit from {RemoteEndpointLabel}: {ex.GetType().Name}: {ex.Message}");
+            throw;
+        }
+
+        double parseDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+        double buildDurationMs = 0;
+        double validationDurationMs = 0;
+        double staleHandlingDurationMs = 0;
+        double responseSendDurationMs = 0;
+        bool nonceOnlySubmit = powSubmit.PrevBlockHash == null;
+        bool usedCachedJob = false;
+        double? cachedJobAgeMs = null;
+        long responseSequence = Interlocked.Increment(ref _datumShareResponseSequence);
         //Check for proper address and usernames:
         //  using _poolConfig.PoolPayoutScript as default fallback
         string[] parts = powSubmit.Username.Split('.');
@@ -1691,11 +1724,40 @@ public class ClientHandler
             {
                 Console.WriteLine(
                     $"⚠️ Missing cached DATUM job {powSubmit.JobId} for nonce-only update from {powSubmit.Address}. Requesting fresh templates.");
-                await RequestBlockTemplateRefreshAsync("missing-job-cache");
+                stageStopwatch.Restart();
                 await SendShareResponseAsync(powSubmit, accepted: false);
+                responseSendDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+                totalStopwatch.Stop();
+                RecordDatumShareResponseTelemetry(
+                    powSubmit,
+                    accepted: false,
+                    affectedOnDeck: false,
+                    rejectionReason: "Missing cached DATUM job",
+                    difficulty: 0,
+                    prevBlockHash: null,
+                    nonceOnlySubmit: nonceOnlySubmit,
+                    usedCachedJob: false,
+                    cachedJobAgeMs: null,
+                    payloadBytes: payload.Length,
+                    coinbaseBytes: 0,
+                    coinb1Bytes: 0,
+                    coinb2Bytes: 0,
+                    parseDurationMs: parseDurationMs,
+                    buildDurationMs: buildDurationMs,
+                    validationDurationMs: validationDurationMs,
+                    staleHandlingDurationMs: staleHandlingDurationMs,
+                    responseSendDurationMs: responseSendDurationMs,
+                    totalDurationMs: totalStopwatch.Elapsed.TotalMilliseconds,
+                    startedUtc: startedUtc,
+                    responseSequence: responseSequence);
+                await RequestBlockTemplateRefreshAsync("missing-job-cache");
                 return;
             }
 
+            usedCachedJob = true;
+            cachedJobAgeMs = _jobCacheUpdatedUtc[powSubmit.JobId].HasValue
+                ? (startedUtc - _jobCacheUpdatedUtc[powSubmit.JobId]!.Value).TotalMilliseconds
+                : null;
             _jobCache[powSubmit.JobId]!.CoinbaseId = powSubmit.CoinbaseId;  
             _jobCache[powSubmit.JobId]!.IsBlock = powSubmit.IsBlock;
             _jobCache[powSubmit.JobId]!.SubsidyOnly = powSubmit.SubsidyOnly;
@@ -1713,7 +1775,9 @@ public class ClientHandler
                 _jobCache[powSubmit.JobId]!.SubsidyOnlyCoinb1 = powSubmit.SubsidyOnlyCoinb1;
                 _jobCache[powSubmit.JobId]!.SubsidyOnlyCoinb2 = powSubmit.SubsidyOnlyCoinb2;
             }
-            else if (!powSubmit.SubsidyOnly && powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb1 != null)  // Got a new coinbase with this one
+            else if (!powSubmit.SubsidyOnly &&
+                     powSubmit.CoinbaseId < powSubmit.CoinbasePairs.Length &&
+                     powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb1 != null)  // Got a new coinbase with this one
             {
                 //Console.WriteLine("New coinbase data");
                 _jobCache[powSubmit.JobId]!.CoinbasePairs[powSubmit.CoinbaseId] = powSubmit.CoinbasePairs[powSubmit.CoinbaseId];
@@ -1723,24 +1787,102 @@ public class ClientHandler
         else if (powSubmit.JobId < _jobCache.Length)
         {
             _jobCache[powSubmit.JobId] = powSubmit;  //New job, with complete header info.  
+            _jobCacheUpdatedUtc[powSubmit.JobId] = startedUtc;
         }
         //TODO: Technically, there is the very edge case that a miner could reuse old coinbase info with a new job and merkle branches.  This case isn't handled right now.
 
         
 
+        stageStopwatch.Restart();
+
+        if (powSubmit.PrevBlockHash == null ||
+            powSubmit.NBits == null ||
+            powSubmit.MerkleBranches == null ||
+            !powSubmit.MerkleBranchCount.HasValue)
+        {
+            buildDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+            stageStopwatch.Restart();
+            await SendShareResponseAsync(powSubmit, accepted: false);
+            responseSendDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+            totalStopwatch.Stop();
+            RecordDatumShareResponseTelemetry(
+                powSubmit,
+                accepted: false,
+                affectedOnDeck: false,
+                rejectionReason: "Incomplete DATUM job data",
+                difficulty: 0,
+                prevBlockHash: null,
+                nonceOnlySubmit: nonceOnlySubmit,
+                usedCachedJob: usedCachedJob,
+                cachedJobAgeMs: cachedJobAgeMs,
+                payloadBytes: payload.Length,
+                coinbaseBytes: 0,
+                coinb1Bytes: 0,
+                coinb2Bytes: 0,
+                parseDurationMs: parseDurationMs,
+                buildDurationMs: buildDurationMs,
+                validationDurationMs: validationDurationMs,
+                staleHandlingDurationMs: staleHandlingDurationMs,
+                responseSendDurationMs: responseSendDurationMs,
+                totalDurationMs: totalStopwatch.Elapsed.TotalMilliseconds,
+                startedUtc: startedUtc,
+                responseSequence: responseSequence);
+            await RequestBlockTemplateRefreshAsync("incomplete-job-data");
+            return;
+        }
+
         // Now compute the latest Merkle Root.  We have to do this for every share submission, since the extranonce changes every time.
-        byte[] Coinb1; 
-        byte[] Coinb2;
+        byte[]? Coinb1;
+        byte[]? Coinb2;
         if (powSubmit.SubsidyOnly)
         {
             Coinb1 = powSubmit.SubsidyOnlyCoinb1;
             Coinb2 = powSubmit.SubsidyOnlyCoinb2;
         }
-        else
+        else if (powSubmit.CoinbaseId < powSubmit.CoinbasePairs.Length)
         {
             Coinb1 = powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb1;
             Coinb2 = powSubmit.CoinbasePairs[powSubmit.CoinbaseId].Coinb2;
         }
+        else
+        {
+            Coinb1 = null;
+            Coinb2 = null;
+        }
+
+        if (Coinb1 == null || Coinb2 == null)
+        {
+            buildDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+            stageStopwatch.Restart();
+            await SendShareResponseAsync(powSubmit, accepted: false);
+            responseSendDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+            totalStopwatch.Stop();
+            RecordDatumShareResponseTelemetry(
+                powSubmit,
+                accepted: false,
+                affectedOnDeck: false,
+                rejectionReason: "Missing DATUM coinbase data",
+                difficulty: 0,
+                prevBlockHash: powSubmit.PrevBlockHash == null ? null : BitcoinHashes.ToDisplayHashHex(powSubmit.PrevBlockHash),
+                nonceOnlySubmit: nonceOnlySubmit,
+                usedCachedJob: usedCachedJob,
+                cachedJobAgeMs: cachedJobAgeMs,
+                payloadBytes: payload.Length,
+                coinbaseBytes: 0,
+                coinb1Bytes: 0,
+                coinb2Bytes: 0,
+                parseDurationMs: parseDurationMs,
+                buildDurationMs: buildDurationMs,
+                validationDurationMs: validationDurationMs,
+                staleHandlingDurationMs: staleHandlingDurationMs,
+                responseSendDurationMs: responseSendDurationMs,
+                totalDurationMs: totalStopwatch.Elapsed.TotalMilliseconds,
+                startedUtc: startedUtc,
+                responseSequence: responseSequence);
+            await RequestBlockTemplateRefreshAsync("missing-coinbase-data");
+            return;
+        }
+
         byte[] coinbaseTx = Coinb1.Concat(powSubmit.Extranonce).Concat(Coinb2).ToArray();
 
         if (powSubmit.QuickDiff)
@@ -1827,6 +1969,7 @@ public class ClientHandler
         }
         BigInteger maxTarget = BigInteger.Pow(2, 224) - 1;
         BigInteger achievedDifficultyBig = hashInt == 0 ? 0 : maxTarget / hashInt;
+        buildDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
 
         //Console.WriteLine($"   -> ✅ Received PoW submission: JobID={powSubmit.JobId}, CoinbaseID={powSubmit.CoinbaseId}, IsBlock={powSubmit.IsBlock}, SubsidyOnly={powSubmit.SubsidyOnly}, QuickDiff={powSubmit.QuickDiff}, Username={powSubmit.Username}");
 
@@ -1841,6 +1984,7 @@ public class ClientHandler
             }
         }
 
+        stageStopwatch.Restart();
         var recordResult = await _stateService.SubmitShareAsync(new RecordedShareSubmission
         {
             MinerAddress = powSubmit.Address,
@@ -1852,9 +1996,11 @@ public class ClientHandler
             Difficulty = (double)achievedDifficultyBig,
             Source = "datum"
         }, "datum-block");
+        validationDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
         shareAccepted = recordResult.Accepted;
         bool disconnectAfterResponse = false;
 
+        stageStopwatch.Restart();
         if (recordResult.Accepted)
         {
             ResetStaleTemplateTracking();
@@ -1863,6 +2009,7 @@ public class ClientHandler
         {
             disconnectAfterResponse = await HandlePotentialStaleTemplateRejectAsync(recordResult.RejectionReason);
         }
+        staleHandlingDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
 
         //Console.WriteLine("-----------------------------------------");
 
@@ -1871,7 +2018,32 @@ public class ClientHandler
         //#define DATUM_POW_SHARE_RESPONSE_ACCEPTED_TENTATIVELY 0x55
         //#define DATUM_POW_SHARE_RESPONSE_REJECTED 0x66
 
+        stageStopwatch.Restart();
         await SendShareResponseAsync(powSubmit, shareAccepted);
+        responseSendDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+        totalStopwatch.Stop();
+        RecordDatumShareResponseTelemetry(
+            powSubmit,
+            shareAccepted,
+            recordResult.AffectedOnDeck,
+            recordResult.RejectionReason,
+            recordResult.ComputedDifficulty,
+            powSubmit.PrevBlockHash == null ? null : BitcoinHashes.ToDisplayHashHex(powSubmit.PrevBlockHash),
+            nonceOnlySubmit,
+            usedCachedJob,
+            cachedJobAgeMs,
+            payload.Length,
+            coinbaseTx.Length,
+            Coinb1.Length,
+            Coinb2.Length,
+            parseDurationMs,
+            buildDurationMs,
+            validationDurationMs,
+            staleHandlingDurationMs,
+            responseSendDurationMs,
+            totalStopwatch.Elapsed.TotalMilliseconds,
+            startedUtc,
+            responseSequence);
         if (disconnectAfterResponse)
         {
             _client.Close();
@@ -1892,6 +2064,79 @@ public class ClientHandler
 
         var responsePayload = shareResponse.ToBytes();
         await SendEncryptedMessageAsync(0x05, responsePayload, isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false);
+    }
+
+    private void RecordDatumShareResponseTelemetry(
+        PowSubmitMessage powSubmit,
+        bool accepted,
+        bool affectedOnDeck,
+        string? rejectionReason,
+        double difficulty,
+        string? prevBlockHash,
+        bool nonceOnlySubmit,
+        bool usedCachedJob,
+        double? cachedJobAgeMs,
+        int payloadBytes,
+        int coinbaseBytes,
+        int coinb1Bytes,
+        int coinb2Bytes,
+        double parseDurationMs,
+        double buildDurationMs,
+        double validationDurationMs,
+        double staleHandlingDurationMs,
+        double responseSendDurationMs,
+        double totalDurationMs,
+        DateTime startedUtc,
+        long responseSequence)
+    {
+        int slowThresholdMs = Math.Clamp(_poolConfig.DatumShareResponseSlowMs, 50, 30000);
+        int acceptedSampleEvery = Math.Clamp(_poolConfig.DatumShareResponseAcceptedSampleEvery, 0, 100000);
+        bool shouldSampleAccepted = acceptedSampleEvery > 0 && responseSequence % acceptedSampleEvery == 0;
+        bool shouldRecord =
+            !accepted ||
+            affectedOnDeck ||
+            totalDurationMs >= slowThresholdMs ||
+            shouldSampleAccepted;
+
+        if (!shouldRecord)
+        {
+            return;
+        }
+
+        _stateService.RecordDatumShareResponse(new BootDatumShareResponseTelemetry
+        {
+            RemoteEndpoint = RemoteEndpointLabel,
+            MinerAddress = powSubmit.Address,
+            Username = powSubmit.Username,
+            Accepted = accepted,
+            AffectedOnDeck = affectedOnDeck,
+            RejectionReason = rejectionReason,
+            Difficulty = difficulty,
+            PrevBlockHash = prevBlockHash,
+            JobId = powSubmit.JobId,
+            CoinbaseId = powSubmit.CoinbaseId,
+            Nonce = powSubmit.Nonce,
+            IsBlock = powSubmit.IsBlock,
+            SubsidyOnly = powSubmit.SubsidyOnly,
+            QuickDiff = powSubmit.QuickDiff,
+            NonceOnlySubmit = nonceOnlySubmit,
+            UsedCachedJob = usedCachedJob,
+            CachedJobAgeMs = cachedJobAgeMs,
+            TargetByte = powSubmit.TargetByte,
+            TargetByteIndex = powSubmit.TargetByteIndex,
+            PayloadBytes = payloadBytes,
+            CoinbaseBytes = coinbaseBytes,
+            Coinb1Bytes = coinb1Bytes,
+            Coinb2Bytes = coinb2Bytes,
+            MerkleBranchCount = powSubmit.MerkleBranchCount ?? 0,
+            ParseDurationMs = parseDurationMs,
+            BuildDurationMs = buildDurationMs,
+            ValidationDurationMs = validationDurationMs,
+            StaleHandlingDurationMs = staleHandlingDurationMs,
+            ResponseSendDurationMs = responseSendDurationMs,
+            TotalDurationMs = totalDurationMs,
+            TimestampUtc = startedUtc
+        });
     }
     
     private static byte FloorPoT(ulong x)

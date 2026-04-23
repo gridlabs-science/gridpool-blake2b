@@ -65,6 +65,36 @@ function formatPercent(numerator, denominator) {
     return `${((numerator / denominator) * 100).toFixed(2)}%`;
 }
 
+function percentile(values, p) {
+    const sorted = values
+        .filter(value => Number.isFinite(value))
+        .sort((a, b) => a - b);
+    if (!sorted.length) return null;
+    const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
+    return sorted[index];
+}
+
+function summarizeDatumResponses(responses) {
+    const items = Array.isArray(responses) ? responses : [];
+    const lowDifficulty = items.filter(item => item.rejectionReason === "Low difficulty");
+    return {
+        count: items.length,
+        acceptedSamples: items.filter(item => item.accepted).length,
+        rejected: items.filter(item => !item.accepted).length,
+        slowOver500ms: items.filter(item => Number(item.totalDurationMs) >= 500).length,
+        p95TotalMs: percentile(items.map(item => Number(item.totalDurationMs)), 95),
+        p95ValidationMs: percentile(items.map(item => Number(item.validationDurationMs)), 95),
+        p95SendMs: percentile(items.map(item => Number(item.responseSendDurationMs)), 95),
+        rejectionReasons: countBy(items.filter(item => !item.accepted), item => item.rejectionReason),
+        lowDifficulty: {
+            count: lowDifficulty.length,
+            nonceOnly: lowDifficulty.filter(item => item.nonceOnlySubmit).length,
+            cached: lowDifficulty.filter(item => item.usedCachedJob).length,
+            quickDiff: lowDifficulty.filter(item => item.quickDiff).length
+        }
+    };
+}
+
 async function fetchJson(baseUrl, path, params = {}) {
     const url = new URL(`${normalizeBaseUrl(baseUrl)}${path}`);
     for (const [key, value] of Object.entries(params)) {
@@ -79,6 +109,14 @@ async function fetchJson(baseUrl, path, params = {}) {
     }
 
     return response.json();
+}
+
+async function fetchOptionalJson(baseUrl, path, params = {}) {
+    try {
+        return await fetchJson(baseUrl, path, params);
+    } catch {
+        return { events: [] };
+    }
 }
 
 function startInterval(state, type, timestampMs) {
@@ -214,7 +252,7 @@ function correlateRejects(rejects, events) {
 
 async function fetchAnalysis(baseUrl, durationSeconds) {
     const window = apiWindowForTelemetry(durationSeconds);
-    const [summary, rejectsSeries, eventsSeries] = await Promise.all([
+    const [summary, rejectsSeries, eventsSeries, datumResponsesSeries] = await Promise.all([
         fetchJson(baseUrl, "/api/network/summary"),
         fetchJson(baseUrl, "/api/network/share-diagnostics", {
             window,
@@ -225,17 +263,23 @@ async function fetchAnalysis(baseUrl, durationSeconds) {
         fetchJson(baseUrl, "/api/network/events", {
             window,
             limit: 5000
+        }),
+        fetchOptionalJson(baseUrl, "/api/network/datum-share-responses", {
+            window,
+            limit: 5000
         })
     ]);
 
     const rejects = Array.isArray(rejectsSeries?.events) ? rejectsSeries.events : [];
     const events = Array.isArray(eventsSeries?.events) ? eventsSeries.events : [];
+    const datumResponses = Array.isArray(datumResponsesSeries?.events) ? datumResponsesSeries.events : [];
     const eventCounts = countBy(events, event => event.eventType);
 
     return {
         summary,
         rejectCount: rejects.length,
         rejectReasons: countBy(rejects, reject => reject.rejectionCategory || reject.rejectionReason),
+        datumResponses: summarizeDatumResponses(datumResponses),
         lateRejects: correlateRejects(rejects, events),
         eventCounts,
         freshParentLearnedCount: eventCounts["fresh-parent-learned"] || 0,
@@ -383,14 +427,14 @@ async function main() {
     report.verdict = buildVerdict(report);
 
     console.log(`[g2-monitor] duration=${durationSeconds}s interval=${intervalSeconds}s samples=${samples.length}`);
-    console.log(`[main] acceptance=${formatPercent(report.mainAnalysis.summary.localDatumDiagnostics?.acceptedCount ?? 0, report.mainAnalysis.summary.localDatumDiagnostics?.totalSubmissions ?? 0)} rejects=${report.mainAnalysis.rejectCount} freshParents=${report.mainAnalysis.freshParentLearnedCount} coinbaserAvgMs=${report.mainAnalysis.summary.coinbaserDiagnostics?.averageDurationMs?.toFixed?.(2) ?? "--"}`);
+    console.log(`[main] acceptance=${formatPercent(report.mainAnalysis.summary.localDatumDiagnostics?.acceptedCount ?? 0, report.mainAnalysis.summary.localDatumDiagnostics?.totalSubmissions ?? 0)} rejects=${report.mainAnalysis.rejectCount} freshParents=${report.mainAnalysis.freshParentLearnedCount} coinbaserAvgMs=${report.mainAnalysis.summary.coinbaserDiagnostics?.averageDurationMs?.toFixed?.(2) ?? "--"} shareRespP95Ms=${report.mainAnalysis.datumResponses.p95TotalMs?.toFixed?.(1) ?? "--"}`);
     console.log(`[main] wrongParentChainTipWindow=${JSON.stringify({
         before10s: report.mainAnalysis.lateRejects.wrongParentWithin10sBeforeChainTip,
         after10s: report.mainAnalysis.lateRejects.wrongParentWithin10sAfterChainTip,
         outside10s: report.mainAnalysis.lateRejects.wrongParentOutside10sChainTipWindow
     })}`);
     if (peerAnalysis) {
-        console.log(`[peer] acceptance=${formatPercent(report.peerAnalysis.summary.localDatumDiagnostics?.acceptedCount ?? 0, report.peerAnalysis.summary.localDatumDiagnostics?.totalSubmissions ?? 0)} rejects=${report.peerAnalysis.rejectCount} freshParents=${report.peerAnalysis.freshParentLearnedCount} coinbaserAvgMs=${report.peerAnalysis.summary.coinbaserDiagnostics?.averageDurationMs?.toFixed?.(2) ?? "--"}`);
+        console.log(`[peer] acceptance=${formatPercent(report.peerAnalysis.summary.localDatumDiagnostics?.acceptedCount ?? 0, report.peerAnalysis.summary.localDatumDiagnostics?.totalSubmissions ?? 0)} rejects=${report.peerAnalysis.rejectCount} freshParents=${report.peerAnalysis.freshParentLearnedCount} coinbaserAvgMs=${report.peerAnalysis.summary.coinbaserDiagnostics?.averageDurationMs?.toFixed?.(2) ?? "--"} shareRespP95Ms=${report.peerAnalysis.datumResponses.p95TotalMs?.toFixed?.(1) ?? "--"}`);
         console.log(`[peer] wrongParentChainTipWindow=${JSON.stringify({
             before10s: report.peerAnalysis.lateRejects.wrongParentWithin10sBeforeChainTip,
             after10s: report.peerAnalysis.lateRejects.wrongParentWithin10sAfterChainTip,
