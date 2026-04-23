@@ -27,6 +27,7 @@ public class BootProtocolStateService
     private readonly HashSet<string> _seenShareIds = [];
     private readonly Queue<string> _seenShareQueue = new();
     private readonly List<BootShareDiagnosticTelemetry> _recentShareDiagnostics = [];
+    private readonly Dictionary<string, BootDatumSessionTelemetry> _activeDatumSessions = new(StringComparer.Ordinal);
     private readonly List<BootStateBundle> _recentCandidateBundles = [];
     private Task? _deferredSaveTask;
     private bool _deferredSavePending;
@@ -41,6 +42,7 @@ public class BootProtocolStateService
     private const int MaxRecentRejectedShareDiagnostics = 1000;
     private const int MaxRecentCoinbaserDiagnostics = 1000;
     private const int MaxRecentDatumShareResponses = 2000;
+    private const int MaxRecentDatumSessions = 5000;
     private const int MaxRecentNetworkEvents = 5000;
     private const int MaxRecentCandidateBundles = 512;
 
@@ -272,6 +274,19 @@ public class BootProtocolStateService
         }
     }
 
+    public BootDatumSessionSeriesDto GetDatumSessions(
+        string? windowKey = "12h",
+        int limit = 500,
+        string? remoteEndpoint = null,
+        bool? active = null,
+        string? protocol = null)
+    {
+        lock (_sync)
+        {
+            return BuildDatumSessionSeriesNoLock(windowKey, limit, remoteEndpoint, active, protocol);
+        }
+    }
+
     public BootNetworkEventSeriesDto GetNetworkEvents(
         string? windowKey = "12h",
         int limit = 500,
@@ -284,7 +299,233 @@ public class BootProtocolStateService
         }
     }
 
+    public void RecordDatumSessionOpened(string sessionId, string remoteEndpoint, DateTime? timestampUtc = null)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return;
+        }
+
+        lock (_sync)
+        {
+            DateTime effectiveTimestampUtc = timestampUtc ?? DateTime.UtcNow;
+            var session = FindOrCreateDatumSessionNoLock(sessionId, remoteEndpoint, effectiveTimestampUtc);
+            session.RemoteEndpoint = string.IsNullOrWhiteSpace(remoteEndpoint) ? session.RemoteEndpoint : remoteEndpoint;
+            session.StartedUtc = effectiveTimestampUtc;
+            session.LastActivityUtc = effectiveTimestampUtc;
+            session.LastActivityType = "opened";
+            TrimDatumSessionsNoLock(effectiveTimestampUtc);
+            RequestDeferredHistorySaveNoLock();
+        }
+    }
+
+    public void RecordDatumSessionProtocol(string sessionId, string protocol, DateTime? timestampUtc = null)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(protocol))
+        {
+            return;
+        }
+
+        lock (_sync)
+        {
+            if (!TryGetDatumSessionNoLock(sessionId, out var session))
+            {
+                return;
+            }
+
+            DateTime effectiveTimestampUtc = timestampUtc ?? DateTime.UtcNow;
+            session.Protocol = protocol;
+            session.LastActivityUtc = effectiveTimestampUtc;
+            session.LastActivityType = "protocol";
+            RequestDeferredHistorySaveNoLock();
+        }
+    }
+
+    public void RecordDatumSessionHello(
+        string sessionId,
+        string? clientIdentityKey,
+        string? clientEncryptIdentityKey,
+        DateTime? timestampUtc = null)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return;
+        }
+
+        lock (_sync)
+        {
+            if (!TryGetDatumSessionNoLock(sessionId, out var session))
+            {
+                return;
+            }
+
+            DateTime effectiveTimestampUtc = timestampUtc ?? DateTime.UtcNow;
+            session.HandshakeCompleted = true;
+            session.HelloCount += 1;
+            session.ClientIdentityKey = clientIdentityKey ?? string.Empty;
+            session.ClientEncryptIdentityKey = clientEncryptIdentityKey ?? string.Empty;
+            session.HelloReceivedUtc ??= effectiveTimestampUtc;
+            session.HandshakeMs ??= Math.Max(0, (effectiveTimestampUtc - session.StartedUtc).TotalMilliseconds);
+            session.LastActivityUtc = effectiveTimestampUtc;
+            session.LastActivityType = "hello";
+            RequestDeferredHistorySaveNoLock();
+        }
+    }
+
+    public void RecordDatumSessionPayoutLock(string sessionId, string? payoutAddress, DateTime? timestampUtc = null)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(payoutAddress))
+        {
+            return;
+        }
+
+        lock (_sync)
+        {
+            if (!TryGetDatumSessionNoLock(sessionId, out var session))
+            {
+                return;
+            }
+
+            DateTime effectiveTimestampUtc = timestampUtc ?? DateTime.UtcNow;
+            session.LockedPayoutAddress = BitcoinScript.NormalizeAddress(payoutAddress);
+            session.PayoutLockedUtc ??= effectiveTimestampUtc;
+            session.LastActivityUtc = effectiveTimestampUtc;
+            session.LastActivityType = "payout-lock";
+            RequestDeferredHistorySaveNoLock();
+        }
+    }
+
+    public void RecordDatumSessionCoinbaserFetch(string sessionId, DateTime? timestampUtc = null)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return;
+        }
+
+        lock (_sync)
+        {
+            if (!TryGetDatumSessionNoLock(sessionId, out var session))
+            {
+                return;
+            }
+
+            DateTime effectiveTimestampUtc = timestampUtc ?? DateTime.UtcNow;
+            session.CoinbaserFetchCount += 1;
+            session.LastCoinbaserFetchUtc = effectiveTimestampUtc;
+            session.LastActivityUtc = effectiveTimestampUtc;
+            session.LastActivityType = "coinbaser-fetch";
+            RequestDeferredHistorySaveNoLock();
+        }
+    }
+
+    public void RecordDatumSessionRefreshRequest(string sessionId, DateTime? timestampUtc = null)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return;
+        }
+
+        lock (_sync)
+        {
+            if (!TryGetDatumSessionNoLock(sessionId, out var session))
+            {
+                return;
+            }
+
+            DateTime effectiveTimestampUtc = timestampUtc ?? DateTime.UtcNow;
+            session.RefreshRequestCount += 1;
+            session.LastRefreshRequestUtc = effectiveTimestampUtc;
+            session.LastActivityUtc = effectiveTimestampUtc;
+            session.LastActivityType = "refresh-request";
+            RequestDeferredHistorySaveNoLock();
+        }
+    }
+
+    public void RecordDatumSessionShareOutcome(
+        string sessionId,
+        bool accepted,
+        bool affectedOnDeck,
+        DateTime? timestampUtc = null)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return;
+        }
+
+        lock (_sync)
+        {
+            if (!TryGetDatumSessionNoLock(sessionId, out var session))
+            {
+                return;
+            }
+
+            DateTime effectiveTimestampUtc = timestampUtc ?? DateTime.UtcNow;
+            session.ShareResponseCount += 1;
+            if (accepted)
+            {
+                session.AcceptedShareCount += 1;
+            }
+            else
+            {
+                session.RejectedShareCount += 1;
+            }
+
+            if (affectedOnDeck)
+            {
+                session.AffectedOnDeckCount += 1;
+            }
+
+            session.LastShareResponseUtc = effectiveTimestampUtc;
+            session.LastActivityUtc = effectiveTimestampUtc;
+            session.LastActivityType = accepted ? "share-accepted" : "share-rejected";
+            RequestDeferredHistorySaveNoLock();
+        }
+    }
+
+    public void CompleteDatumSession(
+        string sessionId,
+        string closeDisposition,
+        string? closeReason = null,
+        bool serverInitiated = false,
+        string? serverCloseEventType = null,
+        DateTime? timestampUtc = null)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return;
+        }
+
+        lock (_sync)
+        {
+            if (!TryGetDatumSessionNoLock(sessionId, out var session))
+            {
+                return;
+            }
+
+            DateTime effectiveTimestampUtc = timestampUtc ?? DateTime.UtcNow;
+            session.ServerInitiatedClose = serverInitiated;
+            session.ServerCloseEventType = serverCloseEventType;
+            session.CloseDisposition = string.IsNullOrWhiteSpace(closeDisposition) ? "closed" : closeDisposition;
+            session.CloseReason = closeReason;
+            session.ClosedUtc = effectiveTimestampUtc;
+            session.DurationMs = Math.Max(0, (effectiveTimestampUtc - session.StartedUtc).TotalMilliseconds);
+            session.IdleBeforeCloseMs = session.LastActivityUtc.HasValue
+                ? Math.Max(0, (effectiveTimestampUtc - session.LastActivityUtc.Value).TotalMilliseconds)
+                : null;
+            if (!session.LastActivityUtc.HasValue)
+            {
+                session.LastActivityUtc = effectiveTimestampUtc;
+                session.LastActivityType = "closed-without-activity";
+            }
+
+            _activeDatumSessions.Remove(sessionId);
+            TrimDatumSessionsNoLock(effectiveTimestampUtc);
+            RequestDeferredHistorySaveNoLock();
+        }
+    }
+
     public void RecordCoinbaserFetch(
+        string sessionId,
         string source,
         string remoteEndpoint,
         string? clientIdentityPreview,
@@ -964,8 +1205,11 @@ public class BootProtocolStateService
             _state.LastTestingTriggerBlockHeight = null;
             _state.RecentAcceptedShares = [];
             _state.RecentRejectedShareDiagnostics = [];
+            _state.RecentCoinbaserDiagnostics = [];
             _state.RecentDatumShareResponses = [];
+            _state.RecentDatumSessions = [];
             _state.RecentNetworkEvents = [];
+            _activeDatumSessions.Clear();
             _recentShareDiagnostics.Clear();
             _state.HashrateSamples = [];
             ResetAcceptedParentBlockHashesNoLock(currentTipBlockHash);
@@ -1841,6 +2085,7 @@ public class BootProtocolStateService
             RecentRejectedShareDiagnostics = [],
             RecentCoinbaserDiagnostics = [],
             RecentDatumShareResponses = [],
+            RecentDatumSessions = [],
             RecentNetworkEvents = [],
             HashrateSamples = [],
             ArchivedStateBundles = []
@@ -1855,6 +2100,7 @@ public class BootProtocolStateService
             RecentRejectedShareDiagnostics = _state.RecentRejectedShareDiagnostics.Select(CloneShareDiagnostic).ToList(),
             RecentCoinbaserDiagnostics = _state.RecentCoinbaserDiagnostics.Select(CloneCoinbaserDiagnostic).ToList(),
             RecentDatumShareResponses = _state.RecentDatumShareResponses.Select(CloneDatumShareResponse).ToList(),
+            RecentDatumSessions = _state.RecentDatumSessions.Select(CloneDatumSession).ToList(),
             RecentNetworkEvents = _state.RecentNetworkEvents.Select(CloneNetworkEvent).ToList(),
             HashrateSamples = _state.HashrateSamples.Select(CloneHashratePoint).ToList(),
             ArchivedStateBundles = _state.ArchivedStateBundles.Select(CloneBundle).ToList()
@@ -1892,6 +2138,7 @@ public class BootProtocolStateService
             _state.RecentRejectedShareDiagnostics ??= [];
             _state.RecentCoinbaserDiagnostics ??= [];
             _state.RecentDatumShareResponses ??= [];
+            _state.RecentDatumSessions ??= [];
             _state.RecentNetworkEvents ??= [];
             _state.HashrateSamples ??= [];
             NormalizeArchivedBundlesNoLock();
@@ -1903,6 +2150,9 @@ public class BootProtocolStateService
             TrimShareDiagnosticsNoLock(DateTime.UtcNow);
             TrimCoinbaserDiagnosticsNoLock(DateTime.UtcNow);
             TrimDatumShareResponsesNoLock(DateTime.UtcNow);
+            FinalizeStaleDatumSessionsNoLock(DateTime.UtcNow, "service-restart", "Recovered open DATUM session from prior process state.");
+            RebuildActiveDatumSessionIndexNoLock();
+            TrimDatumSessionsNoLock(DateTime.UtcNow);
             TrimNetworkEventsNoLock(DateTime.UtcNow);
             TrimHashrateSamplesNoLock(DateTime.UtcNow);
             _recentShareDiagnostics.Clear();
@@ -1968,6 +2218,7 @@ public class BootProtocolStateService
             _state.RecentRejectedShareDiagnostics = loaded.RecentRejectedShareDiagnostics ?? [];
             _state.RecentCoinbaserDiagnostics = loaded.RecentCoinbaserDiagnostics ?? [];
             _state.RecentDatumShareResponses = loaded.RecentDatumShareResponses ?? [];
+            _state.RecentDatumSessions = loaded.RecentDatumSessions ?? [];
             _state.RecentNetworkEvents = loaded.RecentNetworkEvents ?? [];
             _state.HashrateSamples = loaded.HashrateSamples ?? [];
             _state.ArchivedStateBundles = loaded.ArchivedStateBundles ?? [];
@@ -1978,6 +2229,9 @@ public class BootProtocolStateService
             TrimShareDiagnosticsNoLock(DateTime.UtcNow);
             TrimCoinbaserDiagnosticsNoLock(DateTime.UtcNow);
             TrimDatumShareResponsesNoLock(DateTime.UtcNow);
+            FinalizeStaleDatumSessionsNoLock(DateTime.UtcNow, "service-restart", "Recovered open DATUM session from prior process history.");
+            RebuildActiveDatumSessionIndexNoLock();
+            TrimDatumSessionsNoLock(DateTime.UtcNow);
             TrimNetworkEventsNoLock(DateTime.UtcNow);
             TrimHashrateSamplesNoLock(DateTime.UtcNow);
             _recentShareDiagnostics.Clear();
@@ -2242,6 +2496,49 @@ public class BootProtocolStateService
         };
     }
 
+    private BootDatumSessionSeriesDto BuildDatumSessionSeriesNoLock(
+        string? windowKey,
+        int limit,
+        string? remoteEndpoint,
+        bool? active,
+        string? protocol)
+    {
+        DateTime nowUtc = DateTime.UtcNow;
+        TrimDatumSessionsNoLock(nowUtc);
+        DateTime cutoffUtc = ResolveTelemetryCutoffUtc(windowKey, nowUtc, GetShareDiagnosticRetentionHours());
+
+        IEnumerable<BootDatumSessionTelemetry> query = _state.RecentDatumSessions
+            .Where(item => item.StartedUtc >= cutoffUtc || item.ClosedUtc == null || item.ClosedUtc >= cutoffUtc);
+
+        if (!string.IsNullOrWhiteSpace(remoteEndpoint))
+        {
+            query = query.Where(item => string.Equals(item.RemoteEndpoint, remoteEndpoint, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (active.HasValue)
+        {
+            query = query.Where(item => (item.ClosedUtc == null) == active.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(protocol))
+        {
+            query = query.Where(item => string.Equals(item.Protocol, protocol, StringComparison.OrdinalIgnoreCase));
+        }
+
+        List<BootDatumSessionTelemetry> events = query
+            .OrderBy(item => item.StartedUtc)
+            .TakeLast(Math.Clamp(limit, 1, 5000))
+            .Select(CloneDatumSession)
+            .ToList();
+
+        return new BootDatumSessionSeriesDto
+        {
+            WindowSeconds = (int)Math.Max(0, (nowUtc - cutoffUtc).TotalSeconds),
+            TotalEvents = events.Count,
+            Events = events
+        };
+    }
+
     private BootNetworkEventSeriesDto BuildNetworkEventSeriesNoLock(
         string? windowKey,
         int limit,
@@ -2277,6 +2574,80 @@ public class BootProtocolStateService
             TotalEvents = events.Count,
             Events = events
         };
+    }
+
+    private bool TryGetDatumSessionNoLock(string sessionId, out BootDatumSessionTelemetry session)
+    {
+        if (_activeDatumSessions.TryGetValue(sessionId, out session!))
+        {
+            return true;
+        }
+
+        BootDatumSessionTelemetry? existing = _state.RecentDatumSessions.LastOrDefault(item =>
+            string.Equals(item.SessionId, sessionId, StringComparison.Ordinal));
+        if (existing == null)
+        {
+            session = null!;
+            return false;
+        }
+
+        session = existing;
+        if (session.ClosedUtc == null)
+        {
+            _activeDatumSessions[sessionId] = session;
+        }
+
+        return true;
+    }
+
+    private BootDatumSessionTelemetry FindOrCreateDatumSessionNoLock(
+        string sessionId,
+        string remoteEndpoint,
+        DateTime startedUtc)
+    {
+        if (TryGetDatumSessionNoLock(sessionId, out var existing) && existing.ClosedUtc == null)
+        {
+            return existing;
+        }
+
+        var session = new BootDatumSessionTelemetry
+        {
+            SessionId = sessionId,
+            RemoteEndpoint = remoteEndpoint,
+            StartedUtc = startedUtc,
+            LastActivityUtc = startedUtc,
+            LastActivityType = "opened"
+        };
+        _state.RecentDatumSessions.Add(session);
+        _activeDatumSessions[sessionId] = session;
+        return session;
+    }
+
+    private void RebuildActiveDatumSessionIndexNoLock()
+    {
+        _activeDatumSessions.Clear();
+        foreach (BootDatumSessionTelemetry session in _state.RecentDatumSessions.Where(item => item.ClosedUtc == null))
+        {
+            _activeDatumSessions[session.SessionId] = session;
+        }
+    }
+
+    private void FinalizeStaleDatumSessionsNoLock(DateTime closedUtc, string closeDisposition, string closeReason)
+    {
+        foreach (BootDatumSessionTelemetry session in _state.RecentDatumSessions.Where(item => item.ClosedUtc == null))
+        {
+            session.ServerInitiatedClose = true;
+            session.ServerCloseEventType = "service-restart";
+            session.CloseDisposition = closeDisposition;
+            session.CloseReason = closeReason;
+            session.ClosedUtc = closedUtc;
+            session.DurationMs = Math.Max(0, (closedUtc - session.StartedUtc).TotalMilliseconds);
+            session.IdleBeforeCloseMs = session.LastActivityUtc.HasValue
+                ? Math.Max(0, (closedUtc - session.LastActivityUtc.Value).TotalMilliseconds)
+                : null;
+        }
+
+        _activeDatumSessions.Clear();
     }
 
     private BootCoinbaserDiagnosticsSummaryDto BuildCoinbaserDiagnosticsSummaryNoLock(DateTime nowUtc)
@@ -2750,6 +3121,27 @@ public class BootProtocolStateService
             .OrderBy(item => item.TimestampUtc)
             .TakeLast(MaxRecentDatumShareResponses)
             .ToList();
+    }
+
+    private void TrimDatumSessionsNoLock(DateTime nowUtc)
+    {
+        DateTime cutoffUtc = nowUtc.AddHours(-GetShareDiagnosticRetentionHours());
+        _state.RecentDatumSessions = _state.RecentDatumSessions
+            .Where(item => item.ClosedUtc == null || item.ClosedUtc >= cutoffUtc || item.StartedUtc >= cutoffUtc)
+            .OrderBy(item => item.StartedUtc)
+            .ToList();
+
+        while (_state.RecentDatumSessions.Count > MaxRecentDatumSessions)
+        {
+            int removeIndex = _state.RecentDatumSessions.FindIndex(item => item.ClosedUtc != null);
+            if (removeIndex < 0)
+            {
+                break;
+            }
+
+            _activeDatumSessions.Remove(_state.RecentDatumSessions[removeIndex].SessionId);
+            _state.RecentDatumSessions.RemoveAt(removeIndex);
+        }
     }
 
     private void TrimNetworkEventsNoLock(DateTime nowUtc)
@@ -3956,6 +4348,7 @@ public class BootProtocolStateService
     {
         return new BootDatumShareResponseTelemetry
         {
+            SessionId = telemetry.SessionId,
             RemoteEndpoint = telemetry.RemoteEndpoint,
             MinerAddress = telemetry.MinerAddress,
             Username = telemetry.Username,
@@ -3992,6 +4385,43 @@ public class BootProtocolStateService
             CurrentTipBlockHash = telemetry.CurrentTipBlockHash,
             CurrentTipBlockHeight = telemetry.CurrentTipBlockHeight,
             TimestampUtc = telemetry.TimestampUtc
+        };
+    }
+
+    private static BootDatumSessionTelemetry CloneDatumSession(BootDatumSessionTelemetry session)
+    {
+        return new BootDatumSessionTelemetry
+        {
+            SessionId = session.SessionId,
+            Protocol = session.Protocol,
+            RemoteEndpoint = session.RemoteEndpoint,
+            ClientIdentityKey = session.ClientIdentityKey,
+            ClientEncryptIdentityKey = session.ClientEncryptIdentityKey,
+            LockedPayoutAddress = session.LockedPayoutAddress,
+            HandshakeCompleted = session.HandshakeCompleted,
+            ServerInitiatedClose = session.ServerInitiatedClose,
+            ServerCloseEventType = session.ServerCloseEventType,
+            CloseDisposition = session.CloseDisposition,
+            CloseReason = session.CloseReason,
+            HelloCount = session.HelloCount,
+            CoinbaserFetchCount = session.CoinbaserFetchCount,
+            RefreshRequestCount = session.RefreshRequestCount,
+            ShareResponseCount = session.ShareResponseCount,
+            AcceptedShareCount = session.AcceptedShareCount,
+            RejectedShareCount = session.RejectedShareCount,
+            AffectedOnDeckCount = session.AffectedOnDeckCount,
+            StartedUtc = session.StartedUtc,
+            HelloReceivedUtc = session.HelloReceivedUtc,
+            PayoutLockedUtc = session.PayoutLockedUtc,
+            LastCoinbaserFetchUtc = session.LastCoinbaserFetchUtc,
+            LastShareResponseUtc = session.LastShareResponseUtc,
+            LastRefreshRequestUtc = session.LastRefreshRequestUtc,
+            LastActivityUtc = session.LastActivityUtc,
+            LastActivityType = session.LastActivityType,
+            ClosedUtc = session.ClosedUtc,
+            DurationMs = session.DurationMs,
+            HandshakeMs = session.HandshakeMs,
+            IdleBeforeCloseMs = session.IdleBeforeCloseMs
         };
     }
 

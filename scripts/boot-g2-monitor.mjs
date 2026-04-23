@@ -74,6 +74,57 @@ function percentile(values, p) {
     return sorted[index];
 }
 
+function summarizeSessionOverlap(items, selector, nowMs = Date.now()) {
+    const groups = new Map();
+    for (const item of items) {
+        const key = selector(item);
+        const startMs = parseDate(item.startedUtc);
+        if (!key || startMs == null) {
+            continue;
+        }
+
+        const endMs = parseDate(item.closedUtc) ?? nowMs;
+        if (endMs < startMs) {
+            continue;
+        }
+
+        if (!groups.has(key)) {
+            groups.set(key, []);
+        }
+
+        groups.get(key).push({
+            sessionId: item.sessionId,
+            startMs,
+            endMs
+        });
+    }
+
+    let maxConcurrent = 0;
+    const overlappingSessionIds = new Set();
+
+    for (const group of groups.values()) {
+        group.sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+        let active = [];
+        for (const interval of group) {
+            active = active.filter(item => item.endMs > interval.startMs);
+            if (active.length > 0) {
+                overlappingSessionIds.add(interval.sessionId);
+                for (const overlapping of active) {
+                    overlappingSessionIds.add(overlapping.sessionId);
+                }
+            }
+
+            active.push(interval);
+            maxConcurrent = Math.max(maxConcurrent, active.length);
+        }
+    }
+
+    return {
+        maxConcurrent,
+        sessionsWithOverlap: overlappingSessionIds.size
+    };
+}
+
 function summarizeDatumResponses(responses) {
     const items = Array.isArray(responses) ? responses : [];
     const lowDifficulty = items.filter(item => item.rejectionReason === "Low difficulty");
@@ -91,6 +142,55 @@ function summarizeDatumResponses(responses) {
             nonceOnly: lowDifficulty.filter(item => item.nonceOnlySubmit).length,
             cached: lowDifficulty.filter(item => item.usedCachedJob).length,
             quickDiff: lowDifficulty.filter(item => item.quickDiff).length
+        }
+    };
+}
+
+function summarizeDatumSessions(sessions) {
+    const items = Array.isArray(sessions) ? sessions : [];
+    const nowMs = Date.now();
+    const closed = items.filter(item => item.closedUtc);
+    const durations = closed.map(item => Number(item.durationMs));
+    const handshakeDurations = items.map(item => Number(item.handshakeMs));
+    const idleBeforeClose = closed.map(item => Number(item.idleBeforeCloseMs));
+    const overlapByIdentity = summarizeSessionOverlap(items, item => item.clientIdentityKey, nowMs);
+    const overlapByPayout = summarizeSessionOverlap(items, item => item.lockedPayoutAddress, nowMs);
+    const overlapByRemote = summarizeSessionOverlap(items, item => item.remoteEndpoint, nowMs);
+
+    return {
+        count: items.length,
+        activeCount: items.filter(item => !item.closedUtc).length,
+        handshakeCompleted: items.filter(item => item.handshakeCompleted).length,
+        protocolCounts: countBy(items, item => item.protocol),
+        closeDispositions: countBy(closed, item => item.closeDisposition),
+        serverCloseEventTypes: countBy(closed.filter(item => item.serverCloseEventType), item => item.serverCloseEventType),
+        serverInitiatedCount: closed.filter(item => item.serverInitiatedClose).length,
+        sessionsWithShares: items.filter(item => Number(item.shareResponseCount) > 0).length,
+        zeroShareSessions: items.filter(item => Number(item.shareResponseCount) === 0).length,
+        zeroWorkAfterHello: items.filter(item =>
+            item.handshakeCompleted &&
+            Number(item.coinbaserFetchCount) === 0 &&
+            Number(item.shareResponseCount) === 0).length,
+        shortIdleClosures25sTo40s: closed.filter(item =>
+            Number(item.idleBeforeCloseMs) >= 25_000 &&
+            Number(item.idleBeforeCloseMs) <= 40_000).length,
+        shortHandshakeNoWork25sTo40s: closed.filter(item =>
+            item.handshakeCompleted &&
+            Number(item.coinbaserFetchCount) === 0 &&
+            Number(item.shareResponseCount) === 0 &&
+            Number(item.durationMs) >= 25_000 &&
+            Number(item.durationMs) <= 40_000).length,
+        p50DurationMs: percentile(durations, 50),
+        p95DurationMs: percentile(durations, 95),
+        p95HandshakeMs: percentile(handshakeDurations, 95),
+        p95IdleBeforeCloseMs: percentile(idleBeforeClose, 95),
+        totalCoinbaserFetches: items.reduce((sum, item) => sum + Number(item.coinbaserFetchCount || 0), 0),
+        totalRefreshRequests: items.reduce((sum, item) => sum + Number(item.refreshRequestCount || 0), 0),
+        totalShareResponses: items.reduce((sum, item) => sum + Number(item.shareResponseCount || 0), 0),
+        overlap: {
+            sameIdentity: overlapByIdentity,
+            samePayout: overlapByPayout,
+            sameRemote: overlapByRemote
         }
     };
 }
@@ -252,7 +352,7 @@ function correlateRejects(rejects, events) {
 
 async function fetchAnalysis(baseUrl, durationSeconds) {
     const window = apiWindowForTelemetry(durationSeconds);
-    const [summary, rejectsSeries, eventsSeries, datumResponsesSeries] = await Promise.all([
+    const [summary, rejectsSeries, eventsSeries, datumResponsesSeries, datumSessionsSeries] = await Promise.all([
         fetchJson(baseUrl, "/api/network/summary"),
         fetchJson(baseUrl, "/api/network/share-diagnostics", {
             window,
@@ -267,12 +367,17 @@ async function fetchAnalysis(baseUrl, durationSeconds) {
         fetchOptionalJson(baseUrl, "/api/network/datum-share-responses", {
             window,
             limit: 5000
+        }),
+        fetchOptionalJson(baseUrl, "/api/network/datum-sessions", {
+            window,
+            limit: 5000
         })
     ]);
 
     const rejects = Array.isArray(rejectsSeries?.events) ? rejectsSeries.events : [];
     const events = Array.isArray(eventsSeries?.events) ? eventsSeries.events : [];
     const datumResponses = Array.isArray(datumResponsesSeries?.events) ? datumResponsesSeries.events : [];
+    const datumSessions = Array.isArray(datumSessionsSeries?.events) ? datumSessionsSeries.events : [];
     const eventCounts = countBy(events, event => event.eventType);
 
     return {
@@ -280,6 +385,7 @@ async function fetchAnalysis(baseUrl, durationSeconds) {
         rejectCount: rejects.length,
         rejectReasons: countBy(rejects, reject => reject.rejectionCategory || reject.rejectionReason),
         datumResponses: summarizeDatumResponses(datumResponses),
+        datumSessions: summarizeDatumSessions(datumSessions),
         lateRejects: correlateRejects(rejects, events),
         eventCounts,
         freshParentLearnedCount: eventCounts["fresh-parent-learned"] || 0,
@@ -428,6 +534,13 @@ async function main() {
 
     console.log(`[g2-monitor] duration=${durationSeconds}s interval=${intervalSeconds}s samples=${samples.length}`);
     console.log(`[main] acceptance=${formatPercent(report.mainAnalysis.summary.localDatumDiagnostics?.acceptedCount ?? 0, report.mainAnalysis.summary.localDatumDiagnostics?.totalSubmissions ?? 0)} rejects=${report.mainAnalysis.rejectCount} freshParents=${report.mainAnalysis.freshParentLearnedCount} coinbaserAvgMs=${report.mainAnalysis.summary.coinbaserDiagnostics?.averageDurationMs?.toFixed?.(2) ?? "--"} shareRespP95Ms=${report.mainAnalysis.datumResponses.p95TotalMs?.toFixed?.(1) ?? "--"}`);
+    console.log(`[main] datumSessions=${JSON.stringify({
+        count: report.mainAnalysis.datumSessions.count,
+        active: report.mainAnalysis.datumSessions.activeCount,
+        p95DurationMs: report.mainAnalysis.datumSessions.p95DurationMs,
+        shortHandshakeNoWork25sTo40s: report.mainAnalysis.datumSessions.shortHandshakeNoWork25sTo40s,
+        overlap: report.mainAnalysis.datumSessions.overlap
+    })}`);
     console.log(`[main] wrongParentChainTipWindow=${JSON.stringify({
         before10s: report.mainAnalysis.lateRejects.wrongParentWithin10sBeforeChainTip,
         after10s: report.mainAnalysis.lateRejects.wrongParentWithin10sAfterChainTip,
@@ -435,6 +548,13 @@ async function main() {
     })}`);
     if (peerAnalysis) {
         console.log(`[peer] acceptance=${formatPercent(report.peerAnalysis.summary.localDatumDiagnostics?.acceptedCount ?? 0, report.peerAnalysis.summary.localDatumDiagnostics?.totalSubmissions ?? 0)} rejects=${report.peerAnalysis.rejectCount} freshParents=${report.peerAnalysis.freshParentLearnedCount} coinbaserAvgMs=${report.peerAnalysis.summary.coinbaserDiagnostics?.averageDurationMs?.toFixed?.(2) ?? "--"} shareRespP95Ms=${report.peerAnalysis.datumResponses.p95TotalMs?.toFixed?.(1) ?? "--"}`);
+        console.log(`[peer] datumSessions=${JSON.stringify({
+            count: report.peerAnalysis.datumSessions.count,
+            active: report.peerAnalysis.datumSessions.activeCount,
+            p95DurationMs: report.peerAnalysis.datumSessions.p95DurationMs,
+            shortHandshakeNoWork25sTo40s: report.peerAnalysis.datumSessions.shortHandshakeNoWork25sTo40s,
+            overlap: report.peerAnalysis.datumSessions.overlap
+        })}`);
         console.log(`[peer] wrongParentChainTipWindow=${JSON.stringify({
             before10s: report.peerAnalysis.lateRejects.wrongParentWithin10sBeforeChainTip,
             after10s: report.peerAnalysis.lateRejects.wrongParentWithin10sAfterChainTip,

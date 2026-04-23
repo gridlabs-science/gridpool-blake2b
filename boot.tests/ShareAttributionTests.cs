@@ -446,6 +446,55 @@ public sealed class ShareAttributionTests
         Assert.AreEqual(0, harness.StateService.GetOnDeckList().Count);
     }
 
+    [TestMethod]
+    public void DatumSessionTelemetryTracksLifecycleAndFiltersActiveSessions()
+    {
+        using var harness = TestHarness.Create();
+        DateTime startedUtc = DateTime.UtcNow;
+
+        harness.StateService.RecordDatumSessionOpened("session-1", "127.0.0.1:5001", startedUtc);
+        harness.StateService.RecordDatumSessionProtocol("session-1", "datum", startedUtc.AddMilliseconds(1));
+        harness.StateService.RecordDatumSessionHello("session-1", "signing-key-1", "encrypt-key-1", startedUtc.AddMilliseconds(2));
+        harness.StateService.RecordDatumSessionPayoutLock("session-1", AlternateAddress, startedUtc.AddMilliseconds(3));
+        harness.StateService.RecordDatumSessionCoinbaserFetch("session-1", startedUtc.AddMilliseconds(4));
+        harness.StateService.RecordDatumSessionRefreshRequest("session-1", startedUtc.AddMilliseconds(5));
+        harness.StateService.RecordDatumSessionShareOutcome("session-1", accepted: true, affectedOnDeck: true, startedUtc.AddMilliseconds(6));
+        harness.StateService.RecordDatumSessionShareOutcome("session-1", accepted: false, affectedOnDeck: false, startedUtc.AddMilliseconds(7));
+        harness.StateService.CompleteDatumSession(
+            "session-1",
+            "client-disconnected-no-data",
+            "Client closed DATUM session before sending a full header.",
+            serverInitiated: false,
+            serverCloseEventType: null,
+            timestampUtc: startedUtc.AddSeconds(30));
+
+        harness.StateService.RecordDatumSessionOpened("session-2", "127.0.0.1:5002", startedUtc.AddSeconds(1));
+        harness.StateService.RecordDatumSessionProtocol("session-2", "datum", startedUtc.AddSeconds(1).AddMilliseconds(1));
+
+        BootDatumSessionSeriesDto allSessions = harness.StateService.GetDatumSessions(windowKey: "1h", limit: 10, protocol: "datum");
+        Assert.AreEqual(2, allSessions.TotalEvents);
+
+        BootDatumSessionTelemetry closedSession = allSessions.Events.Single(item => item.SessionId == "session-1");
+        Assert.IsTrue(closedSession.HandshakeCompleted);
+        Assert.AreEqual(1, closedSession.HelloCount);
+        Assert.AreEqual(1, closedSession.CoinbaserFetchCount);
+        Assert.AreEqual(1, closedSession.RefreshRequestCount);
+        Assert.AreEqual(2, closedSession.ShareResponseCount);
+        Assert.AreEqual(1, closedSession.AcceptedShareCount);
+        Assert.AreEqual(1, closedSession.RejectedShareCount);
+        Assert.AreEqual(1, closedSession.AffectedOnDeckCount);
+        Assert.AreEqual(BitcoinScript.NormalizeAddress(AlternateAddress), closedSession.LockedPayoutAddress);
+        Assert.AreEqual("client-disconnected-no-data", closedSession.CloseDisposition);
+        Assert.IsFalse(closedSession.ServerInitiatedClose);
+        Assert.IsTrue(closedSession.DurationMs >= 30000 - 1);
+        Assert.IsTrue(closedSession.IdleBeforeCloseMs >= 29990);
+
+        BootDatumSessionSeriesDto activeSessions = harness.StateService.GetDatumSessions(windowKey: "1h", limit: 10, active: true);
+        Assert.AreEqual(1, activeSessions.TotalEvents);
+        Assert.AreEqual("session-2", activeSessions.Events[0].SessionId);
+        Assert.IsNull(activeSessions.Events[0].ClosedUtc);
+    }
+
     private static ShareSubmissionDto CreateSampleShareDto()
     {
         return new ShareSubmissionDto

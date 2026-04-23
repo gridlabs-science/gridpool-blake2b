@@ -192,6 +192,7 @@ public class BootCoinbaserFetchTelemetry
 
 public class BootDatumShareResponseTelemetry
 {
+    public string SessionId { get; set; } = string.Empty;
     public string RemoteEndpoint { get; set; } = string.Empty;
     public string MinerAddress { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
@@ -230,6 +231,40 @@ public class BootDatumShareResponseTelemetry
     public DateTime TimestampUtc { get; set; }
 }
 
+public class BootDatumSessionTelemetry
+{
+    public string SessionId { get; set; } = string.Empty;
+    public string Protocol { get; set; } = "unknown";
+    public string RemoteEndpoint { get; set; } = string.Empty;
+    public string ClientIdentityKey { get; set; } = string.Empty;
+    public string ClientEncryptIdentityKey { get; set; } = string.Empty;
+    public string LockedPayoutAddress { get; set; } = string.Empty;
+    public bool HandshakeCompleted { get; set; }
+    public bool ServerInitiatedClose { get; set; }
+    public string? ServerCloseEventType { get; set; }
+    public string CloseDisposition { get; set; } = "open";
+    public string? CloseReason { get; set; }
+    public int HelloCount { get; set; }
+    public int CoinbaserFetchCount { get; set; }
+    public int RefreshRequestCount { get; set; }
+    public int ShareResponseCount { get; set; }
+    public int AcceptedShareCount { get; set; }
+    public int RejectedShareCount { get; set; }
+    public int AffectedOnDeckCount { get; set; }
+    public DateTime StartedUtc { get; set; }
+    public DateTime? HelloReceivedUtc { get; set; }
+    public DateTime? PayoutLockedUtc { get; set; }
+    public DateTime? LastCoinbaserFetchUtc { get; set; }
+    public DateTime? LastShareResponseUtc { get; set; }
+    public DateTime? LastRefreshRequestUtc { get; set; }
+    public DateTime? LastActivityUtc { get; set; }
+    public string LastActivityType { get; set; } = string.Empty;
+    public DateTime? ClosedUtc { get; set; }
+    public double? DurationMs { get; set; }
+    public double? HandshakeMs { get; set; }
+    public double? IdleBeforeCloseMs { get; set; }
+}
+
 public class BootNetworkEvent
 {
     public string EventType { get; set; } = string.Empty;
@@ -264,6 +299,13 @@ public class BootDatumShareResponseSeriesDto
     public int WindowSeconds { get; set; }
     public int TotalEvents { get; set; }
     public List<BootDatumShareResponseTelemetry> Events { get; set; } = [];
+}
+
+public class BootDatumSessionSeriesDto
+{
+    public int WindowSeconds { get; set; }
+    public int TotalEvents { get; set; }
+    public List<BootDatumSessionTelemetry> Events { get; set; } = [];
 }
 
 public class BootNetworkEventSeriesDto

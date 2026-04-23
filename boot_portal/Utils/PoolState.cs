@@ -19,6 +19,7 @@ public class PoolState
     public List<BootShareDiagnosticTelemetry> RecentRejectedShareDiagnostics { get; set; } = [];
     public List<BootCoinbaserFetchTelemetry> RecentCoinbaserDiagnostics { get; set; } = [];
     public List<BootDatumShareResponseTelemetry> RecentDatumShareResponses { get; set; } = [];
+    public List<BootDatumSessionTelemetry> RecentDatumSessions { get; set; } = [];
     public List<BootNetworkEvent> RecentNetworkEvents { get; set; } = [];
     public List<BootHashratePoint> HashrateSamples { get; set; } = [];
     public List<BootStateBundle> ArchivedStateBundles { get; set; } = [];
@@ -33,6 +34,7 @@ public class PoolStateHistory
     public List<BootShareDiagnosticTelemetry> RecentRejectedShareDiagnostics { get; set; } = [];
     public List<BootCoinbaserFetchTelemetry> RecentCoinbaserDiagnostics { get; set; } = [];
     public List<BootDatumShareResponseTelemetry> RecentDatumShareResponses { get; set; } = [];
+    public List<BootDatumSessionTelemetry> RecentDatumSessions { get; set; } = [];
     public List<BootNetworkEvent> RecentNetworkEvents { get; set; } = [];
     public List<BootHashratePoint> HashrateSamples { get; set; } = [];
     public List<BootStateBundle> ArchivedStateBundles { get; set; } = [];

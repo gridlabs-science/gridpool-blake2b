@@ -693,6 +693,7 @@ public class Program
 // =================================================================================
 public class ClientHandler
 {
+    private static long _nextSessionId = 0;
     private readonly TcpClient _client;
     private readonly NetworkStream _stream;
     private readonly Key _ed25519LongTermKey; // The server's main Ed25519 key.
@@ -729,6 +730,11 @@ public class ClientHandler
     private long _datumShareResponseSequence = 0;
     private readonly CancellationToken _stoppingToken;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private readonly string _sessionId;
+    private readonly DateTime _sessionStartedUtc;
+    private string _sessionCloseDisposition = "open";
+    private string? _sessionCloseReason;
+    private string _sessionProtocol = "unknown";
 
 
     public ClientHandler(
@@ -749,10 +755,33 @@ public class ClientHandler
         _stateService = stateService;
         _clientPayoutAddress = BootProtocolStateService.GenesisFoundationAddress;
         _stoppingToken = st;
+        _sessionStartedUtc = DateTime.UtcNow;
+        _sessionId = $"datum-{Interlocked.Increment(ref _nextSessionId)}";
+        _stateService.RecordDatumSessionOpened(_sessionId, RemoteEndpointLabel, _sessionStartedUtc);
         Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} connected.");
     }
 
     private string RemoteEndpointLabel => _client.Client.RemoteEndPoint?.ToString() ?? "unknown";
+
+    private void MarkSessionClose(string disposition, string? reason = null)
+    {
+        _sessionCloseDisposition = string.IsNullOrWhiteSpace(disposition) ? "closed" : disposition;
+        if (!string.IsNullOrWhiteSpace(reason))
+        {
+            _sessionCloseReason = reason;
+        }
+    }
+
+    private void MarkSessionProtocol(string protocol)
+    {
+        if (string.IsNullOrWhiteSpace(protocol) || string.Equals(_sessionProtocol, protocol, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _sessionProtocol = protocol;
+        _stateService.RecordDatumSessionProtocol(_sessionId, protocol);
+    }
 
     private void ScheduleServerInitiatedClose(string message, string eventType = "datum-session-close")
     {
@@ -811,6 +840,7 @@ public class ClientHandler
                 int bytesRead = await ReadExactOrUntilClosedAsync(headerBuffer, headerBuffer.Length);
                 if (bytesRead == 0)
                 {
+                    MarkSessionClose("client-disconnected-no-data", "Client closed DATUM session before sending a full header.");
                     Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} disconnected (no data).");
                     break;
                 }
@@ -821,6 +851,8 @@ public class ClientHandler
                     // We check if the first byte is '{'. 
                     if (headerBuffer[0] == 0x7B) 
                     {
+                        MarkSessionProtocol("stratum-v1-proxy");
+                        MarkSessionClose("stratum-proxy", "Connection was forwarded to the Stratum V1 proxy path.");
                         Console.WriteLine($"🔀 Stratum V1 detected from {_client.Client.RemoteEndPoint}. Forwarding to Gateway...");
                         
                         // Hand off control to the proxy method. 
@@ -830,11 +862,13 @@ public class ClientHandler
                         // Once the proxy session ends, we break the loop and disconnect.
                         break; 
                     }
+                    MarkSessionProtocol("datum");
                     protocolDetermined = true;
                 }
                 // -------------------------------------
                 if (bytesRead < 4)
                 {
+                    MarkSessionClose("partial-header", $"Received only {bytesRead} header bytes.");
                     ScheduleServerInitiatedClose(
                         $"Closing DATUM session {RemoteEndpointLabel} after receiving a partial header ({bytesRead} bytes).");
                     Console.WriteLine($"⚠️ Partial header received ({bytesRead} bytes): {BitConverter.ToString(headerBuffer, 0, bytesRead)}");
@@ -858,11 +892,13 @@ public class ClientHandler
                 bytesRead = await ReadExactOrUntilClosedAsync(bodyBuffer, bodyBuffer.Length);
                 if (bytesRead == 0)
                 {
+                    MarkSessionClose("client-disconnected-no-body", "Client closed DATUM session before sending the encrypted body.");
                     Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} disconnected (no body).");
                     break;
                 }
                 if (bytesRead < bodyBuffer.Length)
                 {
+                    MarkSessionClose("partial-body", $"Received only {bytesRead} of {bodyBuffer.Length} encrypted body bytes.");
                     ScheduleServerInitiatedClose(
                         $"Closing DATUM session {RemoteEndpointLabel} after receiving a partial body ({bytesRead}/{bodyBuffer.Length} bytes).");
                     Console.WriteLine($"⚠️ Partial body received ({bytesRead}/{bodyBuffer.Length} bytes).");
@@ -879,6 +915,7 @@ public class ClientHandler
                     decryptedBody = DecryptSigned(bodyBuffer, bytesRead);
                     if (decryptedBody == null)
                     {
+                        MarkSessionClose("decrypt-failed", "Signed DATUM payload decryption failed.");
                         ScheduleServerInitiatedClose(
                             $"Closing DATUM session {RemoteEndpointLabel} after signed payload decryption failed.");
                         Console.WriteLine("decrypted signed body is null");
@@ -889,6 +926,7 @@ public class ClientHandler
                     //Modified (+48) to account for CryptoBoxSealBytes, the signature that is added to the encrypted payload.
                     if (header.CmdLen != decryptedBody.Length + 48)
                     {
+                        MarkSessionClose("signed-length-mismatch", $"Signed payload length {header.CmdLen} did not match decrypted length {decryptedBody.Length}.");
                         ScheduleServerInitiatedClose(
                             $"Closing DATUM session {RemoteEndpointLabel} because signed payload length {header.CmdLen} did not match decrypted length {decryptedBody.Length}.");
                         Console.WriteLine($"⚠️ Header cmd_len ({header.CmdLen}) does not match decrypted body length ({decryptedBody.Length})");
@@ -904,6 +942,7 @@ public class ClientHandler
                     //Modified (+16) to account for MAC bytes, the signature that is added to the encrypted payload.  I think.
                     if (decryptedBody == null)
                     {
+                        MarkSessionClose("decrypt-failed", "Encrypted DATUM channel payload decryption failed.");
                         ScheduleServerInitiatedClose(
                             $"Closing DATUM session {RemoteEndpointLabel} after encrypted channel decryption failed.");
                         Console.WriteLine("decrypted body is null");
@@ -911,6 +950,7 @@ public class ClientHandler
                     }
                     if (header.CmdLen != decryptedBody.Length + 16)
                     {
+                        MarkSessionClose("encrypted-length-mismatch", $"Encrypted payload length {header.CmdLen} did not match decrypted length {decryptedBody.Length}.");
                         ScheduleServerInitiatedClose(
                             $"Closing DATUM session {RemoteEndpointLabel} because encrypted channel payload length {header.CmdLen} did not match decrypted length {decryptedBody.Length}.");
                         Console.WriteLine($"⚠️ Header cmd_len ({header.CmdLen}) does not match decrypted body length ({decryptedBody.Length})");
@@ -920,6 +960,7 @@ public class ClientHandler
                 }
                 if (decryptedBody == null)
                 {
+                    MarkSessionClose("decrypt-failed", "Payload decryption returned null.");
                     ScheduleServerInitiatedClose(
                         $"Closing DATUM session {RemoteEndpointLabel} after a payload decryption failure.");
                     Console.WriteLine(" Header info: Cmd=" + (header.ProtoCmd) + " / CmdLen=" + header.CmdLen + " / isSigned=" + header.IsSigned + " / isEncryptedPubKey=" + header.IsEncryptedPubKey + " / isEncryptedChannel=" + header.IsEncryptedChannel);
@@ -944,9 +985,14 @@ public class ClientHandler
                 //Finally back to the top of the loop and await the next incoming message
             }
         }
-        catch (IOException) { Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} disconnected."); }
+        catch (IOException ex)
+        {
+            MarkSessionClose("client-disconnected-io", $"I/O exception while handling DATUM session: {ex.Message}");
+            Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} disconnected.");
+        }
         catch (Exception ex)
         {
+            MarkSessionClose("server-exception", $"{ex.GetType().Name}: {ex.Message}");
             ScheduleServerInitiatedClose(
                 $"Closing DATUM session {RemoteEndpointLabel} after an internal server exception: {ex.GetType().Name}: {ex.Message}.");
             Console.WriteLine($"💥 An error occurred with client {_client.Client.RemoteEndPoint}: {ex.Message}\n{ex.StackTrace}");
@@ -954,6 +1000,29 @@ public class ClientHandler
         finally
         {
             FlushServerInitiatedCloseLog();
+            if (string.Equals(_sessionCloseDisposition, "open", StringComparison.Ordinal))
+            {
+                if (_stoppingToken.IsCancellationRequested)
+                {
+                    MarkSessionClose("server-stopping", "Server shutdown stopped the DATUM session.");
+                }
+                else if (_serverInitiatedCloseLogged || !string.IsNullOrWhiteSpace(_serverInitiatedCloseMessage))
+                {
+                    MarkSessionClose("server-closed", _serverInitiatedCloseMessage);
+                }
+                else
+                {
+                    MarkSessionClose("closed", "DATUM session ended without an explicit close reason.");
+                }
+            }
+
+            _stateService.CompleteDatumSession(
+                _sessionId,
+                _sessionCloseDisposition,
+                !string.IsNullOrWhiteSpace(_serverInitiatedCloseMessage) ? _serverInitiatedCloseMessage : _sessionCloseReason,
+                serverInitiated: !string.IsNullOrWhiteSpace(_serverInitiatedCloseMessage),
+                serverCloseEventType: _serverInitiatedCloseEventType,
+                timestampUtc: DateTime.UtcNow);
             _client.Close();
         }
     }
@@ -980,6 +1049,7 @@ public class ClientHandler
         }
 
         await SendEncryptedMessageAsync(0x05, [0xF9], isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false);
+        _stateService.RecordDatumSessionRefreshRequest(_sessionId);
         _stateService.RecordExternalNetworkEvent(
             "datum-refresh-request",
             "datum",
@@ -1304,6 +1374,7 @@ public class ClientHandler
 
         _clientIdentityKey = Convert.ToHexString(_helloMessage.ClientSigningPubKey).ToLowerInvariant();
         _clientEncryptIdentityKey = Convert.ToHexString(_helloMessage.ClientEncryptPubKey).ToLowerInvariant();
+        _stateService.RecordDatumSessionHello(_sessionId, _clientIdentityKey, _clientEncryptIdentityKey);
         string? rememberedPayoutAddress =
             _stateService.GetKnownDatumPayoutAddress(_clientIdentityKey) ??
             _stateService.GetKnownDatumPayoutAddress(_clientEncryptIdentityKey);
@@ -1474,6 +1545,7 @@ public class ClientHandler
         ulong teamPayoutTotal = 0;
         ulong mySats = 0;
         byte[] responsePayload = [];
+        _stateService.RecordDatumSessionCoinbaserFetch(_sessionId, startedUtc);
 
         try
         {
@@ -1534,6 +1606,7 @@ public class ClientHandler
                 : string.Empty;
 
             _stateService.RecordCoinbaserFetch(
+                _sessionId,
                 "datum",
                 RemoteEndpointLabel,
                 clientIdentityPreview,
@@ -1694,6 +1767,7 @@ public class ClientHandler
             _clientPayoutAddress = submittedAddress;
             _sessionPayoutAddressLocked = true;
             RememberClientPayoutAddress(_clientPayoutAddress);
+            _stateService.RecordDatumSessionPayoutLock(_sessionId, _clientPayoutAddress);
             _stateService.RecordExternalNetworkEvent(
                 "datum-session-lock",
                 "datum",
@@ -1728,6 +1802,7 @@ public class ClientHandler
                 await SendShareResponseAsync(powSubmit, accepted: false);
                 responseSendDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
                 totalStopwatch.Stop();
+                _stateService.RecordDatumSessionShareOutcome(_sessionId, accepted: false, affectedOnDeck: false, startedUtc);
                 RecordDatumShareResponseTelemetry(
                     powSubmit,
                     accepted: false,
@@ -1805,6 +1880,7 @@ public class ClientHandler
             await SendShareResponseAsync(powSubmit, accepted: false);
             responseSendDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
             totalStopwatch.Stop();
+            _stateService.RecordDatumSessionShareOutcome(_sessionId, accepted: false, affectedOnDeck: false, startedUtc);
             RecordDatumShareResponseTelemetry(
                 powSubmit,
                 accepted: false,
@@ -1857,6 +1933,7 @@ public class ClientHandler
             await SendShareResponseAsync(powSubmit, accepted: false);
             responseSendDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
             totalStopwatch.Stop();
+            _stateService.RecordDatumSessionShareOutcome(_sessionId, accepted: false, affectedOnDeck: false, startedUtc);
             RecordDatumShareResponseTelemetry(
                 powSubmit,
                 accepted: false,
@@ -2010,6 +2087,7 @@ public class ClientHandler
             disconnectAfterResponse = await HandlePotentialStaleTemplateRejectAsync(recordResult.RejectionReason);
         }
         staleHandlingDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+        _stateService.RecordDatumSessionShareOutcome(_sessionId, shareAccepted, recordResult.AffectedOnDeck, startedUtc);
 
         //Console.WriteLine("-----------------------------------------");
 
@@ -2105,6 +2183,7 @@ public class ClientHandler
 
         _stateService.RecordDatumShareResponse(new BootDatumShareResponseTelemetry
         {
+            SessionId = _sessionId,
             RemoteEndpoint = RemoteEndpointLabel,
             MinerAddress = powSubmit.Address,
             Username = powSubmit.Username,

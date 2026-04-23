@@ -103,6 +103,18 @@ public class BootNetworkController : ControllerBase
         return Ok(_stateService.GetDatumShareResponses(window, limit, remoteEndpoint, accepted, reason));
     }
 
+    [EnableRateLimiting("network-read")]
+    [HttpGet("datum-sessions")]
+    public IActionResult GetDatumSessions(
+        [FromQuery] string? window = "12h",
+        [FromQuery] int limit = 500,
+        [FromQuery] string? remoteEndpoint = null,
+        [FromQuery] bool? active = null,
+        [FromQuery] string? protocol = null)
+    {
+        return Ok(_stateService.GetDatumSessions(window, limit, remoteEndpoint, active, protocol));
+    }
+
     [EnableRateLimiting("admin-write")]
     [HttpPost("admin/reset")]
     public async Task<IActionResult> ResetRound()
