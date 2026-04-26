@@ -411,10 +411,15 @@ Current mitigation:
   - the coinbase payout list matches the current Boot state
   - computed difficulty is at least `1`
   - source is the trusted local DATUM path
+- Lower-height chain-tip or round-rotation observations are ignored unless they match the already-known tip hash.
+  - stale observations are recorded as `chain-tip-stale`
+  - the G2 monitor flags any sampled tip-height regression as a `G2.2` attention condition
 - HTTP shares remain strict until Boot already knows the parent, preserving the trustless Hydrapool launch path.
 - Automated coverage:
   - `DatumShareOnFreshParentIsAcceptedAndLearnsParentWithoutTipAdvanceAsync`
   - `HttpShareOnFreshParentIsRejectedUntilTipIsKnownAsync`
+  - `LowerHeightChainTipObservationIsIgnoredWithoutRegressingTipAsync`
+  - `LowerHeightRoundRotationIsIgnoredWithoutAdvancingRoundAsync`
 
 Fresh-parent soak signals:
 - `fresh-parent-learned` event counts are included in `boot-g2-monitor`, `boot-soak-report`, and `boot-laptop-issue-report`.

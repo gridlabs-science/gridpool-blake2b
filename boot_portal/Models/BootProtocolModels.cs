@@ -265,6 +265,51 @@ public class BootDatumSessionTelemetry
     public double? IdleBeforeCloseMs { get; set; }
 }
 
+public class BootDatumProtocolEvent
+{
+    public string SessionId { get; set; } = string.Empty;
+    public long Sequence { get; set; }
+    public string Protocol { get; set; } = "unknown";
+    public string RemoteEndpoint { get; set; } = string.Empty;
+    public string Direction { get; set; } = "internal";
+    public string EventType { get; set; } = string.Empty;
+    public string MessageLabel { get; set; } = string.Empty;
+    public byte? ProtoCmd { get; set; }
+    public byte? MiningSubcommand { get; set; }
+    public bool? IsSigned { get; set; }
+    public bool? IsEncryptedPubKey { get; set; }
+    public bool? IsEncryptedChannel { get; set; }
+    public uint? CmdLen { get; set; }
+    public int? BytesRead { get; set; }
+    public int? ExpectedBytes { get; set; }
+    public int? DecryptedBytes { get; set; }
+    public string? RawHeaderHex { get; set; }
+    public string? DecodedHeaderHex { get; set; }
+    public uint? HeaderKeyBefore { get; set; }
+    public uint? HeaderKeyAfter { get; set; }
+    public bool? Accepted { get; set; }
+    public bool? AffectedOnDeck { get; set; }
+    public string? RejectionReason { get; set; }
+    public double? Difficulty { get; set; }
+    public string? PrevBlockHash { get; set; }
+    public int? JobId { get; set; }
+    public int? CoinbaseId { get; set; }
+    public bool? NonceOnlySubmit { get; set; }
+    public bool? UsedCachedJob { get; set; }
+    public double? CachedJobAgeMs { get; set; }
+    public string? Username { get; set; }
+    public string? CloseDisposition { get; set; }
+    public string? CloseReason { get; set; }
+    public string? Detail { get; set; }
+    public double? DurationMs { get; set; }
+    public int CurrentRoundNumber { get; set; }
+    public string CurrentStateId { get; set; } = string.Empty;
+    public string CandidateStateId { get; set; } = string.Empty;
+    public string? CurrentTipBlockHash { get; set; }
+    public long? CurrentTipBlockHeight { get; set; }
+    public DateTime TimestampUtc { get; set; }
+}
+
 public class BootNetworkEvent
 {
     public string EventType { get; set; } = string.Empty;
@@ -306,6 +351,13 @@ public class BootDatumSessionSeriesDto
     public int WindowSeconds { get; set; }
     public int TotalEvents { get; set; }
     public List<BootDatumSessionTelemetry> Events { get; set; } = [];
+}
+
+public class BootDatumProtocolEventSeriesDto
+{
+    public int WindowSeconds { get; set; }
+    public int TotalEvents { get; set; }
+    public List<BootDatumProtocolEvent> Events { get; set; } = [];
 }
 
 public class BootNetworkEventSeriesDto

@@ -60,12 +60,13 @@ case "${1:-}" in
 esac
 
 DURATION_SECONDS="$(parse_duration_seconds "$1")"
-WINDOW="$(choose_window "$DURATION_SECONDS")"
 mkdir -p "$LOG_DIR"
 
 timestamp="$(date -u +%Y%m%d-%H%M%S)"
 out_path="${2:-$LOG_DIR/g2-monitor-$timestamp.json}"
 summary_path="${out_path%.json}-summary.json"
+start_timestamp="$(date +%s)"
+summary_ran=0
 
 monitor_cmd=(
     node "$ROOT_DIR/scripts/boot-g2-monitor.mjs"
@@ -76,16 +77,49 @@ monitor_cmd=(
 )
 summary_cmd=(
     node "$ROOT_DIR/scripts/boot-soak-report.mjs"
-    --main-url "$MAIN_URL"
-    --window "$WINDOW"
-    --limit 5000
-    --out "$summary_path"
 )
 
 if [[ -n "$PEER_URL" ]]; then
     monitor_cmd+=(--peer-url "$PEER_URL")
-    summary_cmd+=(--peer-url "$PEER_URL")
 fi
+
+build_summary_cmd() {
+    local elapsed_seconds="$1"
+    local window
+    window="$(choose_window "$elapsed_seconds")"
+
+    summary_cmd=(
+        node "$ROOT_DIR/scripts/boot-soak-report.mjs"
+        --main-url "$MAIN_URL"
+        --window "$window"
+        --limit 5000
+        --out "$summary_path"
+    )
+
+    if [[ -n "$PEER_URL" ]]; then
+        summary_cmd+=(--peer-url "$PEER_URL")
+    fi
+}
+
+run_summary() {
+    if (( summary_ran )); then
+        return
+    fi
+
+    summary_ran=1
+    local end_timestamp elapsed_seconds
+    end_timestamp="$(date +%s)"
+    elapsed_seconds="$(( end_timestamp - start_timestamp ))"
+    if (( elapsed_seconds < 1 )); then
+        elapsed_seconds=1
+    fi
+
+    build_summary_cmd "$elapsed_seconds"
+    echo "[boot-g2-soak] summary window: $(choose_window "$elapsed_seconds") (elapsed=${elapsed_seconds}s)"
+    "${summary_cmd[@]}" || echo "[boot-g2-soak] summary generation failed"
+}
+
+trap run_summary EXIT
 
 echo "[boot-g2-soak] main=$MAIN_URL peer=${PEER_URL:-none} duration=${DURATION_SECONDS}s interval=${INTERVAL_SECONDS}s"
 echo "[boot-g2-soak] monitor output: $out_path"
@@ -93,4 +127,7 @@ echo "[boot-g2-soak] summary output: $summary_path"
 echo "[boot-g2-soak] expected finish: $(date -d "+${DURATION_SECONDS} seconds" '+%Y-%m-%d %H:%M:%S %Z')"
 
 "${monitor_cmd[@]}"
+summary_ran=1
+build_summary_cmd "$DURATION_SECONDS"
 "${summary_cmd[@]}"
+trap - EXIT

@@ -27,6 +27,7 @@ public class BootProtocolStateService
     private readonly HashSet<string> _seenShareIds = [];
     private readonly Queue<string> _seenShareQueue = new();
     private readonly List<BootShareDiagnosticTelemetry> _recentShareDiagnostics = [];
+    private readonly List<BootDatumProtocolEvent> _recentDatumProtocolEvents = [];
     private readonly Dictionary<string, BootDatumSessionTelemetry> _activeDatumSessions = new(StringComparer.Ordinal);
     private readonly List<BootStateBundle> _recentCandidateBundles = [];
     private Task? _deferredSaveTask;
@@ -43,6 +44,7 @@ public class BootProtocolStateService
     private const int MaxRecentCoinbaserDiagnostics = 1000;
     private const int MaxRecentDatumShareResponses = 2000;
     private const int MaxRecentDatumSessions = 5000;
+    private const int MaxRecentDatumProtocolEvents = 25000;
     private const int MaxRecentNetworkEvents = 5000;
     private const int MaxRecentCandidateBundles = 512;
 
@@ -287,6 +289,21 @@ public class BootProtocolStateService
         }
     }
 
+    public BootDatumProtocolEventSeriesDto GetDatumProtocolEvents(
+        string? windowKey = "12h",
+        int limit = 500,
+        string? sessionId = null,
+        string? remoteEndpoint = null,
+        string? eventType = null,
+        string? direction = null,
+        string? messageLabel = null)
+    {
+        lock (_sync)
+        {
+            return BuildDatumProtocolEventSeriesNoLock(windowKey, limit, sessionId, remoteEndpoint, eventType, direction, messageLabel);
+        }
+    }
+
     public BootNetworkEventSeriesDto GetNetworkEvents(
         string? windowKey = "12h",
         int limit = 500,
@@ -296,6 +313,25 @@ public class BootProtocolStateService
         lock (_sync)
         {
             return BuildNetworkEventSeriesNoLock(windowKey, limit, eventType, source);
+        }
+    }
+
+    public void RecordDatumProtocolEvent(BootDatumProtocolEvent telemetry)
+    {
+        lock (_sync)
+        {
+            DateTime effectiveTimestampUtc = telemetry.TimestampUtc == default
+                ? DateTime.UtcNow
+                : telemetry.TimestampUtc;
+            telemetry.TimestampUtc = effectiveTimestampUtc;
+            telemetry.CurrentRoundNumber = _state.CurrentRoundNumber;
+            telemetry.CurrentStateId = _state.CurrentStateId;
+            telemetry.CandidateStateId = _state.CandidateStateId;
+            telemetry.CurrentTipBlockHash = _state.CurrentTipBlockHash;
+            telemetry.CurrentTipBlockHeight = _state.CurrentTipBlockHeight;
+
+            _recentDatumProtocolEvents.Add(CloneDatumProtocolEvent(telemetry));
+            TrimDatumProtocolEventsNoLock(effectiveTimestampUtc);
         }
     }
 
@@ -1090,6 +1126,28 @@ public class BootProtocolStateService
                 : blockHeight;
 
             if (!manual &&
+                IsStaleTipObservationNoLock(effectiveBlockHash, effectiveBlockHeight, previousTipBlockHash, previousTipBlockHeight))
+            {
+                RecordNetworkEventNoLock(
+                    "chain-tip-stale",
+                    source,
+                    $"Ignored stale round-rotation block at height {effectiveBlockHeight}; current tip height is {previousTipBlockHeight}.",
+                    effectiveBlockHash,
+                    effectiveBlockHeight);
+                RequestDeferredSaveNoLock();
+                RequestDeferredHistorySaveNoLock();
+                return new RoundRotationResult
+                {
+                    Rotated = false,
+                    Reason = "Stale block notification",
+                    BlockHash = previousTipBlockHash,
+                    WinnersList = ClonePayouts(_state.WinnersList),
+                    OnDeckList = ClonePayouts(_state.OnDeckList),
+                    NetworkStatus = BuildNetworkStatusNoLock()
+                };
+            }
+
+            if (!manual &&
                 !string.IsNullOrWhiteSpace(effectiveBlockHash) &&
                 BitcoinHashes.AreEquivalent(effectiveBlockHash, previousTipBlockHash))
             {
@@ -1270,6 +1328,23 @@ public class BootProtocolStateService
                 {
                     RequestDeferredSaveNoLock();
                 }
+                return BuildNetworkStatusNoLock();
+            }
+
+            if (IsStaleTipObservationNoLock(
+                normalizedBlockHash,
+                effectiveBlockHeight,
+                _state.CurrentTipBlockHash,
+                _state.CurrentTipBlockHeight))
+            {
+                RecordNetworkEventNoLock(
+                    "chain-tip-stale",
+                    source,
+                    $"Ignored stale chain-tip observation at height {effectiveBlockHeight}; current tip height is {_state.CurrentTipBlockHeight}.",
+                    normalizedBlockHash,
+                    effectiveBlockHeight);
+                RequestDeferredSaveNoLock();
+                RequestDeferredHistorySaveNoLock();
                 return BuildNetworkStatusNoLock();
             }
 
@@ -2539,6 +2614,62 @@ public class BootProtocolStateService
         };
     }
 
+    private BootDatumProtocolEventSeriesDto BuildDatumProtocolEventSeriesNoLock(
+        string? windowKey,
+        int limit,
+        string? sessionId,
+        string? remoteEndpoint,
+        string? eventType,
+        string? direction,
+        string? messageLabel)
+    {
+        DateTime nowUtc = DateTime.UtcNow;
+        TrimDatumProtocolEventsNoLock(nowUtc);
+        DateTime cutoffUtc = ResolveTelemetryCutoffUtc(windowKey, nowUtc, GetShareDiagnosticRetentionHours());
+
+        IEnumerable<BootDatumProtocolEvent> query = _recentDatumProtocolEvents
+            .Where(item => item.TimestampUtc >= cutoffUtc);
+
+        if (!string.IsNullOrWhiteSpace(sessionId))
+        {
+            query = query.Where(item => string.Equals(item.SessionId, sessionId, StringComparison.Ordinal));
+        }
+
+        if (!string.IsNullOrWhiteSpace(remoteEndpoint))
+        {
+            query = query.Where(item => string.Equals(item.RemoteEndpoint, remoteEndpoint, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(eventType))
+        {
+            query = query.Where(item => string.Equals(item.EventType, eventType, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(direction))
+        {
+            query = query.Where(item => string.Equals(item.Direction, direction, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(messageLabel))
+        {
+            query = query.Where(item => string.Equals(item.MessageLabel, messageLabel, StringComparison.OrdinalIgnoreCase));
+        }
+
+        List<BootDatumProtocolEvent> events = query
+            .OrderBy(item => item.TimestampUtc)
+            .ThenBy(item => item.Sequence)
+            .TakeLast(Math.Clamp(limit, 1, MaxRecentDatumProtocolEvents))
+            .Select(CloneDatumProtocolEvent)
+            .ToList();
+
+        return new BootDatumProtocolEventSeriesDto
+        {
+            WindowSeconds = (int)Math.Max(0, (nowUtc - cutoffUtc).TotalSeconds),
+            TotalEvents = events.Count,
+            Events = events
+        };
+    }
+
     private BootNetworkEventSeriesDto BuildNetworkEventSeriesNoLock(
         string? windowKey,
         int limit,
@@ -2987,7 +3118,11 @@ public class BootProtocolStateService
             .Select(x => x.Difficulty)
             .Where(x => x > 0)
             .ToList();
-        double? teamEstimatedHashrateThs = EstimateRankAdjustedHashrateThs(onDeckDifficulties, currentRoundElapsedSeconds);
+        // Avoid persisting obviously low-confidence "just rotated" samples into the chart history.
+        double? teamEstimatedHashrateThs =
+            currentRoundElapsedSeconds.HasValue && currentRoundElapsedSeconds.Value >= 60
+                ? EstimateRankAdjustedHashrateThs(onDeckDifficulties, currentRoundElapsedSeconds)
+                : null;
         double? localDatumHashrateThs = EstimateLocalDatumHashrateThsNoLock(nowUtc);
 
         _state.HashrateSamples.Add(new BootHashratePoint
@@ -3141,6 +3276,16 @@ public class BootProtocolStateService
 
             _activeDatumSessions.Remove(_state.RecentDatumSessions[removeIndex].SessionId);
             _state.RecentDatumSessions.RemoveAt(removeIndex);
+        }
+    }
+
+    private void TrimDatumProtocolEventsNoLock(DateTime nowUtc)
+    {
+        DateTime cutoffUtc = nowUtc.AddHours(-GetShareDiagnosticRetentionHours());
+        _recentDatumProtocolEvents.RemoveAll(item => item.TimestampUtc < cutoffUtc);
+        while (_recentDatumProtocolEvents.Count > MaxRecentDatumProtocolEvents)
+        {
+            _recentDatumProtocolEvents.RemoveAt(0);
         }
     }
 
@@ -3877,6 +4022,23 @@ public class BootProtocolStateService
         return false;
     }
 
+    private static bool IsStaleTipObservationNoLock(
+        string? observedBlockHash,
+        long? observedBlockHeight,
+        string? currentTipBlockHash,
+        long? currentTipBlockHeight)
+    {
+        if (string.IsNullOrWhiteSpace(observedBlockHash) ||
+            !observedBlockHeight.HasValue ||
+            !currentTipBlockHeight.HasValue ||
+            observedBlockHeight.Value >= currentTipBlockHeight.Value)
+        {
+            return false;
+        }
+
+        return !BitcoinHashes.AreEquivalent(observedBlockHash, currentTipBlockHash);
+    }
+
     private async Task NotifyWinnersListChangedAsync(string reason)
     {
         Func<string, Task>? handlers = WinnersListChanged;
@@ -4422,6 +4584,54 @@ public class BootProtocolStateService
             DurationMs = session.DurationMs,
             HandshakeMs = session.HandshakeMs,
             IdleBeforeCloseMs = session.IdleBeforeCloseMs
+        };
+    }
+
+    private static BootDatumProtocolEvent CloneDatumProtocolEvent(BootDatumProtocolEvent telemetry)
+    {
+        return new BootDatumProtocolEvent
+        {
+            SessionId = telemetry.SessionId,
+            Sequence = telemetry.Sequence,
+            Protocol = telemetry.Protocol,
+            RemoteEndpoint = telemetry.RemoteEndpoint,
+            Direction = telemetry.Direction,
+            EventType = telemetry.EventType,
+            MessageLabel = telemetry.MessageLabel,
+            ProtoCmd = telemetry.ProtoCmd,
+            MiningSubcommand = telemetry.MiningSubcommand,
+            IsSigned = telemetry.IsSigned,
+            IsEncryptedPubKey = telemetry.IsEncryptedPubKey,
+            IsEncryptedChannel = telemetry.IsEncryptedChannel,
+            CmdLen = telemetry.CmdLen,
+            BytesRead = telemetry.BytesRead,
+            ExpectedBytes = telemetry.ExpectedBytes,
+            DecryptedBytes = telemetry.DecryptedBytes,
+            RawHeaderHex = telemetry.RawHeaderHex,
+            DecodedHeaderHex = telemetry.DecodedHeaderHex,
+            HeaderKeyBefore = telemetry.HeaderKeyBefore,
+            HeaderKeyAfter = telemetry.HeaderKeyAfter,
+            Accepted = telemetry.Accepted,
+            AffectedOnDeck = telemetry.AffectedOnDeck,
+            RejectionReason = telemetry.RejectionReason,
+            Difficulty = telemetry.Difficulty,
+            PrevBlockHash = telemetry.PrevBlockHash,
+            JobId = telemetry.JobId,
+            CoinbaseId = telemetry.CoinbaseId,
+            NonceOnlySubmit = telemetry.NonceOnlySubmit,
+            UsedCachedJob = telemetry.UsedCachedJob,
+            CachedJobAgeMs = telemetry.CachedJobAgeMs,
+            Username = telemetry.Username,
+            CloseDisposition = telemetry.CloseDisposition,
+            CloseReason = telemetry.CloseReason,
+            Detail = telemetry.Detail,
+            DurationMs = telemetry.DurationMs,
+            CurrentRoundNumber = telemetry.CurrentRoundNumber,
+            CurrentStateId = telemetry.CurrentStateId,
+            CandidateStateId = telemetry.CandidateStateId,
+            CurrentTipBlockHash = telemetry.CurrentTipBlockHash,
+            CurrentTipBlockHeight = telemetry.CurrentTipBlockHeight,
+            TimestampUtc = telemetry.TimestampUtc
         };
     }
 

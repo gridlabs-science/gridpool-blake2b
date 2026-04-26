@@ -395,6 +395,49 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public async Task LowerHeightChainTipObservationIsIgnoredWithoutRegressingTipAsync()
+    {
+        using var harness = TestHarness.Create();
+        BootNetworkStatusDto before = harness.StateService.GetNetworkStatus();
+
+        BootNetworkStatusDto after = await harness.StateService.ObserveChainTipAsync(
+            "0000000000000000000000000000000000000000000000000000000000bad001",
+            "test-stale-tip",
+            before.CurrentTipBlockHeight - 1);
+
+        Assert.AreEqual(before.CurrentTipBlockHash, after.CurrentTipBlockHash);
+        Assert.AreEqual(before.CurrentTipBlockHeight, after.CurrentTipBlockHeight);
+
+        BootNetworkEventSeriesDto staleEvents = harness.StateService.GetNetworkEvents(eventType: "chain-tip-stale");
+        Assert.AreEqual(1, staleEvents.Events.Count);
+        Assert.AreEqual(before.CurrentTipBlockHeight - 1, staleEvents.Events[0].BlockHeight);
+    }
+
+    [TestMethod]
+    public async Task LowerHeightRoundRotationIsIgnoredWithoutAdvancingRoundAsync()
+    {
+        using var harness = TestHarness.Create();
+
+        IActionResult shareResponse = await harness.MiningController.SubmitShare(CreateSampleShareDto());
+        JsonObject sharePayload = ParseObjectResult(shareResponse, StatusCodes.Status200OK);
+        Assert.AreEqual("accepted", sharePayload["status"]?.GetValue<string>());
+
+        BootNetworkStatusDto before = harness.StateService.GetNetworkStatus();
+        RoundRotationResult rotation = await harness.StateService.RotateToNextRoundAsync(
+            "0000000000000000000000000000000000000000000000000000000000bad002",
+            "test-stale-block",
+            manual: false,
+            blockHeight: before.CurrentTipBlockHeight - 1);
+
+        Assert.IsFalse(rotation.Rotated);
+        Assert.AreEqual("Stale block notification", rotation.Reason);
+        Assert.AreEqual(before.CurrentRoundNumber, rotation.NetworkStatus.CurrentRoundNumber);
+        Assert.AreEqual(before.CurrentTipBlockHash, rotation.NetworkStatus.CurrentTipBlockHash);
+        Assert.AreEqual(before.CurrentTipBlockHeight, rotation.NetworkStatus.CurrentTipBlockHeight);
+        Assert.AreEqual(1, harness.StateService.GetOnDeckList().Count);
+    }
+
+    [TestMethod]
     public async Task RotationPreservesImmediatePreviousParentInAcceptedParentSetAsync()
     {
         using var harness = TestHarness.Create();

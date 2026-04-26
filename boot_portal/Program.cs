@@ -171,6 +171,12 @@ public class PoolConfig
     [JsonPropertyName("stale_datum_disconnect_cooldown_seconds")]
     public int StaleDatumDisconnectCooldownSeconds { get; set; } = 60;
 
+    [JsonPropertyName("stale_datum_force_disconnect_enabled")]
+    public bool StaleDatumForceDisconnectEnabled { get; set; } = false;
+
+    [JsonPropertyName("stale_datum_refresh_interval_seconds")]
+    public int StaleDatumRefreshIntervalSeconds { get; set; } = 10;
+
     [JsonIgnore]
     public bool TestingRoundResetEnabled =>
         string.Equals(TestingRoundResetMode, "block_hash_low_nibble", StringComparison.OrdinalIgnoreCase) &&
@@ -721,6 +727,7 @@ public class ClientHandler
     private DateTime? _staleTemplateSeriesStartedUtc = null;
     private DateTime _lastStaleTemplateRefreshUtc = DateTime.MinValue;
     private DateTime _lastForcedStaleTemplateDisconnectUtc = DateTime.MinValue;
+    private DateTime _lastStaleTemplateWarningUtc = DateTime.MinValue;
     private bool _sessionPayoutAddressLocked = false;
     private readonly HashSet<string> _loggedUnexpectedPayoutAddresses = new(StringComparer.OrdinalIgnoreCase);
     private string? _serverInitiatedCloseEventType;
@@ -728,6 +735,7 @@ public class ClientHandler
     private bool _serverInitiatedCloseLogged = false;
     private long _coinbaserFetchSequence = 0;
     private long _datumShareResponseSequence = 0;
+    private long _datumProtocolEventSequence = 0;
     private readonly CancellationToken _stoppingToken;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly string _sessionId;
@@ -758,6 +766,14 @@ public class ClientHandler
         _sessionStartedUtc = DateTime.UtcNow;
         _sessionId = $"datum-{Interlocked.Increment(ref _nextSessionId)}";
         _stateService.RecordDatumSessionOpened(_sessionId, RemoteEndpointLabel, _sessionStartedUtc);
+        RecordDatumProtocolEvent(new BootDatumProtocolEvent
+        {
+            Direction = "internal",
+            EventType = "session-open",
+            MessageLabel = "tcp-connect",
+            Detail = "TCP client connected.",
+            TimestampUtc = _sessionStartedUtc
+        });
         Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} connected.");
     }
 
@@ -781,6 +797,13 @@ public class ClientHandler
 
         _sessionProtocol = protocol;
         _stateService.RecordDatumSessionProtocol(_sessionId, protocol);
+        RecordDatumProtocolEvent(new BootDatumProtocolEvent
+        {
+            Direction = "internal",
+            EventType = "protocol-detected",
+            MessageLabel = protocol,
+            Detail = $"Protocol determined as {protocol}."
+        });
     }
 
     private void ScheduleServerInitiatedClose(string message, string eventType = "datum-session-close")
@@ -807,6 +830,60 @@ public class ClientHandler
             "datum",
             _serverInitiatedCloseMessage);
         Console.WriteLine($"⚠️ {_serverInitiatedCloseMessage}");
+    }
+
+    private void RecordDatumProtocolEvent(BootDatumProtocolEvent telemetry)
+    {
+        telemetry.SessionId = _sessionId;
+        telemetry.Sequence = Interlocked.Increment(ref _datumProtocolEventSequence);
+        telemetry.Protocol = string.IsNullOrWhiteSpace(telemetry.Protocol) ? _sessionProtocol : telemetry.Protocol;
+        telemetry.RemoteEndpoint = string.IsNullOrWhiteSpace(telemetry.RemoteEndpoint) ? RemoteEndpointLabel : telemetry.RemoteEndpoint;
+        telemetry.TimestampUtc = telemetry.TimestampUtc == default ? DateTime.UtcNow : telemetry.TimestampUtc;
+        if (!string.IsNullOrWhiteSpace(telemetry.Detail) && telemetry.Detail.Length > 256)
+        {
+            telemetry.Detail = telemetry.Detail[..256];
+        }
+
+        if (!string.IsNullOrWhiteSpace(telemetry.Username) && telemetry.Username.Length > 128)
+        {
+            telemetry.Username = telemetry.Username[..128];
+        }
+
+        _stateService.RecordDatumProtocolEvent(telemetry);
+    }
+
+    private void RecordPowSubmitProtocolOutcome(
+        PowSubmitMessage powSubmit,
+        bool accepted,
+        bool affectedOnDeck,
+        string? rejectionReason,
+        double difficulty,
+        string? prevBlockHash,
+        bool nonceOnlySubmit,
+        bool usedCachedJob,
+        double? cachedJobAgeMs,
+        string? detail = null)
+    {
+        RecordDatumProtocolEvent(new BootDatumProtocolEvent
+        {
+            Direction = "internal",
+            EventType = "pow-submit-outcome",
+            MessageLabel = "pow-submit",
+            ProtoCmd = 0x05,
+            MiningSubcommand = 0x27,
+            Accepted = accepted,
+            AffectedOnDeck = affectedOnDeck,
+            RejectionReason = rejectionReason,
+            Difficulty = difficulty,
+            PrevBlockHash = prevBlockHash,
+            JobId = powSubmit.JobId,
+            CoinbaseId = powSubmit.CoinbaseId,
+            NonceOnlySubmit = nonceOnlySubmit,
+            UsedCachedJob = usedCachedJob,
+            CachedJobAgeMs = cachedJobAgeMs,
+            Username = powSubmit.Username,
+            Detail = detail
+        });
     }
 
     private async Task<int> ReadExactOrUntilClosedAsync(byte[] buffer, int length)
@@ -840,6 +917,17 @@ public class ClientHandler
                 int bytesRead = await ReadExactOrUntilClosedAsync(headerBuffer, headerBuffer.Length);
                 if (bytesRead == 0)
                 {
+                    RecordDatumProtocolEvent(new BootDatumProtocolEvent
+                    {
+                        Direction = "recv",
+                        EventType = "recv-header-eof",
+                        MessageLabel = "header",
+                        BytesRead = 0,
+                        ExpectedBytes = headerBuffer.Length,
+                        HeaderKeyBefore = _receivingHeaderKey,
+                        HeaderKeyAfter = _receivingHeaderKey,
+                        Detail = "Client closed before sending a full DATUM header."
+                    });
                     MarkSessionClose("client-disconnected-no-data", "Client closed DATUM session before sending a full header.");
                     Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} disconnected (no data).");
                     break;
@@ -851,6 +939,18 @@ public class ClientHandler
                     // We check if the first byte is '{'. 
                     if (headerBuffer[0] == 0x7B) 
                     {
+                        RecordDatumProtocolEvent(new BootDatumProtocolEvent
+                        {
+                            Direction = "recv",
+                            EventType = "stratum-proxy-detected",
+                            MessageLabel = "stratum-v1-proxy",
+                            BytesRead = bytesRead,
+                            ExpectedBytes = headerBuffer.Length,
+                            RawHeaderHex = Convert.ToHexString(headerBuffer, 0, bytesRead).ToLowerInvariant(),
+                            HeaderKeyBefore = _receivingHeaderKey,
+                            HeaderKeyAfter = _receivingHeaderKey,
+                            Detail = "Initial bytes matched Stratum V1 JSON prefix."
+                        });
                         MarkSessionProtocol("stratum-v1-proxy");
                         MarkSessionClose("stratum-proxy", "Connection was forwarded to the Stratum V1 proxy path.");
                         Console.WriteLine($"🔀 Stratum V1 detected from {_client.Client.RemoteEndPoint}. Forwarding to Gateway...");
@@ -868,6 +968,18 @@ public class ClientHandler
                 // -------------------------------------
                 if (bytesRead < 4)
                 {
+                    RecordDatumProtocolEvent(new BootDatumProtocolEvent
+                    {
+                        Direction = "recv",
+                        EventType = "partial-header",
+                        MessageLabel = "header",
+                        BytesRead = bytesRead,
+                        ExpectedBytes = headerBuffer.Length,
+                        RawHeaderHex = Convert.ToHexString(headerBuffer, 0, bytesRead).ToLowerInvariant(),
+                        HeaderKeyBefore = _receivingHeaderKey,
+                        HeaderKeyAfter = _receivingHeaderKey,
+                        Detail = $"Received only {bytesRead} header bytes."
+                    });
                     MarkSessionClose("partial-header", $"Received only {bytesRead} header bytes.");
                     ScheduleServerInitiatedClose(
                         $"Closing DATUM session {RemoteEndpointLabel} after receiving a partial header ({bytesRead} bytes).");
@@ -876,6 +988,7 @@ public class ClientHandler
                 }
                 //Console.WriteLine($"📥 Received header bytes: {BitConverter.ToString(headerBuffer)}");
                 // Step 1.2: Decode header with XOR key
+                uint receivingHeaderKeyBefore = _receivingHeaderKey;
                 uint headerValue = BitConverter.ToUInt32(headerBuffer, 0); // Read as little-endian
                 headerValue ^= _receivingHeaderKey; // XOR as 32-bit integer
                 var deXoredHeaderBytes = BitConverter.GetBytes(headerValue); // Convert back to bytes
@@ -885,6 +998,28 @@ public class ClientHandler
 
                 // Step 1.3: Parse header
                 var header = DatumHeader.FromBytes(deXoredHeaderBytes);
+                RecordDatumProtocolEvent(new BootDatumProtocolEvent
+                {
+                    Direction = "recv",
+                    EventType = "recv-header",
+                    MessageLabel = header.ProtoCmd switch
+                    {
+                        0x01 => "hello",
+                        0x05 => "mining-command",
+                        _ => "unknown"
+                    },
+                    ProtoCmd = header.ProtoCmd,
+                    IsSigned = header.IsSigned,
+                    IsEncryptedPubKey = header.IsEncryptedPubKey,
+                    IsEncryptedChannel = header.IsEncryptedChannel,
+                    CmdLen = header.CmdLen,
+                    BytesRead = bytesRead,
+                    ExpectedBytes = headerBuffer.Length,
+                    RawHeaderHex = Convert.ToHexString(headerBuffer).ToLowerInvariant(),
+                    DecodedHeaderHex = Convert.ToHexString(deXoredHeaderBytes).ToLowerInvariant(),
+                    HeaderKeyBefore = receivingHeaderKeyBefore,
+                    HeaderKeyAfter = _receivingHeaderKey
+                });
                 //Console.WriteLine($"📋 Parsed header: Cmd={header.ProtoCmd}, Len={header.CmdLen}, Signed={header.IsSigned}, EncryptedPubKey={header.IsEncryptedPubKey}, EncryptedChannel={header.IsEncryptedChannel}");
 
                 // Step 2: Read in the message body
@@ -892,18 +1027,65 @@ public class ClientHandler
                 bytesRead = await ReadExactOrUntilClosedAsync(bodyBuffer, bodyBuffer.Length);
                 if (bytesRead == 0)
                 {
+                    RecordDatumProtocolEvent(new BootDatumProtocolEvent
+                    {
+                        Direction = "recv",
+                        EventType = "recv-body-eof",
+                        MessageLabel = header.ProtoCmd switch
+                        {
+                            0x01 => "hello",
+                            0x05 => "mining-command",
+                            _ => "unknown"
+                        },
+                        ProtoCmd = header.ProtoCmd,
+                        BytesRead = 0,
+                        ExpectedBytes = bodyBuffer.Length,
+                        CmdLen = header.CmdLen,
+                        Detail = "Client closed before sending the encrypted DATUM body."
+                    });
                     MarkSessionClose("client-disconnected-no-body", "Client closed DATUM session before sending the encrypted body.");
                     Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} disconnected (no body).");
                     break;
                 }
                 if (bytesRead < bodyBuffer.Length)
                 {
+                    RecordDatumProtocolEvent(new BootDatumProtocolEvent
+                    {
+                        Direction = "recv",
+                        EventType = "partial-body",
+                        MessageLabel = header.ProtoCmd switch
+                        {
+                            0x01 => "hello",
+                            0x05 => "mining-command",
+                            _ => "unknown"
+                        },
+                        ProtoCmd = header.ProtoCmd,
+                        BytesRead = bytesRead,
+                        ExpectedBytes = bodyBuffer.Length,
+                        CmdLen = header.CmdLen,
+                        Detail = $"Received only {bytesRead} of {bodyBuffer.Length} encrypted body bytes."
+                    });
                     MarkSessionClose("partial-body", $"Received only {bytesRead} of {bodyBuffer.Length} encrypted body bytes.");
                     ScheduleServerInitiatedClose(
                         $"Closing DATUM session {RemoteEndpointLabel} after receiving a partial body ({bytesRead}/{bodyBuffer.Length} bytes).");
                     Console.WriteLine($"⚠️ Partial body received ({bytesRead}/{bodyBuffer.Length} bytes).");
                     break;
                 }
+                RecordDatumProtocolEvent(new BootDatumProtocolEvent
+                {
+                    Direction = "recv",
+                    EventType = "recv-body",
+                    MessageLabel = header.ProtoCmd switch
+                    {
+                        0x01 => "hello",
+                        0x05 => "mining-command",
+                        _ => "unknown"
+                    },
+                    ProtoCmd = header.ProtoCmd,
+                    BytesRead = bytesRead,
+                    ExpectedBytes = bodyBuffer.Length,
+                    CmdLen = header.CmdLen
+                });
                 //Console.WriteLine($"📦 Received body ({bytesRead} bytes)");
                 
                 // Step 3: Decrypt the body
@@ -915,6 +1097,17 @@ public class ClientHandler
                     decryptedBody = DecryptSigned(bodyBuffer, bytesRead);
                     if (decryptedBody == null)
                     {
+                        RecordDatumProtocolEvent(new BootDatumProtocolEvent
+                        {
+                            Direction = "internal",
+                            EventType = "decrypt-failed",
+                            MessageLabel = "signed-payload",
+                            ProtoCmd = header.ProtoCmd,
+                            CmdLen = header.CmdLen,
+                            BytesRead = bytesRead,
+                            ExpectedBytes = bodyBuffer.Length,
+                            Detail = "Signed DATUM payload decryption returned null."
+                        });
                         MarkSessionClose("decrypt-failed", "Signed DATUM payload decryption failed.");
                         ScheduleServerInitiatedClose(
                             $"Closing DATUM session {RemoteEndpointLabel} after signed payload decryption failed.");
@@ -926,6 +1119,17 @@ public class ClientHandler
                     //Modified (+48) to account for CryptoBoxSealBytes, the signature that is added to the encrypted payload.
                     if (header.CmdLen != decryptedBody.Length + 48)
                     {
+                        RecordDatumProtocolEvent(new BootDatumProtocolEvent
+                        {
+                            Direction = "internal",
+                            EventType = "signed-length-mismatch",
+                            MessageLabel = "signed-payload",
+                            ProtoCmd = header.ProtoCmd,
+                            CmdLen = header.CmdLen,
+                            BytesRead = bytesRead,
+                            DecryptedBytes = decryptedBody.Length,
+                            Detail = $"Signed payload length {header.CmdLen} did not match decrypted length {decryptedBody.Length}."
+                        });
                         MarkSessionClose("signed-length-mismatch", $"Signed payload length {header.CmdLen} did not match decrypted length {decryptedBody.Length}.");
                         ScheduleServerInitiatedClose(
                             $"Closing DATUM session {RemoteEndpointLabel} because signed payload length {header.CmdLen} did not match decrypted length {decryptedBody.Length}.");
@@ -942,6 +1146,17 @@ public class ClientHandler
                     //Modified (+16) to account for MAC bytes, the signature that is added to the encrypted payload.  I think.
                     if (decryptedBody == null)
                     {
+                        RecordDatumProtocolEvent(new BootDatumProtocolEvent
+                        {
+                            Direction = "internal",
+                            EventType = "decrypt-failed",
+                            MessageLabel = "encrypted-channel-payload",
+                            ProtoCmd = header.ProtoCmd,
+                            CmdLen = header.CmdLen,
+                            BytesRead = bytesRead,
+                            ExpectedBytes = bodyBuffer.Length,
+                            Detail = "Encrypted DATUM channel payload decryption returned null."
+                        });
                         MarkSessionClose("decrypt-failed", "Encrypted DATUM channel payload decryption failed.");
                         ScheduleServerInitiatedClose(
                             $"Closing DATUM session {RemoteEndpointLabel} after encrypted channel decryption failed.");
@@ -950,6 +1165,17 @@ public class ClientHandler
                     }
                     if (header.CmdLen != decryptedBody.Length + 16)
                     {
+                        RecordDatumProtocolEvent(new BootDatumProtocolEvent
+                        {
+                            Direction = "internal",
+                            EventType = "encrypted-length-mismatch",
+                            MessageLabel = "encrypted-channel-payload",
+                            ProtoCmd = header.ProtoCmd,
+                            CmdLen = header.CmdLen,
+                            BytesRead = bytesRead,
+                            DecryptedBytes = decryptedBody.Length,
+                            Detail = $"Encrypted payload length {header.CmdLen} did not match decrypted length {decryptedBody.Length}."
+                        });
                         MarkSessionClose("encrypted-length-mismatch", $"Encrypted payload length {header.CmdLen} did not match decrypted length {decryptedBody.Length}.");
                         ScheduleServerInitiatedClose(
                             $"Closing DATUM session {RemoteEndpointLabel} because encrypted channel payload length {header.CmdLen} did not match decrypted length {decryptedBody.Length}.");
@@ -960,24 +1186,73 @@ public class ClientHandler
                 }
                 if (decryptedBody == null)
                 {
+                    RecordDatumProtocolEvent(new BootDatumProtocolEvent
+                    {
+                        Direction = "internal",
+                        EventType = "decrypt-failed",
+                        MessageLabel = "payload",
+                        ProtoCmd = header.ProtoCmd,
+                        CmdLen = header.CmdLen,
+                        BytesRead = bytesRead,
+                        ExpectedBytes = bodyBuffer.Length,
+                        Detail = "Payload decryption returned null."
+                    });
                     MarkSessionClose("decrypt-failed", "Payload decryption returned null.");
                     ScheduleServerInitiatedClose(
                         $"Closing DATUM session {RemoteEndpointLabel} after a payload decryption failure.");
                     Console.WriteLine(" Header info: Cmd=" + (header.ProtoCmd) + " / CmdLen=" + header.CmdLen + " / isSigned=" + header.IsSigned + " / isEncryptedPubKey=" + header.IsEncryptedPubKey + " / isEncryptedChannel=" + header.IsEncryptedChannel);
                     Console.WriteLine($"❌ Failed to decrypt body for client {_client.Client.RemoteEndPoint}");
                     Console.WriteLine(BitConverter.ToString(bodyBuffer));
-                    
+
                     break;
                 }
+                RecordDatumProtocolEvent(new BootDatumProtocolEvent
+                {
+                    Direction = "internal",
+                    EventType = "decrypt-ok",
+                    MessageLabel = header.ProtoCmd switch
+                    {
+                        0x01 => "hello",
+                        0x05 => "mining-command",
+                        _ => "unknown"
+                    },
+                    ProtoCmd = header.ProtoCmd,
+                    CmdLen = header.CmdLen,
+                    BytesRead = bytesRead,
+                    ExpectedBytes = bodyBuffer.Length,
+                    DecryptedBytes = decryptedBody.Length
+                });
                 //Console.WriteLine($"🔓 Decrypted body ({decryptedBody.Length} bytes)");
                 
                 // Step 4: Parse the message appropriately.  Responses are generated in the appropriate "Handle" function.
                 //Console.WriteLine($"[RECV] Command: 0x{header.ProtoCmd:X2}, Length: {header.CmdLen} bytes");
+                RecordDatumProtocolEvent(new BootDatumProtocolEvent
+                {
+                    Direction = "internal",
+                    EventType = "dispatch",
+                    MessageLabel = header.ProtoCmd switch
+                    {
+                        0x01 => "hello",
+                        0x05 => "mining-command",
+                        _ => "unknown"
+                    },
+                    ProtoCmd = header.ProtoCmd,
+                    CmdLen = header.CmdLen
+                });
                 switch (header.ProtoCmd)
                 {
                     case 0x01: await HandleHelloAsync(header, decryptedBody); break;
                     case 0x05: await HandleMiningCommandAsync(header, decryptedBody); break;
                     default:
+                        RecordDatumProtocolEvent(new BootDatumProtocolEvent
+                        {
+                            Direction = "internal",
+                            EventType = "unknown-command",
+                            MessageLabel = "unknown",
+                            ProtoCmd = header.ProtoCmd,
+                            CmdLen = header.CmdLen,
+                            Detail = $"Unknown DATUM command 0x{header.ProtoCmd:X2}."
+                        });
                         Console.WriteLine("Header xor Key=" + _receivingHeaderKey);
                         Console.WriteLine(" Header info: Cmd=" + (header.ProtoCmd) + " / CmdLen=" + header.CmdLen + " / isSigned=" + header.IsSigned + " / isEncryptedPubKey=" + header.IsEncryptedPubKey + " / isEncryptedChannel=" + header.IsEncryptedChannel);
                         Console.WriteLine($"⚠️ Received unknown command: 0x{header.ProtoCmd:X2}"); break;
@@ -1023,6 +1298,16 @@ public class ClientHandler
                 serverInitiated: !string.IsNullOrWhiteSpace(_serverInitiatedCloseMessage),
                 serverCloseEventType: _serverInitiatedCloseEventType,
                 timestampUtc: DateTime.UtcNow);
+            RecordDatumProtocolEvent(new BootDatumProtocolEvent
+            {
+                Direction = "internal",
+                EventType = "session-close",
+                MessageLabel = _serverInitiatedCloseEventType ?? _sessionCloseDisposition,
+                CloseDisposition = _sessionCloseDisposition,
+                CloseReason = !string.IsNullOrWhiteSpace(_serverInitiatedCloseMessage) ? _serverInitiatedCloseMessage : _sessionCloseReason,
+                Detail = $"serverInitiated={!string.IsNullOrWhiteSpace(_serverInitiatedCloseMessage)}",
+                TimestampUtc = DateTime.UtcNow
+            });
             _client.Close();
         }
     }
@@ -1045,10 +1330,17 @@ public class ClientHandler
             _sessionNonceSender == null ||
             _sendingHeaderKey == 0)
         {
+            RecordDatumProtocolEvent(new BootDatumProtocolEvent
+            {
+                Direction = "internal",
+                EventType = "template-refresh-skipped",
+                MessageLabel = "template-refresh-request",
+                Detail = $"connected={_client.Connected}; sharedSecret={_channelSharedSecretBytes != null}; senderNonce={_sessionNonceSender != null}; sendingHeaderKey={_sendingHeaderKey}; reason={reason}"
+            });
             return false;
         }
 
-        await SendEncryptedMessageAsync(0x05, [0xF9], isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false);
+        await SendEncryptedMessageAsync(0x05, [0xF9], isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false, messageLabel: "template-refresh-request");
         _stateService.RecordDatumSessionRefreshRequest(_sessionId);
         _stateService.RecordExternalNetworkEvent(
             "datum-refresh-request",
@@ -1111,7 +1403,8 @@ public class ClientHandler
         _staleTemplateSeriesStartedUtc ??= nowUtc;
         _consecutivePayoutMismatchRejections++;
 
-        if ((nowUtc - _lastStaleTemplateRefreshUtc).TotalSeconds >= 2)
+        int refreshIntervalSeconds = Math.Clamp(_poolConfig.StaleDatumRefreshIntervalSeconds, 2, 300);
+        if ((nowUtc - _lastStaleTemplateRefreshUtc).TotalSeconds >= refreshIntervalSeconds)
         {
             _lastStaleTemplateRefreshUtc = nowUtc;
             await RequestBlockTemplateRefreshAsync("stale-payout-mismatch");
@@ -1133,19 +1426,34 @@ public class ClientHandler
         }
 
         int disconnectCooldownSeconds = Math.Clamp(_poolConfig.StaleDatumDisconnectCooldownSeconds, 5, 1800);
-        if ((nowUtc - _lastForcedStaleTemplateDisconnectUtc).TotalSeconds < disconnectCooldownSeconds)
+        if ((nowUtc - _lastStaleTemplateWarningUtc).TotalSeconds < disconnectCooldownSeconds)
         {
             return false;
         }
 
-        _lastForcedStaleTemplateDisconnectUtc = nowUtc;
-        ScheduleServerInitiatedClose(
-            $"Reset DATUM session {RemoteEndpointLabel} after {_consecutivePayoutMismatchRejections} stale payout shares persisted for {staleDurationSeconds:F1}s while locked to payout address {_clientPayoutAddress}.",
-            "datum-session-reset");
+        _lastStaleTemplateWarningUtc = nowUtc;
 
-        Console.WriteLine(
-            $"⚠️ DATUM client {RemoteEndpointLabel} submitted {_consecutivePayoutMismatchRejections} consecutive stale payout shares for {_clientPayoutAddress} over {staleDurationSeconds:F1}s. Disconnecting to force a clean reconnect.");
-        return true;
+        string staleMessage =
+            $"DATUM client {RemoteEndpointLabel} submitted {_consecutivePayoutMismatchRejections} consecutive stale payout shares for {_clientPayoutAddress} over {staleDurationSeconds:F1}s. Requested template refresh and continuing the session.";
+
+        if (_poolConfig.StaleDatumForceDisconnectEnabled)
+        {
+            _lastForcedStaleTemplateDisconnectUtc = nowUtc;
+            ScheduleServerInitiatedClose(
+                $"Reset DATUM session {RemoteEndpointLabel} after {_consecutivePayoutMismatchRejections} stale payout shares persisted for {staleDurationSeconds:F1}s while locked to payout address {_clientPayoutAddress}.",
+                "datum-session-reset");
+
+            Console.WriteLine(
+                $"⚠️ DATUM client {RemoteEndpointLabel} submitted {_consecutivePayoutMismatchRejections} consecutive stale payout shares for {_clientPayoutAddress} over {staleDurationSeconds:F1}s. Disconnecting to force a clean reconnect.");
+            return true;
+        }
+
+        _stateService.RecordExternalNetworkEvent(
+            "datum-session-stale-warning",
+            "datum",
+            staleMessage);
+        Console.WriteLine($"⚠️ {staleMessage}");
+        return false;
     }
 
     /// <summary>
@@ -1363,17 +1671,48 @@ public class ClientHandler
         (_helloMessage, bytesConsumed) = HelloMessage.FromBytes(decryptedBody);
         if (_helloMessage == null || bytesConsumed < 0)
         {
+            RecordDatumProtocolEvent(new BootDatumProtocolEvent
+            {
+                Direction = "internal",
+                EventType = "hello-parse-failed",
+                MessageLabel = "hello",
+                ProtoCmd = header.ProtoCmd,
+                DecryptedBytes = decryptedBody.Length,
+                Detail = "Failed to parse DATUM hello message."
+            });
             Console.WriteLine($"❌ Failed to parse hello message for client {_client.Client.RemoteEndPoint}");
             return;
         }
         if (bytesConsumed != decryptedBody.Length)
         {
+            RecordDatumProtocolEvent(new BootDatumProtocolEvent
+            {
+                Direction = "internal",
+                EventType = "hello-length-mismatch",
+                MessageLabel = "hello",
+                ProtoCmd = header.ProtoCmd,
+                BytesRead = bytesConsumed,
+                ExpectedBytes = decryptedBody.Length,
+                DecryptedBytes = decryptedBody.Length,
+                Detail = $"Parsed {bytesConsumed} hello bytes but decrypted body was {decryptedBody.Length} bytes."
+            });
             Console.WriteLine($"⚠️ Parsed {bytesConsumed} bytes, but decrypted body is {decryptedBody.Length} bytes");
             return;
         }
 
         _clientIdentityKey = Convert.ToHexString(_helloMessage.ClientSigningPubKey).ToLowerInvariant();
         _clientEncryptIdentityKey = Convert.ToHexString(_helloMessage.ClientEncryptPubKey).ToLowerInvariant();
+        string signingPreview = _clientIdentityKey.Length >= 16 ? _clientIdentityKey[..16] : _clientIdentityKey;
+        string encryptPreview = _clientEncryptIdentityKey.Length >= 16 ? _clientEncryptIdentityKey[..16] : _clientEncryptIdentityKey;
+        RecordDatumProtocolEvent(new BootDatumProtocolEvent
+        {
+            Direction = "internal",
+            EventType = "hello-parsed",
+            MessageLabel = "hello",
+            ProtoCmd = header.ProtoCmd,
+            DecryptedBytes = decryptedBody.Length,
+            Detail = $"signingKey={signingPreview}; encryptKey={encryptPreview}; bytesConsumed={bytesConsumed}"
+        });
         _stateService.RecordDatumSessionHello(_sessionId, _clientIdentityKey, _clientEncryptIdentityKey);
         string? rememberedPayoutAddress =
             _stateService.GetKnownDatumPayoutAddress(_clientIdentityKey) ??
@@ -1449,7 +1788,7 @@ public class ClientHandler
         //Console.WriteLine($"📦 Signature: {BitConverter.ToString(signature)}");
         var signedPayload = responsePayloadBytes.Concat(signature).ToArray();
         //Console.WriteLine($"📦 Signed payload (corrected): {BitConverter.ToString(signedPayload)}");
-        await SendEncryptedMessageAsync(0x02, signedPayload, true, false, true);
+        await SendEncryptedMessageAsync(0x02, signedPayload, true, false, true, messageLabel: "handshake-response");
         //Console.WriteLine($"[SEND] Handshake Response (0x02), length " + signedPayload.Length);
         await SendClientConfigureAsync(_poolConfig);          // Send 0x99 client configure message
     }
@@ -1510,7 +1849,7 @@ public class ClientHandler
 
         // Send encrypted message (mining command 0x05, channel encryption)
         //Console.WriteLine("[SEND} Sending client configuration message 0x05/0x99");
-        await SendEncryptedMessageAsync(0x05, signedPayload, isSigned: true, isEncryptedChannel: true, isEncryptedPubKey: false);
+        await SendEncryptedMessageAsync(0x05, signedPayload, isSigned: true, isEncryptedChannel: true, isEncryptedPubKey: false, messageLabel: "client-configure");
     }
 
     /// Handles all mining-related commands (sub-commands under 0x05).
@@ -1518,6 +1857,20 @@ public class ClientHandler
     {
         byte subCmd = decryptedBody[0];
         byte[] subCmdPayload = decryptedBody.Skip(1).ToArray();
+        RecordDatumProtocolEvent(new BootDatumProtocolEvent
+        {
+            Direction = "internal",
+            EventType = "mining-subcommand",
+            MessageLabel = subCmd switch
+            {
+                0x10 => "coinbaser-fetch",
+                0x27 => "pow-submit",
+                _ => "unknown-mining-subcommand"
+            },
+            ProtoCmd = header.ProtoCmd,
+            MiningSubcommand = subCmd,
+            DecryptedBytes = decryptedBody.Length
+        });
         //Console.WriteLine($"[RECV] Mining Command (0x05), Sub-Command: 0x{subCmd:X2}");
         switch (subCmd)
         {
@@ -1593,7 +1946,7 @@ public class ClientHandler
             serializeDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
 
             stageStopwatch.Restart();
-            await SendEncryptedMessageAsync(0x05, responsePayload, isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false);
+            await SendEncryptedMessageAsync(0x05, responsePayload, isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false, messageLabel: "coinbaser-fetch-response");
             sendDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
             stopwatch.Stop();
 
@@ -1735,6 +2088,20 @@ public class ClientHandler
         bool usedCachedJob = false;
         double? cachedJobAgeMs = null;
         long responseSequence = Interlocked.Increment(ref _datumShareResponseSequence);
+        RecordDatumProtocolEvent(new BootDatumProtocolEvent
+        {
+            Direction = "internal",
+            EventType = "pow-submit-parsed",
+            MessageLabel = "pow-submit",
+            ProtoCmd = 0x05,
+            MiningSubcommand = 0x27,
+            JobId = powSubmit.JobId,
+            CoinbaseId = powSubmit.CoinbaseId,
+            NonceOnlySubmit = nonceOnlySubmit,
+            PrevBlockHash = powSubmit.PrevBlockHash == null ? null : BitcoinHashes.ToDisplayHashHex(powSubmit.PrevBlockHash),
+            Username = powSubmit.Username,
+            Detail = $"quickDiff={powSubmit.QuickDiff}; subsidyOnly={powSubmit.SubsidyOnly}; targetByte={powSubmit.TargetByte}"
+        });
         //Check for proper address and usernames:
         //  using _poolConfig.PoolPayoutScript as default fallback
         string[] parts = powSubmit.Username.Split('.');
@@ -1768,6 +2135,15 @@ public class ClientHandler
             _sessionPayoutAddressLocked = true;
             RememberClientPayoutAddress(_clientPayoutAddress);
             _stateService.RecordDatumSessionPayoutLock(_sessionId, _clientPayoutAddress);
+            RecordDatumProtocolEvent(new BootDatumProtocolEvent
+            {
+                Direction = "internal",
+                EventType = "payout-lock",
+                MessageLabel = "pow-submit",
+                JobId = powSubmit.JobId,
+                CoinbaseId = powSubmit.CoinbaseId,
+                Detail = $"Locked payout address to {_clientPayoutAddress}."
+            });
             _stateService.RecordExternalNetworkEvent(
                 "datum-session-lock",
                 "datum",
@@ -1798,6 +2174,17 @@ public class ClientHandler
             {
                 Console.WriteLine(
                     $"⚠️ Missing cached DATUM job {powSubmit.JobId} for nonce-only update from {powSubmit.Address}. Requesting fresh templates.");
+                RecordPowSubmitProtocolOutcome(
+                    powSubmit,
+                    accepted: false,
+                    affectedOnDeck: false,
+                    rejectionReason: "Missing cached DATUM job",
+                    difficulty: 0,
+                    prevBlockHash: null,
+                    nonceOnlySubmit: nonceOnlySubmit,
+                    usedCachedJob: false,
+                    cachedJobAgeMs: null,
+                    detail: "Nonce-only share referenced a missing cached DATUM job.");
                 stageStopwatch.Restart();
                 await SendShareResponseAsync(powSubmit, accepted: false);
                 responseSendDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
@@ -1876,6 +2263,17 @@ public class ClientHandler
             !powSubmit.MerkleBranchCount.HasValue)
         {
             buildDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+            RecordPowSubmitProtocolOutcome(
+                powSubmit,
+                accepted: false,
+                affectedOnDeck: false,
+                rejectionReason: "Incomplete DATUM job data",
+                difficulty: 0,
+                prevBlockHash: null,
+                nonceOnlySubmit: nonceOnlySubmit,
+                usedCachedJob: usedCachedJob,
+                cachedJobAgeMs: cachedJobAgeMs,
+                detail: "Share could not be reconstructed because required DATUM job fields were missing.");
             stageStopwatch.Restart();
             await SendShareResponseAsync(powSubmit, accepted: false);
             responseSendDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
@@ -1929,6 +2327,17 @@ public class ClientHandler
         if (Coinb1 == null || Coinb2 == null)
         {
             buildDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+            RecordPowSubmitProtocolOutcome(
+                powSubmit,
+                accepted: false,
+                affectedOnDeck: false,
+                rejectionReason: "Missing DATUM coinbase data",
+                difficulty: 0,
+                prevBlockHash: powSubmit.PrevBlockHash == null ? null : BitcoinHashes.ToDisplayHashHex(powSubmit.PrevBlockHash),
+                nonceOnlySubmit: nonceOnlySubmit,
+                usedCachedJob: usedCachedJob,
+                cachedJobAgeMs: cachedJobAgeMs,
+                detail: "Share referenced a DATUM coinbase pair that was not cached.");
             stageStopwatch.Restart();
             await SendShareResponseAsync(powSubmit, accepted: false);
             responseSendDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
@@ -2088,6 +2497,17 @@ public class ClientHandler
         }
         staleHandlingDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
         _stateService.RecordDatumSessionShareOutcome(_sessionId, shareAccepted, recordResult.AffectedOnDeck, startedUtc);
+        RecordPowSubmitProtocolOutcome(
+            powSubmit,
+            shareAccepted,
+            recordResult.AffectedOnDeck,
+            recordResult.RejectionReason,
+            recordResult.ComputedDifficulty,
+            powSubmit.PrevBlockHash == null ? null : BitcoinHashes.ToDisplayHashHex(powSubmit.PrevBlockHash),
+            nonceOnlySubmit,
+            usedCachedJob,
+            cachedJobAgeMs,
+            detail: $"disconnectAfterResponse={disconnectAfterResponse}");
 
         //Console.WriteLine("-----------------------------------------");
 
@@ -2141,7 +2561,7 @@ public class ClientHandler
         };
 
         var responsePayload = shareResponse.ToBytes();
-        await SendEncryptedMessageAsync(0x05, responsePayload, isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false);
+        await SendEncryptedMessageAsync(0x05, responsePayload, isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false, messageLabel: accepted ? "share-response-accepted" : "share-response-rejected");
     }
 
     private void RecordDatumShareResponseTelemetry(
@@ -2467,12 +2887,14 @@ public class ClientHandler
     }
 
     /// Generic helper to encrypt and send a message using the client's public or (more likely) using the shared channel secret.
-    private async Task SendEncryptedMessageAsync(byte protoCmd, byte[] payload, bool isSigned = false, bool isEncryptedChannel = true, bool isEncryptedPubKey = false)
+    private async Task SendEncryptedMessageAsync(byte protoCmd, byte[] payload, bool isSigned = false, bool isEncryptedChannel = true, bool isEncryptedPubKey = false, string? messageLabel = null)
     {
         await _sendLock.WaitAsync();
         try
         {
+            var sendStopwatch = Stopwatch.StartNew();
             byte[] finalMessageBody = new byte[payload.Length + 48]; //Try +48 I guess?  + LibSodium.CryptoBox.MacLen wasn't enough
+            bool sendCompleted = false;
 
             if (isEncryptedPubKey) //encrypt using the client's public key, usually for the 0x02 handshake response message
             {
@@ -2503,18 +2925,66 @@ public class ClientHandler
                 ProtoCmd = protoCmd
             };
 
-            uint headerValue = BitConverter.ToUInt32(header.ToBytes(), 0);
+            byte[] headerBytes = header.ToBytes();
+            uint sendingHeaderKeyBefore = _sendingHeaderKey;
+            uint headerValue = BitConverter.ToUInt32(headerBytes, 0);
             headerValue ^= _sendingHeaderKey;
             var xoredHeaderBytes = BitConverter.GetBytes(headerValue);
             _sendingHeaderKey = DatumHeaderXorFeedback(_sendingHeaderKey);  //Increment the sending header for next time
 
-            // Send header and body together
-            var message = xoredHeaderBytes.Concat(finalMessageBody.ToArray()).ToArray();
-            await _stream.WriteAsync(message, 0, message.Length);
-            await _stream.FlushAsync();
+            try
+            {
+                // Send header and body together
+                var message = xoredHeaderBytes.Concat(finalMessageBody.ToArray()).ToArray();
+                await _stream.WriteAsync(message, 0, message.Length);
+                await _stream.FlushAsync();
+                sendCompleted = true;
+                sendStopwatch.Stop();
+                RecordDatumProtocolEvent(new BootDatumProtocolEvent
+                {
+                    Direction = "send",
+                    EventType = "send",
+                    MessageLabel = messageLabel ?? $"proto-0x{protoCmd:X2}",
+                    ProtoCmd = protoCmd,
+                    IsSigned = isSigned,
+                    IsEncryptedChannel = isEncryptedChannel,
+                    IsEncryptedPubKey = isEncryptedPubKey,
+                    CmdLen = (uint)finalMessageBody.Length,
+                    BytesRead = message.Length,
+                    ExpectedBytes = message.Length,
+                    RawHeaderHex = Convert.ToHexString(xoredHeaderBytes).ToLowerInvariant(),
+                    DecodedHeaderHex = Convert.ToHexString(headerBytes).ToLowerInvariant(),
+                    HeaderKeyBefore = sendingHeaderKeyBefore,
+                    HeaderKeyAfter = _sendingHeaderKey,
+                    DurationMs = sendStopwatch.Elapsed.TotalMilliseconds,
+                    Detail = $"payloadBytes={payload.Length}; bodyBytes={finalMessageBody.Length}"
+                });
+            }
+            catch (Exception ex)
+            {
+                sendStopwatch.Stop();
+                RecordDatumProtocolEvent(new BootDatumProtocolEvent
+                {
+                    Direction = "send",
+                    EventType = "send-failed",
+                    MessageLabel = messageLabel ?? $"proto-0x{protoCmd:X2}",
+                    ProtoCmd = protoCmd,
+                    IsSigned = isSigned,
+                    IsEncryptedChannel = isEncryptedChannel,
+                    IsEncryptedPubKey = isEncryptedPubKey,
+                    CmdLen = (uint)finalMessageBody.Length,
+                    RawHeaderHex = Convert.ToHexString(xoredHeaderBytes).ToLowerInvariant(),
+                    DecodedHeaderHex = Convert.ToHexString(headerBytes).ToLowerInvariant(),
+                    HeaderKeyBefore = sendingHeaderKeyBefore,
+                    HeaderKeyAfter = _sendingHeaderKey,
+                    DurationMs = sendStopwatch.Elapsed.TotalMilliseconds,
+                    Detail = $"{ex.GetType().Name}: {ex.Message}"
+                });
+                throw;
+            }
 
             // Increment nonce only for channel encryption
-            if (isEncryptedChannel && _sessionNonceSender != null)
+            if (sendCompleted && isEncryptedChannel && _sessionNonceSender != null)
             {
                 _sessionNonceSender = IncrementNonce(_sessionNonceSender);
             }

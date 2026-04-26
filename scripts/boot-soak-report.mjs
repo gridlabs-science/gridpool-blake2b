@@ -19,7 +19,7 @@ function parseArgs(argv) {
 }
 
 function usage() {
-    console.error("Usage: node scripts/boot-soak-report.mjs --main-url <url> [--peer-url <url>] [--window 12h] [--limit 5000] [--out report.json]");
+    console.error("Usage: node scripts/boot-soak-report.mjs --main-url <url> [--peer-url <url>] [--window 12h] [--limit 5000] [--request-timeout-ms 4000] [--out report.json]");
     process.exit(1);
 }
 
@@ -59,6 +59,26 @@ function percentile(values, p) {
 
     const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
     return sorted[index];
+}
+
+function extractItems(payload) {
+    if (!payload || typeof payload !== "object") {
+        return [];
+    }
+
+    if (Array.isArray(payload.events)) {
+        return payload.events;
+    }
+
+    if (Array.isArray(payload.sessions)) {
+        return payload.sessions;
+    }
+
+    if (Array.isArray(payload.items)) {
+        return payload.items;
+    }
+
+    return [];
 }
 
 function summarizeSessionOverlap(items, selector, nowMs = Date.now()) {
@@ -182,6 +202,72 @@ function summarizeDatumSessions(sessions) {
     };
 }
 
+function summarizeDatumProtocolEvents(events) {
+    const items = Array.isArray(events) ? events : [];
+    const sendEvents = items.filter(item => item.direction === "send" && item.eventType === "send");
+    const closeEvents = items.filter(item => item.eventType === "session-close");
+    const powOutcomes = items.filter(item => item.eventType === "pow-submit-outcome");
+    const sorted = items
+        .map(item => ({ ...item, timestampMs: parseDate(item.timestampUtc) }))
+        .filter(item => item.timestampMs != null)
+        .sort((a, b) => a.timestampMs - b.timestampMs || Number(a.sequence || 0) - Number(b.sequence || 0));
+
+    const lastSendBySession = new Map();
+    const lastRecvBySession = new Map();
+    const closeGapAfterLastSendMs = [];
+    const closeGapAfterLastRecvMs = [];
+    let clientNoDataCloseAfterRecentSend5s = 0;
+    let clientNoDataCloseAfterRecentRecv5s = 0;
+
+    for (const item of sorted) {
+        if (item.direction === "send" && item.eventType === "send") {
+            lastSendBySession.set(item.sessionId, item.timestampMs);
+        }
+        if (item.direction === "recv") {
+            lastRecvBySession.set(item.sessionId, item.timestampMs);
+        }
+        if (item.eventType !== "session-close") {
+            continue;
+        }
+
+        const lastSendMs = lastSendBySession.get(item.sessionId);
+        const lastRecvMs = lastRecvBySession.get(item.sessionId);
+        if (lastSendMs != null) {
+            const gapMs = Math.max(0, item.timestampMs - lastSendMs);
+            closeGapAfterLastSendMs.push(gapMs);
+            if (item.closeDisposition === "client-disconnected-no-data" && gapMs <= 5000) {
+                clientNoDataCloseAfterRecentSend5s += 1;
+            }
+        }
+        if (lastRecvMs != null) {
+            const gapMs = Math.max(0, item.timestampMs - lastRecvMs);
+            closeGapAfterLastRecvMs.push(gapMs);
+            if (item.closeDisposition === "client-disconnected-no-data" && gapMs <= 5000) {
+                clientNoDataCloseAfterRecentRecv5s += 1;
+            }
+        }
+    }
+
+    return {
+        count: items.length,
+        directionCounts: countBy(items, item => item.direction),
+        eventCounts: countBy(items, item => item.eventType),
+        sendLabels: countBy(sendEvents, item => item.messageLabel || "unlabeled"),
+        closeDispositions: countBy(closeEvents, item => item.closeDisposition),
+        powRejectReasons: countBy(powOutcomes.filter(item => item.accepted === false), item => item.rejectionReason),
+        recvHeaderEof: items.filter(item => item.eventType === "recv-header-eof").length,
+        partialHeaders: items.filter(item => item.eventType === "partial-header").length,
+        partialBodies: items.filter(item => item.eventType === "partial-body").length,
+        decryptFailures: items.filter(item => item.eventType === "decrypt-failed").length,
+        sendFailures: items.filter(item => item.eventType === "send-failed").length,
+        p95SendDurationMs: percentile(sendEvents.map(item => Number(item.durationMs)), 95),
+        p95CloseGapAfterLastSendMs: percentile(closeGapAfterLastSendMs, 95),
+        p95CloseGapAfterLastRecvMs: percentile(closeGapAfterLastRecvMs, 95),
+        clientNoDataCloseAfterRecentSend5s,
+        clientNoDataCloseAfterRecentRecv5s
+    };
+}
+
 function correlateRejects(rejects, events) {
     const roundRotations = events
         .filter(event => event.eventType === "round-rotation")
@@ -285,7 +371,7 @@ function findNextEventAfter(events, timestampMs) {
     return null;
 }
 
-async function fetchJson(baseUrl, path, params = {}) {
+async function fetchJson(baseUrl, path, params = {}, timeoutMs = 4000) {
     const url = new URL(`${normalizeBaseUrl(baseUrl)}${path}`);
     for (const [key, value] of Object.entries(params)) {
         if (value != null) {
@@ -293,49 +379,66 @@ async function fetchJson(baseUrl, path, params = {}) {
         }
     }
 
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error(`${url} returned ${response.status}`);
-    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) {
+            throw new Error(`${url} returned ${response.status}`);
+        }
 
-    return response.json();
+        return response.json();
+    } catch (error) {
+        if (error?.name === "AbortError") {
+            throw new Error(`${url} timed out after ${timeoutMs} ms`);
+        }
+
+        throw error;
+    } finally {
+        clearTimeout(timer);
+    }
 }
 
-async function fetchOptionalJson(baseUrl, path, params = {}) {
+async function fetchOptionalJson(baseUrl, path, params = {}, timeoutMs = 4000) {
     try {
-        return await fetchJson(baseUrl, path, params);
+        return await fetchJson(baseUrl, path, params, timeoutMs);
     } catch {
         return { events: [] };
     }
 }
 
-async function fetchNodeReport(baseUrl, window, limit) {
-    const [summary, rejects, events, datumResponses, datumSessions] = await Promise.all([
-        fetchJson(baseUrl, "/api/network/summary"),
+async function fetchNodeReport(baseUrl, window, limit, requestTimeoutMs = 4000) {
+    const [summary, rejects, events, datumResponses, datumSessions, datumProtocol] = await Promise.all([
+        fetchJson(baseUrl, "/api/network/summary", {}, requestTimeoutMs),
         fetchJson(baseUrl, "/api/network/share-diagnostics", {
             window,
             source: "datum",
             accepted: false,
             limit
-        }),
+        }, requestTimeoutMs),
         fetchJson(baseUrl, "/api/network/events", {
             window,
             limit
-        }),
+        }, requestTimeoutMs),
         fetchOptionalJson(baseUrl, "/api/network/datum-share-responses", {
             window,
             limit
-        }),
+        }, requestTimeoutMs),
         fetchOptionalJson(baseUrl, "/api/network/datum-sessions", {
             window,
             limit
-        })
+        }, requestTimeoutMs),
+        fetchOptionalJson(baseUrl, "/api/network/datum-protocol-events", {
+            window,
+            limit: Math.max(limit, 20000)
+        }, requestTimeoutMs)
     ]);
 
-    const rejectEvents = Array.isArray(rejects?.events) ? rejects.events : [];
-    const eventItems = Array.isArray(events?.events) ? events.events : [];
-    const datumResponseItems = Array.isArray(datumResponses?.events) ? datumResponses.events : [];
-    const datumSessionItems = Array.isArray(datumSessions?.events) ? datumSessions.events : [];
+    const rejectEvents = extractItems(rejects);
+    const eventItems = extractItems(events);
+    const datumResponseItems = extractItems(datumResponses);
+    const datumSessionItems = extractItems(datumSessions);
+    const datumProtocolItems = extractItems(datumProtocol);
     const correlated = correlateRejects(rejectEvents, eventItems);
     const rejectionCounts = countBy(rejectEvents, reject => reject.rejectionCategory || reject.rejectionReason);
     const eventCounts = countBy(eventItems, event => event.eventType);
@@ -349,6 +452,7 @@ async function fetchNodeReport(baseUrl, window, limit) {
         rejectionCounts,
         datumResponses: summarizeDatumResponses(datumResponseItems),
         datumSessions: summarizeDatumSessions(datumSessionItems),
+        datumProtocol: summarizeDatumProtocolEvents(datumProtocolItems),
         correlatedRejects: correlated,
         eventCount: eventItems.length,
         eventCounts,
@@ -402,6 +506,18 @@ function printSummary(report, label) {
         closeDispositions: report.datumSessions.closeDispositions,
         overlap: report.datumSessions.overlap
     })}`);
+    console.log(`  DATUM protocol: ${JSON.stringify({
+        count: report.datumProtocol.count,
+        recvHeaderEof: report.datumProtocol.recvHeaderEof,
+        partialHeaders: report.datumProtocol.partialHeaders,
+        partialBodies: report.datumProtocol.partialBodies,
+        decryptFailures: report.datumProtocol.decryptFailures,
+        sendFailures: report.datumProtocol.sendFailures,
+        clientNoDataCloseAfterRecentSend5s: report.datumProtocol.clientNoDataCloseAfterRecentSend5s,
+        clientNoDataCloseAfterRecentRecv5s: report.datumProtocol.clientNoDataCloseAfterRecentRecv5s,
+        p95CloseGapAfterLastSendMs: report.datumProtocol.p95CloseGapAfterLastSendMs,
+        sendLabels: report.datumProtocol.sendLabels
+    })}`);
     console.log(`  Late rejects >60s: ${JSON.stringify(report.correlatedRejects)}`);
     console.log(`  Fresh parents learned: ${report.freshParentLearnedCount}`);
     console.log(`  Events: ${JSON.stringify(report.eventCounts)}`);
@@ -417,11 +533,20 @@ async function main() {
 
     const window = args.window || "12h";
     const limit = Number(args.limit || 5000);
+    const requestTimeoutMs = Number(args["request-timeout-ms"] || 4000);
 
-    const mainReport = await fetchNodeReport(args["main-url"], window, limit);
-    const peerReport = args["peer-url"]
-        ? await fetchNodeReport(args["peer-url"], window, limit)
-        : null;
+    const mainReport = await fetchNodeReport(args["main-url"], window, limit, requestTimeoutMs);
+    let peerReport = null;
+    let peerError = null;
+    if (args["peer-url"]) {
+        try {
+            peerReport = await fetchNodeReport(args["peer-url"], window, limit, requestTimeoutMs);
+        } catch (error) {
+            peerError = String(error.message || error);
+            console.log(`\n[peer] ${args["peer-url"]}`);
+            console.log(`  Error: ${peerError}`);
+        }
+    }
     const comparison = buildComparison(mainReport, peerReport);
 
     printSummary(mainReport, "main");
@@ -440,8 +565,10 @@ async function main() {
         generatedAtUtc: new Date().toISOString(),
         window,
         limit,
+        requestTimeoutMs,
         main: mainReport,
         peer: peerReport,
+        peerError,
         comparison
     };
 
