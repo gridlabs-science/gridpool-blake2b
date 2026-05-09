@@ -129,6 +129,44 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public async Task HttpShareWithMissingBodyIsRejectedCleanlyAsync()
+    {
+        using var harness = TestHarness.Create();
+
+        IActionResult response = await harness.MiningController.SubmitShare(null);
+        JsonObject payload = ParseObjectResult(response, StatusCodes.Status400BadRequest);
+
+        Assert.AreEqual("rejected", payload["status"]?.GetValue<string>());
+        Assert.AreEqual("Missing share payload", payload["reason"]?.GetValue<string>());
+    }
+
+    [TestMethod]
+    public async Task HttpShareValidationIgnoresConfiguredGridPoolCoinbaseTagAsync()
+    {
+        using var harness = TestHarness.Create();
+        harness.Config.CoinbaseTag = "Grid Pool";
+
+        IActionResult response = await harness.MiningController.SubmitShare(CreateSampleShareDto());
+        JsonObject payload = ParseObjectResult(response, StatusCodes.Status200OK);
+
+        Assert.AreEqual("accepted", payload["status"]?.GetValue<string>());
+        Assert.AreEqual(SampleSlotZeroAddress, harness.StateService.GetOnDeckList()[0].Address);
+    }
+
+    [TestMethod]
+    public async Task HttpShareValidationAllowsEmptyConfiguredCoinbaseTagAsync()
+    {
+        using var harness = TestHarness.Create();
+        harness.Config.CoinbaseTag = string.Empty;
+
+        IActionResult response = await harness.MiningController.SubmitShare(CreateSampleShareDto());
+        JsonObject payload = ParseObjectResult(response, StatusCodes.Status200OK);
+
+        Assert.AreEqual("accepted", payload["status"]?.GetValue<string>());
+        Assert.AreEqual(SampleSlotZeroAddress, harness.StateService.GetOnDeckList()[0].Address);
+    }
+
+    [TestMethod]
     public async Task PeerShareWithForgedMinerAddressIsAcceptedAndAttributedToSlotZeroAsync()
     {
         using var harness = TestHarness.Create();
@@ -156,6 +194,18 @@ public sealed class ShareAttributionTests
         List<PayoutInfo> onDeckList = harness.StateService.GetOnDeckList();
         Assert.AreEqual(1, onDeckList.Count);
         Assert.AreEqual(SampleSlotZeroAddress, onDeckList[0].Address);
+    }
+
+    [TestMethod]
+    public async Task PeerShareWithMissingBodyIsRejectedCleanlyAsync()
+    {
+        using var harness = TestHarness.Create();
+
+        IActionResult response = await harness.PeerController.SubmitPeerShare(null);
+        JsonObject payload = ParseObjectResult(response, StatusCodes.Status400BadRequest);
+
+        Assert.AreEqual("rejected", payload["status"]?.GetValue<string>());
+        Assert.AreEqual("Missing share payload", payload["reason"]?.GetValue<string>());
     }
 
     [TestMethod]

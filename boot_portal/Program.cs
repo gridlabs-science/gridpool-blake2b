@@ -58,7 +58,10 @@ public class PoolConfig
     public int TotalPayoutSlotCount => WinnersListSize + 1;
 
     [JsonPropertyName("coinbase_tag")]
-    public string CoinbaseTag { get; set; } = "Boot protocol";
+    public string CoinbaseTag { get; set; } = "Grid Pool";
+
+    [JsonPropertyName("node_mode")]
+    public string NodeMode { get; set; } = "development";
 
     [JsonPropertyName("prime_id")]
     public uint PrimeId { get; set; } = 21;
@@ -572,6 +575,7 @@ public class Program
                 if (config != null)
                 {
                     ApplyPoolConfigDefaults(config);
+                    PoolConfigValidator.ValidateOrThrow(config);
                     Console.WriteLine(
                         string.IsNullOrWhiteSpace(localConfigPath) || !File.Exists(localConfigPath)
                             ? $"🔧 Loaded config from {configPath}"
@@ -587,6 +591,7 @@ public class Program
         Console.WriteLine($"🔧 Using default pool config");
         var fallbackConfig = new PoolConfig();
         ApplyPoolConfigDefaults(fallbackConfig);
+        PoolConfigValidator.ValidateOrThrow(fallbackConfig);
         return fallbackConfig;
     }
 
@@ -631,6 +636,14 @@ public class Program
 
     private static void ApplyPoolConfigDefaults(PoolConfig config)
     {
+        config.CoinbaseTag ??= string.Empty;
+        config.NodeMode = string.IsNullOrWhiteSpace(config.NodeMode)
+            ? "development"
+            : config.NodeMode.Trim().ToLowerInvariant();
+        config.BootNetworkId = string.IsNullOrWhiteSpace(config.BootNetworkId)
+            ? "public-beta"
+            : config.BootNetworkId.Trim();
+
         config.TestingRoundResetMode = string.IsNullOrWhiteSpace(config.TestingRoundResetMode)
             ? "none"
             : config.TestingRoundResetMode.Trim().ToLowerInvariant();
@@ -1819,11 +1832,6 @@ public class ClientHandler
 
         // Coinbase tag
         byte[] coinbaseTagBytes = Encoding.UTF8.GetBytes(config.CoinbaseTag);
-        if (coinbaseTagBytes.Length > 255)
-        {
-            Console.WriteLine($"⚠️ Coinbase tag too long ({coinbaseTagBytes.Length} bytes), truncating to 255");
-            Array.Resize(ref coinbaseTagBytes, 255);
-        }
         payload.Add((byte)coinbaseTagBytes.Length);
         payload.AddRange(coinbaseTagBytes);
 

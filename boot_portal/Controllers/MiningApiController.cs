@@ -34,8 +34,13 @@ public class MiningApiController : ControllerBase
     // Receives a high-difficulty share
     [EnableRateLimiting("mining-write")]
     [HttpPost("share")]
-    public async Task<IActionResult> SubmitShare([FromBody] ShareSubmissionDto share)
+    public async Task<IActionResult> SubmitShare([FromBody] ShareSubmissionDto? share)
     {
+        if (share == null)
+        {
+            return BadRequest(new { status = "rejected", reason = "Missing share payload" });
+        }
+
         BootRequestValidationFailure? requestValidation = BootRequestGuards.ValidateShareRequest(
             _poolConfig,
             Request,

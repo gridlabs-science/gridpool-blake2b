@@ -9,8 +9,12 @@ RUN dotnet publish boot_portal/boot_portal.csproj -c Release -o /app/publish /p:
 
 FROM mcr.microsoft.com/dotnet/aspnet:9.0-bookworm-slim AS runtime
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libsodium23 ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends libsodium23 ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 1000 boot \
+    && useradd --uid 1000 --gid boot --create-home --shell /usr/sbin/nologin boot \
+    && mkdir -p /data /app \
+    && chown -R boot:boot /data /app
 
 WORKDIR /app
 
@@ -22,5 +26,12 @@ VOLUME ["/data"]
 EXPOSE 5000 3008
 
 COPY --from=build /app/publish .
+COPY docker/boot_portal_config.sample.json /app/defaults/boot_portal_config.sample.json
+RUN chown -R boot:boot /app
 
-ENTRYPOINT ["dotnet", "boot_portal.dll"]
+USER boot
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:5000/health/live || exit 1
+
+ENTRYPOINT ["/bin/sh", "-c", "mkdir -p \"$(dirname \"$BOOT_PORTAL_CONFIG_PATH\")\" \"$(dirname \"$BOOT_PORTAL_STATE_PATH\")\" && if [ ! -f \"$BOOT_PORTAL_CONFIG_PATH\" ]; then cp /app/defaults/boot_portal_config.sample.json \"$BOOT_PORTAL_CONFIG_PATH\"; fi; exec dotnet boot_portal.dll"]

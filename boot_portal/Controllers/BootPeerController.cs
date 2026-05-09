@@ -24,7 +24,7 @@ public class BootPeerController : ControllerBase
     }
 
     [HttpPost("share")]
-    public async Task<IActionResult> SubmitPeerShare([FromBody] PeerShareAnnouncement announcement)
+    public async Task<IActionResult> SubmitPeerShare([FromBody] PeerShareAnnouncement? announcement)
     {
         if (announcement?.Share == null)
         {

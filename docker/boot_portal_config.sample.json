@@ -14,6 +14,7 @@
   "WebUI_Port_https": 0,
   "public_base_url": "https://boot.example.com",
   "datum_public_host": "datum.example.com",
+  "node_mode": "development",
   "enable_peer_sync": true,
   "bootstrap_peers": [
     "https://boot.gridlabs.science"
@@ -36,7 +37,7 @@
   "admin_api_key": "change-this-admin-key",
   "pool_payout_script": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
   "winners_list_size": 299,
-  "coinbase_tag": "Boot protocol",
+  "coinbase_tag": "Grid Pool",
   "prime_id": 21,
   "min_diff": 300
 }

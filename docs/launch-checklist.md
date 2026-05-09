@@ -109,6 +109,10 @@ These are good work items while the current test setup is still in use:
   - DATUM connection snippet generator
   - first-run self-check command
   - backup/restore and upgrade docs
+- Start appliance packaging research.
+  - Umbrel app package plan
+  - Start9 / StartOS service package plan
+  - document platform constraints before implementation
 - Write launch-facing docs.
   - install guide
   - upgrade guide
@@ -805,9 +809,12 @@ Required docs:
 - troubleshooting guide
 - "what normal rejects look like" guide
 - launch-day runbook
+- appliance packaging notes for Umbrel and Start9 / StartOS
 
 Acceptance criteria:
 - a new operator can install from docs without private chat help
+- Docker install path works without source checkout
+- Umbrel and Start9 packaging requirements are documented, even if full packages remain beta/post-launch
 
 ### G4.3 Seed-node readiness
 
@@ -847,7 +854,8 @@ If implementation begins immediately, the next work should be:
 6. `G3.1` load generator
 7. `G3.2` / `G3.3` stress runs
 8. `G4.1` final public-mode UI polish
-9. `G4.2` / `G4.3` / `G4.4` operator and launch docs
+9. `G4.2` Docker/operator docs and appliance packaging plans
+10. `G4.3` / `G4.4` seed-node readiness and supported topology docs
 
 ## Launch Definition
 

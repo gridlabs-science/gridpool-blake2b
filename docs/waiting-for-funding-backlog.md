@@ -95,6 +95,58 @@ Acceptance criteria:
 Open question:
 - Whether mempool.space maintainers prefer waiting until a real mainnet block exists before adding the tag.
 
+## Task 2A: Umbrel And Start9 Packaging
+
+Status:
+- `Beta`
+- `Polish`
+
+Goal:
+- Make Grid Pool easy to install for sovereign miners who already run home-server appliance stacks.
+- Treat Docker/systemd as the canonical install path first, then wrap that path for Umbrel and Start9 / StartOS.
+
+Why this matters:
+- Many target users already run Bitcoin, DATUM, or related services on appliance-style nodes.
+- A one-click or guided install lowers friction dramatically compared with asking miners to clone a repo and edit JSON by hand.
+- StartOS is especially relevant because one current test DATUM path already runs in that ecosystem.
+
+Umbrel packaging notes:
+- Research current Umbrel app manifest requirements.
+- Package Boot as a Docker service with persistent `/data`.
+- Expose WebUI through Umbrel's app proxy.
+- Expose DATUM TCP port explicitly, likely outside the proxied web path.
+- Provide config UI or clear instructions for payout address, public node URL, DATUM public host / port, bootstrap peers, and node mode.
+- Decide whether Umbrel package should bundle Boot only, or optionally guide the user to a separate DATUM app.
+
+Start9 / StartOS packaging notes:
+- Research current StartOS service packaging format and dependency model.
+- Package Boot with persistent config/state volumes.
+- Expose WebUI and DATUM TCP interfaces in the StartOS service manifest.
+- Provide properties/actions for editing payout address, setting node mode, configuring bootstrap peers, viewing DATUM connection details, and backup/restore.
+- Decide whether a StartOS dependency on Bitcoin Core and/or DATUM should be optional or documented manually.
+
+Recommended sequence:
+- Finish canonical Docker quickstart and config validation first.
+- Write a short packaging requirements doc for both platforms.
+- Build Umbrel package skeleton.
+- Build StartOS package skeleton.
+- Test install, upgrade, backup/restore, and uninstall behavior on real or local platform dev environments.
+
+Acceptance criteria:
+- Packaging requirements doc exists for Umbrel and Start9 / StartOS.
+- Both package plans preserve the same trust model as the raw Docker install.
+- Both expose WebUI and DATUM endpoints clearly.
+- Persistent state survives app restart and upgrade.
+- Generated/default config uses `Grid Pool`, `node_mode`, and safe admin defaults.
+- Users can find DATUM connection details without reading logs.
+
+Open questions:
+- Should packaged installs default to `developer-preview`, `staging`, or `production` node mode?
+- Should packaged installs expose public peer sync by default, or default to local-only until configured?
+- How should packages discover or reference a local Bitcoin node?
+- Should DATUM be bundled, declared as a dependency, or configured manually by the user?
+- Can appliance UIs safely expose DATUM TCP ports without surprising firewall behavior?
+
 ## Task 3: Censorship Detection Design
 
 Status:

@@ -3,8 +3,19 @@
 .vscode
 publish
 data
-**/bin
-**/obj
+logs
+*.log
+g2-*.json
+**/bin/
+**/bin/**
+**/obj/
+**/obj/**
+**/publish/
+**/publish/**
 boot_portal/boot_portal_config.json
+boot_portal/boot_portal_config.local.json
 boot_portal/pool_state.json
+boot_portal/pool_state.json.bak
+boot_portal/pool_state.history.json
+boot_portal/pool_state.history.json.bak
 boot_portal/pool_state copy.json
