@@ -152,16 +152,6 @@ public class BootPeerSyncService : BackgroundService
 
         BootNetworkStatusDto local = _stateService.GetNetworkStatus();
 
-        if (!string.IsNullOrWhiteSpace(remote.CurrentTipBlockHash) &&
-            (!BitcoinHashes.AreEquivalent(remote.CurrentTipBlockHash, local.CurrentTipBlockHash) ||
-             (remote.CurrentTipBlockHeight.HasValue && remote.CurrentTipBlockHeight != local.CurrentTipBlockHeight)))
-        {
-            local = await _stateService.ObserveChainTipAsync(
-                remote.CurrentTipBlockHash,
-                $"peer-tip:{remoteEndpoint}",
-                remote.CurrentTipBlockHeight);
-        }
-
         if (!string.IsNullOrWhiteSpace(remote.CurrentStateId) &&
             !string.Equals(remote.CurrentStateId, local.CurrentStateId, StringComparison.OrdinalIgnoreCase) &&
             ShouldFetchRemoteCurrentState(local, remote))
@@ -189,6 +179,16 @@ public class BootPeerSyncService : BackgroundService
                     local = _stateService.GetNetworkStatus();
                 }
             }
+        }
+
+        if (!string.IsNullOrWhiteSpace(remote.CurrentTipBlockHash) &&
+            (!BitcoinHashes.AreEquivalent(remote.CurrentTipBlockHash, local.CurrentTipBlockHash) ||
+             (remote.CurrentTipBlockHeight.HasValue && remote.CurrentTipBlockHeight != local.CurrentTipBlockHeight)))
+        {
+            local = await _stateService.ObserveChainTipAsync(
+                remote.CurrentTipBlockHash,
+                $"peer-tip:{remoteEndpoint}",
+                remote.CurrentTipBlockHeight);
         }
 
         if (!string.Equals(remote.CurrentStateId, local.CurrentStateId, StringComparison.OrdinalIgnoreCase))
@@ -308,6 +308,13 @@ public class BootPeerSyncService : BackgroundService
         if (remote.CurrentRoundNumber < local.CurrentRoundNumber)
         {
             return false;
+        }
+
+        if (!string.Equals(remote.CurrentStateId, local.CurrentStateId, StringComparison.OrdinalIgnoreCase) &&
+            local.CurrentStateProofCount == 0 &&
+            remote.CurrentStateProofCount > 0)
+        {
+            return true;
         }
 
         const double epsilon = 0.0000001;

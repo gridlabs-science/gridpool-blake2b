@@ -159,18 +159,125 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
-    public async Task PeerShareOnPeerObservedFutureTipIsAcceptedAfterTipAdvanceAsync()
+    public async Task PeerShareOnUnknownParentIsRejectedWithoutAdvancingTipAsync()
     {
         using var harness = TestHarness.Create(currentTipBlockHash: OlderTipBlockHash);
 
         IActionResult response = await harness.PeerController.SubmitPeerShare(CreateSamplePeerAnnouncement(harness.Config));
-        JsonObject payload = ParseObjectResult(response, StatusCodes.Status200OK);
+        JsonObject payload = ParseObjectResult(response, StatusCodes.Status400BadRequest);
 
-        Assert.AreEqual("accepted", payload["status"]?.GetValue<string>());
+        Assert.AreEqual("rejected", payload["status"]?.GetValue<string>());
+        StringAssert.StartsWith(
+            payload["reason"]?.GetValue<string>() ?? string.Empty,
+            "Share builds on the wrong parent block");
 
         BootNetworkStatusDto status = harness.StateService.GetNetworkStatus();
-        Assert.AreEqual(SamplePrevBlockHash, status.CurrentTipBlockHash);
-        Assert.AreEqual(1, harness.StateService.GetOnDeckList().Count);
+        Assert.AreEqual(OlderTipBlockHash, status.CurrentTipBlockHash);
+        Assert.AreEqual(0, harness.StateService.GetOnDeckList().Count);
+    }
+
+    [TestMethod]
+    public async Task ProoflessNewerCurrentStateFastForwardsStaleNodeAsync()
+    {
+        using var harness = TestHarness.Create(currentTipBlockHash: OlderTipBlockHash);
+        List<PayoutInfo> remoteWinners = SampleExpectedWinners.Select(ClonePayout).ToList();
+        remoteWinners[0].Difficulty += 1024;
+
+        bool adopted = await harness.StateService.TryAdoptCurrentStateAsync(
+            new BootStateBundle
+            {
+                StateId = "remote-current-state",
+                Kind = "current",
+                CurrentRoundNumber = 2,
+                ProtocolVersion = harness.Config.BootProtocolVersion,
+                NetworkId = harness.Config.BootNetworkId,
+                LockedByBlockHash = SamplePrevBlockHash,
+                LockedByBlockHeight = 945001,
+                CreatedAtUtc = DateTime.UtcNow,
+                TotalDifficulty = remoteWinners.Sum(x => x.Difficulty),
+                WinnersList = remoteWinners
+            },
+            SamplePrevBlockHash,
+            945001,
+            "https://peer.example");
+
+        Assert.IsTrue(adopted);
+        BootNetworkStatusDto status = harness.StateService.GetNetworkStatus();
+        Assert.AreEqual("remote-current-state", status.CurrentStateId);
+        Assert.AreEqual(2, status.CurrentRoundNumber);
+        Assert.AreEqual(remoteWinners.Count, harness.StateService.GetWinnersList().Count);
+    }
+
+    [TestMethod]
+    public async Task ProoflessSameRoundCurrentStateDoesNotOverrideEstablishedStateAsync()
+    {
+        using var harness = TestHarness.Create(currentTipBlockHash: OlderTipBlockHash);
+        List<PayoutInfo> remoteWinners = SampleExpectedWinners.Select(ClonePayout).ToList();
+        remoteWinners[0].Difficulty += 1000000;
+
+        bool adopted = await harness.StateService.TryAdoptCurrentStateAsync(
+            new BootStateBundle
+            {
+                StateId = "remote-proofless-stronger-state",
+                Kind = "current",
+                CurrentRoundNumber = 1,
+                ProtocolVersion = harness.Config.BootProtocolVersion,
+                NetworkId = harness.Config.BootNetworkId,
+                LockedByBlockHash = OlderTipBlockHash,
+                LockedByBlockHeight = 945000,
+                CreatedAtUtc = DateTime.UtcNow,
+                TotalDifficulty = remoteWinners.Sum(x => x.Difficulty),
+                WinnersList = remoteWinners
+            },
+            OlderTipBlockHash,
+            945000,
+            "https://peer.example");
+
+        Assert.IsFalse(adopted);
+        BootNetworkStatusDto status = harness.StateService.GetNetworkStatus();
+        Assert.AreEqual("seed-current", status.CurrentStateId);
+        Assert.AreEqual(1, status.CurrentRoundNumber);
+    }
+
+    [TestMethod]
+    public async Task ProofBackedSameRoundCurrentStateOverridesProoflessLocalStateAsync()
+    {
+        using var remoteHarness = TestHarness.Create(currentTipBlockHash: OlderTipBlockHash);
+        ShareRecordingResult shareResult = await remoteHarness.StateService.SubmitShareAsync(
+            new RecordedShareSubmission
+            {
+                MinerAddress = AlternateAddress,
+                Username = string.Empty,
+                HeaderHex = SampleHeaderHex,
+                CoinbaseHex = SampleCoinbaseHex,
+                MerklePath = SampleMerklePath.ToList(),
+                PrevBlockHash = SamplePrevBlockHash,
+                Source = "datum"
+            },
+            "datum-block");
+        Assert.IsTrue(shareResult.Accepted, shareResult.RejectionReason);
+
+        RoundRotationResult rotation = await remoteHarness.StateService.RotateToNextRoundAsync(
+            SamplePrevBlockHash,
+            "test-rotation",
+            manual: false,
+            blockHeight: 945001);
+        BootStateBundle remoteBundle = rotation.LockedStateBundle!;
+        Assert.IsTrue(remoteBundle.ShareProofs.Count > 0);
+
+        using var localHarness = TestHarness.Create(
+            currentTipBlockHash: SamplePrevBlockHash,
+            currentRoundNumber: remoteBundle.CurrentRoundNumber);
+        bool adopted = await localHarness.StateService.TryAdoptCurrentStateAsync(
+            remoteBundle,
+            SamplePrevBlockHash,
+            945001,
+            "https://peer.example");
+
+        Assert.IsTrue(adopted);
+        BootNetworkStatusDto status = localHarness.StateService.GetNetworkStatus();
+        Assert.AreEqual(remoteBundle.StateId, status.CurrentStateId);
+        Assert.AreEqual(remoteBundle.CurrentRoundNumber, status.CurrentRoundNumber);
     }
 
     [TestMethod]
@@ -597,6 +704,18 @@ public sealed class ShareAttributionTests
             .ToList();
     }
 
+    private static PayoutInfo ClonePayout(PayoutInfo payout)
+    {
+        return new PayoutInfo
+        {
+            Value = payout.Value,
+            Address = payout.Address,
+            Username = payout.Username,
+            Difficulty = payout.Difficulty,
+            DiffString = payout.DiffString
+        };
+    }
+
     private static string RewriteSlotZeroAddress(string coinbaseHex, string replacementAddress)
     {
         byte[] transaction = Convert.FromHexString(coinbaseHex);
@@ -770,7 +889,7 @@ public sealed class ShareAttributionTests
             };
         }
 
-        public static TestHarness Create(string? currentTipBlockHash = null)
+        public static TestHarness Create(string? currentTipBlockHash = null, int currentRoundNumber = 1)
         {
             string? previousStatePath = Environment.GetEnvironmentVariable("BOOT_PORTAL_STATE_PATH");
             string? previousHistoryPath = Environment.GetEnvironmentVariable("BOOT_PORTAL_HISTORY_PATH");
@@ -798,7 +917,7 @@ public sealed class ShareAttributionTests
                 },
                 CurrentStateId = "seed-current",
                 CandidateStateId = "seed-candidate",
-                CurrentRoundNumber = 1,
+                CurrentRoundNumber = currentRoundNumber,
                 CurrentTipBlockHash = currentTipBlockHash ?? SamplePrevBlockHash,
                 CurrentTipBlockHeight = 945000,
                 AcceptedParentBlockHashes = [currentTipBlockHash ?? SamplePrevBlockHash],

@@ -112,6 +112,7 @@ public class BootNetworkStatusDto
     public long? CurrentTipBlockHeight { get; set; }
     public DateTime? LastRotationUtc { get; set; }
     public int WinnersCount { get; set; }
+    public int CurrentStateProofCount { get; set; }
     public double CurrentStateTotalDifficulty { get; set; }
     public int OnDeckCount { get; set; }
     public double OnDeckTotalDifficulty { get; set; }

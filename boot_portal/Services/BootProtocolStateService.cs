@@ -225,7 +225,7 @@ public class BootProtocolStateService
     {
         lock (_sync)
         {
-            return _state.Peers.Select(ClonePeer).ToList();
+            return CloneExternalPeersNoLock();
         }
     }
 
@@ -707,11 +707,15 @@ public class BootProtocolStateService
 
     public List<string> GetPeerEndpoints()
     {
+        string selfEndpoint = GetSelfEndpoint();
         lock (_sync)
         {
             return _state.Peers
                 .Select(x => x.Endpoint)
-                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Where(x =>
+                    !string.IsNullOrWhiteSpace(x) &&
+                    (string.IsNullOrWhiteSpace(selfEndpoint) ||
+                     !string.Equals(NormalizePeerEndpoint(x), selfEndpoint, StringComparison.OrdinalIgnoreCase)))
                 .ToList();
         }
     }
@@ -1547,11 +1551,13 @@ public class BootProtocolStateService
         List<PayoutInfo> currentWinnersSnapshot;
         string? currentTipSnapshot;
         string currentStateSnapshot;
+        int currentRoundSnapshot;
         lock (_sync)
         {
             currentWinnersSnapshot = ClonePayouts(_state.WinnersList);
             currentTipSnapshot = _state.CurrentTipBlockHash;
             currentStateSnapshot = _state.CurrentStateId;
+            currentRoundSnapshot = _state.CurrentRoundNumber;
         }
 
         string? lockedTipSnapshot = NormalizeCanonicalBlockHash(bundle.LockedByBlockHash) ??
@@ -1571,50 +1577,73 @@ public class BootProtocolStateService
         }
 
         if (!localStateIsEmpty &&
+            bundle.CurrentRoundNumber <= currentRoundSnapshot &&
             !string.IsNullOrWhiteSpace(observedTipSnapshot) &&
             !BitcoinHashes.AreEquivalent(currentTipSnapshot, observedTipSnapshot))
         {
             return false;
         }
 
+        bool prooflessCurrentSnapshot = bundle.ShareProofs.Count == 0 && bundle.WinnersList.Count > 0;
         List<BootShareProof> validatedProofs;
         List<PayoutInfo> expectedPayouts;
-        try
+        string expectedStateId;
+        string legacyExpectedStateId;
+        double remoteLockedTotalDifficulty;
+        if (prooflessCurrentSnapshot)
         {
-            IReadOnlyList<PayoutInfo> proofWinners = bundle.ProofWinnersList.Count > 0
-                ? bundle.ProofWinnersList
-                : currentWinnersSnapshot;
-            List<string> lockedStateParentBlockHashes = NormalizeAcceptedParentBlockHashes(
-                bundle.ValidParentBlockHashes
-                    .Append(bundle.ParentBlockHash ?? string.Empty)
-                    .Concat(bundle.ShareProofs.Select(proof => proof.PrevBlockHash)));
-            validatedProofs = ValidateImportedProofs(
-                bundle.ShareProofs,
-                proofWinners,
-                lockedStateParentBlockHashes,
-                $"peer-locked:{sourceEndpoint}");
-            expectedPayouts = BuildPayoutsFromProofs(validatedProofs);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Rejected locked state bundle from {SourceEndpoint}.", sourceEndpoint);
-            return false;
-        }
+            if (string.IsNullOrWhiteSpace(bundle.StateId))
+            {
+                return false;
+            }
 
-        string expectedStateId = ComputeStateIdNoLock(validatedProofs, lockedTipSnapshot);
-        string legacyExpectedStateId = ComputeStateIdNoLock(validatedProofs, null);
-        bool stateIdMatches =
-            string.Equals(expectedStateId, bundle.StateId, StringComparison.OrdinalIgnoreCase) ||
-            (string.IsNullOrWhiteSpace(bundle.LockedByBlockHash) &&
-             string.Equals(legacyExpectedStateId, bundle.StateId, StringComparison.OrdinalIgnoreCase));
-        if (!stateIdMatches)
-        {
-            return false;
+            validatedProofs = [];
+            expectedPayouts = ClonePayouts(bundle.WinnersList);
+            expectedStateId = bundle.StateId;
+            legacyExpectedStateId = bundle.StateId;
+            remoteLockedTotalDifficulty = expectedPayouts.Sum(x => x.Difficulty);
         }
-
-        if (!WinnersMatch(expectedPayouts, bundle.WinnersList))
+        else
         {
-            return false;
+            try
+            {
+                IReadOnlyList<PayoutInfo> proofWinners = bundle.ProofWinnersList.Count > 0
+                    ? bundle.ProofWinnersList
+                    : currentWinnersSnapshot;
+                List<string> lockedStateParentBlockHashes = NormalizeAcceptedParentBlockHashes(
+                    bundle.ValidParentBlockHashes
+                        .Append(bundle.ParentBlockHash ?? string.Empty)
+                        .Concat(bundle.ShareProofs.Select(proof => proof.PrevBlockHash)));
+                validatedProofs = ValidateImportedProofs(
+                    bundle.ShareProofs,
+                    proofWinners,
+                    lockedStateParentBlockHashes,
+                    $"peer-locked:{sourceEndpoint}");
+                expectedPayouts = BuildPayoutsFromProofs(validatedProofs);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Rejected locked state bundle from {SourceEndpoint}.", sourceEndpoint);
+                return false;
+            }
+
+            expectedStateId = ComputeStateIdNoLock(validatedProofs, lockedTipSnapshot);
+            legacyExpectedStateId = ComputeStateIdNoLock(validatedProofs, null);
+            bool stateIdMatches =
+                string.Equals(expectedStateId, bundle.StateId, StringComparison.OrdinalIgnoreCase) ||
+                (string.IsNullOrWhiteSpace(bundle.LockedByBlockHash) &&
+                 string.Equals(legacyExpectedStateId, bundle.StateId, StringComparison.OrdinalIgnoreCase));
+            if (!stateIdMatches)
+            {
+                return false;
+            }
+
+            if (!WinnersMatch(expectedPayouts, bundle.WinnersList))
+            {
+                return false;
+            }
+
+            remoteLockedTotalDifficulty = validatedProofs.Sum(x => x.Difficulty);
         }
 
         BootNetworkStatusDto networkStatus;
@@ -1635,17 +1664,27 @@ public class BootProtocolStateService
                 return false;
             }
 
-            double remoteLockedTotalDifficulty = validatedProofs.Sum(x => x.Difficulty);
             double localLockedTotalDifficulty = _state.WinnersList.Sum(x => x.Difficulty);
             const double difficultyEpsilon = 0.0000001;
+            bool prooflessFastForwardAllowed =
+                prooflessCurrentSnapshot &&
+                (localStateIsEmpty || bundle.CurrentRoundNumber > _state.CurrentRoundNumber);
+            bool proofBackedRemoteBeatsProoflessLocal =
+                !prooflessCurrentSnapshot &&
+                validatedProofs.Count > 0 &&
+                bundle.CurrentRoundNumber == _state.CurrentRoundNumber &&
+                !CurrentStateHasShareProofsNoLock();
             bool remoteLooksStronger =
-                localStateIsEmpty ||
-                bundle.CurrentRoundNumber > _state.CurrentRoundNumber ||
-                (bundle.CurrentRoundNumber == _state.CurrentRoundNumber &&
-                 remoteLockedTotalDifficulty > localLockedTotalDifficulty + difficultyEpsilon) ||
-                (bundle.CurrentRoundNumber == _state.CurrentRoundNumber &&
-                 Math.Abs(remoteLockedTotalDifficulty - localLockedTotalDifficulty) <= difficultyEpsilon &&
-                 string.CompareOrdinal(bundle.StateId ?? string.Empty, _state.CurrentStateId ?? string.Empty) > 0);
+                prooflessFastForwardAllowed ||
+                proofBackedRemoteBeatsProoflessLocal ||
+                (!prooflessCurrentSnapshot &&
+                 (localStateIsEmpty ||
+                  bundle.CurrentRoundNumber > _state.CurrentRoundNumber ||
+                  (bundle.CurrentRoundNumber == _state.CurrentRoundNumber &&
+                   remoteLockedTotalDifficulty > localLockedTotalDifficulty + difficultyEpsilon) ||
+                  (bundle.CurrentRoundNumber == _state.CurrentRoundNumber &&
+                   Math.Abs(remoteLockedTotalDifficulty - localLockedTotalDifficulty) <= difficultyEpsilon &&
+                   string.CompareOrdinal(bundle.StateId ?? string.Empty, _state.CurrentStateId ?? string.Empty) > 0)));
             if (!remoteLooksStronger)
             {
                 return false;
@@ -1686,9 +1725,13 @@ public class BootProtocolStateService
             _state.CandidateStateId = ComputeCandidateStateIdNoLock();
             CacheCurrentCandidateBundleNoLock();
             RecordNetworkEventNoLock(
-                "state-adopted",
+                prooflessCurrentSnapshot ? "state-adopted-proofless" : "state-adopted",
                 sourceEndpoint,
-                "Adopted a stronger locked current state from a peer.",
+                prooflessCurrentSnapshot
+                    ? "Fast-forwarded to a newer peer current state without share proofs."
+                    : (proofBackedRemoteBeatsProoflessLocal
+                        ? "Adopted a proof-backed peer current state over a proofless local state."
+                        : "Adopted a stronger locked current state from a peer."),
                 _state.CurrentTipBlockHash,
                 _state.CurrentTipBlockHeight);
             RequestDeferredSaveNoLock();
@@ -2153,7 +2196,7 @@ public class BootProtocolStateService
             WinnersList = ClonePayouts(_state.WinnersList),
             OnDeckList = ClonePayouts(_state.OnDeckList),
             OnDeckProofs = _state.OnDeckProofs.Select(CloneProof).ToList(),
-            Peers = _state.Peers.Select(ClonePeer).ToList(),
+            Peers = CloneExternalPeersNoLock(),
             KnownDatumPayoutAddresses = new Dictionary<string, string>(_state.KnownDatumPayoutAddresses, StringComparer.Ordinal),
             BestShare = CloneBestShare(_state.BestShare),
             RecentAcceptedShares = [],
@@ -2368,6 +2411,7 @@ public class BootProtocolStateService
         BootDatumDiagnosticsDto localDatumDiagnostics = BuildLocalDatumDiagnosticsNoLock(nowUtc);
         List<BootLocalDatumMinerSummaryDto> localDatumMiners = BuildLocalDatumMinerSummariesNoLock(nowUtc);
         BootCoinbaserDiagnosticsSummaryDto coinbaserDiagnostics = BuildCoinbaserDiagnosticsSummaryNoLock(nowUtc);
+        List<BootPeerStatus> peers = CloneExternalPeersNoLock();
 
         return new BootNetworkStatusDto
         {
@@ -2383,6 +2427,7 @@ public class BootProtocolStateService
             CurrentTipBlockHeight = _state.CurrentTipBlockHeight,
             LastRotationUtc = _state.LastRotationUtc,
             WinnersCount = _state.WinnersList.Count,
+            CurrentStateProofCount = GetCurrentStateProofCountNoLock(),
             CurrentStateTotalDifficulty = currentStateTotalDifficulty,
             OnDeckCount = _state.OnDeckList.Count,
             OnDeckTotalDifficulty = onDeckTotalDifficulty,
@@ -2391,7 +2436,7 @@ public class BootProtocolStateService
             CurrentRoundObservedHashrateDisplay = FormatObservedHashrate(currentRoundObservedHashrateThs),
             LocalDatumHashrateThs = localDatumHashrateThs,
             LocalDatumHashrateDisplay = FormatObservedHashrate(localDatumHashrateThs),
-            PeerCount = _state.Peers.Count,
+            PeerCount = peers.Count,
             AdminApiEnabled = _poolConfig.EnableAdminApi,
             TestingRoundResetEnabled = _poolConfig.TestingRoundResetEnabled,
             TestingRoundResetMode = _poolConfig.TestingRoundResetMode,
@@ -2402,7 +2447,7 @@ public class BootProtocolStateService
             LocalDatumDiagnostics = localDatumDiagnostics,
             LocalDatumMiners = localDatumMiners,
             CoinbaserDiagnostics = coinbaserDiagnostics,
-            Peers = _state.Peers.Select(ClonePeer).ToList(),
+            Peers = peers,
             Commitment = BuildCommitmentNoLock()
         };
     }
@@ -3663,6 +3708,34 @@ public class BootProtocolStateService
                 _state.OnDeckProofs.Count == 0 &&
                 _state.WinnersList[0].Difficulty <= 0 &&
                 _state.WinnersList[0].Value == Program.BLOCK_REWARD / 2);
+    }
+
+    private bool CurrentStateHasShareProofsNoLock()
+    {
+        return GetCurrentStateProofCountNoLock() > 0;
+    }
+
+    private List<BootPeerStatus> CloneExternalPeersNoLock()
+    {
+        string selfEndpoint = GetSelfEndpoint();
+        return _state.Peers
+            .Where(peer =>
+                !string.IsNullOrWhiteSpace(peer.Endpoint) &&
+                (string.IsNullOrWhiteSpace(selfEndpoint) ||
+                 !string.Equals(NormalizePeerEndpoint(peer.Endpoint), selfEndpoint, StringComparison.OrdinalIgnoreCase)))
+            .Select(ClonePeer)
+            .ToList();
+    }
+
+    private int GetCurrentStateProofCountNoLock()
+    {
+        return _state.ArchivedStateBundles
+            .Where(bundle =>
+                string.Equals(bundle.StateId, _state.CurrentStateId, StringComparison.OrdinalIgnoreCase) &&
+                bundle.ShareProofs.Count > 0)
+            .Select(bundle => bundle.ShareProofs.Count)
+            .DefaultIfEmpty(0)
+            .Max();
     }
 
     private List<string> GetAcceptedParentBlockHashesNoLock()

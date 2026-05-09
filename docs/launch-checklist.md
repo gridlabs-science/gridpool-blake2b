@@ -63,6 +63,170 @@ Launch gates:
 `G3` is mandatory before any serious public announcement.
 `G4` is mandatory before calling the network "launched".
 
+## Execution Environment Tags
+
+Remaining launch work should be planned around three execution environments:
+
+- `DEV/LAPTOP NOW`: reasonable to implement and validate using the current dev machine plus laptop test setup
+- `START NOW, FINISH HOSTED`: implementation can start locally, but final acceptance requires the hosted seed cluster
+- `HOSTED ONLY`: defer until the `3` public hosted nodes exist, because the current home/laptop setup gives misleading evidence
+
+### DEV/LAPTOP NOW
+
+These are good work items while the current test setup is still in use:
+
+- Fix untrusted peer fresh-parent handling.
+  - Local DATUM can still learn fresh parents from otherwise-valid local shares.
+  - Peer and HTTP paths should not advance/learn an unknown parent from a bare `prevhash` unless Boot can verify the parent.
+  - Add regression tests for fake-parent peer shares.
+- Change the default primary coinbase tag to `Grid Pool`.
+  - Keep it configurable.
+  - Allow an empty tag.
+  - Validate length at startup instead of silently truncating.
+  - Confirm tag is not consensus-critical.
+- Clean up dependency vulnerabilities.
+  - Run `dotnet list package --vulnerable --include-transitive`.
+  - Upgrade or override vulnerable transitive packages.
+  - Keep `dotnet test` green.
+- Add config validation and safer startup failures.
+  - invalid payout address
+  - invalid/too-long coinbase tag
+  - missing required public URL fields in production mode
+  - invalid rate-limit values
+  - testing reset mode accidentally enabled in production mode
+- Move hardcoded ZMQ endpoint into config.
+  - Keep `MempoolSpace` as the easy no-bitcoind default.
+  - Make local `bitcoind`/ZMQ setup documented and testable.
+- Improve Docker packaging locally.
+  - non-root runtime user
+  - container healthcheck
+  - clearer `/data` layout
+  - sample config copied/generated on first run
+  - local compose smoke test
+- Build the miner/operator install path.
+  - one-command or near-one-command Docker quickstart
+  - config wizard or setup script
+  - DATUM connection snippet generator
+  - first-run self-check command
+  - backup/restore and upgrade docs
+- Write launch-facing docs.
+  - install guide
+  - upgrade guide
+  - backup/restore guide
+  - DATUM setup guide
+  - Hydrapool HTTP submission guide
+  - "what normal rejects look like" guide
+  - public developer-preview warning language
+- Start the G3 harness locally.
+  - malformed request flood
+  - duplicate/replay flood
+  - HTTP share fixtures
+  - peer simulator skeleton
+  - DATUM-like session simulator if feasible
+  - small local runs only
+- Continue UI polish.
+  - Lottery/Business/Nerd mode cleanup
+  - connect instructions
+  - production warning state
+  - local miner address default selection
+  - mobile layout polish
+- Targeted code cleanup.
+  - fix nullable warnings
+  - establish formatting baseline
+  - remove empty/dead files
+  - split only the riskiest launch-critical pieces out of large files
+  - avoid broad rewrites without tests
+
+### START NOW, FINISH HOSTED
+
+These can be mostly built locally, but should not be marked complete until the hosted cluster validates them:
+
+- Hydrapool compatibility.
+  - Local work:
+    - keep HTTP share validation tag-agnostic
+    - build synthetic Hydrapool-style fixtures
+    - document required fields and slot-0 attribution
+  - Hosted completion:
+    - run real Hydrapool-compatible submission against a public node
+    - confirm no Cloudflare/proxy/TLS behavior breaks the path
+- G2 soak tooling.
+  - Local work:
+    - keep improving monitors and disk-flush behavior
+    - add clearer pass/fail summaries
+    - preserve partial data if a run stops early
+  - Hosted completion:
+    - run `48h` multi-node soak on stable public hosts
+    - verify no process restarts, bounded rejects, and convergence limits
+- G3 load harness.
+  - Local work:
+    - build simulators and reports
+    - run small sanity tests
+  - Hosted completion:
+    - run the minimum target scenarios against realistic hardware and network paths
+- Peer abuse and rate-limit tuning.
+  - Local work:
+    - unit/integration tests for spoofed IPs, malformed requests, duplicates, and low-diff spam
+    - baseline limiter behavior
+  - Hosted completion:
+    - tune limits under public ingress and real reverse-proxy topology
+- Deployment automation.
+  - Local work:
+    - make scripts generic
+    - remove machine-specific paths
+    - support dry-run/config-check mode
+  - Hosted completion:
+    - prove deploy, restart, rollback, and log collection on all hosted nodes
+
+### HOSTED ONLY
+
+These should wait until the `3` hosted nodes exist:
+
+- Final `48h` G2 launch soak.
+  - The current home/laptop setup is too sensitive to sleep, Tailscale, Wi-Fi/LAN quirks, and accidental laptop shutdown.
+- Seed-node readiness.
+  - DNS records
+  - public firewall rules
+  - TLS/reverse proxy
+  - service restart policy
+  - monitoring
+  - backups
+  - log retention
+- Real multi-region convergence testing.
+  - Candidate/current/tip divergence on real latency paths
+  - peer reconnect behavior across regions
+  - region-specific failure/recovery tests
+- Public DATUM connection testing.
+  - miner-to-node reachability
+  - no Cloudflare proxy on DATUM TCP
+  - correct advertised `datum_public_host`
+  - public firewall and provider networking behavior
+- Launch runbook rehearsal.
+  - fresh deploy
+  - config update
+  - emergency admin disable
+  - rollback
+  - node replacement
+  - restoring state from backup
+- Public seed topology decisions.
+  - official seed list
+  - bootstrap peer list
+  - node naming
+  - production versus staging separation
+- Production monitoring thresholds.
+  - alert thresholds should be tuned from hosted-node behavior, not laptop behavior.
+
+### Optional Backlog Items
+
+The newest backlog ideas remain optional and should not block launch unless they become strategically important:
+
+- coinbase explorer submission after name/public URL are final
+- censorship/fairness detection
+- transaction-policy attestation
+- proof-of-work-gated DoS protection
+- public network map
+
+These can be researched locally, but implementation should wait until the launch-critical gates above are stable.
+
 ## Gate 1: Security And Protocol Correctness
 
 Latest verification snapshot:
