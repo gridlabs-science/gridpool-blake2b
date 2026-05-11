@@ -147,6 +147,18 @@ public class PoolConfig
     [JsonPropertyName("hashrate_local_window_seconds")]
     public int HashrateLocalWindowSeconds { get; set; } = 1800;
 
+    [JsonPropertyName("local_datum_miner_summary_limit")]
+    public int LocalDatumMinerSummaryLimit { get; set; } = 50;
+
+    [JsonPropertyName("local_datum_hashrate_per_address_max_samples")]
+    public int LocalDatumHashratePerAddressMaxSamples { get; set; } = 512;
+
+    [JsonPropertyName("local_datum_hashrate_max_addresses")]
+    public int LocalDatumHashrateMaxAddresses { get; set; } = 5000;
+
+    [JsonPropertyName("max_accepted_share_telemetry_entries")]
+    public int MaxAcceptedShareTelemetryEntries { get; set; } = 20000;
+
     [JsonPropertyName("hashrate_sample_retention_days")]
     public int HashrateSampleRetentionDays { get; set; } = 60;
 

@@ -147,7 +147,7 @@
 
         /* Search Section */
         .search-section {
-            margin-bottom: 40px;
+            margin-bottom: 22px;
             text-align: center;
         }
 
@@ -193,6 +193,146 @@
         .result-highlight {
             color: var(--highlight-color);
             font-weight: bold;
+        }
+
+        .connect-panel {
+            border: 1px solid rgba(189, 89, 255, 0.45);
+            background:
+                radial-gradient(circle at top right, rgba(189, 89, 255, 0.16), transparent 34%),
+                linear-gradient(135deg, rgba(12, 12, 12, 0.98), rgba(20, 12, 24, 0.92));
+            padding: 18px;
+            margin: 0 0 24px 0;
+        }
+
+        .connect-panel[hidden] {
+            display: none;
+        }
+
+        .connect-panel-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 18px;
+            margin-bottom: 16px;
+        }
+
+        .connect-panel h2,
+        .primary-hashrate-section h2 {
+            margin: 0;
+        }
+
+        .connect-panel-subtitle {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            margin-top: 6px;
+            max-width: 760px;
+        }
+
+        .status-pill {
+            border: 1px solid var(--accent-color);
+            color: var(--accent-color);
+            padding: 6px 10px;
+            font-size: 0.74rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            white-space: nowrap;
+            background: rgba(189, 89, 255, 0.08);
+        }
+
+        .connect-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+            gap: 18px;
+            align-items: stretch;
+        }
+
+        .connect-card {
+            border: 1px solid var(--border-color);
+            background: rgba(0, 0, 0, 0.28);
+            padding: 14px;
+        }
+
+        .connect-card h3 {
+            margin: 0 0 10px 0;
+            color: var(--text-muted);
+            font-size: 0.86rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .connect-list {
+            display: grid;
+            gap: 8px;
+            color: var(--text-color);
+            font-size: 0.92rem;
+        }
+
+        .connect-list span {
+            color: var(--text-muted);
+        }
+
+        .connect-warning {
+            margin-top: 12px;
+            padding: 10px;
+            border: 1px solid rgba(255, 200, 87, 0.35);
+            color: #ffc857;
+            background: rgba(255, 200, 87, 0.08);
+            font-size: 0.86rem;
+        }
+
+        .connect-kv-grid {
+            display: grid;
+            gap: 10px;
+        }
+
+        .connect-kv {
+            display: grid;
+            gap: 4px;
+        }
+
+        .connect-kv label {
+            color: var(--text-muted);
+            font-size: 0.76rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .connect-kv div {
+            border: 1px solid var(--border-color);
+            background: #000;
+            color: var(--accent-color);
+            padding: 8px;
+            word-break: break-all;
+        }
+
+        .connect-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 14px;
+        }
+
+        .secondary-btn {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            font-family: inherit;
+            padding: 8px 12px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .secondary-btn:hover {
+            color: var(--accent-color);
+            border-color: var(--accent-color);
+        }
+
+        .primary-hashrate-section {
+            margin: 0 0 28px 0;
+        }
+
+        .primary-hashrate-section .chart-container {
+            height: 340px;
         }
 
         .mode-toolbar {
@@ -1084,6 +1224,10 @@
                 grid-template-columns: 1fr;
             }
 
+            .connect-grid {
+                grid-template-columns: 1fr;
+            }
+
             .list-toolbar {
                 flex-direction: column;
                 align-items: flex-start;
@@ -1131,6 +1275,22 @@
                 flex: 1 1 auto;
                 text-align: center;
             }
+
+            .connect-panel-header {
+                display: grid;
+            }
+
+            .status-pill {
+                justify-self: flex-start;
+            }
+
+            .connect-actions {
+                display: grid;
+            }
+
+            .primary-hashrate-section .chart-container {
+                height: 310px;
+            }
         }
     </style>
 </head>
@@ -1173,6 +1333,77 @@
         <div id="search-results" class="search-results"></div>
         <div id="local-miner-shortcuts" class="shortcut-strip" hidden></div>
     </div>
+
+    <section class="connect-panel" id="connect-panel">
+        <div class="connect-panel-header">
+            <div>
+                <h2>Connect Your Miner</h2>
+                <div class="connect-panel-subtitle">
+                    Point a DATUM Gateway at this Boot node, then search your payout address above to switch into your personal dashboard.
+                    No cookies needed: bookmarked address links hide this setup panel automatically.
+                </div>
+            </div>
+            <div class="status-pill">DATUM only today</div>
+        </div>
+        <div class="connect-grid">
+            <div class="connect-card">
+                <h3>Supported Paths</h3>
+                <div class="connect-list">
+                    <div><strong>Works now:</strong> DATUM Gateway connected to this Boot node.</div>
+                    <div><strong>Coming soon:</strong> Hydrapool HTTP share submission.</div>
+                    <div><strong>Wanted:</strong> CK Pool, Public Pool, Stratum V2, FutureBit, and other sovereign template builders integrating the <a href="https://github.com/gridlabs-science/boot-protocol/blob/main/docs/hydrapool-http-submission.md" target="_blank" rel="noopener noreferrer">HTTP API spec</a>.</div>
+                    <div><span>Raw Stratum V1 directly from an ASIC is not supported here. This protocol is for miners who can build their own block templates.</span></div>
+                </div>
+                <div class="connect-warning">
+                    Sovereign-miner assumption: your DATUM or compatible server builds the template, owns slot 0, and submits verified shares to Boot.
+                </div>
+            </div>
+            <div class="connect-card">
+                <h3>This Node</h3>
+                <div class="connect-kv-grid">
+                    <div class="connect-kv">
+                        <label>Host</label>
+                        <div id="connect-host">Loading...</div>
+                    </div>
+                    <div class="connect-kv">
+                        <label>Port</label>
+                        <div id="connect-port">Loading...</div>
+                    </div>
+                    <div class="connect-kv">
+                        <label>Pool Pubkey</label>
+                        <div id="connect-pubkey-display">Loading...</div>
+                    </div>
+                </div>
+                <div class="connect-actions">
+                    <button class="search-btn" onclick="copyPubKey('connect-copy-feedback')">COPY PUBKEY</button>
+                    <button class="secondary-btn" onclick="focusAddressSearch()">I HAVE A PAYOUT ADDRESS</button>
+                    <button class="secondary-btn" onclick="toggleModal('help-modal')">SETUP HELP</button>
+                </div>
+                <div id="connect-copy-feedback" class="search-results"></div>
+            </div>
+        </div>
+    </section>
+
+    <section class="primary-hashrate-section" id="primary-hashrate-section">
+        <div class="chart-container round-history-chart" id="round-hashrate-panel">
+            <div class="round-history-chart-toolbar">
+                <h3>Estimated Hashrate Through Time</h3>
+                <div class="view-toggle">
+                    <button class="toggle-btn" id="hashrate-window-6h-btn" onclick="setHashrateWindow('6h')">6H</button>
+                    <button class="toggle-btn active" id="hashrate-window-24h-btn" onclick="setHashrateWindow('24h')">24H</button>
+                    <button class="toggle-btn" id="hashrate-window-7d-btn" onclick="setHashrateWindow('7d')">7D</button>
+                    <button class="toggle-btn" id="hashrate-window-30d-btn" onclick="setHashrateWindow('30d')">30D</button>
+                    <button class="toggle-btn" id="hashrate-window-all-btn" onclick="setHashrateWindow('all')">ALL</button>
+                </div>
+                <div class="view-toggle">
+                    <button class="toggle-btn active" id="hashrate-scale-linear-btn" onclick="setHashrateScaleMode('linear')">LINEAR</button>
+                    <button class="toggle-btn" id="hashrate-scale-log-btn" onclick="setHashrateScaleMode('log')">LOG</button>
+                </div>
+            </div>
+            <canvas id="roundHashrateChart"></canvas>
+            <div class="round-history-search-note" id="round-hashrate-chart-note"></div>
+        </div>
+    </section>
 
     <div class="mode-summary-grid">
         <div class="mode-card">
@@ -1303,7 +1534,7 @@
         </div>
     </details>
 
-    <section style="margin-top: 30px;">
+    <section style="margin-top: 30px;" id="round-history-section">
         <h2 id="round-history-heading">Round History</h2>
         <div class="round-history-toolbar">
             <div class="round-history-note" id="round-history-note">Loading round history...</div>
@@ -1323,24 +1554,6 @@
                 <div class="chart-container round-history-chart" id="round-share-panel">
                     <canvas id="roundShareChart"></canvas>
                     <div class="round-history-search-note" id="round-history-search-note"></div>
-                </div>
-                <div class="chart-container round-history-chart" id="round-hashrate-panel">
-                    <div class="round-history-chart-toolbar">
-                        <h3>Estimated Hashrate Through Time</h3>
-                        <div class="view-toggle">
-                            <button class="toggle-btn" id="hashrate-window-6h-btn" onclick="setHashrateWindow('6h')">6H</button>
-                            <button class="toggle-btn active" id="hashrate-window-24h-btn" onclick="setHashrateWindow('24h')">24H</button>
-                            <button class="toggle-btn" id="hashrate-window-7d-btn" onclick="setHashrateWindow('7d')">7D</button>
-                            <button class="toggle-btn" id="hashrate-window-30d-btn" onclick="setHashrateWindow('30d')">30D</button>
-                            <button class="toggle-btn" id="hashrate-window-all-btn" onclick="setHashrateWindow('all')">ALL</button>
-                        </div>
-                        <div class="view-toggle">
-                            <button class="toggle-btn active" id="hashrate-scale-linear-btn" onclick="setHashrateScaleMode('linear')">LINEAR</button>
-                            <button class="toggle-btn" id="hashrate-scale-log-btn" onclick="setHashrateScaleMode('log')">LOG</button>
-                        </div>
-                    </div>
-                    <canvas id="roundHashrateChart"></canvas>
-                    <div class="round-history-search-note" id="round-hashrate-chart-note"></div>
                 </div>
             </div>
         </div>
@@ -1445,16 +1658,15 @@
     <div class="modal-content">
         <span class="close-modal" onclick="toggleModal('help-modal')">&times;</span>
         <h2>How to Connect</h2>
-        <p>There are two options to join the Grid Anti-Pool team and compete to get on the Winner's List:</p>
-        <h3>The easy way (start with this):</h3>
-        <p>1. Download the DATUM client.</p>
-        <p>2. Configure your client with the host, port, and public key listed above.</p>
-        <p>3. Start mining. Your highest difficulty shares will automatically be submitted.</p>
-        <h3>The better way (after the above steps):</h3>
-        <p>4. Go to the Grid Anti-Pool repository and choose an installation method (bare metal or Docker)</p>
-        <p>5. Start up the Grid Anti-Pool server, visit http://localhost:5000 and copy the public key</p>
-        <p>6. Edit your DATUM Config to point towards your new Datum Server</p>
-        <p>7. Get your friends to do the same!</p>
+        <p>Grid Pool currently accepts shares from DATUM Gateway clients. Hydrapool support is planned next through the HTTP share submission API.</p>
+        <h3>Connect with DATUM</h3>
+        <p>1. Run a DATUM Gateway that builds sovereign Bitcoin block templates.</p>
+        <p>2. Configure DATUM with this page's host, port, and pool public key.</p>
+        <p>3. Point your ASICs at DATUM, not directly at Boot. Raw Stratum V1 miner connections are not supported.</p>
+        <p>4. Search your payout address on this page to switch into your personal dashboard.</p>
+        <h3>Integrate another server</h3>
+        <p>CK Pool, Public Pool, Stratum V2, FutureBit, and other template-building servers can integrate through the <a href="https://github.com/gridlabs-science/boot-protocol/blob/main/docs/hydrapool-http-submission.md" target="_blank" rel="noopener noreferrer">HTTP API spec</a> in the repository.</p>
+        <p>The trust model is simple: your server owns slot 0, builds the block template, verifies shares, and submits them to Boot.</p>
     </div>
 </div>
 
@@ -1498,6 +1710,9 @@
         lastUpdatedMs: null
     };
     let autoSelectedLocalMinerAddress = null;
+    let selectedLocalMinerSummary = null;
+    let selectedLocalMinerLookupInFlight = false;
+    let lastSelectedLocalMinerLookupMs = 0;
     let userTouchedSearch = false;
 
     // Global state for client-side searching
@@ -1508,6 +1723,7 @@
     const HASHRATE_CHART_RENDER_INTERVAL_MS = 10000;
     const HASHRATE_CHART_MAX_POINTS_DESKTOP = 240;
     const HASHRATE_CHART_MAX_POINTS_MOBILE = 120;
+    const SELECTED_LOCAL_MINER_LOOKUP_INTERVAL_MS = 30000;
     const listViewModes = {
         "winners-list": "summary",
         "ondeck-list": "summary"
@@ -1534,6 +1750,9 @@
         } else {
             setUiMode(localStorage.getItem("boot-ui-mode") || "lottery", { persist: false, resetDisclosure: true });
         }
+
+        updateConnectPanelVisibility();
+        syncConnectionInfoPanel();
     });
 
     const connection = new signalR.HubConnectionBuilder()
@@ -1542,10 +1761,17 @@
         .build();
 
     // --- SEARCH LOGIC ---
-    function performSearch() {
+    function performSearch(options = {}) {
+        const forceLocalLookup = options.forceLocalLookup !== false;
         const input = document.getElementById('search-input');
         const rawTerm = input.value.trim();
+        const previousTerm = currentSearchTerm;
         currentSearchTerm = rawTerm;
+        if (normalizeSearchValue(previousTerm) !== normalizeSearchValue(rawTerm)) {
+            selectedLocalMinerSummary = null;
+            lastSelectedLocalMinerLookupMs = 0;
+        }
+        updateConnectPanelVisibility();
         const resultDiv = document.getElementById('search-results');
         const labels = getModeListLabels();
 
@@ -1587,24 +1813,33 @@
             resultDiv.innerHTML = msg;
         }
 
+        refreshSelectedLocalMinerSummary(forceLocalLookup);
+
         // 4. Trigger UI Redraw to show highlights
         refreshUI();
     }
 
     function refreshUI() {
         const labels = getModeListLabels();
-        updateTable("winners-list", globalWinnersList);
-        updateTable("ondeck-list", globalOnDeckList);
-        renderRoundHistory(globalRoundHistory);
+        updateConnectPanelVisibility();
+        if (activeUiMode === "nerd") {
+            updateTable("winners-list", globalWinnersList);
+            updateTable("ondeck-list", globalOnDeckList);
+        }
+        if (shouldRenderRoundHistory()) {
+            renderRoundHistory(globalRoundHistory);
+        }
         updateCurrentRoundTelemetry();
         scheduleHashrateHistoryChartRender();
         renderModeSummaryCards();
         renderModeFocusSection();
         renderLocalMinerShortcuts();
 
-        // Re-draw charts with the vertical lines
-        winnersChartInstance = updateChart("winnersChart", globalWinnersList, `${labels.winners} Depth`, winnersChartInstance);
-        onDeckChartInstance = updateChart("onDeckChart", globalOnDeckList, `${labels.ondeck} Depth`, onDeckChartInstance);
+        if (activeUiMode === "nerd") {
+            // Re-draw charts with the vertical lines
+            winnersChartInstance = updateChart("winnersChart", globalWinnersList, `${labels.winners} Depth`, winnersChartInstance);
+            onDeckChartInstance = updateChart("onDeckChart", globalOnDeckList, `${labels.ondeck} Depth`, onDeckChartInstance);
+        }
     }
 
 
@@ -1783,6 +2018,35 @@
         }
     }
 
+    function hasSelectedPayoutAddress() {
+        return !!currentSearchTerm.trim();
+    }
+
+    function updateConnectPanelVisibility() {
+        setElementHidden("connect-panel", hasSelectedPayoutAddress());
+    }
+
+    function syncConnectionInfoPanel(info = null) {
+        const host = info?.datumHost || document.getElementById("server-host")?.innerText || "--";
+        const port = info?.poolPort ?? document.getElementById("server-port")?.innerText ?? "--";
+        const pubKey = info?.pubKey || fullServerPubKey || "";
+        const pubKeyDisplay = pubKey && pubKey.length > 16
+            ? `${pubKey.substring(0, 8)}...${pubKey.substring(pubKey.length - 8)}`
+            : (pubKey || "--");
+
+        const connectHost = document.getElementById("connect-host");
+        const connectPort = document.getElementById("connect-port");
+        const connectPubkey = document.getElementById("connect-pubkey-display");
+        if (connectHost) connectHost.innerText = host || "--";
+        if (connectPort) connectPort.innerText = port || "--";
+        if (connectPubkey) connectPubkey.innerText = pubKeyDisplay;
+    }
+
+    function focusAddressSearch() {
+        const input = document.getElementById("search-input");
+        input?.focus();
+    }
+
     function getCanonicalRoundHistory(limit = null) {
         const canonical = (globalRoundHistory || []).filter(entry => !entry?.isOrphaned);
         return limit == null ? canonical : canonical.slice(0, limit);
@@ -1794,6 +2058,10 @@
         }
 
         return getCanonicalRoundHistory();
+    }
+
+    function shouldRenderRoundHistory() {
+        return activeUiMode !== "lottery";
     }
 
     function getModeListLabels() {
@@ -1942,20 +2210,51 @@
         const miners = getLocalDatumMiners();
         const term = currentSearchValue();
         if (term) {
-            return miners.find(miner =>
+            const localMatch = miners.find(miner =>
                 normalizeSearchValue(miner.address).includes(term) ||
-                normalizeSearchValue(miner.username).includes(term)) || null;
+                normalizeSearchValue(miner.username).includes(term));
+            if (localMatch) return localMatch;
+            if (selectedLocalMinerSummary &&
+                (normalizeSearchValue(selectedLocalMinerSummary.address).includes(term) ||
+                 normalizeSearchValue(selectedLocalMinerSummary.username).includes(term))) {
+                return selectedLocalMinerSummary;
+            }
+            return null;
         }
 
         return miners.length === 1 ? miners[0] : null;
     }
 
+    async function refreshSelectedLocalMinerSummary(force = false) {
+        const rawTerm = currentSearchTerm.trim();
+        if (!rawTerm || selectedLocalMinerLookupInFlight) return;
+        const now = Date.now();
+        if (!force && (now - lastSelectedLocalMinerLookupMs) < SELECTED_LOCAL_MINER_LOOKUP_INTERVAL_MS) return;
+
+        lastSelectedLocalMinerLookupMs = now;
+        selectedLocalMinerLookupInFlight = true;
+        try {
+            const response = await fetch(`/api/network/local-miners?address=${encodeURIComponent(rawTerm)}&limit=1`);
+            if (!response.ok) return;
+            const payload = await response.json();
+            const miners = Array.isArray(payload?.miners) ? payload.miners : [];
+            selectedLocalMinerSummary = miners.length > 0 ? miners[0] : null;
+            renderModeSummaryCards();
+            renderModeFocusSection();
+            renderLocalMinerShortcuts();
+        } catch (err) {
+            console.warn("Failed to load local miner hashrate summary", err);
+        } finally {
+            selectedLocalMinerLookupInFlight = false;
+        }
+    }
+
     function selectLocalMiner(address) {
         const input = document.getElementById("search-input");
         input.value = address;
-        currentSearchTerm = address;
         userTouchedSearch = false;
         performSearch();
+        refreshSelectedLocalMinerSummary(true);
         renderLocalMinerShortcuts();
     }
 
@@ -1968,7 +2267,6 @@
 
         autoSelectedLocalMinerAddress = miners[0].address;
         input.value = miners[0].address;
-        currentSearchTerm = miners[0].address;
         performSearch();
     }
 
@@ -2365,18 +2663,7 @@
                         ? `Expected time between queue-quality hits at the current threshold: ${localQueueRate ? formatDurationLong(1 / localQueueRate) : "--"}.`
                         : "Connect your miner through this node to estimate personal queue odds."
                 ),
-                buildDifficultyGaugeCard(localMiner),
-                buildFocusCard(
-                    "Connect DATUM",
-                    connection.endpoint,
-                    buildMetricList([
-                        { label: "Pool pubkey", value: connection.pubkey },
-                        { label: "Network", value: latestNetworkState?.networkId || "--" },
-                        { label: "Help", value: "Open HELP below" }
-                    ]),
-                    "Start with DATUM. If you only run one sovereign stack here, the page will auto-select that local payout address.",
-                    search.hasSearch ? recentPaidLines : []
-                )
+                buildDifficultyGaugeCard(localMiner)
             ];
         } else if (activeUiMode === "business") {
             heading.innerText = "Business View";
@@ -2518,7 +2805,10 @@
         setElementHidden("difficulty-section", activeUiMode !== "nerd");
         setElementHidden("test-tools-link", activeUiMode !== "nerd" || latestNetworkState?.adminApiEnabled !== true);
         setElementHidden("technical-disclosure", activeUiMode !== "nerd");
+        setElementHidden("list-disclosure", activeUiMode !== "nerd");
+        setElementHidden("round-history-section", !shouldRenderRoundHistory());
         setElementHidden("round-share-panel", activeUiMode === "lottery");
+        updateConnectPanelVisibility();
 
         if (resetDisclosure) {
             details.open = activeUiMode === "nerd";
@@ -2531,6 +2821,22 @@
 
         if (activeUiMode !== "nerd" && listDisclosure.open) {
             listDisclosure.open = false;
+        }
+
+        if (!shouldRenderRoundHistory() && roundShareChartInstance) {
+            roundShareChartInstance.destroy();
+            roundShareChartInstance = null;
+        }
+
+        if (activeUiMode !== "nerd") {
+            if (winnersChartInstance) {
+                winnersChartInstance.destroy();
+                winnersChartInstance = null;
+            }
+            if (onDeckChartInstance) {
+                onDeckChartInstance.destroy();
+                onDeckChartInstance = null;
+            }
         }
 
         const roundHistoryContent = document.getElementById("round-history-content");
@@ -3131,6 +3437,14 @@
     }
 
     function renderRoundHistory(history) {
+        if (!shouldRenderRoundHistory()) {
+            if (roundShareChartInstance) {
+                roundShareChartInstance.destroy();
+                roundShareChartInstance = null;
+            }
+            return;
+        }
+
         const note = document.getElementById("round-history-note");
         const scroller = document.getElementById("round-history-scroller");
         const detail = document.getElementById("round-history-detail");
@@ -3390,8 +3704,16 @@
     }
 
     function updateRoundShareChart(history) {
+        const panel = document.getElementById("round-share-panel");
         const canvas = document.getElementById("roundShareChart");
         const note = document.getElementById("round-history-search-note");
+        if (!canvas || !note || panel?.hidden) {
+            if (roundShareChartInstance) {
+                roundShareChartInstance.destroy();
+                roundShareChartInstance = null;
+            }
+            return;
+        }
         const ctx = canvas.getContext("2d");
 
         if (roundShareChartInstance) {
@@ -3522,10 +3844,11 @@
         }
     }
 
-    function copyPubKey() {
+    function copyPubKey(feedbackId = "copy-feedback") {
         if (!fullServerPubKey) return;
         navigator.clipboard.writeText(fullServerPubKey).then(() => {
-            const feedback = document.getElementById("copy-feedback");
+            const feedback = document.getElementById(feedbackId);
+            if (!feedback) return;
             feedback.innerText = "COPIED!";
             setTimeout(() => feedback.innerText = "", 2000);
         });
@@ -3804,7 +4127,7 @@
         globalWinnersList = list || [];
         // If a search is active, this will redraw with highlights
         if (currentSearchTerm) {
-            performSearch();
+            performSearch({ forceLocalLookup: false });
         } else {
             refreshUI();
         }
@@ -3813,7 +4136,7 @@
     connection.on("UpdateOnDeck", (list) => {
         globalOnDeckList = list || [];
         if (currentSearchTerm) {
-            performSearch();
+            performSearch({ forceLocalLookup: false });
         } else {
             refreshUI();
         }
@@ -3829,7 +4152,9 @@
 
     connection.on("UpdateRoundHistory", (history) => {
         globalRoundHistory = history || [];
-        renderRoundHistory(globalRoundHistory);
+        if (shouldRenderRoundHistory()) {
+            renderRoundHistory(globalRoundHistory);
+        }
     });
 
     connection.on("UpdateServerInfo", (info) => {
@@ -3843,6 +4168,8 @@
         } else {
             document.getElementById("server-pubkey-display").innerText = info.pubKey;
         }
+        syncConnectionInfoPanel(info);
+        updateConnectPanelVisibility();
         renderModeSummaryCards();
         renderModeFocusSection();
     });
@@ -3868,6 +4195,7 @@
         renderLocalDatumDiagnostics();
         renderLocalMinerShortcuts();
         maybeAutoselectLocalMiner();
+        refreshSelectedLocalMinerSummary();
         updateCurrentRoundTelemetry();
         scheduleHashrateHistoryChartRender();
         updateModeChrome();
@@ -3902,6 +4230,10 @@
     setInterval(() => {
         loadHashrateSeries();
     }, 60000);
+
+    setInterval(() => {
+        refreshSelectedLocalMinerSummary();
+    }, 30000);
 
     setInterval(() => {
         loadBitcoinNetworkMetrics();

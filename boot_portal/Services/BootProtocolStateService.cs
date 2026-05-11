@@ -29,6 +29,7 @@ public class BootProtocolStateService
     private readonly List<BootShareDiagnosticTelemetry> _recentShareDiagnostics = [];
     private readonly List<BootDatumProtocolEvent> _recentDatumProtocolEvents = [];
     private readonly Dictionary<string, BootDatumSessionTelemetry> _activeDatumSessions = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, LocalDatumAddressHashrateTracker> _localDatumHashrateByAddress = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<BootStateBundle> _recentCandidateBundles = [];
     private Task? _deferredSaveTask;
     private bool _deferredSavePending;
@@ -301,6 +302,37 @@ public class BootProtocolStateService
         lock (_sync)
         {
             return BuildDatumProtocolEventSeriesNoLock(windowKey, limit, sessionId, remoteEndpoint, eventType, direction, messageLabel);
+        }
+    }
+
+    public BootLocalDatumMinerSeriesDto GetLocalDatumMinerSummaries(string? address = null, int? limit = null)
+    {
+        lock (_sync)
+        {
+            DateTime nowUtc = DateTime.UtcNow;
+            string normalizedSearch = NormalizeSearchTerm(address);
+            int requestedLimit = Math.Clamp(limit ?? GetLocalDatumMinerSummaryLimit(), 1, 5000);
+            int buildLimit = string.IsNullOrWhiteSpace(normalizedSearch)
+                ? requestedLimit
+                : GetLocalDatumMaxTrackedAddresses();
+            List<BootLocalDatumMinerSummaryDto> summaries = BuildLocalDatumMinerSummariesNoLock(nowUtc, buildLimit);
+            if (!string.IsNullOrWhiteSpace(normalizedSearch))
+            {
+                summaries = summaries
+                    .Where(miner =>
+                        NormalizeSearchTerm(miner.Address).Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase) ||
+                        NormalizeSearchTerm(miner.Username).Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase))
+                    .Take(requestedLimit)
+                    .ToList();
+            }
+
+            return new BootLocalDatumMinerSeriesDto
+            {
+                WindowSeconds = GetHashrateLocalWindowSeconds(),
+                TotalTrackedMiners = _localDatumHashrateByAddress.Count,
+                ReturnedCount = summaries.Count,
+                Miners = summaries
+            };
         }
     }
 
@@ -1275,6 +1307,7 @@ public class BootProtocolStateService
             _recentShareDiagnostics.Clear();
             _state.HashrateSamples = [];
             ResetAcceptedParentBlockHashesNoLock(currentTipBlockHash);
+            _localDatumHashrateByAddress.Clear();
             RecordNetworkEventNoLock(
                 "genesis-reset",
                 "admin",
@@ -2273,6 +2306,7 @@ public class BootProtocolStateService
             TrimDatumSessionsNoLock(DateTime.UtcNow);
             TrimNetworkEventsNoLock(DateTime.UtcNow);
             TrimHashrateSamplesNoLock(DateTime.UtcNow);
+            RebuildLocalDatumAddressHashrateNoLock();
             _recentShareDiagnostics.Clear();
             _recentShareDiagnostics.AddRange(_state.RecentRejectedShareDiagnostics.Select(CloneShareDiagnostic));
 
@@ -2352,6 +2386,7 @@ public class BootProtocolStateService
             TrimDatumSessionsNoLock(DateTime.UtcNow);
             TrimNetworkEventsNoLock(DateTime.UtcNow);
             TrimHashrateSamplesNoLock(DateTime.UtcNow);
+            RebuildLocalDatumAddressHashrateNoLock();
             _recentShareDiagnostics.Clear();
             _recentShareDiagnostics.AddRange(_state.RecentRejectedShareDiagnostics.Select(CloneShareDiagnostic));
             _logger.LogInformation("Loaded Boot protocol history from {Label} disk file.", label);
@@ -2407,9 +2442,12 @@ public class BootProtocolStateService
         double currentStateTotalDifficulty = _state.WinnersList.Sum(x => x.Difficulty);
         double onDeckTotalDifficulty = onDeckDifficulties.Sum();
         double? currentRoundObservedHashrateThs = EstimateRankAdjustedHashrateThs(onDeckDifficulties, currentRoundElapsedSeconds);
-        double? localDatumHashrateThs = EstimateLocalDatumHashrateThsNoLock(nowUtc);
         BootDatumDiagnosticsDto localDatumDiagnostics = BuildLocalDatumDiagnosticsNoLock(nowUtc);
-        List<BootLocalDatumMinerSummaryDto> localDatumMiners = BuildLocalDatumMinerSummariesNoLock(nowUtc);
+        List<BootLocalDatumMinerSummaryDto> allLocalDatumMiners = BuildLocalDatumMinerSummariesNoLock(nowUtc, GetLocalDatumMaxTrackedAddresses());
+        List<BootLocalDatumMinerSummaryDto> localDatumMiners = allLocalDatumMiners
+            .Take(GetLocalDatumMinerSummaryLimit())
+            .ToList();
+        double? localDatumHashrateThs = EstimateLocalDatumHashrateThsNoLock(allLocalDatumMiners);
         BootCoinbaserDiagnosticsSummaryDto coinbaserDiagnostics = BuildCoinbaserDiagnosticsSummaryNoLock(nowUtc);
         List<BootPeerStatus> peers = CloneExternalPeersNoLock();
 
@@ -2445,6 +2483,7 @@ public class BootProtocolStateService
             LastTestingTriggerBlockHash = _state.LastTestingTriggerBlockHash,
             LastTestingTriggerBlockHeight = _state.LastTestingTriggerBlockHeight,
             LocalDatumDiagnostics = localDatumDiagnostics,
+            LocalDatumMinerCount = _localDatumHashrateByAddress.Count,
             LocalDatumMiners = localDatumMiners,
             CoinbaserDiagnostics = coinbaserDiagnostics,
             Peers = peers,
@@ -3134,16 +3173,78 @@ public class BootProtocolStateService
 
     private void RecordAcceptedShareTelemetryNoLock(BootShareProof proof)
     {
-        _state.RecentAcceptedShares.Add(new BootAcceptedShareTelemetry
+        var telemetry = new BootAcceptedShareTelemetry
         {
             MinerAddress = proof.MinerAddress,
             Username = proof.Username,
             Source = proof.Source,
             Difficulty = proof.Difficulty,
             TimestampUtc = proof.Timestamp
-        });
+        };
+
+        _state.RecentAcceptedShares.Add(telemetry);
+        RecordLocalDatumAddressHashrateNoLock(telemetry);
 
         TrimAcceptedShareTelemetryNoLock(proof.Timestamp);
+    }
+
+    private void RecordLocalDatumAddressHashrateNoLock(BootAcceptedShareTelemetry share)
+    {
+        if (!string.Equals(share.Source, "datum", StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrWhiteSpace(share.MinerAddress) ||
+            share.Difficulty <= 0)
+        {
+            return;
+        }
+
+        string address = BitcoinScript.NormalizeAddress(share.MinerAddress);
+        if (!_localDatumHashrateByAddress.TryGetValue(address, out LocalDatumAddressHashrateTracker? tracker))
+        {
+            tracker = new LocalDatumAddressHashrateTracker
+            {
+                Address = address
+            };
+            _localDatumHashrateByAddress[address] = tracker;
+        }
+
+        NormalizeLocalDatumTrackerRoundNoLock(tracker);
+        tracker.Username = string.IsNullOrWhiteSpace(share.Username) ? address : share.Username;
+        tracker.TotalAcceptedShareCount += 1;
+        if (!_state.LastRotationUtc.HasValue || share.TimestampUtc >= _state.LastRotationUtc.Value)
+        {
+            tracker.CurrentRoundAcceptedShareCount += 1;
+            tracker.CurrentRoundBestDifficulty = Math.Max(tracker.CurrentRoundBestDifficulty, share.Difficulty);
+        }
+        tracker.LastShareUtc = share.TimestampUtc;
+        tracker.Samples.Add(new LocalDatumShareSample
+        {
+            Difficulty = share.Difficulty,
+            TimestampUtc = share.TimestampUtc
+        });
+
+        TrimLocalDatumAddressTrackerNoLock(tracker, share.TimestampUtc);
+        TrimLocalDatumAddressHashrateNoLock(share.TimestampUtc);
+    }
+
+    private void NormalizeLocalDatumTrackerRoundNoLock(LocalDatumAddressHashrateTracker tracker)
+    {
+        if (tracker.CurrentRoundNumber == _state.CurrentRoundNumber)
+        {
+            return;
+        }
+
+        tracker.CurrentRoundNumber = _state.CurrentRoundNumber;
+        tracker.CurrentRoundAcceptedShareCount = 0;
+        tracker.CurrentRoundBestDifficulty = 0;
+    }
+
+    private void RebuildLocalDatumAddressHashrateNoLock()
+    {
+        _localDatumHashrateByAddress.Clear();
+        foreach (BootAcceptedShareTelemetry share in _state.RecentAcceptedShares.OrderBy(share => share.TimestampUtc))
+        {
+            RecordLocalDatumAddressHashrateNoLock(share);
+        }
     }
 
     private bool MaybeCaptureHashrateSampleNoLock(DateTime nowUtc, bool force)
@@ -3168,7 +3269,8 @@ public class BootProtocolStateService
             currentRoundElapsedSeconds.HasValue && currentRoundElapsedSeconds.Value >= 60
                 ? EstimateRankAdjustedHashrateThs(onDeckDifficulties, currentRoundElapsedSeconds)
                 : null;
-        double? localDatumHashrateThs = EstimateLocalDatumHashrateThsNoLock(nowUtc);
+        double? localDatumHashrateThs = EstimateLocalDatumHashrateThsNoLock(
+            BuildLocalDatumMinerSummariesNoLock(nowUtc, GetLocalDatumMaxTrackedAddresses()));
 
         _state.HashrateSamples.Add(new BootHashratePoint
         {
@@ -3184,87 +3286,63 @@ public class BootProtocolStateService
         return true;
     }
 
-    private double? EstimateLocalDatumHashrateThsNoLock(DateTime nowUtc)
+    private static double? EstimateLocalDatumHashrateThsNoLock(IEnumerable<BootLocalDatumMinerSummaryDto> minerSummaries)
     {
-        int localWindowSeconds = GetHashrateLocalWindowSeconds();
-        DateTime windowStartUtc = nowUtc.AddSeconds(-localWindowSeconds);
-        List<BootAcceptedShareTelemetry> localDatumShares = _state.RecentAcceptedShares
-            .Where(share => string.Equals(share.Source, "datum", StringComparison.OrdinalIgnoreCase) &&
-                            share.TimestampUtc >= windowStartUtc &&
-                            share.Difficulty > 0)
-            .OrderBy(share => share.TimestampUtc)
-            .ToList();
-        if (localDatumShares.Count == 0)
-        {
-            return null;
-        }
-
-        DateTime effectiveStartUtc = localDatumShares[0].TimestampUtc > windowStartUtc
-            ? localDatumShares[0].TimestampUtc
-            : windowStartUtc;
-        long? elapsedSeconds = GetElapsedSeconds(effectiveStartUtc, nowUtc);
-        return EstimateRankAdjustedHashrateThs(localDatumShares.Select(share => share.Difficulty), elapsedSeconds);
+        double total = minerSummaries
+            .Select(miner => miner.CurrentHashrateThs)
+            .Where(hashrate => hashrate.HasValue && hashrate.Value > 0)
+            .Sum(hashrate => hashrate!.Value);
+        return total > 0 ? total : null;
     }
 
-    private List<BootLocalDatumMinerSummaryDto> BuildLocalDatumMinerSummariesNoLock(DateTime nowUtc)
+    private List<BootLocalDatumMinerSummaryDto> BuildLocalDatumMinerSummariesNoLock(DateTime nowUtc, int? limit = null)
     {
         TrimAcceptedShareTelemetryNoLock(nowUtc);
+        TrimLocalDatumAddressHashrateNoLock(nowUtc);
 
         int localWindowSeconds = GetHashrateLocalWindowSeconds();
         DateTime windowStartUtc = nowUtc.AddSeconds(-localWindowSeconds);
-        DateTime? roundStartUtc = _state.LastRotationUtc;
+        int effectiveLimit = Math.Clamp(limit ?? GetLocalDatumMinerSummaryLimit(), 1, 5000);
 
-        return _state.RecentAcceptedShares
-            .Where(share =>
-                string.Equals(share.Source, "datum", StringComparison.OrdinalIgnoreCase) &&
-                !string.IsNullOrWhiteSpace(share.MinerAddress))
-            .GroupBy(share => BitcoinScript.NormalizeAddress(share.MinerAddress), StringComparer.OrdinalIgnoreCase)
-            .Select(group =>
+        return _localDatumHashrateByAddress.Values
+            .Select(tracker =>
             {
-                List<BootAcceptedShareTelemetry> shares = group
+                NormalizeLocalDatumTrackerRoundNoLock(tracker);
+                List<LocalDatumShareSample> samples = tracker.Samples
+                    .Where(sample => sample.TimestampUtc >= windowStartUtc && sample.Difficulty > 0)
                     .OrderBy(share => share.TimestampUtc)
                     .ToList();
-                List<BootAcceptedShareTelemetry> rateShares = shares
-                    .Where(share => share.TimestampUtc >= windowStartUtc && share.Difficulty > 0)
-                    .ToList();
-                DateTime? firstRateShareUtc = rateShares.Count > 0 ? rateShares[0].TimestampUtc : null;
+
+                DateTime? firstRateShareUtc = samples.Count > 0 ? samples[0].TimestampUtc : null;
                 DateTime effectiveRateStartUtc = firstRateShareUtc.HasValue && firstRateShareUtc.Value > windowStartUtc
                     ? firstRateShareUtc.Value
                     : windowStartUtc;
-                long? rateElapsedSeconds = rateShares.Count > 0
+                long? rateElapsedSeconds = samples.Count > 0
                     ? GetElapsedSeconds(effectiveRateStartUtc, nowUtc)
                     : null;
-                double? hashrateThs = rateShares.Count > 0
-                    ? EstimateRankAdjustedHashrateThs(rateShares.Select(share => share.Difficulty), rateElapsedSeconds)
+                double? hashrateThs = samples.Count > 0
+                    ? EstimateRankAdjustedHashrateThs(samples.Select(share => share.Difficulty), rateElapsedSeconds)
                     : null;
-
-                IEnumerable<BootAcceptedShareTelemetry> currentRoundShares = roundStartUtc.HasValue
-                    ? shares.Where(share => share.TimestampUtc >= roundStartUtc.Value)
-                    : shares;
-                double currentRoundBestDifficulty = currentRoundShares
-                    .Select(share => share.Difficulty)
-                    .DefaultIfEmpty(0)
-                    .Max();
-                string username = shares
-                    .Select(share => string.IsNullOrWhiteSpace(share.Username) ? string.Empty : share.Username)
-                    .LastOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? group.Key;
 
                 return new BootLocalDatumMinerSummaryDto
                 {
-                    Address = group.Key,
-                    Username = username,
-                    RecentAcceptedShareCount = shares.Count,
-                    CurrentRoundAcceptedShareCount = currentRoundShares.Count(),
+                    Address = tracker.Address,
+                    Username = string.IsNullOrWhiteSpace(tracker.Username) ? tracker.Address : tracker.Username,
+                    TotalAcceptedShareCount = tracker.TotalAcceptedShareCount,
+                    RecentAcceptedShareCount = samples.Count,
+                    HashrateSampleCount = samples.Count,
+                    CurrentRoundAcceptedShareCount = tracker.CurrentRoundAcceptedShareCount,
                     CurrentHashrateThs = hashrateThs,
                     CurrentHashrateDisplay = FormatObservedHashrate(hashrateThs),
-                    CurrentRoundBestDifficulty = currentRoundBestDifficulty,
-                    CurrentRoundBestDifficultyDisplay = ClientHandler.FormatDifficulty(currentRoundBestDifficulty),
-                    LastShareUtc = shares[^1].TimestampUtc
+                    CurrentRoundBestDifficulty = tracker.CurrentRoundBestDifficulty,
+                    CurrentRoundBestDifficultyDisplay = ClientHandler.FormatDifficulty(tracker.CurrentRoundBestDifficulty),
+                    LastShareUtc = tracker.LastShareUtc
                 };
             })
             .OrderByDescending(item => item.CurrentHashrateThs ?? 0)
             .ThenByDescending(item => item.CurrentRoundBestDifficulty)
             .ThenBy(item => item.Address, StringComparer.OrdinalIgnoreCase)
+            .Take(effectiveLimit)
             .ToList();
     }
 
@@ -3350,6 +3428,52 @@ public class BootProtocolStateService
         _state.RecentAcceptedShares = _state.RecentAcceptedShares
             .Where(share => share.TimestampUtc >= cutoffUtc)
             .OrderBy(share => share.TimestampUtc)
+            .TakeLast(GetMaxAcceptedShareTelemetryEntries())
+            .ToList();
+    }
+
+    private void TrimLocalDatumAddressHashrateNoLock(DateTime nowUtc)
+    {
+        DateTime staleAddressCutoffUtc = nowUtc.AddHours(-GetAcceptedShareTelemetryRetentionHours());
+        foreach (LocalDatumAddressHashrateTracker tracker in _localDatumHashrateByAddress.Values)
+        {
+            TrimLocalDatumAddressTrackerNoLock(tracker, nowUtc);
+        }
+
+        List<string> staleAddresses = _localDatumHashrateByAddress
+            .Where(item => item.Value.LastShareUtc.HasValue && item.Value.LastShareUtc.Value < staleAddressCutoffUtc)
+            .Select(item => item.Key)
+            .ToList();
+        foreach (string address in staleAddresses)
+        {
+            _localDatumHashrateByAddress.Remove(address);
+        }
+
+        int maxAddresses = GetLocalDatumMaxTrackedAddresses();
+        if (_localDatumHashrateByAddress.Count <= maxAddresses)
+        {
+            return;
+        }
+
+        List<string> overflow = _localDatumHashrateByAddress.Values
+            .OrderBy(tracker => tracker.LastShareUtc ?? DateTime.MinValue)
+            .Take(_localDatumHashrateByAddress.Count - maxAddresses)
+            .Select(tracker => tracker.Address)
+            .ToList();
+        foreach (string address in overflow)
+        {
+            _localDatumHashrateByAddress.Remove(address);
+        }
+    }
+
+    private void TrimLocalDatumAddressTrackerNoLock(LocalDatumAddressHashrateTracker tracker, DateTime nowUtc)
+    {
+        DateTime cutoffUtc = nowUtc.AddSeconds(-GetHashrateLocalWindowSeconds());
+        int maxSamples = GetLocalDatumHashratePerAddressMaxSamples();
+        tracker.Samples = tracker.Samples
+            .Where(sample => sample.TimestampUtc >= cutoffUtc)
+            .OrderBy(sample => sample.TimestampUtc)
+            .TakeLast(maxSamples)
             .ToList();
     }
 
@@ -3365,6 +3489,14 @@ public class BootProtocolStateService
     private int GetHashrateSampleIntervalSeconds() => Math.Clamp(_poolConfig.HashrateSampleIntervalSeconds, 10, 3600);
 
     private int GetHashrateLocalWindowSeconds() => Math.Clamp(_poolConfig.HashrateLocalWindowSeconds, 60, 86400);
+
+    private int GetLocalDatumMinerSummaryLimit() => Math.Clamp(_poolConfig.LocalDatumMinerSummaryLimit, 1, 5000);
+
+    private int GetLocalDatumHashratePerAddressMaxSamples() => Math.Clamp(_poolConfig.LocalDatumHashratePerAddressMaxSamples, 16, 10000);
+
+    private int GetLocalDatumMaxTrackedAddresses() => Math.Clamp(_poolConfig.LocalDatumHashrateMaxAddresses, 1, 50000);
+
+    private int GetMaxAcceptedShareTelemetryEntries() => Math.Clamp(_poolConfig.MaxAcceptedShareTelemetryEntries, 1000, 1_000_000);
 
     private int GetHashrateSampleRetentionDays() => Math.Clamp(_poolConfig.HashrateSampleRetentionDays, 1, 365);
 
@@ -4756,5 +4888,28 @@ public class BootProtocolStateService
                 SupportNote = bundle.Commitment.SupportNote
             }
         };
+    }
+
+    private static string NormalizeSearchTerm(string? value)
+    {
+        return (value ?? string.Empty).Trim().ToLowerInvariant();
+    }
+
+    private sealed class LocalDatumAddressHashrateTracker
+    {
+        public string Address { get; set; } = string.Empty;
+        public string Username { get; set; } = string.Empty;
+        public long TotalAcceptedShareCount { get; set; }
+        public int CurrentRoundNumber { get; set; } = -1;
+        public int CurrentRoundAcceptedShareCount { get; set; }
+        public double CurrentRoundBestDifficulty { get; set; }
+        public DateTime? LastShareUtc { get; set; }
+        public List<LocalDatumShareSample> Samples { get; set; } = [];
+    }
+
+    private sealed class LocalDatumShareSample
+    {
+        public double Difficulty { get; set; }
+        public DateTime TimestampUtc { get; set; }
     }
 }

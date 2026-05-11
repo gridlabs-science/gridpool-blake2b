@@ -112,6 +112,7 @@ These are good work items while the current test setup is still in use:
 - Start appliance packaging research.
   - Umbrel app package plan
   - Start9 / StartOS service package plan
+  - Raspberry Pi one-shot sovereign mining stack installer plan
   - document platform constraints before implementation
 - Write launch-facing docs.
   - install guide
@@ -133,6 +134,7 @@ These are good work items while the current test setup is still in use:
   - connect instructions
   - production warning state
   - local miner address default selection
+  - per-address local hashrate lookup for public Boot nodes with many direct DATUM clients
   - mobile layout polish
 - Targeted code cleanup.
   - fix nullable warnings

@@ -77,6 +77,10 @@ public static class PoolConfigValidator
         ValidatePositive(errors, config.MaxMerklePathEntries, "max_merkle_path_entries");
         ValidatePositive(errors, config.HashrateSampleIntervalSeconds, "hashrate_sample_interval_seconds");
         ValidatePositive(errors, config.HashrateLocalWindowSeconds, "hashrate_local_window_seconds");
+        ValidatePositive(errors, config.LocalDatumMinerSummaryLimit, "local_datum_miner_summary_limit");
+        ValidatePositive(errors, config.LocalDatumHashratePerAddressMaxSamples, "local_datum_hashrate_per_address_max_samples");
+        ValidatePositive(errors, config.LocalDatumHashrateMaxAddresses, "local_datum_hashrate_max_addresses");
+        ValidatePositive(errors, config.MaxAcceptedShareTelemetryEntries, "max_accepted_share_telemetry_entries");
         ValidatePositive(errors, config.HashrateSampleRetentionDays, "hashrate_sample_retention_days");
         ValidatePositive(errors, config.AcceptedShareTelemetryRetentionHours, "accepted_share_telemetry_retention_hours");
         ValidatePositive(errors, config.ShareDiagnosticRetentionHours, "share_diagnostic_retention_hours");

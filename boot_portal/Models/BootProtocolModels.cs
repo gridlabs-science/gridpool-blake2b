@@ -89,13 +89,23 @@ public class BootLocalDatumMinerSummaryDto
 {
     public string Address { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
+    public long TotalAcceptedShareCount { get; set; }
     public int RecentAcceptedShareCount { get; set; }
+    public int HashrateSampleCount { get; set; }
     public int CurrentRoundAcceptedShareCount { get; set; }
     public double? CurrentHashrateThs { get; set; }
     public string CurrentHashrateDisplay { get; set; } = "--";
     public double CurrentRoundBestDifficulty { get; set; }
     public string CurrentRoundBestDifficultyDisplay { get; set; } = "0";
     public DateTime? LastShareUtc { get; set; }
+}
+
+public class BootLocalDatumMinerSeriesDto
+{
+    public int WindowSeconds { get; set; }
+    public int TotalTrackedMiners { get; set; }
+    public int ReturnedCount { get; set; }
+    public List<BootLocalDatumMinerSummaryDto> Miners { get; set; } = [];
 }
 
 public class BootNetworkStatusDto
@@ -130,6 +140,7 @@ public class BootNetworkStatusDto
     public string? LastTestingTriggerBlockHash { get; set; }
     public long? LastTestingTriggerBlockHeight { get; set; }
     public BootDatumDiagnosticsDto LocalDatumDiagnostics { get; set; } = new();
+    public int LocalDatumMinerCount { get; set; }
     public List<BootLocalDatumMinerSummaryDto> LocalDatumMiners { get; set; } = [];
     public BootCoinbaserDiagnosticsSummaryDto CoinbaserDiagnostics { get; set; } = new();
     public List<BootPeerStatus> Peers { get; set; } = [];

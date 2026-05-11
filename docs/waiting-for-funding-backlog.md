@@ -95,15 +95,18 @@ Acceptance criteria:
 Open question:
 - Whether mempool.space maintainers prefer waiting until a real mainnet block exists before adding the tag.
 
-## Task 2A: Umbrel And Start9 Packaging
+## Task 2A: Easy Install And Appliance Packaging
 
 Status:
 - `Beta`
 - `Polish`
+- `Deferred but important before launch`
+- `Valuable before three-node launch infrastructure`
 
 Goal:
 - Make Grid Pool easy to install for sovereign miners who already run home-server appliance stacks.
 - Treat Docker/systemd as the canonical install path first, then wrap that path for Umbrel and Start9 / StartOS.
+- Provide a one-shot Raspberry Pi 5 installer for miners who want a pruned Bitcoin node, DATUM, and Boot on a small sovereign box.
 
 Why this matters:
 - Many target users already run Bitcoin, DATUM, or related services on appliance-style nodes.
@@ -125,20 +128,33 @@ Start9 / StartOS packaging notes:
 - Provide properties/actions for editing payout address, setting node mode, configuring bootstrap peers, viewing DATUM connection details, and backup/restore.
 - Decide whether a StartOS dependency on Bitcoin Core and/or DATUM should be optional or documented manually.
 
+Raspberry Pi one-shot installer notes:
+- Target fresh Ubuntu Server 24.04 LTS 64-bit on Raspberry Pi 5 first.
+- Keep the script best-effort compatible with Debian and Raspberry Pi OS.
+- Install a pruned Bitcoin Core node with ZMQ enabled.
+- Install DATUM Gateway from upstream source or a pinned release.
+- Install Boot/Grid Pool from the canonical Docker image or local repo.
+- Create systemd services, firewall guidance, config summary, and a final `boot-self-check` run.
+- Prefer verified upstream binaries/releases for Bitcoin Core over distro packages.
+
 Recommended sequence:
 - Finish canonical Docker quickstart and config validation first.
 - Write a short packaging requirements doc for both platforms.
+- Write the Raspberry Pi installer design before touching a live Pi.
 - Build Umbrel package skeleton.
 - Build StartOS package skeleton.
+- Build and test the Raspberry Pi installer on fresh hardware.
 - Test install, upgrade, backup/restore, and uninstall behavior on real or local platform dev environments.
 
 Acceptance criteria:
 - Packaging requirements doc exists for Umbrel and Start9 / StartOS.
+- Raspberry Pi installer doc exists with supported OS, disk-size, prune-size, ports, services, and rollback notes.
 - Both package plans preserve the same trust model as the raw Docker install.
 - Both expose WebUI and DATUM endpoints clearly.
 - Persistent state survives app restart and upgrade.
 - Generated/default config uses `Grid Pool`, `node_mode`, and safe admin defaults.
 - Users can find DATUM connection details without reading logs.
+- A fresh Pi can complete install and pass `scripts/boot-self-check.sh`.
 
 Open questions:
 - Should packaged installs default to `developer-preview`, `staging`, or `production` node mode?

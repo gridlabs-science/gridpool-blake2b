@@ -57,6 +57,15 @@ public class BootNetworkController : ControllerBase
     }
 
     [EnableRateLimiting("network-read")]
+    [HttpGet("local-miners")]
+    public IActionResult GetLocalDatumMiners(
+        [FromQuery] string? address = null,
+        [FromQuery] int limit = 50)
+    {
+        return Ok(_stateService.GetLocalDatumMinerSummaries(address, limit));
+    }
+
+    [EnableRateLimiting("network-read")]
     [HttpGet("share-diagnostics")]
     public IActionResult GetShareDiagnostics(
         [FromQuery] string? window = "12h",

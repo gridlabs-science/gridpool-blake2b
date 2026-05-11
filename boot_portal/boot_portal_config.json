@@ -12,6 +12,11 @@
   "admin_api_key": "",
   "min_diff": 300,
   "peer_write_rate_limit_per_minute": 3000,
+  "hashrate_local_window_seconds": 1800,
+  "local_datum_miner_summary_limit": 50,
+  "local_datum_hashrate_per_address_max_samples": 512,
+  "local_datum_hashrate_max_addresses": 5000,
+  "max_accepted_share_telemetry_entries": 20000,
   "testing_round_reset_mode": "none",
   "testing_round_reset_low_nibble_threshold": 0,
   "coinbase_tag": "Grid Pool"

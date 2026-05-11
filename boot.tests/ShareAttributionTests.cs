@@ -167,6 +167,39 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public async Task DatumSharePopulatesPerAddressLocalHashrateSummaryAsync()
+    {
+        using var harness = TestHarness.Create();
+
+        ShareRecordingResult result = await harness.StateService.SubmitShareAsync(new RecordedShareSubmission
+        {
+            MinerAddress = AlternateAddress,
+            Username = "worker-a",
+            HeaderHex = SampleHeaderHex,
+            CoinbaseHex = SampleCoinbaseHex,
+            MerklePath = SampleMerklePath.ToList(),
+            PrevBlockHash = SamplePrevBlockHash,
+            Source = "datum"
+        }, "datum-block");
+
+        Assert.IsTrue(result.Accepted, result.RejectionReason);
+
+        BootNetworkStatusDto status = harness.StateService.GetNetworkStatus();
+        Assert.AreEqual(1, status.LocalDatumMinerCount);
+        Assert.AreEqual(1, status.LocalDatumMiners.Count);
+        Assert.AreEqual(SampleSlotZeroAddress, status.LocalDatumMiners[0].Address);
+        Assert.AreEqual("worker-a", status.LocalDatumMiners[0].Username);
+        Assert.AreEqual(1, status.LocalDatumMiners[0].TotalAcceptedShareCount);
+        Assert.AreEqual(1, status.LocalDatumMiners[0].CurrentRoundAcceptedShareCount);
+        Assert.IsTrue(status.LocalDatumMiners[0].CurrentRoundBestDifficulty > 0);
+
+        BootLocalDatumMinerSeriesDto lookup = harness.StateService.GetLocalDatumMinerSummaries(SampleSlotZeroAddress, 1);
+        Assert.AreEqual(1, lookup.TotalTrackedMiners);
+        Assert.AreEqual(1, lookup.ReturnedCount);
+        Assert.AreEqual(SampleSlotZeroAddress, lookup.Miners[0].Address);
+    }
+
+    [TestMethod]
     public async Task PeerShareWithForgedMinerAddressIsAcceptedAndAttributedToSlotZeroAsync()
     {
         using var harness = TestHarness.Create();
