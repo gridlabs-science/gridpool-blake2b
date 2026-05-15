@@ -185,18 +185,17 @@ public sealed class ShareAttributionTests
         Assert.IsTrue(result.Accepted, result.RejectionReason);
 
         BootNetworkStatusDto status = harness.StateService.GetNetworkStatus();
-        Assert.AreEqual(1, status.LocalDatumMinerCount);
-        Assert.AreEqual(1, status.LocalDatumMiners.Count);
-        Assert.AreEqual(SampleSlotZeroAddress, status.LocalDatumMiners[0].Address);
-        Assert.AreEqual("worker-a", status.LocalDatumMiners[0].Username);
-        Assert.AreEqual(1, status.LocalDatumMiners[0].TotalAcceptedShareCount);
-        Assert.AreEqual(1, status.LocalDatumMiners[0].CurrentRoundAcceptedShareCount);
-        Assert.IsTrue(status.LocalDatumMiners[0].CurrentRoundBestDifficulty > 0);
+        Assert.AreEqual(0, status.LocalDatumMinerCount);
+        Assert.AreEqual(0, status.LocalDatumMiners.Count);
 
         BootLocalDatumMinerSeriesDto lookup = harness.StateService.GetLocalDatumMinerSummaries(SampleSlotZeroAddress, 1);
         Assert.AreEqual(1, lookup.TotalTrackedMiners);
         Assert.AreEqual(1, lookup.ReturnedCount);
         Assert.AreEqual(SampleSlotZeroAddress, lookup.Miners[0].Address);
+        Assert.AreEqual("worker-a", lookup.Miners[0].Username);
+        Assert.AreEqual(1, lookup.Miners[0].TotalAcceptedShareCount);
+        Assert.AreEqual(1, lookup.Miners[0].CurrentRoundAcceptedShareCount);
+        Assert.IsTrue(lookup.Miners[0].CurrentRoundBestDifficulty > 0);
     }
 
     [TestMethod]

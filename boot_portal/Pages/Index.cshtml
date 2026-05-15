@@ -1711,6 +1711,7 @@
     };
     let autoSelectedLocalMinerAddress = null;
     let selectedLocalMinerSummary = null;
+    let selectedLocalMinerSeries = { points: [] };
     let selectedLocalMinerLookupInFlight = false;
     let lastSelectedLocalMinerLookupMs = 0;
     let userTouchedSearch = false;
@@ -1724,6 +1725,8 @@
     const HASHRATE_CHART_MAX_POINTS_DESKTOP = 240;
     const HASHRATE_CHART_MAX_POINTS_MOBILE = 120;
     const SELECTED_LOCAL_MINER_LOOKUP_INTERVAL_MS = 30000;
+    const LOCAL_MINER_SHORTCUT_MIN_SAMPLES = 8;
+    const GENESIS_FOUNDATION_ADDRESS = "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3";
     const listViewModes = {
         "winners-list": "summary",
         "ondeck-list": "summary"
@@ -1769,6 +1772,7 @@
         currentSearchTerm = rawTerm;
         if (normalizeSearchValue(previousTerm) !== normalizeSearchValue(rawTerm)) {
             selectedLocalMinerSummary = null;
+            selectedLocalMinerSeries = { points: [] };
             lastSelectedLocalMinerLookupMs = 0;
         }
         updateConnectPanelVisibility();
@@ -1777,6 +1781,8 @@
 
         if (!rawTerm) {
             resultDiv.innerHTML = "";
+            selectedLocalMinerSummary = null;
+            selectedLocalMinerSeries = { points: [] };
             refreshUI(); // Clear highlights
             return;
         }
@@ -2202,21 +2208,66 @@
         return { endpoint, pubkey };
     }
 
+    function isActiveLocalDatumMiner(miner) {
+        const hashrate = Number(miner?.currentHashrateThs);
+        return (Number.isFinite(hashrate) && hashrate > 0) ||
+            Number(miner?.hashrateSampleCount || 0) > 0 ||
+            Number(miner?.recentAcceptedShareCount || 0) > 0;
+    }
+
+    function localMinerUsernameHasDifferentAddress(miner) {
+        const address = normalizeSearchValue(miner?.address);
+        const username = normalizeSearchValue(miner?.username);
+        if (!username || username === address) return false;
+
+        return username
+            .split(/[.,;:/\\|\s]+/)
+            .some(token => token.startsWith("bc1") && token !== address);
+    }
+
+    function isTemporaryFoundationLocalDatumMiner(miner) {
+        return normalizeSearchValue(miner?.address) === GENESIS_FOUNDATION_ADDRESS &&
+            localMinerUsernameHasDifferentAddress(miner);
+    }
+
+    function isDisplayableLocalDatumMiner(miner) {
+        return isActiveLocalDatumMiner(miner) &&
+            Number(miner?.hashrateSampleCount || 0) >= LOCAL_MINER_SHORTCUT_MIN_SAMPLES &&
+            !isTemporaryFoundationLocalDatumMiner(miner);
+    }
+
     function getLocalDatumMiners() {
-        return Array.isArray(latestNetworkState?.localDatumMiners) ? latestNetworkState.localDatumMiners : [];
+        const miners = Array.isArray(latestNetworkState?.localDatumMiners) ? latestNetworkState.localDatumMiners : [];
+        const byAddress = new Map();
+        miners
+            .filter(isDisplayableLocalDatumMiner)
+            .forEach(miner => {
+                const key = normalizeSearchValue(miner.address);
+                if (!key) return;
+                const existing = byAddress.get(key);
+                if (!existing || Number(miner.currentHashrateThs || 0) > Number(existing.currentHashrateThs || 0)) {
+                    byAddress.set(key, miner);
+                }
+            });
+        return [...byAddress.values()];
     }
 
     function getSelectedLocalMinerSummary() {
         const miners = getLocalDatumMiners();
         const term = currentSearchValue();
         if (term) {
-            const localMatch = miners.find(miner =>
-                normalizeSearchValue(miner.address).includes(term) ||
-                normalizeSearchValue(miner.username).includes(term));
+            const addressMatch = miners.find(miner => normalizeSearchValue(miner.address).includes(term));
+            if (addressMatch) return addressMatch;
+            const localMatch = miners.find(miner => normalizeSearchValue(miner.username).includes(term));
             if (localMatch) return localMatch;
             if (selectedLocalMinerSummary &&
-                (normalizeSearchValue(selectedLocalMinerSummary.address).includes(term) ||
-                 normalizeSearchValue(selectedLocalMinerSummary.username).includes(term))) {
+                isActiveLocalDatumMiner(selectedLocalMinerSummary) &&
+                normalizeSearchValue(selectedLocalMinerSummary.address).includes(term)) {
+                return selectedLocalMinerSummary;
+            }
+            if (selectedLocalMinerSummary &&
+                isActiveLocalDatumMiner(selectedLocalMinerSummary) &&
+                normalizeSearchValue(selectedLocalMinerSummary.username).includes(term)) {
                 return selectedLocalMinerSummary;
             }
             return null;
@@ -2238,9 +2289,11 @@
             if (!response.ok) return;
             const payload = await response.json();
             const miners = Array.isArray(payload?.miners) ? payload.miners : [];
-            selectedLocalMinerSummary = miners.length > 0 ? miners[0] : null;
+            selectedLocalMinerSummary = miners.find(isActiveLocalDatumMiner) || null;
+            selectedLocalMinerSeries = selectedLocalMinerSummary ? payload : { points: [] };
             renderModeSummaryCards();
             renderModeFocusSection();
+            scheduleHashrateHistoryChartRender(true);
             renderLocalMinerShortcuts();
         } catch (err) {
             console.warn("Failed to load local miner hashrate summary", err);
@@ -2284,9 +2337,9 @@
 
         container.hidden = false;
         container.innerHTML = miners.map(miner => `
-            <button type="button" class="shortcut-chip${selected?.address === miner.address ? " active" : ""}" onclick="selectLocalMiner('${miner.address}')">
+            <button type="button" class="shortcut-chip${selected?.address === miner.address ? " active" : ""}" onclick="selectLocalMiner(${JSON.stringify(miner.address)})" title="${miner.address}">
                 <span class="shortcut-chip-label">Local DATUM Miner</span>
-                <span class="shortcut-chip-value">${miner.username || miner.address}</span>
+                <span class="shortcut-chip-value">${formatMinerLabel(miner.address)}</span>
                 <span class="shortcut-chip-note">${miner.currentHashrateDisplay || "--"} · best this round ${miner.currentRoundBestDifficultyDisplay || "--"}</span>
             </button>
         `).join("");
@@ -3186,6 +3239,79 @@
         return currentPoint ? [...reduced, currentPoint] : reduced;
     }
 
+    function downsampleSelectedMinerPoints(points, maxPoints) {
+        if (!Array.isArray(points) || points.length <= maxPoints || maxPoints <= 0) {
+            return points;
+        }
+
+        const currentPoint = points[points.length - 1]?.isCurrent ? points[points.length - 1] : null;
+        const historicalPoints = currentPoint ? points.slice(0, -1) : [...points];
+        const targetHistoricalCount = Math.max(1, maxPoints - (currentPoint ? 1 : 0));
+        if (historicalPoints.length <= targetHistoricalCount) {
+            return currentPoint ? [...historicalPoints, currentPoint] : historicalPoints;
+        }
+
+        const bucketSize = Math.ceil(historicalPoints.length / targetHistoricalCount);
+        const reduced = [];
+        for (let index = 0; index < historicalPoints.length; index += bucketSize) {
+            const bucket = historicalPoints.slice(index, index + bucketSize);
+            const last = bucket[bucket.length - 1];
+            const values = bucket
+                .map(point => Number(point.hashrateThs))
+                .filter(value => Number.isFinite(value) && value > 0);
+            const averageHashrateThs = values.length > 0
+                ? values.reduce((sum, value) => sum + value, 0) / values.length
+                : last.hashrateThs;
+            reduced.push({
+                ...last,
+                hashrateThs: averageHashrateThs,
+                hashrateDisplay: formatHashrateFromThs(averageHashrateThs)
+            });
+        }
+
+        return currentPoint ? [...reduced, currentPoint] : reduced;
+    }
+
+    function getSelectedMinerChartPoints() {
+        const selectedMiner = getSelectedLocalMinerSummary();
+        if (!currentSearchValue() || !selectedMiner) {
+            return [];
+        }
+
+        const points = (Array.isArray(selectedLocalMinerSeries?.points) ? selectedLocalMinerSeries.points : [])
+            .filter(point => point && point.timestampUtc)
+            .map(point => ({
+                timestampMs: new Date(point.timestampUtc).getTime(),
+                hashrateThs: point.hashrateThs,
+                hashrateDisplay: point.hashrateDisplay || formatHashrateFromThs(point.hashrateThs),
+                sampleCount: point.sampleCount
+            }))
+            .filter(point => Number.isFinite(point.timestampMs) && Number(point.hashrateThs) > 0)
+            .sort((a, b) => a.timestampMs - b.timestampMs);
+
+        const currentHashrateThs = selectedMiner.currentHashrateThs ?? null;
+        if (currentHashrateThs != null && currentHashrateThs > 0) {
+            const currentTimestampMs = Date.now();
+            const lastPoint = points[points.length - 1];
+            if (!lastPoint || Math.abs(currentTimestampMs - lastPoint.timestampMs) > 2000) {
+                points.push({
+                    timestampMs: currentTimestampMs,
+                    hashrateThs: currentHashrateThs,
+                    hashrateDisplay: selectedMiner.currentHashrateDisplay || formatHashrateFromThs(currentHashrateThs),
+                    sampleCount: selectedMiner.hashrateSampleCount,
+                    isCurrent: true
+                });
+            } else {
+                lastPoint.hashrateThs = currentHashrateThs;
+                lastPoint.hashrateDisplay = selectedMiner.currentHashrateDisplay || formatHashrateFromThs(currentHashrateThs);
+                lastPoint.sampleCount = selectedMiner.hashrateSampleCount;
+                lastPoint.isCurrent = true;
+            }
+        }
+
+        return downsampleSelectedMinerPoints(points, getHashrateChartMaxPoints());
+    }
+
     function scheduleHashrateHistoryChartRender(immediate = false) {
         const now = Date.now();
         const delayMs = immediate
@@ -3282,54 +3408,75 @@
             return;
         }
 
-        const labels = displayPoints.map(point => formatHashratePointLabel(point.timestampMs, !!point.isCurrent));
-        const teamData = displayPoints.map(point => point.smoothedTeamHashrateThs ?? point.teamHashrateThs);
-        const localData = displayPoints.map(point => point.localHashrateThs);
-        const positiveValues = [...teamData, ...localData]
-            .map(value => Number(value) || 0)
+        const selectedMinerPoints = getSelectedMinerChartPoints();
+        const teamData = displayPoints
+            .map(point => ({
+                x: point.timestampMs,
+                y: point.smoothedTeamHashrateThs ?? point.teamHashrateThs,
+                point: point
+            }))
+            .filter(item => Number(item.y) > 0);
+        const selectedMinerData = selectedMinerPoints
+            .map(point => ({
+                x: point.timestampMs,
+                y: point.hashrateThs,
+                point: point
+            }))
+            .filter(item => Number(item.y) > 0);
+        const positiveValues = [...teamData, ...selectedMinerData]
+            .map(item => Number(item.y) || 0)
             .filter(value => value > 0);
         const hasPositiveValues = positiveValues.length > 0;
         const positiveMin = hasPositiveValues ? Math.min(...positiveValues) : null;
         const useLogScale = hashrateScaleMode === "log" && hasPositiveValues;
         const accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim();
         const secondaryColor = "#39d98a";
-        const chartTitle = activeUiMode === "lottery"
+        const selectedMiner = getSelectedLocalMinerSummary();
+        const hasSelectedMinerLine = selectedMinerData.length > 0;
+        const chartTitle = hasSelectedMinerLine
+            ? "Team / Selected Miner Hashrate"
+            : activeUiMode === "lottery"
             ? "Team Hashrate Through Time"
             : activeUiMode === "business"
-                ? "Team / Local Hashrate"
-                : "Sampled Team / Local DATUM Hashrate";
+                ? "Team Hashrate"
+                : "Sampled Team Hashrate";
+
+        const datasets = [{
+            label: "Team Estimate (30m avg)",
+            data: teamData,
+            borderColor: accentColor,
+            backgroundColor: `${accentColor}33`,
+            borderWidth: 2,
+            pointRadius: teamData.map(item => item.point.isCurrent ? 4 : 2),
+            pointHoverRadius: teamData.map(item => item.point.isCurrent ? 6 : 4),
+            fill: true,
+            tension: 0.25
+        }];
+
+        if (hasSelectedMinerLine) {
+            datasets.push({
+                label: `Selected Miner${selectedMiner?.currentHashrateDisplay ? ` (${selectedMiner.currentHashrateDisplay})` : ""}`,
+                data: selectedMinerData,
+                borderColor: secondaryColor,
+                backgroundColor: `${secondaryColor}22`,
+                borderWidth: 2,
+                pointRadius: selectedMinerData.map(item => item.point.isCurrent ? 4 : 2),
+                pointHoverRadius: selectedMinerData.map(item => item.point.isCurrent ? 6 : 4),
+                fill: false,
+                tension: 0.2
+            });
+        }
 
         roundHashrateChartInstance = new Chart(ctx, {
             type: "line",
             data: {
-                labels: labels,
-                datasets: [{
-                    label: "Team Estimate (30m avg)",
-                    data: teamData,
-                    borderColor: accentColor,
-                    backgroundColor: `${accentColor}33`,
-                    borderWidth: 2,
-                    pointRadius: displayPoints.map(point => point.isCurrent ? 4 : 2),
-                    pointHoverRadius: displayPoints.map(point => point.isCurrent ? 6 : 4),
-                    fill: true,
-                    tension: 0.25
-                },
-                {
-                    label: "Local DATUM Estimate",
-                    data: localData,
-                    borderColor: secondaryColor,
-                    backgroundColor: `${secondaryColor}22`,
-                    borderWidth: 2,
-                    pointRadius: displayPoints.map(point => point.isCurrent ? 4 : 2),
-                    pointHoverRadius: displayPoints.map(point => point.isCurrent ? 6 : 4),
-                    fill: false,
-                    tension: 0.2
-                }]
+                datasets: datasets
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 animation: false,
+                parsing: false,
                 normalized: true,
                 resizeDelay: 150,
                 plugins: {
@@ -3346,21 +3493,31 @@
                     tooltip: {
                         callbacks: {
                             title: function(context) {
-                                const point = displayPoints[context[0].dataIndex];
-                                return `${point.label} · ${new Date(point.timestampMs).toLocaleString()}`;
+                                const raw = context[0].raw;
+                                const point = raw?.point;
+                                const label = point?.label ? `${point.label} · ` : "";
+                                return `${label}${new Date(raw.x).toLocaleString()}`;
                             },
                             label: function(context) {
-                                const point = displayPoints[context.dataIndex];
+                                const point = context.raw?.point;
                                 return context.datasetIndex === 0
-                                    ? `Team: ${point.smoothedTeamDisplay || point.teamDisplay}`
-                                    : `Local DATUM: ${point.localDisplay}`;
+                                    ? `Team: ${point?.smoothedTeamDisplay || point?.teamDisplay || formatHashrateFromThs(context.raw?.y)}`
+                                    : `Selected miner: ${point?.hashrateDisplay || formatHashrateFromThs(context.raw?.y)}`;
                             }
                         }
                     }
                 },
                 scales: {
                     x: {
-                        ticks: { color: "#888", maxRotation: 0, autoSkip: true },
+                        type: "linear",
+                        ticks: {
+                            color: "#888",
+                            maxRotation: 0,
+                            autoSkip: true,
+                            callback: function(value) {
+                                return formatHashratePointLabel(Number(value), Math.abs(Date.now() - Number(value)) < 15000);
+                            }
+                        },
                         grid: { display: false }
                     },
                     y: {
@@ -3386,23 +3543,26 @@
             : null;
         const localWindowMinutes = Math.round((globalHashrateSeries?.localWindowSeconds || 1800) / 60);
         const scaleText = hashrateScaleMode === "log" ? "Log scale emphasizes relative swings and prevents one lucky spike from flattening the rest of the series." : "Linear scale shows absolute swings in estimated hashrate.";
+        const selectedMinerText = hasSelectedMinerLine
+            ? `Green line is the selected local miner over the rolling ${localWindowMinutes}-minute direct-share window.`
+            : "Search or click an active local DATUM payout address to add its individual miner hashrate line.";
         if (activeUiMode === "lottery") {
             note.innerText = currentPoint?.isCurrent && averageHashrateThs != null
-                ? `Team line is smoothed over the last 30 minutes to suppress reset spikes. Recent average: ${formatHashrateFromThs(averageHashrateThs)}. ${scaleText}`
-                : `This chart shows the team hashrate smoothed over the last 30 minutes from recent winning-quality shares. ${scaleText}`;
+                ? `Team line is smoothed over the last 30 minutes to suppress reset spikes. Recent average: ${formatHashrateFromThs(averageHashrateThs)}. ${selectedMinerText} ${scaleText}`
+                : `This chart shows the team hashrate smoothed over the last 30 minutes from recent winning-quality shares. ${selectedMinerText} ${scaleText}`;
             return;
         }
 
         if (activeUiMode === "business") {
             note.innerText = currentPoint?.isCurrent && averageHashrateThs != null
-                ? `Team line is a 30-minute smoothing window. Team window average: ${formatHashrateFromThs(averageHashrateThs)}. Local DATUM estimate uses a rolling ${localWindowMinutes}-minute window. ${scaleText}`
-                : `Local DATUM estimate uses a rolling ${localWindowMinutes}-minute window of directly connected DATUM shares. ${scaleText}`;
+                ? `Team line is a 30-minute smoothing window. Team window average: ${formatHashrateFromThs(averageHashrateThs)}. ${selectedMinerText} ${scaleText}`
+                : `${selectedMinerText} ${scaleText}`;
             return;
         }
 
         note.innerText = currentPoint?.isCurrent && averageHashrateThs != null
-            ? `Live team line uses a 30-minute smoothing window over the current and sampled queue estimates. Local DATUM estimate uses a rolling ${localWindowMinutes}-minute window. Team window average: ${formatHashrateFromThs(averageHashrateThs)}. ${scaleText}`
-            : `Local DATUM estimate uses a rolling ${localWindowMinutes}-minute window of directly connected DATUM shares. ${scaleText}`;
+            ? `Live team line uses a 30-minute smoothing window over the current and sampled queue estimates. Team window average: ${formatHashrateFromThs(averageHashrateThs)}. ${selectedMinerText} ${scaleText}`
+            : `${selectedMinerText} ${scaleText}`;
     }
 
     function recipientMatchesSearch(item) {

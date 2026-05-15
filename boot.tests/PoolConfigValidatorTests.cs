@@ -80,6 +80,19 @@ public sealed class PoolConfigValidatorTests
     }
 
     [TestMethod]
+    public void SovereignModeIsAcceptedForInstallerNodes()
+    {
+        var config = new PoolConfig
+        {
+            NodeMode = "sovereign",
+            PublicBaseUrl = "http://192.168.1.191:5000",
+            DatumPublicHost = "192.168.1.191"
+        };
+
+        CollectionAssert.AreEqual(Array.Empty<string>(), PoolConfigValidator.Validate(config));
+    }
+
+    [TestMethod]
     public void ProductionRequiresPublicEndpointsAndDisablesTestingReset()
     {
         var config = new PoolConfig

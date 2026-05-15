@@ -9,6 +9,7 @@ public static class PoolConfigValidator
     {
         "development",
         "developer-preview",
+        "sovereign",
         "staging",
         "production"
     };
@@ -28,7 +29,7 @@ public static class PoolConfigValidator
 
         if (!ValidNodeModes.Contains(config.NodeMode))
         {
-            errors.Add("node_mode must be one of development, developer-preview, staging, or production");
+            errors.Add("node_mode must be one of development, developer-preview, sovereign, staging, or production");
         }
 
         if (!BitcoinScript.TryAddressToScriptPubKey(config.PoolPayoutScript, out _))

@@ -8,6 +8,10 @@ namespace boot_portal.Controllers;
 [Route("api/network")]
 public class BootNetworkController : ControllerBase
 {
+    public const string PeerEndpointHeader = "X-Boot-Peer-Endpoint";
+    public const string PeerProtocolVersionHeader = "X-Boot-Protocol-Version";
+    public const string PeerNetworkIdHeader = "X-Boot-Network-Id";
+
     private readonly BootProtocolStateService _stateService;
     private readonly PoolConfig _poolConfig;
     private readonly ILogger<BootNetworkController> _logger;
@@ -23,7 +27,32 @@ public class BootNetworkController : ControllerBase
     [HttpGet("summary")]
     public IActionResult GetSummary()
     {
+        RememberAnnouncedPeer();
         return Ok(_stateService.GetNetworkStatus());
+    }
+
+    private void RememberAnnouncedPeer()
+    {
+        if (!_poolConfig.EnablePeerSync)
+        {
+            return;
+        }
+
+        string? endpoint = Request.Headers[PeerEndpointHeader].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(endpoint))
+        {
+            return;
+        }
+
+        string? protocolVersionText = Request.Headers[PeerProtocolVersionHeader].FirstOrDefault();
+        string? networkId = Request.Headers[PeerNetworkIdHeader].FirstOrDefault();
+        if (!int.TryParse(protocolVersionText, out int protocolVersion) ||
+            !_stateService.IsCompatiblePeerNetwork(protocolVersion, networkId ?? string.Empty))
+        {
+            return;
+        }
+
+        _stateService.AnnouncePeer(endpoint);
     }
 
     [EnableRateLimiting("network-read")]

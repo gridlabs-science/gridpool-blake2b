@@ -48,6 +48,7 @@ public class BootProtocolStateService
     private const int MaxRecentDatumProtocolEvents = 25000;
     private const int MaxRecentNetworkEvents = 5000;
     private const int MaxRecentCandidateBundles = 512;
+    private const int MinLocalDatumMinerDisplaySamples = 8;
 
     private PoolState _state = new();
 
@@ -312,26 +313,49 @@ public class BootProtocolStateService
             DateTime nowUtc = DateTime.UtcNow;
             string normalizedSearch = NormalizeSearchTerm(address);
             int requestedLimit = Math.Clamp(limit ?? GetLocalDatumMinerSummaryLimit(), 1, 5000);
-            int buildLimit = string.IsNullOrWhiteSpace(normalizedSearch)
-                ? requestedLimit
-                : GetLocalDatumMaxTrackedAddresses();
-            List<BootLocalDatumMinerSummaryDto> summaries = BuildLocalDatumMinerSummariesNoLock(nowUtc, buildLimit);
+            int buildLimit = GetLocalDatumMaxTrackedAddresses();
+            List<BootLocalDatumMinerSummaryDto> allSummaries = BuildLocalDatumMinerSummariesNoLock(nowUtc, buildLimit);
+            List<BootLocalDatumMinerSummaryDto> activeSummaries = allSummaries
+                .Where(summary => IsActiveLocalDatumMinerSummaryNoLock(summary, nowUtc))
+                .ToList();
+            List<BootLocalDatumMinerSummaryDto> activeNonTemporarySummaries = activeSummaries
+                .Where(summary => !IsTemporaryFoundationLocalDatumSummary(summary))
+                .ToList();
+            List<BootLocalDatumMinerSummaryDto> displayableSummaries = activeNonTemporarySummaries
+                .Where(summary => IsDisplayableLocalDatumMinerSummaryNoLock(summary, nowUtc))
+                .ToList();
+            List<BootLocalDatumMinerSummaryDto> summaries;
             if (!string.IsNullOrWhiteSpace(normalizedSearch))
             {
-                summaries = summaries
-                    .Where(miner =>
-                        NormalizeSearchTerm(miner.Address).Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase) ||
-                        NormalizeSearchTerm(miner.Username).Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase))
+                List<BootLocalDatumMinerSummaryDto> addressMatches = activeNonTemporarySummaries
+                    .Where(miner => NormalizeSearchTerm(miner.Address).Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                summaries = (addressMatches.Count > 0
+                    ? addressMatches
+                    : activeNonTemporarySummaries
+                        .Where(miner => NormalizeSearchTerm(miner.Username).Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase))
+                        .ToList())
+                    .Take(requestedLimit)
+                    .ToList();
+            }
+            else
+            {
+                summaries = displayableSummaries
                     .Take(requestedLimit)
                     .ToList();
             }
 
+            List<BootLocalDatumMinerHashratePointDto> points = summaries.Count == 1
+                ? BuildLocalDatumMinerHashratePointsNoLock(summaries[0].Address, nowUtc)
+                : [];
+
             return new BootLocalDatumMinerSeriesDto
             {
                 WindowSeconds = GetHashrateLocalWindowSeconds(),
-                TotalTrackedMiners = _localDatumHashrateByAddress.Count,
+                TotalTrackedMiners = activeNonTemporarySummaries.Count,
                 ReturnedCount = summaries.Count,
-                Miners = summaries
+                Miners = summaries,
+                Points = points
             };
         }
     }
@@ -799,6 +823,39 @@ public class BootProtocolStateService
             {
                 changed |= UpsertPeerNoLock(endpoint, "discovered", null, null, persistStatusOnly: false);
             }
+
+            if (changed)
+            {
+                RequestDeferredSaveNoLock();
+            }
+        }
+    }
+
+    public void AnnouncePeer(string endpoint)
+    {
+        string normalized = NormalizePeerEndpoint(endpoint);
+        if (string.IsNullOrWhiteSpace(normalized) ||
+            (!string.IsNullOrWhiteSpace(GetSelfEndpoint()) &&
+             string.Equals(normalized, GetSelfEndpoint(), StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        bool changed = false;
+        lock (_sync)
+        {
+            if (_state.Peers.Any(x => string.Equals(x.Endpoint, normalized, StringComparison.OrdinalIgnoreCase)) ||
+                _state.Peers.Count >= _poolConfig.MaxPeers)
+            {
+                return;
+            }
+
+            _state.Peers.Add(new BootPeerStatus
+            {
+                Endpoint = normalized,
+                Status = "discovered"
+            });
+            changed = true;
 
             if (changed)
             {
@@ -2444,10 +2501,19 @@ public class BootProtocolStateService
         double? currentRoundObservedHashrateThs = EstimateRankAdjustedHashrateThs(onDeckDifficulties, currentRoundElapsedSeconds);
         BootDatumDiagnosticsDto localDatumDiagnostics = BuildLocalDatumDiagnosticsNoLock(nowUtc);
         List<BootLocalDatumMinerSummaryDto> allLocalDatumMiners = BuildLocalDatumMinerSummariesNoLock(nowUtc, GetLocalDatumMaxTrackedAddresses());
-        List<BootLocalDatumMinerSummaryDto> localDatumMiners = allLocalDatumMiners
+        List<BootLocalDatumMinerSummaryDto> activeLocalDatumMiners = allLocalDatumMiners
+            .Where(summary => IsActiveLocalDatumMinerSummaryNoLock(summary, nowUtc))
+            .ToList();
+        List<BootLocalDatumMinerSummaryDto> activeNonTemporaryLocalDatumMiners = activeLocalDatumMiners
+            .Where(summary => !IsTemporaryFoundationLocalDatumSummary(summary))
+            .ToList();
+        List<BootLocalDatumMinerSummaryDto> displayableLocalDatumMiners = activeNonTemporaryLocalDatumMiners
+            .Where(summary => IsDisplayableLocalDatumMinerSummaryNoLock(summary, nowUtc))
+            .ToList();
+        List<BootLocalDatumMinerSummaryDto> localDatumMiners = displayableLocalDatumMiners
             .Take(GetLocalDatumMinerSummaryLimit())
             .ToList();
-        double? localDatumHashrateThs = EstimateLocalDatumHashrateThsNoLock(allLocalDatumMiners);
+        double? localDatumHashrateThs = EstimateLocalDatumHashrateThsNoLock(activeNonTemporaryLocalDatumMiners);
         BootCoinbaserDiagnosticsSummaryDto coinbaserDiagnostics = BuildCoinbaserDiagnosticsSummaryNoLock(nowUtc);
         List<BootPeerStatus> peers = CloneExternalPeersNoLock();
 
@@ -2483,7 +2549,7 @@ public class BootProtocolStateService
             LastTestingTriggerBlockHash = _state.LastTestingTriggerBlockHash,
             LastTestingTriggerBlockHeight = _state.LastTestingTriggerBlockHeight,
             LocalDatumDiagnostics = localDatumDiagnostics,
-            LocalDatumMinerCount = _localDatumHashrateByAddress.Count,
+            LocalDatumMinerCount = displayableLocalDatumMiners.Count,
             LocalDatumMiners = localDatumMiners,
             CoinbaserDiagnostics = coinbaserDiagnostics,
             Peers = peers,
@@ -3295,6 +3361,56 @@ public class BootProtocolStateService
         return total > 0 ? total : null;
     }
 
+    private bool IsActiveLocalDatumMinerSummaryNoLock(BootLocalDatumMinerSummaryDto summary, DateTime nowUtc)
+    {
+        if (summary.HashrateSampleCount <= 0 || !summary.LastShareUtc.HasValue)
+        {
+            return false;
+        }
+
+        DateTime activeCutoffUtc = nowUtc.AddSeconds(-GetHashrateLocalWindowSeconds());
+        return summary.LastShareUtc.Value >= activeCutoffUtc;
+    }
+
+    private bool IsDisplayableLocalDatumMinerSummaryNoLock(BootLocalDatumMinerSummaryDto summary, DateTime nowUtc)
+    {
+        return IsActiveLocalDatumMinerSummaryNoLock(summary, nowUtc) &&
+            summary.HashrateSampleCount >= MinLocalDatumMinerDisplaySamples &&
+            !IsTemporaryFoundationLocalDatumSummary(summary);
+    }
+
+    private static bool IsTemporaryFoundationLocalDatumSummary(BootLocalDatumMinerSummaryDto summary)
+    {
+        string address = BitcoinScript.NormalizeAddress(summary.Address);
+        if (!string.Equals(address, GenesisFoundationAddress, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        string username = summary.Username ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(username) ||
+            string.Equals(BitcoinScript.NormalizeAddress(username), GenesisFoundationAddress, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return ExtractAddressTokens(username)
+            .Any(token => !string.Equals(token, GenesisFoundationAddress, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static IEnumerable<string> ExtractAddressTokens(string value)
+    {
+        char[] separators = ['.', ',', ';', ':', '/', '\\', '|', ' ', '\t', '\r', '\n'];
+        foreach (string rawToken in value.Split(separators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            string token = BitcoinScript.NormalizeAddress(rawToken);
+            if (BitcoinScript.TryAddressToScriptPubKey(token, out _))
+            {
+                yield return token;
+            }
+        }
+    }
+
     private List<BootLocalDatumMinerSummaryDto> BuildLocalDatumMinerSummariesNoLock(DateTime nowUtc, int? limit = null)
     {
         TrimAcceptedShareTelemetryNoLock(nowUtc);
@@ -3344,6 +3460,76 @@ public class BootProtocolStateService
             .ThenBy(item => item.Address, StringComparer.OrdinalIgnoreCase)
             .Take(effectiveLimit)
             .ToList();
+    }
+
+    private List<BootLocalDatumMinerHashratePointDto> BuildLocalDatumMinerHashratePointsNoLock(string address, DateTime nowUtc)
+    {
+        string normalizedAddress = BitcoinScript.NormalizeAddress(address);
+        if (string.IsNullOrWhiteSpace(normalizedAddress) ||
+            !_localDatumHashrateByAddress.TryGetValue(normalizedAddress, out LocalDatumAddressHashrateTracker? tracker))
+        {
+            return [];
+        }
+
+        TrimLocalDatumAddressTrackerNoLock(tracker, nowUtc);
+        List<LocalDatumShareSample> samples = tracker.Samples
+            .Where(sample => sample.Difficulty > 0)
+            .OrderBy(sample => sample.TimestampUtc)
+            .ToList();
+        if (samples.Count == 0)
+        {
+            return [];
+        }
+
+        int windowSeconds = GetHashrateLocalWindowSeconds();
+        int intervalSeconds = Math.Clamp(GetHashrateSampleIntervalSeconds(), 10, 300);
+        DateTime windowStartUtc = nowUtc.AddSeconds(-windowSeconds);
+        DateTime firstPointUtc = samples[0].TimestampUtc > windowStartUtc ? samples[0].TimestampUtc : windowStartUtc;
+        List<DateTime> pointTimes = [];
+
+        for (DateTime pointTimeUtc = firstPointUtc; pointTimeUtc < nowUtc; pointTimeUtc = pointTimeUtc.AddSeconds(intervalSeconds))
+        {
+            pointTimes.Add(pointTimeUtc);
+        }
+
+        if (pointTimes.Count == 0 || (nowUtc - pointTimes[^1]).TotalSeconds >= 2)
+        {
+            pointTimes.Add(nowUtc);
+        }
+
+        List<BootLocalDatumMinerHashratePointDto> points = [];
+        foreach (DateTime pointTimeUtc in pointTimes)
+        {
+            DateTime pointWindowStartUtc = pointTimeUtc.AddSeconds(-windowSeconds);
+            List<LocalDatumShareSample> pointSamples = samples
+                .Where(sample => sample.TimestampUtc >= pointWindowStartUtc && sample.TimestampUtc <= pointTimeUtc)
+                .ToList();
+            if (pointSamples.Count == 0)
+            {
+                continue;
+            }
+
+            DateTime firstRateShareUtc = pointSamples[0].TimestampUtc;
+            DateTime effectiveRateStartUtc = firstRateShareUtc > pointWindowStartUtc
+                ? firstRateShareUtc
+                : pointWindowStartUtc;
+            long? rateElapsedSeconds = GetElapsedSeconds(effectiveRateStartUtc, pointTimeUtc);
+            double? hashrateThs = EstimateRankAdjustedHashrateThs(pointSamples.Select(share => share.Difficulty), rateElapsedSeconds);
+            if (!hashrateThs.HasValue || hashrateThs.Value <= 0)
+            {
+                continue;
+            }
+
+            points.Add(new BootLocalDatumMinerHashratePointDto
+            {
+                TimestampUtc = pointTimeUtc,
+                HashrateThs = hashrateThs,
+                HashrateDisplay = FormatObservedHashrate(hashrateThs),
+                SampleCount = pointSamples.Count
+            });
+        }
+
+        return points;
     }
 
     private void TrimShareDiagnosticsNoLock(DateTime nowUtc)

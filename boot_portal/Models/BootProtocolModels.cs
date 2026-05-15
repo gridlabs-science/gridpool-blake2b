@@ -106,6 +106,15 @@ public class BootLocalDatumMinerSeriesDto
     public int TotalTrackedMiners { get; set; }
     public int ReturnedCount { get; set; }
     public List<BootLocalDatumMinerSummaryDto> Miners { get; set; } = [];
+    public List<BootLocalDatumMinerHashratePointDto> Points { get; set; } = [];
+}
+
+public class BootLocalDatumMinerHashratePointDto
+{
+    public DateTime TimestampUtc { get; set; }
+    public double? HashrateThs { get; set; }
+    public string HashrateDisplay { get; set; } = "--";
+    public int SampleCount { get; set; }
 }
 
 public class BootNetworkStatusDto

@@ -28,6 +28,17 @@ Notes:
 - Back up the Docker `./data` directory before machine moves, package upgrades, or host rebuilds. It contains live config, server identity keys, pool state, and history.
 - Hydrapool and other direct HTTP submitters should follow `docs/hydrapool-http-submission.md`.
 
+## Raspberry Pi Sovereign Install
+For a one-shot Raspberry Pi / Ubuntu install that sets up a pruned Bitcoin Core node, DATUM Gateway, and Boot/Grid Pool together, see `docs/raspberry-pi-one-shot-installer.md`.
+
+The installer entrypoint is:
+
+```bash
+sudo ./scripts/install-sovereign-stack.sh --payout-address bc1q...
+```
+
+If no payout address is provided, the installer uses the 256 Foundation donation address as a placeholder. Use `--payout-address` for any real mining setup.
+
 ## Config And Secret Handling
 Tracked config files are now treated as safe defaults, not as the place to keep live secrets.
 

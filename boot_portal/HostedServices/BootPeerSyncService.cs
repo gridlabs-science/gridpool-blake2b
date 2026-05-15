@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
+using boot_portal.Controllers;
 using boot_portal.Models;
 using boot_portal.Services;
 using boot_portal.Utils;
@@ -129,9 +131,11 @@ public class BootPeerSyncService : BackgroundService
     {
         using var client = _httpClientFactory.CreateClient("BootPeerClient");
         var stopwatch = Stopwatch.StartNew();
-        BootNetworkStatusDto? remote = await client.GetFromJsonAsync<BootNetworkStatusDto>(
-            $"{NormalizeEndpoint(peer)}/api/network/summary",
-            stoppingToken);
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{NormalizeEndpoint(peer)}/api/network/summary");
+        AddPeerAnnouncementHeaders(request);
+        using HttpResponseMessage response = await client.SendAsync(request, stoppingToken);
+        response.EnsureSuccessStatusCode();
+        BootNetworkStatusDto? remote = await response.Content.ReadFromJsonAsync<BootNetworkStatusDto>(cancellationToken: stoppingToken);
         stopwatch.Stop();
 
         if (remote == null)
@@ -235,6 +239,21 @@ public class BootPeerSyncService : BackgroundService
         }
 
         await _stateService.TryImportCandidateStateAsync(bundle, remoteEndpoint);
+    }
+
+    private void AddPeerAnnouncementHeaders(HttpRequestMessage request)
+    {
+        string selfEndpoint = _stateService.GetSelfEndpoint();
+        if (string.IsNullOrWhiteSpace(selfEndpoint))
+        {
+            return;
+        }
+
+        request.Headers.TryAddWithoutValidation(BootNetworkController.PeerEndpointHeader, selfEndpoint);
+        request.Headers.TryAddWithoutValidation(
+            BootNetworkController.PeerProtocolVersionHeader,
+            _poolConfig.BootProtocolVersion.ToString(CultureInfo.InvariantCulture));
+        request.Headers.TryAddWithoutValidation(BootNetworkController.PeerNetworkIdHeader, _poolConfig.BootNetworkId);
     }
 
     private async Task RelayShareAsync(string peer, BootShareProof proof, CancellationToken stoppingToken)
