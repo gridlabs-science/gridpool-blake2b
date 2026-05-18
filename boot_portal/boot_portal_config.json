@@ -6,11 +6,13 @@
   "datum_public_host": "datum.example.com",
   "node_mode": "development",
   "bootstrap_peers": [
-    "https://boot.gridlabs.science"
+    "https://gridpool.net"
   ],
   "enable_admin_api": false,
   "admin_api_key": "",
   "min_diff": 300,
+  "peer_prune_after_seconds": 3600,
+  "peer_prune_failure_count": 3,
   "peer_write_rate_limit_per_minute": 3000,
   "hashrate_local_window_seconds": 1800,
   "local_datum_miner_summary_limit": 50,

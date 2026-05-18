@@ -69,6 +69,8 @@ public static class PoolConfigValidator
         ValidatePositive(errors, config.PeerSyncIntervalSeconds, "peer_sync_interval_seconds");
         ValidatePositive(errors, config.PeerRequestTimeoutSeconds, "peer_request_timeout_seconds");
         ValidatePositive(errors, config.MaxPeers, "max_peers");
+        ValidateNonNegative(errors, config.PeerPruneAfterSeconds, "peer_prune_after_seconds");
+        ValidatePositive(errors, config.PeerPruneFailureCount, "peer_prune_failure_count");
         ValidatePositive(errors, config.NetworkReadRateLimitPerMinute, "network_read_rate_limit_per_minute");
         ValidatePositive(errors, config.PeerWriteRateLimitPerMinute, "peer_write_rate_limit_per_minute");
         ValidatePositive(errors, config.MiningApiShareRateLimitPerMinute, "mining_api_share_rate_limit_per_minute");
@@ -140,6 +142,14 @@ public static class PoolConfigValidator
         if (value <= 0)
         {
             errors.Add($"{name} must be greater than 0");
+        }
+    }
+
+    private static void ValidateNonNegative(List<string> errors, int value, string name)
+    {
+        if (value < 0)
+        {
+            errors.Add($"{name} must be greater than or equal to 0");
         }
     }
 

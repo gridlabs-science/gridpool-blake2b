@@ -10,6 +10,11 @@ public class PoolState
     public long? CurrentTipBlockHeight { get; set; }
     public string? LastTestingTriggerBlockHash { get; set; }
     public long? LastTestingTriggerBlockHeight { get; set; }
+    public string? LastGridPoolBlockHash { get; set; }
+    public long? LastGridPoolBlockHeight { get; set; }
+    public DateTime? LastGridPoolBlockUtc { get; set; }
+    public string? LastGridPoolBlockMinerAddress { get; set; }
+    public double? LastGridPoolBlockDifficulty { get; set; }
     public List<string> AcceptedParentBlockHashes { get; set; } = [];
     public DateTime? LastRotationUtc { get; set; }
     public List<PayoutInfo> WinnersList { get; set; } = [];

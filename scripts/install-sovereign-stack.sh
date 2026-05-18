@@ -12,7 +12,7 @@ GRID_DATUM_REPO_REF="${GRID_DATUM_REPO_REF:-master}"
 GRID_FOUNDATION_PAYOUT_ADDRESS="${GRID_FOUNDATION_PAYOUT_ADDRESS:-bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3}"
 GRID_POOL_PAYOUT_ADDRESS="${GRID_POOL_PAYOUT_ADDRESS:-$GRID_FOUNDATION_PAYOUT_ADDRESS}"
 GRID_POOL_COINBASE_TAG="${GRID_POOL_COINBASE_TAG:-Grid Pool}"
-GRID_BOOT_BOOTSTRAP_PEERS="${GRID_BOOT_BOOTSTRAP_PEERS:-https://boot.gridlabs.science}"
+GRID_BOOT_BOOTSTRAP_PEERS="${GRID_BOOT_BOOTSTRAP_PEERS:-https://gridpool.net}"
 GRID_BOOT_NETWORK_ID="${GRID_BOOT_NETWORK_ID:-public-beta}"
 GRID_BOOT_NODE_MODE="${GRID_BOOT_NODE_MODE:-sovereign}"
 
@@ -22,6 +22,7 @@ BITCOIN_DBCACHE_MB="${BITCOIN_DBCACHE_MB:-auto}"
 BITCOIN_MAX_MEMPOOL_MB="${BITCOIN_MAX_MEMPOOL_MB:-150}"
 BITCOIN_ASSUMEVALID="${BITCOIN_ASSUMEVALID:-}"
 BITCOIN_ASSUMEUTXO_SNAPSHOT="${BITCOIN_ASSUMEUTXO_SNAPSHOT:-}"
+BITCOIN_ASSUMEUTXO_MIN_HEADERS="${BITCOIN_ASSUMEUTXO_MIN_HEADERS:-800000}"
 BITCOIN_DELETE_ASSUMEUTXO_SNAPSHOT="${BITCOIN_DELETE_ASSUMEUTXO_SNAPSHOT:-1}"
 BITCOIN_ASSUMEUTXO_STREAM="${BITCOIN_ASSUMEUTXO_STREAM:-auto}"
 BITCOIN_DATA_DIR="${BITCOIN_DATA_DIR:-/var/lib/bitcoind}"
@@ -95,7 +96,7 @@ Useful environment overrides:
   GRID_BOOT_REPO_URL, GRID_DATUM_REPO_URL
   GRID_BOOT_NETWORK_ID, GRID_POOL_COINBASE_TAG
   BITCOIN_RPC_USER, BITCOIN_RPC_PASSWORD, BITCOIN_RPC_URL, BITCOIN_ASSUMEVALID
-  BITCOIN_ASSUMEUTXO_SNAPSHOT, BITCOIN_ASSUMEUTXO_STREAM
+  BITCOIN_ASSUMEUTXO_SNAPSHOT, BITCOIN_ASSUMEUTXO_STREAM, BITCOIN_ASSUMEUTXO_MIN_HEADERS
   BITCOIN_DBCACHE_MB, BITCOIN_MAX_MEMPOOL_MB
   BOOT_WEB_PORT, BOOT_DATUM_PORT, DATUM_STRATUM_PORT, DATUM_API_PORT
   DATUM_MAX_CLIENTS, DATUM_MAX_CLIENTS_PER_THREAD, DATUM_MAX_THREADS
@@ -372,6 +373,7 @@ sudo_env_args() {
         BITCOIN_MAX_MEMPOOL_MB
         BITCOIN_ASSUMEVALID
         BITCOIN_ASSUMEUTXO_SNAPSHOT
+        BITCOIN_ASSUMEUTXO_MIN_HEADERS
         BITCOIN_ASSUMEUTXO_STREAM
         BITCOIN_DELETE_ASSUMEUTXO_SNAPSHOT
         BITCOIN_DATA_DIR
@@ -630,10 +632,75 @@ wait_for_bitcoin_rpc() {
     done
 }
 
+wait_for_bitcoin_headers() {
+    [[ -n "$BITCOIN_ASSUMEUTXO_SNAPSHOT" ]] || return 0
+
+    local timeout="${1:-900}"
+    local min_headers="$BITCOIN_ASSUMEUTXO_MIN_HEADERS"
+    local start headers blocks
+    start="$(date +%s)"
+
+    if (( DRY_RUN )); then
+        log "would wait for Bitcoin headers before loading assumeUTXO"
+        return 0
+    fi
+
+    log "waiting for Bitcoin headers before loading assumeUTXO snapshot"
+    while true; do
+        headers="$(bitcoin_cli getblockchaininfo 2>/dev/null | jq -r '.headers // 0' || printf '0')"
+        blocks="$(bitcoin_cli getblockchaininfo 2>/dev/null | jq -r '.blocks // 0' || printf '0')"
+        if [[ "$headers" =~ ^[0-9]+$ ]] && (( headers >= min_headers )); then
+            log "Bitcoin headers available: headers=${headers}, blocks=${blocks}"
+            return 0
+        fi
+        if (( $(date +%s) - start > timeout )); then
+            fail "timed out waiting for Bitcoin headers before assumeUTXO load; last headers=${headers:-unknown}, blocks=${blocks:-unknown}"
+        fi
+        sleep 5
+    done
+}
+
+restart_bitcoin_for_assumeutxo_load() {
+    [[ -n "$BITCOIN_ASSUMEUTXO_SNAPSHOT" ]] || return 0
+
+    if (( DRY_RUN )); then
+        log "would restart Bitcoin with P2P disabled for assumeUTXO load"
+        return 0
+    fi
+
+    log "restarting Bitcoin with P2P disabled for assumeUTXO load"
+    systemctl stop bitcoind
+    if ! grep -q '^connect=0$' "$BITCOIN_CONF_DIR/bitcoin.conf"; then
+        printf '\nconnect=0\n' >> "$BITCOIN_CONF_DIR/bitcoin.conf"
+    fi
+    systemctl start bitcoind
+    wait_for_bitcoin_rpc 240
+}
+
+restore_bitcoin_network_after_assumeutxo_load() {
+    [[ -n "$BITCOIN_ASSUMEUTXO_SNAPSHOT" ]] || return 0
+
+    if (( DRY_RUN )); then
+        log "would re-enable Bitcoin P2P after assumeUTXO load"
+        return 0
+    fi
+
+    log "re-enabling Bitcoin P2P after assumeUTXO load"
+    sed -i '/^connect=0$/d' "$BITCOIN_CONF_DIR/bitcoin.conf"
+    systemctl restart bitcoind
+    wait_for_bitcoin_rpc 240
+}
+
 load_assumeutxo_snapshot() {
     [[ -n "$BITCOIN_ASSUMEUTXO_SNAPSHOT" ]] || return 0
 
     wait_for_bitcoin_rpc 240
+    wait_for_bitcoin_headers 900
+    restart_bitcoin_for_assumeutxo_load
+    if (( ! DRY_RUN )); then
+        log "pausing Bitcoin P2P while loading assumeUTXO snapshot"
+        bitcoin_cli setnetworkactive false >/dev/null
+    fi
 
     local source="$BITCOIN_ASSUMEUTXO_SNAPSHOT"
     local snapshot_path="$BITCOIN_DATA_DIR/assumeutxo-snapshot.dat"
@@ -696,10 +763,13 @@ load_assumeutxo_snapshot() {
 
     log "loading assumeUTXO snapshot; this can take several minutes"
     if (( ! DRY_RUN )); then
-        bitcoin_cli -rpcclienttimeout=0 loadtxoutset "$snapshot_path"
+        bitcoin_cli -rpcclienttimeout=0 loadtxoutset "$snapshot_path" || {
+            fail "bitcoin-cli loadtxoutset failed"
+        }
     else
         log "would run bitcoin-cli loadtxoutset $snapshot_path"
     fi
+    restore_bitcoin_network_after_assumeutxo_load
 
     if [[ "$BITCOIN_DELETE_ASSUMEUTXO_SNAPSHOT" == "1" ]]; then
         log "deleting loaded assumeUTXO snapshot to recover disk space"

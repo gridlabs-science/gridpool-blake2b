@@ -17,11 +17,13 @@
   "node_mode": "development",
   "enable_peer_sync": true,
   "bootstrap_peers": [
-    "https://boot.gridlabs.science"
+    "https://gridpool.net"
   ],
   "peer_sync_interval_seconds": 15,
   "peer_request_timeout_seconds": 5,
   "max_peers": 64,
+  "peer_prune_after_seconds": 3600,
+  "peer_prune_failure_count": 3,
   "network_read_rate_limit_per_minute": 180,
   "peer_write_rate_limit_per_minute": 90,
   "mining_api_share_rate_limit_per_minute": 120,

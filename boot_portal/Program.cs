@@ -114,6 +114,12 @@ public class PoolConfig
     [JsonPropertyName("max_peers")]
     public int MaxPeers { get; set; } = 64;
 
+    [JsonPropertyName("peer_prune_after_seconds")]
+    public int PeerPruneAfterSeconds { get; set; } = 3600;
+
+    [JsonPropertyName("peer_prune_failure_count")]
+    public int PeerPruneFailureCount { get; set; } = 3;
+
     [JsonPropertyName("network_read_rate_limit_per_minute")]
     public int NetworkReadRateLimitPerMinute { get; set; } = 180;
 
@@ -212,7 +218,7 @@ public class ServerConfig
 
 public class Program
 {
-    public const string DefaultPublicSeedEndpoint = "https://boot.gridlabs.science";
+    public const string DefaultPublicSeedEndpoint = "https://gridpool.net";
     // TODO: I should optionally load this from config, instead of hard-coded like this.
     private static int DatumPort = 3008;  //Defaults to 3008.  Should get set by config file.
     public static ulong BLOCK_REWARD = 312_500_000;  //TODO: Need to detect this from the blockchain, so it gracefully handles the next epoch

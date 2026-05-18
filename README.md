@@ -22,7 +22,7 @@ Notes:
 - The image runs as non-root UID/GID `1000` and creates `/data/boot_portal_config.json` from `docker/boot_portal_config.sample.json` if no config exists.
 - The default sample uses `NotificationSource = "MempoolSpace"` so a local `bitcoind` is not required for first boot.
 - If you want local ZMQ block notifications, change the config and make sure the container can reach your Bitcoin node.
-- The public beta bootstrap seed remains `https://boot.gridlabs.science` unless you override `bootstrap_peers`.
+- The public beta bootstrap seed remains `https://gridpool.net` unless you override `bootstrap_peers`.
 - Health probes are exposed at `/health/live` and `/health/ready`.
 - The default DATUM primary coinbase tag is `Grid Pool`; set `coinbase_tag` to another string, or `""` for unbranded blocks.
 - Back up the Docker `./data` directory before machine moves, package upgrades, or host rebuilds. It contains live config, server identity keys, pool state, and history.

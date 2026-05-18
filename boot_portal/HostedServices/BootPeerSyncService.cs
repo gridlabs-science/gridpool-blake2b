@@ -79,7 +79,27 @@ public class BootPeerSyncService : BackgroundService
                 }
             }
 
+            PruneStalePeers();
+
             await Task.Delay(TimeSpan.FromSeconds(Math.Max(5, _poolConfig.PeerSyncIntervalSeconds)), stoppingToken);
+        }
+    }
+
+    private void PruneStalePeers()
+    {
+        if (_poolConfig.PeerPruneAfterSeconds <= 0)
+        {
+            return;
+        }
+
+        int pruned = _stateService.PruneStalePeers(
+            DateTime.UtcNow,
+            TimeSpan.FromSeconds(_poolConfig.PeerPruneAfterSeconds),
+            Math.Max(1, _poolConfig.PeerPruneFailureCount),
+            _poolConfig.BootstrapPeers);
+        if (pruned > 0)
+        {
+            _logger.LogInformation("Pruned {Count} stale peer endpoint(s).", pruned);
         }
     }
 

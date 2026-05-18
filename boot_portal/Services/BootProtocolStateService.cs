@@ -868,7 +868,16 @@ public class BootProtocolStateService
     {
         lock (_sync)
         {
-            if (UpsertPeerNoLock(endpoint, status, latencyMs, lastSeenUtc, persistStatusOnly: true))
+            bool changed = UpsertPeerNoLock(endpoint, status, latencyMs, lastSeenUtc, persistStatusOnly: true);
+            BootPeerStatus? peer = FindPeerNoLock(endpoint);
+            if (peer != null && (peer.FailureCount != 0 || peer.LastFailureUtc.HasValue))
+            {
+                peer.FailureCount = 0;
+                peer.LastFailureUtc = null;
+                changed = true;
+            }
+
+            if (changed)
             {
                 RequestDeferredSaveNoLock();
             }
@@ -879,11 +888,72 @@ public class BootProtocolStateService
     {
         lock (_sync)
         {
-            if (UpsertPeerNoLock(endpoint, status, null, null, persistStatusOnly: true))
+            bool changed = UpsertPeerNoLock(endpoint, status, null, null, persistStatusOnly: true);
+            BootPeerStatus? peer = FindPeerNoLock(endpoint);
+            if (peer != null)
+            {
+                peer.FailureCount++;
+                peer.LastFailureUtc = DateTime.UtcNow;
+                changed = true;
+            }
+
+            if (changed)
             {
                 RequestDeferredSaveNoLock();
             }
         }
+    }
+
+    public int PruneStalePeers(
+        DateTime nowUtc,
+        TimeSpan pruneAfter,
+        int minimumFailureCount,
+        IReadOnlyCollection<string> protectedEndpoints)
+    {
+        if (pruneAfter <= TimeSpan.Zero)
+        {
+            return 0;
+        }
+
+        HashSet<string> protectedSet = protectedEndpoints
+            .Select(NormalizePeerEndpoint)
+            .Where(endpoint => !string.IsNullOrWhiteSpace(endpoint))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        string selfEndpoint = GetSelfEndpoint();
+        if (!string.IsNullOrWhiteSpace(selfEndpoint))
+        {
+            protectedSet.Add(selfEndpoint);
+        }
+
+        DateTime cutoffUtc = nowUtc - pruneAfter;
+        List<string> removedEndpoints;
+        lock (_sync)
+        {
+            removedEndpoints = _state.Peers
+                .Where(peer => ShouldPrunePeerNoLock(peer, cutoffUtc, minimumFailureCount, protectedSet))
+                .Select(peer => peer.Endpoint)
+                .ToList();
+            if (removedEndpoints.Count == 0)
+            {
+                return 0;
+            }
+
+            _state.Peers = _state.Peers
+                .Where(peer => !removedEndpoints.Any(removed =>
+                    string.Equals(NormalizePeerEndpoint(removed), NormalizePeerEndpoint(peer.Endpoint), StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            RecordNetworkEventNoLock(
+                "peer-pruned",
+                "peer-sync",
+                $"Pruned stale peer endpoint(s): {string.Join(", ", removedEndpoints)}.",
+                _state.CurrentTipBlockHash,
+                _state.CurrentTipBlockHeight,
+                nowUtc);
+            RequestDeferredSaveNoLock();
+            RequestDeferredHistorySaveNoLock();
+        }
+
+        return removedEndpoints.Count;
     }
 
     public async Task<ShareRecordingResult> RecordShareAsync(RecordedShareSubmission share)
@@ -1192,7 +1262,9 @@ public class BootProtocolStateService
             return result;
         }
 
-        RoundRotationResult rotation = await RotateToNextRoundAsync(result.BlockHash, blockSource, manual: false);
+        long? blockHeight = InferFoundBlockHeight(result.BlockHash);
+        RecordGridPoolBlockFound(result, blockSource, blockHeight);
+        RoundRotationResult rotation = await RotateToNextRoundAsync(result.BlockHash, blockSource, manual: false, blockHeight: blockHeight);
         result.Rotation = rotation;
         result.NetworkStatus = rotation.NetworkStatus;
         result.OnDeckList = rotation.OnDeckList;
@@ -2281,6 +2353,11 @@ public class BootProtocolStateService
             CurrentTipBlockHeight = _state.CurrentTipBlockHeight,
             LastTestingTriggerBlockHash = _state.LastTestingTriggerBlockHash,
             LastTestingTriggerBlockHeight = _state.LastTestingTriggerBlockHeight,
+            LastGridPoolBlockHash = _state.LastGridPoolBlockHash,
+            LastGridPoolBlockHeight = _state.LastGridPoolBlockHeight,
+            LastGridPoolBlockUtc = _state.LastGridPoolBlockUtc,
+            LastGridPoolBlockMinerAddress = _state.LastGridPoolBlockMinerAddress,
+            LastGridPoolBlockDifficulty = _state.LastGridPoolBlockDifficulty,
             AcceptedParentBlockHashes = _state.AcceptedParentBlockHashes.ToList(),
             LastRotationUtc = _state.LastRotationUtc,
             WinnersList = ClonePayouts(_state.WinnersList),
@@ -2341,6 +2418,7 @@ public class BootProtocolStateService
 
             _state.CurrentTipBlockHash = loadedTip;
             _state.LastTestingTriggerBlockHash = NormalizeCanonicalBlockHash(_state.LastTestingTriggerBlockHash);
+            _state.LastGridPoolBlockHash = NormalizeCanonicalBlockHash(_state.LastGridPoolBlockHash);
             _state.KnownDatumPayoutAddresses ??= [];
             _state.RecentAcceptedShares ??= [];
             _state.RecentRejectedShareDiagnostics ??= [];
@@ -2543,11 +2621,17 @@ public class BootProtocolStateService
             PeerCount = peers.Count,
             AdminApiEnabled = _poolConfig.EnableAdminApi,
             TestingRoundResetEnabled = _poolConfig.TestingRoundResetEnabled,
+            RoundTriggerMode = BuildRoundTriggerModeNoLock(),
             TestingRoundResetMode = _poolConfig.TestingRoundResetMode,
             TestingRoundResetLowNibbleThreshold = _poolConfig.TestingRoundResetLowNibbleThreshold,
             TestingRoundResetDescription = BuildTestingRoundResetDescriptionNoLock(),
             LastTestingTriggerBlockHash = _state.LastTestingTriggerBlockHash,
             LastTestingTriggerBlockHeight = _state.LastTestingTriggerBlockHeight,
+            LastGridPoolBlockHash = _state.LastGridPoolBlockHash,
+            LastGridPoolBlockHeight = _state.LastGridPoolBlockHeight,
+            LastGridPoolBlockUtc = _state.LastGridPoolBlockUtc,
+            LastGridPoolBlockMinerAddress = _state.LastGridPoolBlockMinerAddress,
+            LastGridPoolBlockDifficulty = _state.LastGridPoolBlockDifficulty,
             LocalDatumDiagnostics = localDatumDiagnostics,
             LocalDatumMinerCount = displayableLocalDatumMiners.Count,
             LocalDatumMiners = localDatumMiners,
@@ -4007,7 +4091,7 @@ public class BootProtocolStateService
     {
         if (!_poolConfig.TestingRoundResetEnabled)
         {
-            return "Disabled";
+            return "Disabled. Rounds rotate only when this node accepts a valid Grid Pool block share.";
         }
 
         return _poolConfig.TestingRoundResetMode switch
@@ -4016,6 +4100,13 @@ public class BootProtocolStateService
                 $"Auto-rotate when a new Bitcoin block hash ends in hex 0-{Math.Max(0, _poolConfig.TestingRoundResetLowNibbleThreshold - 1):x}.",
             _ => "Disabled"
         };
+    }
+
+    private string BuildRoundTriggerModeNoLock()
+    {
+        return _poolConfig.TestingRoundResetEnabled
+            ? "deterministic-test-trigger"
+            : "gridpool-block-found";
     }
 
     private bool IsPlaceholderOrEmptyCurrentStateNoLock()
@@ -4670,6 +4761,108 @@ public class BootProtocolStateService
         return endpoint.Trim().TrimEnd('/');
     }
 
+    private BootPeerStatus? FindPeerNoLock(string endpoint)
+    {
+        string normalized = NormalizePeerEndpoint(endpoint);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return null;
+        }
+
+        return _state.Peers.FirstOrDefault(peer =>
+            string.Equals(NormalizePeerEndpoint(peer.Endpoint), normalized, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool ShouldPrunePeerNoLock(
+        BootPeerStatus peer,
+        DateTime cutoffUtc,
+        int minimumFailureCount,
+        HashSet<string> protectedEndpoints)
+    {
+        string endpoint = NormalizePeerEndpoint(peer.Endpoint);
+        if (string.IsNullOrWhiteSpace(endpoint) || protectedEndpoints.Contains(endpoint))
+        {
+            return false;
+        }
+
+        if (!IsPeerFailureStatus(peer.Status))
+        {
+            return false;
+        }
+
+        if (!peer.LastSeenUtc.HasValue && !peer.LastFailureUtc.HasValue)
+        {
+            return true;
+        }
+
+        DateTime staleReferenceUtc = peer.LastFailureUtc ?? peer.LastSeenUtc ?? DateTime.MinValue;
+        return peer.FailureCount >= minimumFailureCount && staleReferenceUtc <= cutoffUtc;
+    }
+
+    private static bool IsPeerFailureStatus(string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            return false;
+        }
+
+        string normalized = status.Trim().ToLowerInvariant();
+        return normalized is "timeout" or "error" or "empty" or "foreign-network" or "relay-timeout" or "relay-error" or "relay-rate-limited" ||
+               normalized.StartsWith("relay-http-", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private long? InferFoundBlockHeight(string? blockHash)
+    {
+        lock (_sync)
+        {
+            string? normalizedBlockHash = NormalizeCanonicalBlockHash(blockHash);
+            if (string.IsNullOrWhiteSpace(normalizedBlockHash))
+            {
+                return null;
+            }
+
+            if (BitcoinHashes.AreEquivalent(normalizedBlockHash, _state.CurrentTipBlockHash))
+            {
+                return _state.CurrentTipBlockHeight;
+            }
+
+            return _state.CurrentTipBlockHeight.HasValue ? _state.CurrentTipBlockHeight.Value + 1 : null;
+        }
+    }
+
+    private void RecordGridPoolBlockFound(ShareRecordingResult result, string source, long? blockHeight)
+    {
+        string? normalizedBlockHash = NormalizeCanonicalBlockHash(result.BlockHash);
+        if (string.IsNullOrWhiteSpace(normalizedBlockHash))
+        {
+            return;
+        }
+
+        BootShareProof? proof = result.AcceptedProof;
+        lock (_sync)
+        {
+            if (BitcoinHashes.AreEquivalent(_state.LastGridPoolBlockHash, normalizedBlockHash))
+            {
+                return;
+            }
+
+            _state.LastGridPoolBlockHash = normalizedBlockHash;
+            _state.LastGridPoolBlockHeight = blockHeight;
+            _state.LastGridPoolBlockUtc = DateTime.UtcNow;
+            _state.LastGridPoolBlockMinerAddress = proof?.MinerAddress;
+            _state.LastGridPoolBlockDifficulty = result.ComputedDifficulty > 0 ? result.ComputedDifficulty : proof?.Difficulty;
+            RecordNetworkEventNoLock(
+                "gridpool-block-found",
+                string.IsNullOrWhiteSpace(source) ? "unknown" : source,
+                $"Accepted valid Grid Pool block share from {proof?.MinerAddress ?? "unknown miner"} at difficulty {_state.LastGridPoolBlockDifficulty?.ToString("F2", CultureInfo.InvariantCulture) ?? "unknown"}.",
+                normalizedBlockHash,
+                blockHeight,
+                _state.LastGridPoolBlockUtc);
+            RequestDeferredSaveNoLock();
+            RequestDeferredHistorySaveNoLock();
+        }
+    }
+
     private void RecordFreshParentRetryEvent(
         string eventType,
         string source,
@@ -4816,7 +5009,9 @@ public class BootProtocolStateService
             Endpoint = peer.Endpoint,
             Status = peer.Status,
             LatencyMs = peer.LatencyMs,
-            LastSeenUtc = peer.LastSeenUtc
+            LastSeenUtc = peer.LastSeenUtc,
+            LastFailureUtc = peer.LastFailureUtc,
+            FailureCount = peer.FailureCount
         };
     }
 

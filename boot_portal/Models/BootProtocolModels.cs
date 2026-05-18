@@ -44,6 +44,8 @@ public class BootPeerStatus
     public string Status { get; set; } = "unimplemented";
     public double? LatencyMs { get; set; }
     public DateTime? LastSeenUtc { get; set; }
+    public DateTime? LastFailureUtc { get; set; }
+    public int FailureCount { get; set; }
 }
 
 public class BootReasonCountDto
@@ -143,11 +145,17 @@ public class BootNetworkStatusDto
     public int PeerCount { get; set; }
     public bool AdminApiEnabled { get; set; }
     public bool TestingRoundResetEnabled { get; set; }
+    public string RoundTriggerMode { get; set; } = "gridpool-block-found";
     public string TestingRoundResetMode { get; set; } = "none";
     public int TestingRoundResetLowNibbleThreshold { get; set; }
     public string TestingRoundResetDescription { get; set; } = string.Empty;
     public string? LastTestingTriggerBlockHash { get; set; }
     public long? LastTestingTriggerBlockHeight { get; set; }
+    public string? LastGridPoolBlockHash { get; set; }
+    public long? LastGridPoolBlockHeight { get; set; }
+    public DateTime? LastGridPoolBlockUtc { get; set; }
+    public string? LastGridPoolBlockMinerAddress { get; set; }
+    public double? LastGridPoolBlockDifficulty { get; set; }
     public BootDatumDiagnosticsDto LocalDatumDiagnostics { get; set; } = new();
     public int LocalDatumMinerCount { get; set; }
     public List<BootLocalDatumMinerSummaryDto> LocalDatumMiners { get; set; } = [];
