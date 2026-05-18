@@ -1,4 +1,5 @@
 using boot_portal.Services;
+using boot_portal.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 
@@ -29,6 +30,13 @@ public class BootNetworkController : ControllerBase
     {
         RememberAnnouncedPeer();
         return Ok(_stateService.GetNetworkStatus());
+    }
+
+    [EnableRateLimiting("network-read")]
+    [HttpGet("launch-readiness")]
+    public IActionResult GetLaunchReadiness()
+    {
+        return Ok(_stateService.GetNetworkStatus().LaunchReadiness);
     }
 
     private void RememberAnnouncedPeer()
@@ -208,5 +216,35 @@ public class BootNetworkController : ControllerBase
             status.CurrentStateId,
             status.CurrentRoundNumber);
         return Ok(status);
+    }
+
+    [EnableRateLimiting("admin-write")]
+    [HttpPost("admin/peer/tombstone")]
+    public IActionResult TombstonePeer([FromBody] BootPeerTombstoneRequest request)
+    {
+        if (!_poolConfig.EnableAdminApi)
+        {
+            return NotFound();
+        }
+
+        string? apiKey = Request.Headers["X-Boot-Admin-Key"].FirstOrDefault();
+        if (!_stateService.IsAdminAuthorized(apiKey))
+        {
+            return Unauthorized(new { status = "rejected", reason = "Missing or invalid admin key" });
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Endpoint))
+        {
+            return BadRequest(new { status = "rejected", reason = "Missing peer endpoint" });
+        }
+
+        bool removed = _stateService.TombstonePeer(request.Endpoint);
+        if (!removed)
+        {
+            return NotFound(new { status = "not-found", endpoint = request.Endpoint });
+        }
+
+        _logger.LogWarning("Peer endpoint manually tombstoned via admin API: {Endpoint}", request.Endpoint);
+        return Ok(new { status = "removed", endpoint = request.Endpoint });
     }
 }

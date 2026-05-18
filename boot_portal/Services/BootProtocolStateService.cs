@@ -17,6 +17,7 @@ public class BootProtocolStateService
 
     private readonly DateTime _serviceStartedUtc = DateTime.UtcNow;
     private readonly object _sync = new();
+    private readonly Dictionary<string, DateTime> _suppressedPeerEndpoints = new(StringComparer.OrdinalIgnoreCase);
     private readonly PoolConfig _poolConfig;
     private readonly BootShareVerifier _shareVerifier;
     private readonly IHubContext<PoolStatsHub> _hubContext;
@@ -804,7 +805,7 @@ public class BootProtocolStateService
         {
             foreach (string endpoint in endpoints)
             {
-                changed |= UpsertPeerNoLock(endpoint, "configured", null, null, persistStatusOnly: false);
+                changed |= UpsertPeerNoLock(endpoint, "configured", null, null, persistStatusOnly: false, allowSuppressed: true);
             }
 
             if (changed)
@@ -821,7 +822,7 @@ public class BootProtocolStateService
         {
             foreach (string endpoint in endpoints)
             {
-                changed |= UpsertPeerNoLock(endpoint, "discovered", null, null, persistStatusOnly: false);
+                changed |= UpsertPeerNoLock(endpoint, "discovered", null, null, persistStatusOnly: false, allowSuppressed: false);
             }
 
             if (changed)
@@ -844,6 +845,7 @@ public class BootProtocolStateService
         bool changed = false;
         lock (_sync)
         {
+            _suppressedPeerEndpoints.Remove(normalized);
             if (_state.Peers.Any(x => string.Equals(x.Endpoint, normalized, StringComparison.OrdinalIgnoreCase)) ||
                 _state.Peers.Count >= _poolConfig.MaxPeers)
             {
@@ -868,7 +870,7 @@ public class BootProtocolStateService
     {
         lock (_sync)
         {
-            bool changed = UpsertPeerNoLock(endpoint, status, latencyMs, lastSeenUtc, persistStatusOnly: true);
+            bool changed = UpsertPeerNoLock(endpoint, status, latencyMs, lastSeenUtc, persistStatusOnly: true, allowSuppressed: true);
             BootPeerStatus? peer = FindPeerNoLock(endpoint);
             if (peer != null && (peer.FailureCount != 0 || peer.LastFailureUtc.HasValue))
             {
@@ -888,7 +890,7 @@ public class BootProtocolStateService
     {
         lock (_sync)
         {
-            bool changed = UpsertPeerNoLock(endpoint, status, null, null, persistStatusOnly: true);
+            bool changed = UpsertPeerNoLock(endpoint, status, null, null, persistStatusOnly: true, allowSuppressed: false);
             BootPeerStatus? peer = FindPeerNoLock(endpoint);
             if (peer != null)
             {
@@ -901,6 +903,44 @@ public class BootProtocolStateService
             {
                 RequestDeferredSaveNoLock();
             }
+        }
+    }
+
+    public bool TombstonePeer(string endpoint)
+    {
+        string normalized = NormalizePeerEndpoint(endpoint);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return false;
+        }
+
+        string selfEndpoint = GetSelfEndpoint();
+        if (!string.IsNullOrWhiteSpace(selfEndpoint) &&
+            string.Equals(normalized, selfEndpoint, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        lock (_sync)
+        {
+            int removed = _state.Peers.RemoveAll(peer =>
+                string.Equals(NormalizePeerEndpoint(peer.Endpoint), normalized, StringComparison.OrdinalIgnoreCase));
+            if (removed <= 0)
+            {
+                return false;
+            }
+
+            SuppressPeerNoLock(normalized, DateTime.UtcNow.AddDays(1));
+            RecordNetworkEventNoLock(
+                "peer-tombstoned",
+                "admin",
+                $"Manually removed peer endpoint: {normalized}.",
+                _state.CurrentTipBlockHash,
+                _state.CurrentTipBlockHeight,
+                DateTime.UtcNow);
+            RequestDeferredSaveNoLock();
+            RequestDeferredHistorySaveNoLock();
+            return true;
         }
     }
 
@@ -942,6 +982,12 @@ public class BootProtocolStateService
                 .Where(peer => !removedEndpoints.Any(removed =>
                     string.Equals(NormalizePeerEndpoint(removed), NormalizePeerEndpoint(peer.Endpoint), StringComparison.OrdinalIgnoreCase)))
                 .ToList();
+            DateTime suppressUntilUtc = nowUtc + pruneAfter;
+            foreach (string removedEndpoint in removedEndpoints)
+            {
+                SuppressPeerNoLock(removedEndpoint, suppressUntilUtc);
+            }
+
             RecordNetworkEventNoLock(
                 "peer-pruned",
                 "peer-sync",
@@ -2632,6 +2678,7 @@ public class BootProtocolStateService
             LastGridPoolBlockUtc = _state.LastGridPoolBlockUtc,
             LastGridPoolBlockMinerAddress = _state.LastGridPoolBlockMinerAddress,
             LastGridPoolBlockDifficulty = _state.LastGridPoolBlockDifficulty,
+            LaunchReadiness = BuildLaunchReadinessNoLock(peers),
             LocalDatumDiagnostics = localDatumDiagnostics,
             LocalDatumMinerCount = displayableLocalDatumMiners.Count,
             LocalDatumMiners = localDatumMiners,
@@ -4697,7 +4744,13 @@ public class BootProtocolStateService
         return changed;
     }
 
-    private bool UpsertPeerNoLock(string endpoint, string status, double? latencyMs, DateTime? lastSeenUtc, bool persistStatusOnly)
+    private bool UpsertPeerNoLock(
+        string endpoint,
+        string status,
+        double? latencyMs,
+        DateTime? lastSeenUtc,
+        bool persistStatusOnly,
+        bool allowSuppressed)
     {
         string normalized = NormalizePeerEndpoint(endpoint);
         if (string.IsNullOrWhiteSpace(normalized))
@@ -4707,6 +4760,15 @@ public class BootProtocolStateService
 
         if (!string.IsNullOrWhiteSpace(GetSelfEndpoint()) &&
             string.Equals(normalized, GetSelfEndpoint(), StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (allowSuppressed)
+        {
+            _suppressedPeerEndpoints.Remove(normalized);
+        }
+        else if (IsPeerSuppressedNoLock(normalized, DateTime.UtcNow))
         {
             return false;
         }
@@ -4749,6 +4811,32 @@ public class BootProtocolStateService
         }
 
         return changed && !persistStatusOnly ? true : changed;
+    }
+
+    private void SuppressPeerNoLock(string endpoint, DateTime untilUtc)
+    {
+        string normalized = NormalizePeerEndpoint(endpoint);
+        if (!string.IsNullOrWhiteSpace(normalized))
+        {
+            _suppressedPeerEndpoints[normalized] = untilUtc;
+        }
+    }
+
+    private bool IsPeerSuppressedNoLock(string endpoint, DateTime nowUtc)
+    {
+        string normalized = NormalizePeerEndpoint(endpoint);
+        if (!_suppressedPeerEndpoints.TryGetValue(normalized, out DateTime untilUtc))
+        {
+            return false;
+        }
+
+        if (untilUtc <= nowUtc)
+        {
+            _suppressedPeerEndpoints.Remove(normalized);
+            return false;
+        }
+
+        return true;
     }
 
     private static string NormalizePeerEndpoint(string endpoint)
@@ -4795,7 +4883,9 @@ public class BootProtocolStateService
             return true;
         }
 
-        DateTime staleReferenceUtc = peer.LastFailureUtc ?? peer.LastSeenUtc ?? DateTime.MinValue;
+        // LastFailureUtc refreshes on every failed poll. Use the last successful sighting
+        // as the stale-age anchor so continuously failing peers can actually age out.
+        DateTime staleReferenceUtc = peer.LastSeenUtc ?? DateTime.MinValue;
         return peer.FailureCount >= minimumFailureCount && staleReferenceUtc <= cutoffUtc;
     }
 
@@ -4809,6 +4899,61 @@ public class BootProtocolStateService
         string normalized = status.Trim().ToLowerInvariant();
         return normalized is "timeout" or "error" or "empty" or "foreign-network" or "relay-timeout" or "relay-error" or "relay-rate-limited" ||
                normalized.StartsWith("relay-http-", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private BootLaunchReadinessDto BuildLaunchReadinessNoLock(IReadOnlyCollection<BootPeerStatus> peers)
+    {
+        string roundTriggerMode = BuildRoundTriggerModeNoLock();
+        var dto = new BootLaunchReadinessDto
+        {
+            RoundTriggerMode = roundTriggerMode,
+            TestingRoundResetEnabled = _poolConfig.TestingRoundResetEnabled,
+            NodeMode = _poolConfig.NodeMode
+        };
+
+        if (_poolConfig.TestingRoundResetEnabled)
+        {
+            dto.Warnings.Add("Deterministic testing round trigger is active. Switch testing_round_reset_mode to none before launch.");
+        }
+
+        if (!string.Equals(_poolConfig.NodeMode, "production", StringComparison.OrdinalIgnoreCase))
+        {
+            dto.Warnings.Add($"node_mode is '{_poolConfig.NodeMode}', not production.");
+        }
+
+        if (_poolConfig.EnableAdminApi)
+        {
+            dto.Warnings.Add("Admin API is enabled. Disable it or protect it behind private access before launch.");
+        }
+
+        if (string.IsNullOrWhiteSpace(_poolConfig.PublicBaseUrl))
+        {
+            dto.Warnings.Add("public_base_url is not configured, so peers cannot reliably advertise this node.");
+        }
+
+        if (string.IsNullOrWhiteSpace(_poolConfig.DatumPublicHost))
+        {
+            dto.Warnings.Add("datum_public_host is not configured, so the UI cannot show a clean DATUM connection target.");
+        }
+
+        int healthyPeers = peers.Count(peer => !IsPeerFailureStatus(peer.Status));
+        if (_poolConfig.EnablePeerSync && healthyPeers == 0)
+        {
+            dto.Warnings.Add("Peer sync is enabled but no currently healthy peers are visible.");
+        }
+
+        dto.Info.Add(_poolConfig.TestingRoundResetEnabled
+            ? BuildTestingRoundResetDescriptionNoLock()
+            : "Production round mode: rounds rotate only when this node accepts a valid Grid Pool block share.");
+        dto.Info.Add($"Healthy visible peers: {healthyPeers}/{peers.Count}.");
+
+        dto.ReadyForProductionRoundMode =
+            !_poolConfig.TestingRoundResetEnabled &&
+            string.Equals(_poolConfig.NodeMode, "production", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(_poolConfig.PublicBaseUrl) &&
+            !string.IsNullOrWhiteSpace(_poolConfig.DatumPublicHost);
+
+        return dto;
     }
 
     private long? InferFoundBlockHeight(string? blockHash)

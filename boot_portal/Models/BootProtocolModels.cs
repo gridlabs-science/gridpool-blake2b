@@ -48,6 +48,23 @@ public class BootPeerStatus
     public int FailureCount { get; set; }
 }
 
+public class BootPeerTombstoneRequest
+{
+    public string Endpoint { get; set; } = string.Empty;
+}
+
+public class BootLaunchReadinessDto
+{
+    public bool ReadyForProductionRoundMode { get; set; }
+    public string RoundTriggerMode { get; set; } = string.Empty;
+    public bool TestingRoundResetEnabled { get; set; }
+    public string NodeMode { get; set; } = string.Empty;
+    public int WarningCount => Warnings.Count;
+    public int InfoCount => Info.Count;
+    public List<string> Warnings { get; set; } = [];
+    public List<string> Info { get; set; } = [];
+}
+
 public class BootReasonCountDto
 {
     public string Reason { get; set; } = string.Empty;
@@ -156,6 +173,7 @@ public class BootNetworkStatusDto
     public DateTime? LastGridPoolBlockUtc { get; set; }
     public string? LastGridPoolBlockMinerAddress { get; set; }
     public double? LastGridPoolBlockDifficulty { get; set; }
+    public BootLaunchReadinessDto LaunchReadiness { get; set; } = new();
     public BootDatumDiagnosticsDto LocalDatumDiagnostics { get; set; } = new();
     public int LocalDatumMinerCount { get; set; }
     public List<BootLocalDatumMinerSummaryDto> LocalDatumMiners { get; set; } = [];

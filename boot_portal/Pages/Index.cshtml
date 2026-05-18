@@ -1317,6 +1317,7 @@
         </div>
         <div class="mode-toolbar-right">
             <div class="mode-status-item">Round <strong id="mode-header-round">--</strong></div>
+            <div class="mode-status-item">Trigger <strong id="mode-header-trigger">--</strong></div>
             <div class="mode-status-item">Team <strong id="mode-header-hashrate">--</strong></div>
             <div class="mode-status-item">Peers <strong id="mode-header-peers">--</strong></div>
         </div>
@@ -1484,10 +1485,12 @@
             <div>Acceptance: <span class="accent-value" id="datum-acceptance-rate">--</span></div>
             <div>Test Trigger: <span class="accent-value" id="testing-trigger-status">Loading...</span></div>
             <div>Last Test Block: <span class="accent-value" id="last-testing-trigger-block">--</span></div>
+            <div>Launch Ready: <span class="accent-value" id="launch-ready-status">Loading...</span></div>
             <h3 style="margin-top: 10px;">Commitment Preview</h3>
             <div class="info-value" id="commitment-preview">Loading...</div>
             <div class="search-results" id="commitment-note"></div>
             <div class="search-results" id="testing-trigger-note"></div>
+            <div class="search-results" id="launch-readiness-note"></div>
             <div class="search-results" id="round-hashrate-note">Team estimate uses the median rank-adjusted current On Deck share set. Local DATUM estimate uses a rolling window of directly connected DATUM shares.</div>
             <div class="search-results" id="datum-rejection-note"></div>
         </div>
@@ -2827,6 +2830,7 @@
         const labels = getModeListLabels();
 
         document.getElementById("mode-header-round").innerText = latestNetworkState?.currentRoundNumber ?? "--";
+        document.getElementById("mode-header-trigger").innerText = formatRoundTriggerMode(latestNetworkState);
         document.getElementById("mode-header-hashrate").innerText = currentTeamHashrateDisplay();
         document.getElementById("mode-header-peers").innerText = latestNetworkState?.peerCount ?? "--";
 
@@ -4052,6 +4056,31 @@
         });
     }
 
+    function formatRoundTriggerMode(state) {
+        if (!state) return "--";
+        return state.testingRoundResetEnabled ? "TEST" : "BLOCK";
+    }
+
+    function renderLaunchReadiness(state) {
+        const status = document.getElementById("launch-ready-status");
+        const note = document.getElementById("launch-readiness-note");
+        const readiness = state?.launchReadiness;
+        if (!readiness) {
+            status.innerText = "--";
+            note.innerText = "";
+            return;
+        }
+
+        status.innerText = readiness.readyForProductionRoundMode ? "YES" : "NO";
+        const warnings = readiness.warnings || [];
+        const info = readiness.info || [];
+        if (warnings.length > 0) {
+            note.innerText = `Launch blockers: ${warnings.join(" ")}`;
+        } else {
+            note.innerText = info.join(" ");
+        }
+    }
+
     async function triggerManualReset() {
         const status = document.getElementById('admin-reset-status');
         const apiKey = document.getElementById('admin-api-key').value.trim();
@@ -4351,6 +4380,7 @@
         document.getElementById("commitment-preview").innerText = state.commitment?.tagPreview || "--";
         document.getElementById("commitment-note").innerText = state.commitment?.supportNote || "";
         document.getElementById("testing-trigger-note").innerText = state.testingRoundResetDescription || "";
+        renderLaunchReadiness(state);
         renderPeerTable(state.peers || []);
         renderLocalDatumDiagnostics();
         renderLocalMinerShortcuts();
