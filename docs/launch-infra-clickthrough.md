@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This is the hands-on companion to [launch-infra-plan.md](/home/keegreil/Documents/GitHub/boot-protocol/docs/launch-infra-plan.md).
+This is the hands-on companion to [launch-infra-plan.md](docs/launch-infra-plan.md).
 
 It is written for a first-time setup and assumes:
 
@@ -269,7 +269,7 @@ Do **not** proxy those records.
 
 Optional:
 
-- leave `boot.gridlabs.science` alone for now until the landing-page cutover is ready
+- leave `gridpool.net` alone for now until the landing-page cutover is ready
 
 Done when:
 
@@ -415,7 +415,7 @@ boot-euw1  <public-ip>  <tailscale-name-or-ip>
 ```
 
 2. Whether public SSH `22` is still open or already closed
-3. Whether you want `boot.gridlabs.science` left alone for now
+3. Whether you want `gridpool.net` left alone for now
 4. Whether you bought a new public brand domain
 
 After that, I can take over:

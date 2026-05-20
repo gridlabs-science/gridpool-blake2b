@@ -93,6 +93,15 @@ public static class PoolConfigValidator
         ValidatePositive(errors, config.StaleDatumDisconnectMinSeconds, "stale_datum_disconnect_min_seconds");
         ValidatePositive(errors, config.StaleDatumDisconnectCooldownSeconds, "stale_datum_disconnect_cooldown_seconds");
         ValidatePositive(errors, config.StaleDatumRefreshIntervalSeconds, "stale_datum_refresh_interval_seconds");
+        ValidateNonNegativePort(errors, config.StratumV1ProxyPort, "stratum_v1_proxy_port");
+        if (string.IsNullOrWhiteSpace(config.StratumV1ProxyHost) && config.StratumV1ProxyPort > 0)
+        {
+            errors.Add("stratum_v1_proxy_host is required when stratum_v1_proxy_port is configured");
+        }
+        if (!string.IsNullOrWhiteSpace(config.StratumV1ProxyHost) && config.StratumV1ProxyPort <= 0)
+        {
+            errors.Add("stratum_v1_proxy_port must be greater than 0 when stratum_v1_proxy_host is configured");
+        }
 
         if (!string.Equals(config.TestingRoundResetMode, "none", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(config.TestingRoundResetMode, "block_hash_low_nibble", StringComparison.OrdinalIgnoreCase))

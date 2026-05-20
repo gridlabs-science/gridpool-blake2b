@@ -1793,14 +1793,14 @@
         // 1. Scan Winners
         const winnerMatches = globalWinnersList
             .map((item, index) => ({item, index: index + 1})) // 1-based index
-            .filter(x => normalizeSearchValue(x.item.username || x.item.address).includes(rawTerm.toLowerCase()));
+            .filter(x => minerMatchesSearch(x.item, normalizeSearchValue(rawTerm)));
 
         const winnerTotal = winnerMatches.reduce((sum, x) => sum + x.item.value, 0);
 
         // 2. Scan OnDeck
         const deckMatches = globalOnDeckList
             .map((item, index) => ({item, index: index + 1}))
-            .filter(x => normalizeSearchValue(x.item.username || x.item.address).includes(rawTerm.toLowerCase()));
+            .filter(x => minerMatchesSearch(x.item, normalizeSearchValue(rawTerm)));
 
         const deckTotal = deckMatches.reduce((sum, x) => sum + x.item.value, 0);
 
@@ -1877,6 +1877,48 @@
         const shortAddress = address.length <= 6 ? address : address.substring(address.length - 6);
         const shortWorker = worker ? `.${worker.substring(0, 6)}` : "";
         return `${shortAddress}${shortWorker}`;
+    }
+
+    function getBaseMinerAddress(value) {
+        if (!value) return "";
+        const text = String(value);
+        const dotIndex = text.indexOf('.');
+        return dotIndex === -1 ? text : text.substring(0, dotIndex);
+    }
+
+    function getAttributionAddress(item) {
+        return item?.address || item?.minerAddress || getBaseMinerAddress(item?.username) || "";
+    }
+
+    function getWorkerSuffix(item) {
+        const username = item?.username ? String(item.username) : "";
+        const dotIndex = username.indexOf('.');
+        if (dotIndex < 0 || dotIndex === username.length - 1) return "";
+        return username.substring(dotIndex);
+    }
+
+    function formatAttributionLabel(item, full = false) {
+        const address = getAttributionAddress(item);
+        const label = `${address || "Unknown"}${getWorkerSuffix(item)}`;
+        return full ? label : formatMinerLabel(label);
+    }
+
+    function attributionTitle(item) {
+        const label = formatAttributionLabel(item, true);
+        const submitted = item?.username || "";
+        const submittedBase = getBaseMinerAddress(submitted);
+        const credited = getAttributionAddress(item);
+        if (submitted && submittedBase && credited && normalizeSearchValue(submittedBase) !== normalizeSearchValue(credited)) {
+            return `Credited to ${label}; submitted username ${submitted}`;
+        }
+        return label;
+    }
+
+    function minerMatchesSearch(item, term = currentSearchValue()) {
+        if (!term) return false;
+        const address = normalizeSearchValue(getAttributionAddress(item));
+        const username = normalizeSearchValue(item?.username);
+        return address.includes(term) || username.includes(term);
     }
 
     function formatBtcFromSats(value) {
@@ -2086,8 +2128,8 @@
 
     function getSearchContext() {
         const term = currentSearchValue();
-        const winnerMatches = !term ? [] : globalWinnersList.filter(item => normalizeSearchValue(item.username || item.address).includes(term));
-        const onDeckMatches = !term ? [] : globalOnDeckList.filter(item => normalizeSearchValue(item.username || item.address).includes(term));
+        const winnerMatches = !term ? [] : globalWinnersList.filter(item => minerMatchesSearch(item, term));
+        const onDeckMatches = !term ? [] : globalOnDeckList.filter(item => minerMatchesSearch(item, term));
         const recentCanonicalRounds = getCanonicalRoundHistory(12);
         const paidRounds = term
             ? recentCanonicalRounds.filter(entry => (computeRecipientShare(entry.paidRecipients, entry.paidTotalValue)?.value || 0) > 0)
@@ -3591,7 +3633,7 @@
     function buildRoundPreview(recipients, totalValue) {
         if (!recipients || recipients.length === 0) return "No payouts";
         return recipients.slice(0, 3).map(entry => {
-            const label = formatMinerLabel(entry.username || entry.address);
+            const label = formatAttributionLabel(entry);
             return `${label} ${formatPercent(entry.totalValue, totalValue)}`;
         }).join(" · ");
     }
@@ -3805,7 +3847,7 @@
 
             return recipients.map(item => `
                 <tr class="${recipientMatchesSearch(item) ? 'highlight-row' : ''}">
-                    <td class="${isLottery || isBusiness ? 'full-label' : 'compact-label'}" title="${item.username || item.address}">${isLottery || isBusiness ? (item.username || item.address) : formatMinerLabel(item.username || item.address)}</td>
+                    <td class="${isLottery || isBusiness ? 'full-label' : 'compact-label'}" title="${attributionTitle(item)}">${formatAttributionLabel(item, isLottery || isBusiness)}</td>
                     <td>${item.slotCount}</td>
                     <td>${formatBtcFromSats(item.totalValue)}</td>
                     <td>${formatPercent(item.totalValue, totalValue)}</td>
@@ -3904,10 +3946,20 @@
             });
         });
 
-        const topAddresses = [...totalsByAddress.entries()]
+        let topAddresses = [...totalsByAddress.entries()]
             .sort((a, b) => b[1] - a[1])
             .slice(0, 4)
             .map(entry => entry[0]);
+        const searchedAddress = currentSearchValue()
+            ? [...totalsByAddress.keys()].find(address => normalizeSearchValue(address).includes(currentSearchValue()))
+            : null;
+        if (searchedAddress && !topAddresses.includes(searchedAddress)) {
+            if (topAddresses.length >= 4) {
+                topAddresses[topAddresses.length - 1] = searchedAddress;
+            } else {
+                topAddresses.push(searchedAddress);
+            }
+        }
 
         const labels = displayHistory.map(entry => `R${entry.roundNumber}`);
         const colors = ["#bd59ff", "#39d98a", "#ffc857", "#4ea8de", "#666666"];
@@ -4197,20 +4249,18 @@
 
             const btcValue = payout.value / 100000000.0;
             const useFullLabel = listViewModes[tableId] === 'full' && activeUiMode !== 'nerd';
-            const formattedAddr = useFullLabel
-                ? (payout.username || payout.address)
-                : formatMinerLabel(payout.username || payout.address);
+            const formattedAddr = formatAttributionLabel(payout, useFullLabel);
             const diffVal = payout.difficulty || 0;
             const diffDisplay = payout.diffString || diffVal.toLocaleString(undefined, {maximumFractionDigits: 2});
 
             // CHECK FOR SEARCH HIGHLIGHT
             let rowClass = "";
-            if (currentSearchTerm && normalizeSearchValue(payout.username || payout.address).includes(currentSearchTerm.toLowerCase())) {
+            if (minerMatchesSearch(payout)) {
                 rowClass = "highlight-row";
             }
 
             const row = `<tr class="${rowClass}">
-                    <td class="${useFullLabel ? 'full-label' : 'compact-label'}" title="${payout.username || payout.address}">${formattedAddr}</td>
+                    <td class="${useFullLabel ? 'full-label' : 'compact-label'}" title="${attributionTitle(payout)}">${formattedAddr}</td>
                     <td>${btcValue.toFixed(8)}</td>
                     <td>${diffDisplay}</td>
                 </tr>`;
@@ -4230,8 +4280,8 @@
         //    list.sort((a, b) => a.difficulty - b.difficulty).map(x => x.address === currentSearchTerm ? x.difficulty : NaN) : [];
         
         // FIX: Use [...list] to create a shallow copy before sorting
-        const bubbleData = currentSearchTerm && list.find(x => normalizeSearchValue(x.username || x.address).includes(currentSearchTerm.toLowerCase())) ?
-            [...list].sort((a, b) => a.difficulty - b.difficulty).map(x => normalizeSearchValue(x.username || x.address).includes(currentSearchTerm.toLowerCase()) ? x.difficulty : NaN) : [];
+        const bubbleData = currentSearchTerm && list.find(x => minerMatchesSearch(x)) ?
+            [...list].sort((a, b) => a.difficulty - b.difficulty).map(x => minerMatchesSearch(x) ? x.difficulty : NaN) : [];
 
         const accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim();
 

@@ -1,6 +1,6 @@
 # Session Handoff: 2026-04-25
 
-Workspace: `/home/keegreil/Documents/GitHub/boot-protocol`
+Workspace: `<repo-root>`
 
 This note captures the current BOOT/DATUM stability work so a new session can resume without reconstructing the last several days of testing.
 
@@ -66,7 +66,7 @@ Laptop node:
 Important laptop deploy details:
 
 - SSH host `boot-laptop` lands in a Windows shell, not Linux. Use `wsl.exe bash -lc '...'`.
-- `rsync` to laptop failed because the remote side is Windows. Use `scp` tarball to `C:\Users\keegr\...`, then unpack from `/mnt/c/Users/keegr/...` inside WSL.
+- `rsync` to the Windows laptop failed because the remote side is Windows. Use `scp` tarball to `C:\Users\<user>\...`, then unpack from `/mnt/c/Users/<user>/...` inside WSL.
 
 ## Latest Soak Attempt
 
@@ -144,7 +144,7 @@ Correct fields include:
 ## Suggested Next-Session Prompt
 
 ```text
-We are in /home/keegreil/Documents/GitHub/boot-protocol. Read docs/session-handoff-2026-04-25.md first and continue from there.
+We are in <repo-root>. Read docs/session-handoff-2026-04-25.md first and continue from there.
 
 Main task: debug why the latest checkpointed 1 hour soak produced only the startup banner and no monitor/checkpoint/summary files. Start by inspecting the dirty diff and logs/g2-monitor-20260425-1h-checkpointed.nohup.log, then run a short foreground soak like ./scripts/boot-g2-soak.sh 2m logs/test.json. Confirm that scripts/boot-g2-monitor.mjs writes partial JSON and .checkpoints.jsonl within the first minute. Then verify a short background soak.
 

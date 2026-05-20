@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MAIN_URL="${BOOT_G2_MAIN_URL:-http://127.0.0.1:5000}"
-PEER_URL="${BOOT_G2_PEER_URL:-http://100.96.249.123:5000}"
+PEER_URL="${BOOT_G2_PEER_URL:-}"
 INTERVAL_SECONDS="${BOOT_G2_INTERVAL_SECONDS:-5}"
 LOG_DIR="${BOOT_G2_LOG_DIR:-$ROOT_DIR/logs}"
 
@@ -18,7 +18,7 @@ Examples:
 
 Environment:
   BOOT_G2_MAIN_URL           Main node URL (default: ${MAIN_URL})
-  BOOT_G2_PEER_URL           Peer node URL; empty disables peer comparison (default: ${PEER_URL})
+  BOOT_G2_PEER_URL           Peer node URL; empty disables peer comparison (default: none)
   BOOT_G2_INTERVAL_SECONDS   Poll interval (default: ${INTERVAL_SECONDS})
   BOOT_G2_LOG_DIR            Output directory (default: ${LOG_DIR})
 EOF

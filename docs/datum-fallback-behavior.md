@@ -1,6 +1,6 @@
 # DATUM Fallback and Reconnect Behavior
 
-This note documents the current DATUM Gateway behavior that matters for Boot integration, based on reading the local DATUM source in `/home/keegreil/Documents/GitHub/datum_gateway/src`.
+This note documents the current DATUM Gateway behavior that matters for Boot integration, based on reading the local DATUM source in `../datum_gateway/src`.
 
 ## Executive Summary
 
@@ -286,11 +286,11 @@ These are the most promising follow-ups:
 
 ## Files Reviewed
 
-- `/home/keegreil/Documents/GitHub/datum_gateway/src/datum_protocol.c`
-- `/home/keegreil/Documents/GitHub/datum_gateway/src/datum_coinbaser.c`
-- `/home/keegreil/Documents/GitHub/datum_gateway/src/datum_stratum.c`
-- `/home/keegreil/Documents/GitHub/datum_gateway/src/datum_blocktemplates.c`
-- `/home/keegreil/Documents/GitHub/datum_gateway/src/datum_gateway.c`
-- `/home/keegreil/Documents/GitHub/datum_gateway/src/datum_sockets.c`
-- `/home/keegreil/Documents/GitHub/datum_gateway/src/datum_api.c`
-- `/home/keegreil/Documents/GitHub/datum_gateway/doc/usernames.md`
+- `../datum_gateway/src/datum_protocol.c`
+- `../datum_gateway/src/datum_coinbaser.c`
+- `../datum_gateway/src/datum_stratum.c`
+- `../datum_gateway/src/datum_blocktemplates.c`
+- `../datum_gateway/src/datum_gateway.c`
+- `../datum_gateway/src/datum_sockets.c`
+- `../datum_gateway/src/datum_api.c`
+- `../datum_gateway/doc/usernames.md`

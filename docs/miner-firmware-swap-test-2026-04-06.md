@@ -16,11 +16,11 @@ Timestamp of snapshot: 2026-04-06 around 22:17 EDT
 
 Assignment:
 
-- Main / StartOS DATUM / `https://boot.gridlabs.science`
+- Main / StartOS DATUM / `https://gridpool.net`
   - Miner: Bitaxe
   - Expected hashrate: about `1 TH/s`
   - Payout address: `...9s8y`
-- Laptop / source-built DATUM / `http://100.96.249.123:5000`
+- Laptop / source-built DATUM / local test peer URL
   - Miner: space heater
   - Expected hashrate: about `9.5 TH/s`
   - Payout address: `...q4p`
@@ -44,7 +44,7 @@ This means the nodes were still aligned on the current locked round, but not ful
 
 Source:
 
-- `GET https://boot.gridlabs.science/api/network/summary`
+- `GET https://gridpool.net/api/network/summary`
 
 Local DATUM diagnostics:
 
@@ -253,7 +253,7 @@ So this run is materially healthier than the earlier test snapshots that drifted
 
 Source:
 
-- `GET https://boot.gridlabs.science/api/network/summary`
+- `GET https://gridpool.net/api/network/summary`
 
 Local DATUM diagnostics:
 
@@ -370,7 +370,7 @@ So there was no evidence of an active state divergence at the time of capture.
 
 Source:
 
-- `https://boot.gridlabs.science/api/network/share-diagnostics?...`
+- `https://gridpool.net/api/network/share-diagnostics?...`
 
 12-hour rejected DATUM shares:
 

@@ -23,6 +23,15 @@ bld/
 [Oo]bj/
 [Ll]og/
 **/boot_portal_config.local.json
+**/*.local.json
+*.local.env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*_rsa
+*_ed25519
 
 # Runtime state and local analysis artifacts
 boot_portal/pool_state*.json
@@ -30,6 +39,9 @@ boot_portal/pool_state*.json.bak
 boot_portal/pool_state copy.json
 g2-*.json
 logs/
+scripts/deploy-nodes.local.env
+scripts/deploy-latest.sh
+scripts/deploy-local*.sh
 
 # Visual Studio 2015 cache/options directory
 .vs/

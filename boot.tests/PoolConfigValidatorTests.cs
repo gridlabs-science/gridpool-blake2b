@@ -85,8 +85,8 @@ public sealed class PoolConfigValidatorTests
         var config = new PoolConfig
         {
             NodeMode = "sovereign",
-            PublicBaseUrl = "http://192.168.1.191:5000",
-            DatumPublicHost = "192.168.1.191"
+            PublicBaseUrl = "http://edge-node.local:5000",
+            DatumPublicHost = "edge-node.local"
         };
 
         CollectionAssert.AreEqual(Array.Empty<string>(), PoolConfigValidator.Validate(config));

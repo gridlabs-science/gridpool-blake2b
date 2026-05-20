@@ -33,7 +33,7 @@ public sealed class BootRequestIdentityTests
         };
         var context = new DefaultHttpContext();
         context.Connection.RemoteIpAddress = IPAddress.Loopback;
-        context.Request.Headers["X-Forwarded-For"] = "203.0.113.77, 10.0.0.1";
+        context.Request.Headers["X-Forwarded-For"] = "203.0.113.77, 198.51.100.1";
 
         string clientKey = BootRequestIdentity.GetClientKey(context, config);
 
@@ -45,17 +45,17 @@ public sealed class BootRequestIdentityTests
     {
         var config = new PoolConfig
         {
-            TrustedForwardedProxyRanges = ["10.0.0.0/8"]
+            TrustedForwardedProxyRanges = ["198.51.100.0/24"]
         };
         var trustedContext = new DefaultHttpContext();
-        trustedContext.Connection.RemoteIpAddress = IPAddress.Parse("10.25.4.9");
+        trustedContext.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.9");
         trustedContext.Request.Headers["X-Real-IP"] = "203.0.113.44";
 
         var untrustedContext = new DefaultHttpContext();
-        untrustedContext.Connection.RemoteIpAddress = IPAddress.Parse("11.25.4.9");
+        untrustedContext.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.9");
         untrustedContext.Request.Headers["X-Real-IP"] = "203.0.113.44";
 
         Assert.AreEqual("203.0.113.44", BootRequestIdentity.GetClientKey(trustedContext, config));
-        Assert.AreEqual("11.25.4.9", BootRequestIdentity.GetClientKey(untrustedContext, config));
+        Assert.AreEqual("203.0.113.9", BootRequestIdentity.GetClientKey(untrustedContext, config));
     }
 }

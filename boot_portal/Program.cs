@@ -198,6 +198,12 @@ public class PoolConfig
     [JsonPropertyName("stale_datum_refresh_interval_seconds")]
     public int StaleDatumRefreshIntervalSeconds { get; set; } = 10;
 
+    [JsonPropertyName("stratum_v1_proxy_host")]
+    public string StratumV1ProxyHost { get; set; } = string.Empty;
+
+    [JsonPropertyName("stratum_v1_proxy_port")]
+    public int StratumV1ProxyPort { get; set; } = 0;
+
     [JsonIgnore]
     public bool TestingRoundResetEnabled =>
         string.Equals(TestingRoundResetMode, "block_hash_low_nibble", StringComparison.OrdinalIgnoreCase) &&
@@ -1493,9 +1499,14 @@ public class ClientHandler
     /// </summary>
     private async Task HandleStratumProxyAsync(byte[] initialBuffer, int initialCount)
     {
-        // CONFIGURATION
-        string gatewayIp = "192.168.1.223"; // Ensure this IP is reachable
-        int gatewayPort = 23334;         // Ensure this is the STRATUM (Plaintext) port, not DATUM
+        string gatewayIp = _poolConfig.StratumV1ProxyHost.Trim();
+        int gatewayPort = _poolConfig.StratumV1ProxyPort;
+        if (string.IsNullOrWhiteSpace(gatewayIp) || gatewayPort <= 0)
+        {
+            Console.WriteLine(
+                $"Stratum V1 proxy request from {_client.Client.RemoteEndPoint} dropped because stratum_v1_proxy_host/port is not configured.");
+            return;
+        }
 
         Console.WriteLine($"🔄 Proxy: Connecting client {_client.Client.RemoteEndPoint} to Gateway ({gatewayIp}:{gatewayPort})...");
 

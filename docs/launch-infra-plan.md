@@ -14,7 +14,7 @@ This is not the final global architecture. It is the first stable public seed/re
 
 Companion setup guide:
 
-- [launch-infra-clickthrough.md](/home/keegreil/Documents/GitHub/boot-protocol/docs/launch-infra-clickthrough.md)
+- [launch-infra-clickthrough.md](docs/launch-infra-clickthrough.md)
 
 ## Core Infrastructure Decision
 
@@ -295,10 +295,10 @@ Use explicit, stable per-node hostnames.
 
 Human-facing UI hostnames:
 
-- `boot.gridlabs.science`
-- `use1.boot.gridlabs.science`
-- `usw1.boot.gridlabs.science`
-- `euw1.boot.gridlabs.science`
+- `gridpool.net`
+- `use1.gridpool.net`
+- `usw1.gridpool.net`
+- `euw1.gridpool.net`
 
 DATUM hostnames:
 
@@ -308,7 +308,7 @@ DATUM hostnames:
 
 Optional future AP node:
 
-- `ap1.boot.gridlabs.science`
+- `ap1.gridpool.net`
 - `datum-ap1.gridlabs.science`
 
 ### DNS / Proxy Policy
@@ -317,14 +317,14 @@ Use `Cloudflare DNS` for every record.
 
 Proxy policy:
 
-- `boot.gridlabs.science`
+- `gridpool.net`
   - may be `proxied`
   - intended for human UI landing page only
-- `use1.boot.gridlabs.science`
+- `use1.gridpool.net`
   - `DNS only`
-- `usw1.boot.gridlabs.science`
+- `usw1.gridpool.net`
   - `DNS only`
-- `euw1.boot.gridlabs.science`
+- `euw1.gridpool.net`
   - `DNS only`
 - all `datum-*` records
   - `DNS only`
@@ -340,7 +340,7 @@ Do not geo-route users between node UIs yet.
 
 Use this model instead:
 
-- `boot.gridlabs.science` becomes a node directory / landing page
+- `gridpool.net` becomes a node directory / landing page
 - users explicitly choose a node
 - node-specific UIs remain directly accessible
 
@@ -360,7 +360,7 @@ After the initial public cluster is stable, build a first-visit node selector:
 - users choose a node explicitly
 - selected node can be remembered in local storage
 
-That future work belongs primarily in [ui-modes-plan.md](/home/keegreil/Documents/GitHub/boot-protocol/docs/ui-modes-plan.md), not in the first infra rollout.
+That future work belongs primarily in [ui-modes-plan.md](docs/ui-modes-plan.md), not in the first infra rollout.
 
 ## Access And Operations Model
 
@@ -383,9 +383,9 @@ Public traffic model:
 
 Existing helpers:
 
-- [update_server.sh](/home/keegreil/Documents/GitHub/boot-protocol/update_server.sh)
-- [boot-main.sh](/home/keegreil/Documents/GitHub/boot-protocol/scripts/boot-main.sh)
-- [boot-laptop.sh](/home/keegreil/Documents/GitHub/boot-protocol/scripts/boot-laptop.sh)
+- [update_server.sh](update_server.sh)
+- [boot-main.sh](scripts/boot-main.sh)
+- [boot-laptop.sh](scripts/boot-laptop.sh)
 
 These are not yet generalized for a multi-node public fleet, but they are enough to bootstrap the pattern.
 
@@ -430,7 +430,7 @@ Steps:
    - done when:
      - role is written down for `euw1`
 
-4. Keep `boot.gridlabs.science` as the human entrypoint only.
+4. Keep `gridpool.net` as the human entrypoint only.
    - owner: `YOU`
    - recommendation:
      - yes
@@ -579,9 +579,9 @@ Steps:
 1. Create `A` records for node-specific Boot UI / peer endpoints.
    - owner: `YOU`
    - records:
-     - `use1.boot.gridlabs.science`
-     - `usw1.boot.gridlabs.science`
-     - `euw1.boot.gridlabs.science`
+     - `use1.gridpool.net`
+     - `usw1.gridpool.net`
+     - `euw1.gridpool.net`
    - mode:
      - `DNS only`
 
@@ -594,7 +594,7 @@ Steps:
    - mode:
      - `DNS only`
 
-3. Decide what `boot.gridlabs.science` points to during phase 1.
+3. Decide what `gridpool.net` points to during phase 1.
    - owner: `YOU`
    - recommendation:
      - point it to one chosen public node or a simple landing page host
@@ -627,9 +627,9 @@ Steps:
 3. Ensure node-specific UIs are public over `443`.
    - owner: `CODEX`
    - success criteria:
-     - `https://use1.boot.gridlabs.science`
-     - `https://usw1.boot.gridlabs.science`
-     - `https://euw1.boot.gridlabs.science`
+     - `https://use1.gridpool.net`
+     - `https://usw1.gridpool.net`
+     - `https://euw1.gridpool.net`
      - all load
 
 4. Keep DATUM on direct TCP, not behind Cloudflare proxy.
@@ -724,13 +724,13 @@ Configuration model:
 Suggested mapping:
 
 - `use1`
-  - `public_base_url = https://use1.boot.gridlabs.science`
+  - `public_base_url = https://use1.gridpool.net`
   - `datum_public_host = datum-use1.gridlabs.science`
 - `usw1`
-  - `public_base_url = https://usw1.boot.gridlabs.science`
+  - `public_base_url = https://usw1.gridpool.net`
   - `datum_public_host = datum-usw1.gridlabs.science`
 - `euw1`
-  - `public_base_url = https://euw1.boot.gridlabs.science`
+  - `public_base_url = https://euw1.gridpool.net`
   - `datum_public_host = datum-euw1.gridlabs.science`
 
 Steps:
@@ -757,9 +757,9 @@ Steps:
 6. Verify peer convergence.
    - owner: `CODEX`
    - tools:
-     - [boot-g2-monitor.mjs](/home/keegreil/Documents/GitHub/boot-protocol/scripts/boot-g2-monitor.mjs)
-     - [boot-history-check.mjs](/home/keegreil/Documents/GitHub/boot-protocol/scripts/boot-history-check.mjs)
-     - [boot-soak-report.mjs](/home/keegreil/Documents/GitHub/boot-protocol/scripts/boot-soak-report.mjs)
+     - [boot-g2-monitor.mjs](scripts/boot-g2-monitor.mjs)
+     - [boot-history-check.mjs](scripts/boot-history-check.mjs)
+     - [boot-soak-report.mjs](scripts/boot-soak-report.mjs)
 
 ## Phase 9: DATUM Deployment
 
@@ -810,7 +810,7 @@ Goal:
 
 Phase-1 recommendation:
 
-- `boot.gridlabs.science` should not be an automatic node router
+- `gridpool.net` should not be an automatic node router
 - it should be a directory / landing page
 
 Landing page should contain:
@@ -883,7 +883,7 @@ Checklist:
 6. Node-specific UI and DATUM endpoints documented.
    - owner: `BOTH`
 
-7. `boot.gridlabs.science` clearly communicates node selection.
+7. `gridpool.net` clearly communicates node selection.
    - owner: `BOTH`
 
 ## What You Can Hand Off To Me Quickly

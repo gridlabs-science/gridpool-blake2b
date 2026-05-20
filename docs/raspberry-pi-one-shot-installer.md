@@ -83,7 +83,7 @@ BITCOIN_RPC_PASSWORD=replace-me \
 sudo -E ./scripts/install-sovereign-stack.sh \
   --yes \
   --no-bitcoin \
-  --bitcoin-rpc-url http://192.168.1.100:8332 \
+  --bitcoin-rpc-url http://TRUSTED_BITCOIN_RPC_LAN_IP:8332 \
   --payout-address bc1qYOUR_PAYOUT_ADDRESS_HERE
 ```
 
@@ -172,13 +172,7 @@ From your laptop or desktop:
 scp /tmp/gridpool-assumeutxo.dat ubuntu@raspberrypi.local:/home/ubuntu/gridpool-assumeutxo.dat
 ```
 
-Adjust the username and host as needed. For the Grid Labs Pi 5 test host:
-
-```bash
-scp -i ~/.ssh/gridpool_pi5_ed25519 \
-  /tmp/gridpool-assumeutxo.dat \
-  gridlabs@100.86.186.78:/home/gridlabs/gridpool-assumeutxo.dat
-```
+Adjust the username and host as needed.
 
 ### 5. Run The Full Installer With The Snapshot
 
@@ -186,12 +180,6 @@ SSH into the Pi:
 
 ```bash
 ssh ubuntu@raspberrypi.local
-```
-
-For the Grid Labs Pi 5 test host:
-
-```bash
-ssh -i ~/.ssh/gridpool_pi5_ed25519 gridlabs@100.86.186.78
 ```
 
 Then run:
@@ -396,7 +384,7 @@ For Pi 3 or another lightweight edge node using a trusted LAN Bitcoin RPC server
 sudo ./scripts/install-sovereign-stack.sh \
   --yes \
   --no-bitcoin \
-  --bitcoin-rpc-url http://192.168.1.169:8334 \
+  --bitcoin-rpc-url http://TRUSTED_BITCOIN_RPC_LAN_IP:8334 \
   --payout-address bc1q...
 ```
 
@@ -408,7 +396,7 @@ BITCOIN_RPC_PASSWORD=replace-me \
 sudo -E ./scripts/install-sovereign-stack.sh \
   --yes \
   --no-bitcoin \
-  --bitcoin-rpc-url http://192.168.1.169:8334 \
+  --bitcoin-rpc-url http://TRUSTED_BITCOIN_RPC_LAN_IP:8334 \
   --payout-address bc1q...
 ```
 
@@ -437,7 +425,7 @@ chmod 600 ~/.ssh/authorized_keys
 Then verify from the dev machine:
 
 ```bash
-ssh ubuntu@192.168.1.191 'uname -a'
+ssh ubuntu@PI_LAN_IP 'uname -a'
 ```
 
 Use the actual Ubuntu username if it is not `ubuntu`.
@@ -469,8 +457,8 @@ Useful environment variables:
 Example:
 
 ```bash
-BOOT_PUBLIC_BASE_URL=http://192.168.1.191:5000 \
-BOOT_DATUM_PUBLIC_HOST=192.168.1.191 \
+BOOT_PUBLIC_BASE_URL=http://PI_LAN_IP:5000 \
+BOOT_DATUM_PUBLIC_HOST=PI_LAN_IP \
 GRID_BOOT_REPO_REF=main \
 sudo -E ./scripts/install-sovereign-stack.sh --payout-address bc1q...
 ```

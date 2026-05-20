@@ -4,15 +4,15 @@ Wants=network-online.target
 After=network-online.target
 
 [Service]
-User=keegreil
-WorkingDirectory=/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/publish
-ExecStart=/usr/bin/dotnet /home/keegreil/Documents/GitHub/boot-protocol/boot_portal/publish/boot_portal.dll
+User=__GRIDPOOL_SERVICE_USER__
+WorkingDirectory=__GRIDPOOL_PUBLISH_DIR__
+ExecStart=/usr/bin/dotnet __GRIDPOOL_PUBLISH_DIR__/boot_portal.dll
 Restart=always
 RestartSec=10
 TimeoutStopSec=20
 Environment=ASPNETCORE_ENVIRONMENT=Production
-Environment=BOOT_PORTAL_CONFIG_PATH=/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/boot_portal_config.json
-Environment=BOOT_PORTAL_STATE_PATH=/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/pool_state.json
+Environment=BOOT_PORTAL_CONFIG_PATH=__GRIDPOOL_CONFIG_PATH__
+Environment=BOOT_PORTAL_STATE_PATH=__GRIDPOOL_STATE_PATH__
 
 [Install]
 WantedBy=multi-user.target

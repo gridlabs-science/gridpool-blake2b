@@ -25,9 +25,9 @@ HashScope is a transparent Stratum V1 MITM proxy with a distributed agent fleet 
 
 Relevant local source paths:
 
-- `/home/keegreil/Documents/GitHub/HashScope/backend/hashscope/proxy/session.py`
-- `/home/keegreil/Documents/GitHub/HashScope/backend/hashscope/stratum/parser.py`
-- `/home/keegreil/Documents/GitHub/HashScope/agents/hashscope_agent/pool_client.py`
+- `../HashScope/backend/hashscope/proxy/session.py`
+- `../HashScope/backend/hashscope/stratum/parser.py`
+- `../HashScope/agents/hashscope_agent/pool_client.py`
 
 Important implementation details:
 
@@ -70,9 +70,9 @@ GridPool's HTTP share API is documented in `docs/hydrapool-http-submission.md`.
 
 Relevant local source paths:
 
-- `/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/Controllers/MiningApiController.cs`
-- `/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/Models/MiningModels.cs`
-- `/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/Services/BootShareVerifier.cs`
+- `boot_portal/Controllers/MiningApiController.cs`
+- `boot_portal/Models/MiningModels.cs`
+- `boot_portal/Services/BootShareVerifier.cs`
 
 The HTTP share endpoint accepts:
 
@@ -305,5 +305,5 @@ A stronger future goal is valid real ASIC work behind all `2500` sessions, but t
 
 - HashScope repository: `https://github.com/256foundation/HashScope`
 - Stratum V1 reference: `https://reference.cash/mining/stratum-protocol`
-- GridPool HTTP share plan: `/home/keegreil/Documents/GitHub/boot-protocol/docs/hydrapool-http-submission.md`
-- GridPool stress-test plan: `/home/keegreil/Documents/GitHub/boot-protocol/docs/stress-test-plan.md`
+- GridPool HTTP share plan: `docs/hydrapool-http-submission.md`
+- GridPool stress-test plan: `docs/stress-test-plan.md`

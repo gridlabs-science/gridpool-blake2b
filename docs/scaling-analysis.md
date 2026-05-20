@@ -51,7 +51,7 @@ This is a strong scaling property.
 
 ### 2. Share selection cost is effectively constant
 
-Today, insertion into `_state.OnDeckProofs` in [BootProtocolStateService.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/Services/BootProtocolStateService.cs) works on a list capped at `299`.
+Today, insertion into `_state.OnDeckProofs` in [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs) works on a list capped at `299`.
 
 That means the cost of:
 
@@ -136,7 +136,7 @@ These are the main places where scale pressure shows up:
 ### DATUM coinbaser fetch
 
 Path:
-- [Program.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/Program.cs)
+- [Program.cs](boot_portal/Program.cs)
 
 Risk:
 - if coinbaser fetch latency rises, DATUM can fall back to solo templates and create reject churn
@@ -147,8 +147,8 @@ Current status:
 ### Share validation and On Deck mutation
 
 Paths:
-- [BootShareVerifier.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/Services/BootShareVerifier.cs)
-- [BootProtocolStateService.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/Services/BootProtocolStateService.cs)
+- [BootShareVerifier.cs](boot_portal/Services/BootShareVerifier.cs)
+- [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs)
 
 Risk:
 - expensive validation before cheap rejection
@@ -157,7 +157,7 @@ Risk:
 ### Peer polling and relay
 
 Path:
-- [BootPeerSyncService.cs](/home/keegreil/Documents/GitHub/boot-protocol/boot_portal/HostedServices/BootPeerSyncService.cs)
+- [BootPeerSyncService.cs](boot_portal/HostedServices/BootPeerSyncService.cs)
 
 Risk:
 - per-share relay fanout to too many peers
