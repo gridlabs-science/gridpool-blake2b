@@ -679,6 +679,27 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public async Task ShareAdviceEndpointReportsOnDeckEntryFloorAsync()
+    {
+        using var harness = TestHarness.Create(sharedWinnerSlotCount: 1);
+
+        IActionResult shareResponse = await harness.MiningController.SubmitShare(CreateSampleShareDto());
+        JsonObject sharePayload = ParseObjectResult(shareResponse, StatusCodes.Status200OK);
+        double acceptedDifficulty = sharePayload["difficulty"]!.GetValue<double>();
+
+        IActionResult adviceResponse = harness.MiningController.GetShareAdvice();
+        JsonObject advice = ParseObjectResult(adviceResponse, StatusCodes.Status200OK);
+
+        Assert.AreEqual(1, advice["SharedWinnerSlotCount"]!.GetValue<int>());
+        Assert.AreEqual(1, advice["OnDeckCount"]!.GetValue<int>());
+        Assert.AreEqual(0, advice["OpenOnDeckSlots"]!.GetValue<int>());
+        Assert.IsTrue(advice["OnDeckIsFull"]!.GetValue<bool>());
+        Assert.IsTrue(advice["RequiresStrictlyGreaterThanFloor"]!.GetValue<bool>());
+        Assert.AreEqual(acceptedDifficulty, advice["CurrentOnDeckFloorDifficulty"]!.GetValue<double>(), acceptedDifficulty * 0.0000001);
+        Assert.IsTrue(advice["MinimumDifficultyToEnterOnDeck"]!.GetValue<double>() > acceptedDifficulty);
+    }
+
+    [TestMethod]
     public void DatumSessionTelemetryTracksLifecycleAndFiltersActiveSessions()
     {
         using var harness = TestHarness.Create();
@@ -971,7 +992,10 @@ public sealed class ShareAttributionTests
             };
         }
 
-        public static TestHarness Create(string? currentTipBlockHash = null, int currentRoundNumber = 1)
+        public static TestHarness Create(
+            string? currentTipBlockHash = null,
+            int currentRoundNumber = 1,
+            int? sharedWinnerSlotCount = null)
         {
             string? previousStatePath = Environment.GetEnvironmentVariable("BOOT_PORTAL_STATE_PATH");
             string? previousHistoryPath = Environment.GetEnvironmentVariable("BOOT_PORTAL_HISTORY_PATH");
@@ -986,7 +1010,7 @@ public sealed class ShareAttributionTests
             {
                 BootNetworkId = "testnet",
                 BootProtocolVersion = 1,
-                WinnersListSize = Math.Max(8, SampleExpectedWinners.Count),
+                WinnersListSize = sharedWinnerSlotCount ?? Math.Max(8, SampleExpectedWinners.Count),
                 PoolPayoutScript = SampleSlotZeroAddress
             };
 

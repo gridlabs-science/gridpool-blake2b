@@ -30,6 +30,15 @@ public class MiningApiController : ControllerBase
         return Ok(_stateService.GetPayoutResponse());
     }
 
+    // GET: api/mining/share-advice
+    // Returns the current minimum difficulty needed for a direct client share to affect the on-deck list.
+    [EnableRateLimiting("network-read")]
+    [HttpGet("share-advice")]
+    public IActionResult GetShareAdvice()
+    {
+        return Ok(_stateService.GetShareAdviceResponse());
+    }
+
     // POST: api/mining/share
     // Receives a high-difficulty share
     [EnableRateLimiting("mining-write")]

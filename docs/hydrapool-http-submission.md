@@ -79,10 +79,28 @@ Rejected share:
 
 Missing or malformed bodies return a structured rejection instead of throwing server errors.
 
+## Share Advice Endpoint
+
+`GET /api/mining/share-advice`
+
+Direct HTTP clients should use this lightweight status endpoint to avoid submitting shares that cannot enter the current on-deck list.
+
+The response includes:
+
+- current round and state IDs
+- current Bitcoin parent tip
+- shared winner slot count
+- current on-deck count and open slots
+- current on-deck floor difficulty
+- minimum computed difficulty needed to enter the on-deck list
+- whether the share must be strictly greater than the current floor
+
+When the on-deck list is not full, `minimumDifficultyToEnterOnDeck` is `1`. When the list is full, clients should submit only shares with computed difficulty greater than the current floor. The server still recomputes difficulty and remains authoritative.
+
 ## Operational Notes
 
 - Clients should fetch `GET /api/mining/payouts` to learn the current payout list and network status.
-- Low-difficulty shares that cannot enter the on-deck list may be rejected by the HTTP endpoint; long-running clients should use the advertised list threshold to avoid spammy retries.
+- Low-difficulty shares that cannot enter the on-deck list may be rejected by the HTTP endpoint; long-running clients should use `GET /api/mining/share-advice` to avoid spammy retries.
 - Parent-block races are expected near Bitcoin tip changes. The server may accept fresh-parent shares when the proof is otherwise valid and the parent appears newer than the local view.
 - A valid Bitcoin block found through this path triggers normal round rotation.
 

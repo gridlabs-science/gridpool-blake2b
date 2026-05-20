@@ -21,3 +21,26 @@ public class PayoutResponseDto
     public List<PayoutInfo> CoinbaseOutputs { get; set; } = new();
     public BootNetworkStatusDto Network { get; set; } = new();
 }
+
+public class MiningShareAdviceDto
+{
+    public long Sequence { get; set; }
+    public int CurrentRoundNumber { get; set; }
+    public string CurrentStateId { get; set; } = string.Empty;
+    public string CandidateStateId { get; set; } = string.Empty;
+    public string? CurrentTipBlockHash { get; set; }
+    public long? CurrentTipBlockHeight { get; set; }
+    public int SharedWinnerSlotCount { get; set; }
+    public int OnDeckCount { get; set; }
+    public int OpenOnDeckSlots { get; set; }
+    public bool OnDeckIsFull { get; set; }
+    public double MinimumAcceptedDifficulty { get; set; } = 1;
+    public double? CurrentOnDeckFloorDifficulty { get; set; }
+    public string CurrentOnDeckFloorDifficultyDisplay { get; set; } = "--";
+    public double MinimumDifficultyToEnterOnDeck { get; set; } = 1;
+    public string MinimumDifficultyToEnterOnDeckDisplay { get; set; } = "1";
+    public bool RequiresStrictlyGreaterThanFloor { get; set; }
+    public double? BestOnDeckDifficulty { get; set; }
+    public string BestOnDeckDifficultyDisplay { get; set; } = "--";
+    public string SubmitRule { get; set; } = string.Empty;
+}

@@ -149,6 +149,56 @@ public class BootProtocolStateService
         }
     }
 
+    public MiningShareAdviceDto GetShareAdviceResponse()
+    {
+        lock (_sync)
+        {
+            List<double> onDeckDifficulties = _state.OnDeckProofs
+                .Select(proof => proof.Difficulty)
+                .Where(difficulty => difficulty > 0)
+                .OrderByDescending(difficulty => difficulty)
+                .ToList();
+            double? floorDifficulty = onDeckDifficulties.Count == 0
+                ? null
+                : onDeckDifficulties[^1];
+            double? bestDifficulty = onDeckDifficulties.Count == 0
+                ? null
+                : onDeckDifficulties[0];
+            int openSlots = Math.Max(0, _poolConfig.SharedWinnerSlotCount - _state.OnDeckProofs.Count);
+            bool onDeckIsFull = openSlots == 0;
+            bool requiresStrictlyGreaterThanFloor = onDeckIsFull && floorDifficulty.HasValue;
+            double minimumDifficultyToEnter = requiresStrictlyGreaterThanFloor
+                ? Math.Max(1d, Math.BitIncrement(floorDifficulty!.Value))
+                : 1d;
+            string submitRule = requiresStrictlyGreaterThanFloor
+                ? $"Submit only shares with computed difficulty greater than {ClientHandler.FormatDifficulty(floorDifficulty!.Value)}."
+                : "Submit any share with computed difficulty at least 1; open on-deck slots remain.";
+
+            return new MiningShareAdviceDto
+            {
+                Sequence = DateTime.UtcNow.Ticks,
+                CurrentRoundNumber = _state.CurrentRoundNumber,
+                CurrentStateId = _state.CurrentStateId,
+                CandidateStateId = _state.CandidateStateId,
+                CurrentTipBlockHash = _state.CurrentTipBlockHash,
+                CurrentTipBlockHeight = _state.CurrentTipBlockHeight,
+                SharedWinnerSlotCount = _poolConfig.SharedWinnerSlotCount,
+                OnDeckCount = _state.OnDeckProofs.Count,
+                OpenOnDeckSlots = openSlots,
+                OnDeckIsFull = onDeckIsFull,
+                MinimumAcceptedDifficulty = 1d,
+                CurrentOnDeckFloorDifficulty = floorDifficulty,
+                CurrentOnDeckFloorDifficultyDisplay = floorDifficulty.HasValue ? ClientHandler.FormatDifficulty(floorDifficulty.Value) : "--",
+                MinimumDifficultyToEnterOnDeck = minimumDifficultyToEnter,
+                MinimumDifficultyToEnterOnDeckDisplay = ClientHandler.FormatDifficulty(minimumDifficultyToEnter),
+                RequiresStrictlyGreaterThanFloor = requiresStrictlyGreaterThanFloor,
+                BestOnDeckDifficulty = bestDifficulty,
+                BestOnDeckDifficultyDisplay = bestDifficulty.HasValue ? ClientHandler.FormatDifficulty(bestDifficulty.Value) : "--",
+                SubmitRule = submitRule
+            };
+        }
+    }
+
     public BootStateBundle? GetStateBundle(string stateId)
     {
         if (string.IsNullOrWhiteSpace(stateId))
