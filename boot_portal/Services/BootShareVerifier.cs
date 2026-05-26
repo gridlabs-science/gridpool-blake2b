@@ -26,6 +26,17 @@ public sealed class BootShareValidationResult
 public class BootShareVerifier
 {
     private static readonly BigInteger DifficultyOneTarget = DecodeCompactTarget(0x1d00ffff);
+    private readonly string _bitcoinNetwork;
+
+    public BootShareVerifier()
+        : this(new PoolConfig())
+    {
+    }
+
+    public BootShareVerifier(PoolConfig poolConfig)
+    {
+        _bitcoinNetwork = BitcoinScript.NormalizeNetwork(poolConfig.BitcoinNetwork);
+    }
 
     public BootShareValidationResult ValidateShare(
         RecordedShareSubmission share,
@@ -221,9 +232,9 @@ public class BootShareVerifier
         }
     }
 
-    private static string ExtractSlotZeroAddress(byte[] scriptPubKey)
+    private string ExtractSlotZeroAddress(byte[] scriptPubKey)
     {
-        string address = BitcoinScript.ScriptToAddress(scriptPubKey);
+        string address = BitcoinScript.ScriptToAddress(scriptPubKey, _bitcoinNetwork);
         if (string.IsNullOrWhiteSpace(address) || string.Equals(address, "UNKNOWN", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("Slot 0 payout address is not a supported standard script.");
@@ -232,7 +243,7 @@ public class BootShareVerifier
         return BitcoinScript.NormalizeAddress(address);
     }
 
-    private static void ValidatePayoutOutputs(
+    private void ValidatePayoutOutputs(
         IReadOnlyList<BitcoinTransactionOutput> outputs,
         IReadOnlyList<PayoutInfo> expectedWinners)
     {
@@ -285,23 +296,23 @@ public class BootShareVerifier
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
-    private static List<ExpectedWinnerOutput> BuildLegacyWinnerOutputs(IReadOnlyList<PayoutInfo> expectedWinners)
+    private List<ExpectedWinnerOutput> BuildLegacyWinnerOutputs(IReadOnlyList<PayoutInfo> expectedWinners)
     {
         return expectedWinners.Select(payout => new ExpectedWinnerOutput
         {
             Value = payout.Value,
-            ScriptPubKey = BitcoinScript.AddressToScriptPubKey(BitcoinScript.NormalizeAddress(payout.Address))
+            ScriptPubKey = BitcoinScript.AddressToScriptPubKey(BitcoinScript.NormalizeAddress(payout.Address), _bitcoinNetwork)
         }).ToList();
     }
 
-    private static List<ExpectedWinnerOutput> BuildCompressedWinnerOutputs(IReadOnlyList<PayoutInfo> expectedWinners)
+    private List<ExpectedWinnerOutput> BuildCompressedWinnerOutputs(IReadOnlyList<PayoutInfo> expectedWinners)
     {
         var compressed = new List<ExpectedWinnerOutput>();
         var indexByScript = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var payout in expectedWinners)
         {
-            byte[] script = BitcoinScript.AddressToScriptPubKey(BitcoinScript.NormalizeAddress(payout.Address));
+            byte[] script = BitcoinScript.AddressToScriptPubKey(BitcoinScript.NormalizeAddress(payout.Address), _bitcoinNetwork);
             string scriptKey = Convert.ToHexString(script).ToLowerInvariant();
             if (indexByScript.TryGetValue(scriptKey, out int existingIndex))
             {

@@ -370,7 +370,7 @@ public class BootProtocolStateService
                 .Where(summary => IsActiveLocalDatumMinerSummaryNoLock(summary, nowUtc))
                 .ToList();
             List<BootLocalDatumMinerSummaryDto> activeNonTemporarySummaries = activeSummaries
-                .Where(summary => !IsTemporaryFoundationLocalDatumSummary(summary))
+                .Where(summary => !IsTemporaryFoundationLocalDatumSummary(summary, _poolConfig.BitcoinNetwork))
                 .ToList();
             List<BootLocalDatumMinerSummaryDto> displayableSummaries = activeNonTemporarySummaries
                 .Where(summary => IsDisplayableLocalDatumMinerSummaryNoLock(summary, nowUtc))
@@ -2679,7 +2679,7 @@ public class BootProtocolStateService
             .Where(summary => IsActiveLocalDatumMinerSummaryNoLock(summary, nowUtc))
             .ToList();
         List<BootLocalDatumMinerSummaryDto> activeNonTemporaryLocalDatumMiners = activeLocalDatumMiners
-            .Where(summary => !IsTemporaryFoundationLocalDatumSummary(summary))
+            .Where(summary => !IsTemporaryFoundationLocalDatumSummary(summary, _poolConfig.BitcoinNetwork))
             .ToList();
         List<BootLocalDatumMinerSummaryDto> displayableLocalDatumMiners = activeNonTemporaryLocalDatumMiners
             .Where(summary => IsDisplayableLocalDatumMinerSummaryNoLock(summary, nowUtc))
@@ -2696,6 +2696,7 @@ public class BootProtocolStateService
             SelfEndpoint = NormalizePeerEndpoint(_poolConfig.PublicBaseUrl),
             ProtocolVersion = _poolConfig.BootProtocolVersion,
             NetworkId = _poolConfig.BootNetworkId,
+            BitcoinNetwork = BitcoinScript.NormalizeNetwork(_poolConfig.BitcoinNetwork),
             CurrentRoundNumber = _state.CurrentRoundNumber,
             SharedWinnerSlotCount = _poolConfig.SharedWinnerSlotCount,
             TotalPayoutSlotCount = _poolConfig.TotalPayoutSlotCount,
@@ -3557,10 +3558,10 @@ public class BootProtocolStateService
     {
         return IsActiveLocalDatumMinerSummaryNoLock(summary, nowUtc) &&
             summary.HashrateSampleCount >= MinLocalDatumMinerDisplaySamples &&
-            !IsTemporaryFoundationLocalDatumSummary(summary);
+            !IsTemporaryFoundationLocalDatumSummary(summary, _poolConfig.BitcoinNetwork);
     }
 
-    private static bool IsTemporaryFoundationLocalDatumSummary(BootLocalDatumMinerSummaryDto summary)
+    private static bool IsTemporaryFoundationLocalDatumSummary(BootLocalDatumMinerSummaryDto summary, string bitcoinNetwork)
     {
         string address = BitcoinScript.NormalizeAddress(summary.Address);
         if (!string.Equals(address, GenesisFoundationAddress, StringComparison.OrdinalIgnoreCase))
@@ -3575,17 +3576,17 @@ public class BootProtocolStateService
             return false;
         }
 
-        return ExtractAddressTokens(username)
+        return ExtractAddressTokens(username, bitcoinNetwork)
             .Any(token => !string.Equals(token, GenesisFoundationAddress, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static IEnumerable<string> ExtractAddressTokens(string value)
+    private static IEnumerable<string> ExtractAddressTokens(string value, string bitcoinNetwork)
     {
         char[] separators = ['.', ',', ';', ':', '/', '\\', '|', ' ', '\t', '\r', '\n'];
         foreach (string rawToken in value.Split(separators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             string token = BitcoinScript.NormalizeAddress(rawToken);
-            if (BitcoinScript.TryAddressToScriptPubKey(token, out _))
+            if (BitcoinScript.TryAddressToScriptPubKey(token, bitcoinNetwork, out _))
             {
                 yield return token;
             }
@@ -4167,7 +4168,7 @@ public class BootProtocolStateService
             ShareId = ComputePlaceholderShareId(minerAddress, payout.DiffString, payout.Address),
             MinerAddress = minerAddress,
             Username = string.IsNullOrWhiteSpace(payout.Username) ? minerAddress : payout.Username,
-            ScriptPubKeyHex = BitcoinScript.TryAddressToScriptPubKey(minerAddress, out var script)
+            ScriptPubKeyHex = BitcoinScript.TryAddressToScriptPubKey(minerAddress, _poolConfig.BitcoinNetwork, out var script)
                 ? Convert.ToHexString(script).ToLowerInvariant()
                 : string.Empty,
             Difficulty = payout.Difficulty,
@@ -4422,7 +4423,7 @@ public class BootProtocolStateService
         foreach (var payout in payouts)
         {
             string normalizedAddress = BitcoinScript.NormalizeAddress(payout.Address);
-            string scriptPubKeyHex = BitcoinScript.AddressToScriptPubKeyHex(normalizedAddress);
+            string scriptPubKeyHex = BitcoinScript.AddressToScriptPubKeyHex(normalizedAddress, _poolConfig.BitcoinNetwork);
             if (indexByScript.TryGetValue(scriptPubKeyHex, out int existingIndex))
             {
                 compressed[existingIndex].Value += payout.Value;
@@ -4457,8 +4458,8 @@ public class BootProtocolStateService
                 return false;
             }
 
-            string expectedScript = BitcoinScript.AddressToScriptPubKeyHex(expected[i].Address);
-            string actualScript = BitcoinScript.AddressToScriptPubKeyHex(actual[i].Address);
+            string expectedScript = BitcoinScript.AddressToScriptPubKeyHex(expected[i].Address, _poolConfig.BitcoinNetwork);
+            string actualScript = BitcoinScript.AddressToScriptPubKeyHex(actual[i].Address, _poolConfig.BitcoinNetwork);
             if (!string.Equals(expectedScript, actualScript, StringComparison.OrdinalIgnoreCase))
             {
                 return false;
@@ -4478,7 +4479,7 @@ public class BootProtocolStateService
         var pseudoProofs = payouts.Select(x => new BootShareProof
         {
             MinerAddress = x.Address,
-            ScriptPubKeyHex = BitcoinScript.TryAddressToScriptPubKey(x.Address, out var script)
+            ScriptPubKeyHex = BitcoinScript.TryAddressToScriptPubKey(x.Address, _poolConfig.BitcoinNetwork, out var script)
                 ? Convert.ToHexString(script).ToLowerInvariant()
                 : string.Empty,
             Difficulty = x.Difficulty

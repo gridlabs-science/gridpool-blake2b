@@ -4,6 +4,20 @@ namespace boot_portal.Utils;
 
 public static class BitcoinScript
 {
+    public const string Mainnet = "mainnet";
+    public const string Testnet4 = "testnet4";
+
+    public static string NormalizeNetwork(string? network)
+    {
+        string value = (network ?? Mainnet).Trim().ToLowerInvariant();
+        return value switch
+        {
+            "" or "main" or "mainnet" => Mainnet,
+            "test" or "testnet" or "testnet3" or "testnet4" => Testnet4,
+            _ => throw new InvalidOperationException($"Unsupported bitcoin_network '{network}'. Expected mainnet or testnet4.")
+        };
+    }
+
     public static string NormalizeAddress(string address)
     {
         if (string.IsNullOrWhiteSpace(address))
@@ -17,9 +31,14 @@ public static class BitcoinScript
 
     public static bool TryAddressToScriptPubKey(string address, out byte[] scriptPubKey)
     {
+        return TryAddressToScriptPubKey(address, Mainnet, out scriptPubKey);
+    }
+
+    public static bool TryAddressToScriptPubKey(string address, string? network, out byte[] scriptPubKey)
+    {
         try
         {
-            scriptPubKey = AddressToScriptPubKey(address);
+            scriptPubKey = AddressToScriptPubKey(address, network);
             return true;
         }
         catch
@@ -31,6 +50,12 @@ public static class BitcoinScript
 
     public static byte[] AddressToScriptPubKey(string address)
     {
+        return AddressToScriptPubKey(address, Mainnet);
+    }
+
+    public static byte[] AddressToScriptPubKey(string address, string? network)
+    {
+        string normalizedNetwork = NormalizeNetwork(network);
         string normalized = NormalizeAddress(address);
         if (string.IsNullOrWhiteSpace(normalized))
         {
@@ -40,7 +65,13 @@ public static class BitcoinScript
         if (normalized.StartsWith("bc1", StringComparison.OrdinalIgnoreCase) ||
             normalized.StartsWith("tb1", StringComparison.OrdinalIgnoreCase))
         {
-            var (_, version, program) = Bech32.Decode(normalized);
+            var (hrp, version, program) = Bech32.Decode(normalized);
+            string expectedHrp = normalizedNetwork == Testnet4 ? "tb" : "bc";
+            if (!string.Equals(hrp, expectedHrp, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"Address {address} is not valid for bitcoin_network {normalizedNetwork}.");
+            }
+
             byte witnessVersionOpCode = version switch
             {
                 0 => (byte)0x00,
@@ -63,19 +94,32 @@ public static class BitcoinScript
 
         return payload[0] switch
         {
-            0x00 => BuildP2PkhScript(payload),
-            0x05 => BuildP2ShScript(payload),
+            0x00 when normalizedNetwork == Mainnet => BuildP2PkhScript(payload),
+            0x05 when normalizedNetwork == Mainnet => BuildP2ShScript(payload),
+            0x6f when normalizedNetwork == Testnet4 => BuildP2PkhScript(payload),
+            0xc4 when normalizedNetwork == Testnet4 => BuildP2ShScript(payload),
             _ => throw new InvalidOperationException($"Unsupported Base58 version 0x{payload[0]:X2} for address {address}.")
         };
     }
 
     public static string AddressToScriptPubKeyHex(string address)
     {
-        return Convert.ToHexString(AddressToScriptPubKey(address)).ToLowerInvariant();
+        return AddressToScriptPubKeyHex(address, Mainnet);
+    }
+
+    public static string AddressToScriptPubKeyHex(string address, string? network)
+    {
+        return Convert.ToHexString(AddressToScriptPubKey(address, network)).ToLowerInvariant();
     }
 
     public static string ScriptToAddress(byte[] script)
     {
+        return ScriptToAddress(script, Mainnet);
+    }
+
+    public static string ScriptToAddress(byte[] script, string? network)
+    {
+        string normalizedNetwork = NormalizeNetwork(network);
         if (script.Length == 25 &&
             script[0] == 0x76 &&
             script[1] == 0xA9 &&
@@ -84,7 +128,7 @@ public static class BitcoinScript
             script[24] == 0xAC)
         {
             byte[] payload = new byte[21];
-            payload[0] = 0x00;
+            payload[0] = normalizedNetwork == Testnet4 ? (byte)0x6f : (byte)0x00;
             Array.Copy(script, 3, payload, 1, 20);
             return Base58Check.Encode(payload);
         }
@@ -95,7 +139,7 @@ public static class BitcoinScript
             script[22] == 0x87)
         {
             byte[] payload = new byte[21];
-            payload[0] = 0x05;
+            payload[0] = normalizedNetwork == Testnet4 ? (byte)0xc4 : (byte)0x05;
             Array.Copy(script, 2, payload, 1, 20);
             return Base58Check.Encode(payload);
         }
@@ -103,19 +147,19 @@ public static class BitcoinScript
         if (script.Length == 22 && script[0] == 0x00 && script[1] == 0x14)
         {
             byte[] program = script.Skip(2).Take(20).ToArray();
-            return Bech32.Encode("bc", 0, program);
+            return Bech32.Encode(normalizedNetwork == Testnet4 ? "tb" : "bc", 0, program);
         }
 
         if (script.Length == 34 && script[0] == 0x00 && script[1] == 0x20)
         {
             byte[] program = script.Skip(2).Take(32).ToArray();
-            return Bech32.Encode("bc", 0, program);
+            return Bech32.Encode(normalizedNetwork == Testnet4 ? "tb" : "bc", 0, program);
         }
 
         if (script.Length == 34 && script[0] == 0x51 && script[1] == 0x20)
         {
             byte[] program = script.Skip(2).Take(32).ToArray();
-            return Bech32.Encode("bc", 1, program);
+            return Bech32.Encode(normalizedNetwork == Testnet4 ? "tb" : "bc", 1, program);
         }
 
         return "UNKNOWN";

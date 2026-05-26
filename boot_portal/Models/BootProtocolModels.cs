@@ -141,6 +141,7 @@ public class BootNetworkStatusDto
     public string SelfEndpoint { get; set; } = string.Empty;
     public int ProtocolVersion { get; set; }
     public string NetworkId { get; set; } = string.Empty;
+    public string BitcoinNetwork { get; set; } = "mainnet";
     public int CurrentRoundNumber { get; set; }
     public int SharedWinnerSlotCount { get; set; }
     public int TotalPayoutSlotCount { get; set; }

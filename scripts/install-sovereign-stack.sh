@@ -9,12 +9,17 @@ GRID_BOOT_REPO_REF="${GRID_BOOT_REPO_REF:-main}"
 GRID_DATUM_REPO_URL="${GRID_DATUM_REPO_URL:-https://github.com/OCEAN-xyz/datum_gateway.git}"
 GRID_DATUM_REPO_REF="${GRID_DATUM_REPO_REF:-master}"
 
+GRID_POOL_PAYOUT_ADDRESS_WAS_SET="${GRID_POOL_PAYOUT_ADDRESS+x}"
+GRID_BOOT_BOOTSTRAP_PEERS_WAS_SET="${GRID_BOOT_BOOTSTRAP_PEERS+x}"
+GRID_BOOT_NETWORK_ID_WAS_SET="${GRID_BOOT_NETWORK_ID+x}"
 GRID_FOUNDATION_PAYOUT_ADDRESS="${GRID_FOUNDATION_PAYOUT_ADDRESS:-bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3}"
 GRID_POOL_PAYOUT_ADDRESS="${GRID_POOL_PAYOUT_ADDRESS:-$GRID_FOUNDATION_PAYOUT_ADDRESS}"
 GRID_POOL_COINBASE_TAG="${GRID_POOL_COINBASE_TAG:-Grid Pool}"
 GRID_BOOT_BOOTSTRAP_PEERS="${GRID_BOOT_BOOTSTRAP_PEERS:-https://gridpool.net}"
 GRID_BOOT_NETWORK_ID="${GRID_BOOT_NETWORK_ID:-public-beta}"
 GRID_BOOT_NODE_MODE="${GRID_BOOT_NODE_MODE:-sovereign}"
+BITCOIN_NETWORK="${BITCOIN_NETWORK:-mainnet}"
+GRID_BOOT_STATE_FILE="${GRID_BOOT_STATE_FILE:-pool_state.json}"
 
 BITCOIN_CORE_VERSION="${BITCOIN_CORE_VERSION:-31.0}"
 BITCOIN_PRUNE_MB="${BITCOIN_PRUNE_MB:-1100}"
@@ -74,6 +79,7 @@ Options:
   --boot-ref REF                Boot repo branch/tag/commit (default: $GRID_BOOT_REPO_REF)
   --datum-ref REF               DATUM repo branch/tag/commit (default: $GRID_DATUM_REPO_REF)
   --bitcoin-version VERSION     Bitcoin Core release version (default: $BITCOIN_CORE_VERSION)
+  --bitcoin-network NETWORK     Bitcoin network: mainnet or testnet4 (default: $BITCOIN_NETWORK)
   --prune-mb MB                 Bitcoin prune target in MiB (default: $BITCOIN_PRUNE_MB)
   --dbcache-mb MB|auto          Bitcoin dbcache in MiB (default: $BITCOIN_DBCACHE_MB)
   --assumevalid HASH            Optional trusted recent block hash for Bitcoin Core assumevalid
@@ -94,7 +100,7 @@ Options:
 
 Useful environment overrides:
   GRID_BOOT_REPO_URL, GRID_DATUM_REPO_URL
-  GRID_BOOT_NETWORK_ID, GRID_POOL_COINBASE_TAG
+  BITCOIN_NETWORK, GRID_BOOT_NETWORK_ID, GRID_BOOT_STATE_FILE, GRID_POOL_COINBASE_TAG
   BITCOIN_RPC_USER, BITCOIN_RPC_PASSWORD, BITCOIN_RPC_URL, BITCOIN_ASSUMEVALID
   BITCOIN_ASSUMEUTXO_SNAPSHOT, BITCOIN_ASSUMEUTXO_STREAM, BITCOIN_ASSUMEUTXO_MIN_HEADERS
   BITCOIN_DBCACHE_MB, BITCOIN_MAX_MEMPOOL_MB
@@ -281,6 +287,10 @@ parse_args() {
                 BITCOIN_CORE_VERSION="${2:-}"
                 shift 2
                 ;;
+            --bitcoin-network)
+                BITCOIN_NETWORK="${2:-}"
+                shift 2
+                ;;
             --prune-mb)
                 BITCOIN_PRUNE_MB="${2:-}"
                 shift 2
@@ -365,6 +375,8 @@ sudo_env_args() {
         GRID_BOOT_BOOTSTRAP_PEERS
         GRID_BOOT_NETWORK_ID
         GRID_BOOT_NODE_MODE
+        BITCOIN_NETWORK
+        GRID_BOOT_STATE_FILE
         GRID_SWAP_MB
         GRID_SWAP_FILE
         BITCOIN_CORE_VERSION
@@ -437,6 +449,30 @@ confirm_inputs() {
         GRID_POOL_PAYOUT_ADDRESS="$GRID_FOUNDATION_PAYOUT_ADDRESS"
     fi
 
+    case "${BITCOIN_NETWORK,,}" in
+        main|mainnet|"")
+            BITCOIN_NETWORK="mainnet"
+            ;;
+        test|testnet|testnet3|testnet4)
+            BITCOIN_NETWORK="testnet4"
+            if [[ -z "$GRID_BOOT_NETWORK_ID_WAS_SET" ]]; then
+                GRID_BOOT_NETWORK_ID="testnet4-beta"
+            fi
+            if [[ -z "$GRID_BOOT_BOOTSTRAP_PEERS_WAS_SET" ]]; then
+                GRID_BOOT_BOOTSTRAP_PEERS=""
+            fi
+            if [[ "$GRID_BOOT_STATE_FILE" == "pool_state.json" ]]; then
+                GRID_BOOT_STATE_FILE="pool_state.testnet4.json"
+            fi
+            if [[ -z "$GRID_POOL_PAYOUT_ADDRESS_WAS_SET" || "$GRID_POOL_PAYOUT_ADDRESS" == "$GRID_FOUNDATION_PAYOUT_ADDRESS" ]]; then
+                fail "testnet4 installs require --payout-address with a testnet address; refusing to use the mainnet foundation address"
+            fi
+            ;;
+        *)
+            fail "--bitcoin-network must be mainnet or testnet4"
+            ;;
+    esac
+
     if ! [[ "$BITCOIN_PRUNE_MB" =~ ^[0-9]+$ ]]; then
         fail "--prune-mb must be an integer"
     fi
@@ -480,6 +516,8 @@ confirm_inputs() {
     log "DATUM pool endpoint advertised to miners: ${BOOT_DATUM_PUBLIC_HOST}:${BOOT_DATUM_PORT}"
     log "ASIC Stratum endpoint after install: ${GRID_PRIMARY_IP}:${DATUM_STRATUM_PORT}"
     log "payout address: $GRID_POOL_PAYOUT_ADDRESS"
+    log "Bitcoin network: $BITCOIN_NETWORK"
+    log "Boot network id: $GRID_BOOT_NETWORK_ID"
     if (( INSTALL_BITCOIN )); then
         BITCOIN_RPC_URL="http://127.0.0.1:8332"
         log "Bitcoin mode: local pruned node"
@@ -814,6 +852,7 @@ install_bitcoin_core() {
 server=1
 daemon=0
 disablewallet=1
+$(if [[ "$BITCOIN_NETWORK" != "mainnet" ]]; then printf 'chain=%s\n' "$BITCOIN_NETWORK"; fi)
 prune=${BITCOIN_PRUNE_MB}
 dbcache=${BITCOIN_DBCACHE_MB_RESOLVED}
 maxmempool=${BITCOIN_MAX_MEMPOOL_MB}
@@ -835,6 +874,7 @@ rpcuser=${BITCOIN_RPC_USER}
 rpcpassword=${BITCOIN_RPC_PASSWORD}
 rpcbind=127.0.0.1
 rpcallowip=127.0.0.1
+rpcport=8332
 rpcthreads=4
 rpcworkqueue=64
 
@@ -897,7 +937,7 @@ bootstrap_peers_json() {
 write_boot_compose() {
     local boot_dir="$1"
 
-    write_file "$boot_dir/docker-compose.sovereign.yml" 0644 root:root <<'EOF'
+    write_file "$boot_dir/docker-compose.sovereign.yml" 0644 root:root <<EOF
 services:
   boot-portal:
     build:
@@ -908,7 +948,7 @@ services:
     network_mode: host
     environment:
       BOOT_PORTAL_CONFIG_PATH: /data/boot_portal_config.json
-      BOOT_PORTAL_STATE_PATH: /data/pool_state.json
+      BOOT_PORTAL_STATE_PATH: /data/${GRID_BOOT_STATE_FILE}
     volumes:
       - ./data:/data
 EOF
@@ -935,6 +975,7 @@ install_boot() {
             --arg publicBaseUrl "$BOOT_PUBLIC_BASE_URL" \
             --arg datumPublicHost "$BOOT_DATUM_PUBLIC_HOST" \
             --arg nodeMode "$GRID_BOOT_NODE_MODE" \
+            --arg bitcoinNetwork "$BITCOIN_NETWORK" \
             --arg networkId "$GRID_BOOT_NETWORK_ID" \
             --arg payout "$GRID_POOL_PAYOUT_ADDRESS" \
             --arg tag "$GRID_POOL_COINBASE_TAG" \
@@ -949,6 +990,7 @@ install_boot() {
                 public_base_url: $publicBaseUrl,
                 datum_public_host: $datumPublicHost,
                 node_mode: $nodeMode,
+                bitcoin_network: $bitcoinNetwork,
                 boot_network_id: $networkId,
                 enable_peer_sync: true,
                 bootstrap_peers: $peers,

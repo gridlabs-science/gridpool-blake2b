@@ -67,6 +67,60 @@ public sealed class PoolConfigValidatorTests
     }
 
     [TestMethod]
+    public void MainnetRejectsTestnetPayoutAddress()
+    {
+        byte[] script = Enumerable.Range(0, 22).Select(i => (byte)i).ToArray();
+        script[0] = 0x00;
+        script[1] = 0x14;
+        string testnetAddress = BitcoinScript.ScriptToAddress(script, BitcoinScript.Testnet4);
+
+        var config = new PoolConfig
+        {
+            BitcoinNetwork = BitcoinScript.Mainnet,
+            PoolPayoutScript = testnetAddress
+        };
+
+        List<string> errors = PoolConfigValidator.Validate(config);
+
+        Assert.IsTrue(errors.Any(error => error.Contains("pool_payout_script", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
+    public void Testnet4AcceptsTestnetPayoutAddressAndRejectsMainnetAddress()
+    {
+        byte[] script = Enumerable.Range(0, 22).Select(i => (byte)i).ToArray();
+        script[0] = 0x00;
+        script[1] = 0x14;
+        string testnetAddress = BitcoinScript.ScriptToAddress(script, BitcoinScript.Testnet4);
+
+        var validConfig = new PoolConfig
+        {
+            BitcoinNetwork = BitcoinScript.Testnet4,
+            PoolPayoutScript = testnetAddress
+        };
+
+        CollectionAssert.AreEqual(Array.Empty<string>(), PoolConfigValidator.Validate(validConfig));
+
+        validConfig.PoolPayoutScript = "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y";
+        List<string> errors = PoolConfigValidator.Validate(validConfig);
+
+        Assert.IsTrue(errors.Any(error => error.Contains("pool_payout_script", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
+    public void UnsupportedBitcoinNetworkFailsValidation()
+    {
+        var config = new PoolConfig
+        {
+            BitcoinNetwork = "regtest"
+        };
+
+        List<string> errors = PoolConfigValidator.Validate(config);
+
+        Assert.IsTrue(errors.Any(error => error.Contains("bitcoin_network", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
     public void BadRateLimitFailsValidation()
     {
         var config = new PoolConfig

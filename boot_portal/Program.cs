@@ -45,6 +45,9 @@ public static class CryptoUtils
 //  (though that could be done, it's just not a preferable outcome)
 public class PoolConfig
 {
+    [JsonPropertyName("bitcoin_network")]
+    public string BitcoinNetwork { get; set; } = BitcoinScript.Mainnet;
+
     [JsonPropertyName("pool_payout_script")]
     public string PoolPayoutScript { get; set; } = "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y"; //TODO: hard coded default address? 
 
@@ -1847,7 +1850,7 @@ public class ClientHandler
         payload.Add(0x01);
 
         // Pool payout script
-        byte[] poolScriptBytes = ResolvePoolPayoutScriptBytes(config.PoolPayoutScript);
+        byte[] poolScriptBytes = ResolvePoolPayoutScriptBytes(config.PoolPayoutScript, config.BitcoinNetwork);
         if (poolScriptBytes.Length > 255)
         {
             Console.WriteLine($"⚠️ Pool payout script too long ({poolScriptBytes.Length} bytes), truncating to 255");
@@ -2049,7 +2052,7 @@ public class ClientHandler
         //Console.WriteLine($"[SEND] Coinbaser Fetch Response (0x05, 0x11)");
     }
 
-    private static byte[] ResolvePoolPayoutScriptBytes(string? configuredValue)
+    private static byte[] ResolvePoolPayoutScriptBytes(string? configuredValue, string? bitcoinNetwork)
     {
         string value = (configuredValue ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(value))
@@ -2057,7 +2060,7 @@ public class ClientHandler
             return [];
         }
 
-        if (BitcoinScript.TryAddressToScriptPubKey(value, out byte[]? scriptBytes))
+        if (BitcoinScript.TryAddressToScriptPubKey(value, bitcoinNetwork, out byte[]? scriptBytes))
         {
             return scriptBytes;
         }
@@ -2855,23 +2858,7 @@ public class ClientHandler
 
     private string ScriptToAddress(byte[] script)
     {
-        // Simplified: Handle P2PKH and P2WPKH
-        if (script.Length == 25 && script[0] == 0x76 && script[1] == 0xA9 && script[2] == 0x14)
-        {
-            byte[] hash = script.Skip(3).Take(20).ToArray();
-            byte[] payload = new byte[25];
-            payload[0] = 0x00; // Mainnet P2PKH
-            Array.Copy(hash, 0, payload, 1, 20);
-            byte[] checksum = DoubleSha256(payload.Take(21).ToArray()).Take(4).ToArray();
-            Array.Copy(checksum, 0, payload, 21, 4);
-            return Base58Check.Encode(payload);
-        }
-        if (script.Length == 22 && script[0] == 0x00 && script[1] == 0x14)
-        {
-            byte[] program = script.Skip(2).Take(20).ToArray();
-            return Bech32.Encode("bc", 0, program);
-        }
-        return "UNKNOWN";
+        return BitcoinScript.ScriptToAddress(script, _poolConfig.BitcoinNetwork);
     }
 
     // Local function to validate an address candidate

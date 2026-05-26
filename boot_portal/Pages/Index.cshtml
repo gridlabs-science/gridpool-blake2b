@@ -2852,6 +2852,7 @@
                     connection.endpoint,
                     [
                         buildFocusMetric("Pool pubkey", connection.pubkey),
+                        buildFocusMetric("Chain", latestNetworkState?.bitcoinNetwork || "mainnet"),
                         buildFocusMetric("Network", latestNetworkState?.networkId || "--"),
                         buildFocusMetric("Peers", (latestNetworkState?.peerCount ?? 0).toLocaleString())
                     ].join(""),
