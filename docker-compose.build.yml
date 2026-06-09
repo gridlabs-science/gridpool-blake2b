@@ -1,0 +1,5 @@
+services:
+  boot-portal:
+    build:
+      context: .
+      dockerfile: Dockerfile

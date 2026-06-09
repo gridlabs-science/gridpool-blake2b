@@ -23,6 +23,15 @@ public static class BitcoinHashes
         return Convert.ToHexString(hashBytes.Reverse().ToArray()).ToLowerInvariant();
     }
 
+    public static string ToLikelyDisplayHashHex(byte[] hashBytes)
+    {
+        string raw = Convert.ToHexString(hashBytes).ToLowerInvariant();
+        string reversed = ToDisplayHashHex(hashBytes);
+        return CountLeadingZeroNibbles(raw) > CountLeadingZeroNibbles(reversed)
+            ? raw
+            : reversed;
+    }
+
     public static string ReverseHexByteOrder(string hex)
     {
         string normalized = NormalizeHex(hex);
@@ -40,6 +49,36 @@ public static class BitcoinHashes
         }
 
         return new string(reversed);
+    }
+
+    public static string NormalizeLikelyDisplayHashHex(string? hex)
+    {
+        string normalized = NormalizeHex(hex);
+        if (normalized.Length != 64)
+        {
+            return normalized;
+        }
+
+        string reversed = ReverseHexByteOrder(normalized);
+        return CountLeadingZeroNibbles(normalized) > CountLeadingZeroNibbles(reversed)
+            ? normalized
+            : reversed;
+    }
+
+    private static int CountLeadingZeroNibbles(string hex)
+    {
+        int count = 0;
+        foreach (char c in NormalizeHex(hex))
+        {
+            if (c != '0')
+            {
+                break;
+            }
+
+            count++;
+        }
+
+        return count;
     }
 
     public static bool AreEquivalent(string? first, string? second)

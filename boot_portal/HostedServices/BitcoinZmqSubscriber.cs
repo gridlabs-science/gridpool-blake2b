@@ -10,17 +10,19 @@ namespace boot_portal.HostedServices;
 public class BitcoinZmqSubscriber : BackgroundService
 {
     private SubscriberSocket? _subscriber;
-    private const string ZMQ_ENDPOINT = "tcp://127.0.0.1:28332"; // From bitcoin.conf //TODO: Put this in the config file
     private const string TOPIC = "hashblock"; // Subscribe to block hashes
+    private readonly PoolConfig _poolConfig;
     private readonly ILogger<BitcoinZmqSubscriber> _logger;
     private readonly IHubContext<PoolStatsHub> _hubContext;
     private readonly BootProtocolStateService _stateService;
 
     public BitcoinZmqSubscriber(
+        PoolConfig poolConfig,
         ILogger<BitcoinZmqSubscriber> logger,
         IHubContext<PoolStatsHub> hubContext,
         BootProtocolStateService stateService)
     {
+        _poolConfig = poolConfig;
         _logger = logger;
         _hubContext = hubContext;
         _stateService = stateService;
@@ -34,9 +36,12 @@ public class BitcoinZmqSubscriber : BackgroundService
         using (_subscriber = new SubscriberSocket())
         using (var poller = new NetMQPoller { _subscriber }) // Add the socket to the poller
         {
-            _subscriber.Connect(ZMQ_ENDPOINT);
+            string zmqEndpoint = string.IsNullOrWhiteSpace(_poolConfig.BitcoinZmqEndpoint)
+                ? "tcp://127.0.0.1:28332"
+                : _poolConfig.BitcoinZmqEndpoint.Trim();
+            _subscriber.Connect(zmqEndpoint);
             _subscriber.Subscribe(TOPIC);
-            _logger.LogInformation("Subscribed to ZMQ at {ZmqEndpoint} for topic '{Topic}'", ZMQ_ENDPOINT, TOPIC);
+            _logger.LogInformation("Subscribed to ZMQ at {ZmqEndpoint} for topic '{Topic}'", zmqEndpoint, TOPIC);
 
             // 3. Attach to the ReceiveReady event.
             // This event will fire on the Poller's dedicated thread when a message arrives.
@@ -63,7 +68,7 @@ public class BitcoinZmqSubscriber : BackgroundService
 
                     if (topic == TOPIC && blockHash.Length == 32)
                     {
-                        var hashHex = BitcoinHashes.ToDisplayHashHex(blockHash);
+                        var hashHex = BitcoinHashes.ToLikelyDisplayHashHex(blockHash);
                         _logger.LogInformation("New block detected: {HashHex}", hashHex);
 
                         // *** CRITICAL ***

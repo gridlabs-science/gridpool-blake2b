@@ -41,6 +41,7 @@
   "pool_payout_script": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
   "winners_list_size": 299,
   "coinbase_tag": "Grid Pool",
+  "genesis_round_start_utc": null,
   "prime_id": 21,
   "min_diff": 300,
   "hashrate_local_window_seconds": 1800,
@@ -48,6 +49,8 @@
   "local_datum_hashrate_per_address_max_samples": 512,
   "local_datum_hashrate_max_addresses": 5000,
   "max_accepted_share_telemetry_entries": 20000,
+  "datum_keepalive_interval_seconds": 30,
+  "bitcoin_zmq_endpoint": "tcp://127.0.0.1:28332",
   "stratum_v1_proxy_host": "",
   "stratum_v1_proxy_port": 0
 }

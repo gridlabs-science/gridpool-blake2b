@@ -17,6 +17,7 @@ public class PoolState
     public double? LastGridPoolBlockDifficulty { get; set; }
     public List<string> AcceptedParentBlockHashes { get; set; } = [];
     public DateTime? LastRotationUtc { get; set; }
+    public DateTime? GenesisRoundStartedUtc { get; set; }
     public List<PayoutInfo> WinnersList { get; set; } = [];
     public List<PayoutInfo> OnDeckList { get; set; } = [];
     public List<BootShareProof> OnDeckProofs { get; set; } = [];

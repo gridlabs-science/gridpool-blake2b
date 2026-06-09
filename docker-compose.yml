@@ -1,8 +1,6 @@
 services:
   boot-portal:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${GRIDPOOL_BOOT_IMAGE:-ghcr.io/gridlabs-science/boot-protocol:latest}
     container_name: boot-portal
     restart: unless-stopped
     environment:

@@ -3463,6 +3463,13 @@
                 point: point
             }))
             .filter(item => Number(item.y) > 0);
+        const localDatumData = displayPoints
+            .map(point => ({
+                x: point.timestampMs,
+                y: point.localHashrateThs,
+                point: point
+            }))
+            .filter(item => Number(item.y) > 0);
         const selectedMinerData = selectedMinerPoints
             .map(point => ({
                 x: point.timestampMs,
@@ -3470,18 +3477,20 @@
                 point: point
             }))
             .filter(item => Number(item.y) > 0);
-        const positiveValues = [...teamData, ...selectedMinerData]
+        const positiveValues = [...teamData, ...localDatumData, ...selectedMinerData]
             .map(item => Number(item.y) || 0)
             .filter(value => value > 0);
         const hasPositiveValues = positiveValues.length > 0;
         const positiveMin = hasPositiveValues ? Math.min(...positiveValues) : null;
         const useLogScale = hashrateScaleMode === "log" && hasPositiveValues;
         const accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim();
-        const secondaryColor = "#39d98a";
+        const localColor = "#39d98a";
+        const selectedMinerColor = "#f5b84b";
         const selectedMiner = getSelectedLocalMinerSummary();
+        const hasLocalDatumLine = localDatumData.length > 0;
         const hasSelectedMinerLine = selectedMinerData.length > 0;
         const chartTitle = hasSelectedMinerLine
-            ? "Team / Selected Miner Hashrate"
+            ? "Team / Local / Selected Miner Hashrate"
             : activeUiMode === "lottery"
             ? "Team Hashrate Through Time"
             : activeUiMode === "business"
@@ -3500,13 +3509,28 @@
             tension: 0.25
         }];
 
+        if (hasLocalDatumLine) {
+            datasets.push({
+                label: "Local DATUM",
+                data: localDatumData,
+                borderColor: localColor,
+                backgroundColor: `${localColor}22`,
+                borderWidth: 2,
+                pointRadius: localDatumData.map(item => item.point.isCurrent ? 4 : 2),
+                pointHoverRadius: localDatumData.map(item => item.point.isCurrent ? 6 : 4),
+                fill: false,
+                tension: 0.2
+            });
+        }
+
         if (hasSelectedMinerLine) {
             datasets.push({
                 label: `Selected Miner${selectedMiner?.currentHashrateDisplay ? ` (${selectedMiner.currentHashrateDisplay})` : ""}`,
                 data: selectedMinerData,
-                borderColor: secondaryColor,
-                backgroundColor: `${secondaryColor}22`,
+                borderColor: selectedMinerColor,
+                backgroundColor: `${selectedMinerColor}22`,
                 borderWidth: 2,
+                borderDash: [6, 4],
                 pointRadius: selectedMinerData.map(item => item.point.isCurrent ? 4 : 2),
                 pointHoverRadius: selectedMinerData.map(item => item.point.isCurrent ? 6 : 4),
                 fill: false,
@@ -3547,9 +3571,13 @@
                             },
                             label: function(context) {
                                 const point = context.raw?.point;
-                                return context.datasetIndex === 0
-                                    ? `Team: ${point?.smoothedTeamDisplay || point?.teamDisplay || formatHashrateFromThs(context.raw?.y)}`
-                                    : `Selected miner: ${point?.hashrateDisplay || formatHashrateFromThs(context.raw?.y)}`;
+                                if (context.dataset.label?.startsWith("Team")) {
+                                    return `Team: ${point?.smoothedTeamDisplay || point?.teamDisplay || formatHashrateFromThs(context.raw?.y)}`;
+                                }
+                                if (context.dataset.label?.startsWith("Local DATUM")) {
+                                    return `Local DATUM: ${point?.localDisplay || formatHashrateFromThs(context.raw?.y)}`;
+                                }
+                                return `Selected miner: ${point?.hashrateDisplay || formatHashrateFromThs(context.raw?.y)}`;
                             }
                         }
                     }
@@ -3590,26 +3618,29 @@
             : null;
         const localWindowMinutes = Math.round((globalHashrateSeries?.localWindowSeconds || 1800) / 60);
         const scaleText = hashrateScaleMode === "log" ? "Log scale emphasizes relative swings and prevents one lucky spike from flattening the rest of the series." : "Linear scale shows absolute swings in estimated hashrate.";
+        const localDatumText = hasLocalDatumLine
+            ? "Green line is aggregate local DATUM hashrate sampled over the full selected chart window."
+            : "Local DATUM history appears once this node has sampled direct-share hashrate.";
         const selectedMinerText = hasSelectedMinerLine
-            ? `Green line is the selected local miner over the rolling ${localWindowMinutes}-minute direct-share window.`
+            ? `Orange dashed line is the selected payout address over the rolling ${localWindowMinutes}-minute direct-share window.`
             : "Search or click an active local DATUM payout address to add its individual miner hashrate line.";
         if (activeUiMode === "lottery") {
             note.innerText = currentPoint?.isCurrent && averageHashrateThs != null
-                ? `Team line is smoothed over the last 30 minutes to suppress reset spikes. Recent average: ${formatHashrateFromThs(averageHashrateThs)}. ${selectedMinerText} ${scaleText}`
-                : `This chart shows the team hashrate smoothed over the last 30 minutes from recent winning-quality shares. ${selectedMinerText} ${scaleText}`;
+                ? `Team line is smoothed over the last 30 minutes to suppress reset spikes. Recent average: ${formatHashrateFromThs(averageHashrateThs)}. ${localDatumText} ${selectedMinerText} ${scaleText}`
+                : `This chart shows the team hashrate smoothed over the last 30 minutes from recent winning-quality shares. ${localDatumText} ${selectedMinerText} ${scaleText}`;
             return;
         }
 
         if (activeUiMode === "business") {
             note.innerText = currentPoint?.isCurrent && averageHashrateThs != null
-                ? `Team line is a 30-minute smoothing window. Team window average: ${formatHashrateFromThs(averageHashrateThs)}. ${selectedMinerText} ${scaleText}`
-                : `${selectedMinerText} ${scaleText}`;
+                ? `Team line is a 30-minute smoothing window. Team window average: ${formatHashrateFromThs(averageHashrateThs)}. ${localDatumText} ${selectedMinerText} ${scaleText}`
+                : `${localDatumText} ${selectedMinerText} ${scaleText}`;
             return;
         }
 
         note.innerText = currentPoint?.isCurrent && averageHashrateThs != null
-            ? `Live team line uses a 30-minute smoothing window over the current and sampled queue estimates. Team window average: ${formatHashrateFromThs(averageHashrateThs)}. ${selectedMinerText} ${scaleText}`
-            : `${selectedMinerText} ${scaleText}`;
+            ? `Live team line uses a 30-minute smoothing window over the current and sampled queue estimates. Team window average: ${formatHashrateFromThs(averageHashrateThs)}. ${localDatumText} ${selectedMinerText} ${scaleText}`
+            : `${localDatumText} ${selectedMinerText} ${scaleText}`;
     }
 
     function recipientMatchesSearch(item) {

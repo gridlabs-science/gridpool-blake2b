@@ -6,6 +6,8 @@ SCRIPT_NAME="$(basename "$0")"
 GRID_HOME="${GRID_HOME:-/opt/grid-pool}"
 GRID_BOOT_REPO_URL="${GRID_BOOT_REPO_URL:-https://github.com/gridlabs-science/boot-protocol.git}"
 GRID_BOOT_REPO_REF="${GRID_BOOT_REPO_REF:-main}"
+GRID_BOOT_IMAGE="${GRID_BOOT_IMAGE:-ghcr.io/gridlabs-science/boot-protocol:latest}"
+GRID_BOOT_LOCAL_BUILD="${GRID_BOOT_LOCAL_BUILD:-0}"
 GRID_DATUM_REPO_URL="${GRID_DATUM_REPO_URL:-https://github.com/OCEAN-xyz/datum_gateway.git}"
 GRID_DATUM_REPO_REF="${GRID_DATUM_REPO_REF:-master}"
 
@@ -937,12 +939,30 @@ bootstrap_peers_json() {
 write_boot_compose() {
     local boot_dir="$1"
 
-    write_file "$boot_dir/docker-compose.sovereign.yml" 0644 root:root <<EOF
+    if [[ "$GRID_BOOT_LOCAL_BUILD" == "1" ]]; then
+        write_file "$boot_dir/docker-compose.sovereign.yml" 0644 root:root <<EOF
 services:
   boot-portal:
+    image: ${GRID_BOOT_IMAGE}
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: boot-portal
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      BOOT_PORTAL_CONFIG_PATH: /data/boot_portal_config.json
+      BOOT_PORTAL_STATE_PATH: /data/${GRID_BOOT_STATE_FILE}
+    volumes:
+      - ./data:/data
+EOF
+        return 0
+    fi
+
+    write_file "$boot_dir/docker-compose.sovereign.yml" 0644 root:root <<EOF
+services:
+  boot-portal:
+    image: ${GRID_BOOT_IMAGE}
     container_name: boot-portal
     restart: unless-stopped
     network_mode: host
@@ -1006,8 +1026,14 @@ install_boot() {
     run chown -R 1000:1000 "$boot_dir/data"
     run chmod 0750 "$boot_dir/data"
 
-    log "building and starting Boot/Grid Pool"
-    run docker compose -f "$boot_dir/docker-compose.sovereign.yml" --project-directory "$boot_dir" up -d --build
+    if [[ "$GRID_BOOT_LOCAL_BUILD" == "1" ]]; then
+        log "building and starting Boot/Grid Pool from local source"
+        run docker compose -f "$boot_dir/docker-compose.sovereign.yml" --project-directory "$boot_dir" up -d --build
+    else
+        log "pulling and starting Boot/Grid Pool image ${GRID_BOOT_IMAGE}"
+        run docker compose -f "$boot_dir/docker-compose.sovereign.yml" --project-directory "$boot_dir" pull boot-portal
+        run docker compose -f "$boot_dir/docker-compose.sovereign.yml" --project-directory "$boot_dir" up -d
+    fi
     wait_for_http "http://127.0.0.1:${BOOT_WEB_PORT}/health/live" 180
 }
 

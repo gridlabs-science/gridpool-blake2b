@@ -14,6 +14,23 @@ namespace boot_portal.Services;
 public class BootProtocolStateService
 {
     public const string GenesisFoundationAddress = "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3";
+    public const string TestnetGenesisFoundationAddress = "mhK63i2JYNBsZ9aWcq6rhA1eCMFqp5MALL";
+    private const ulong MainnetCurrentSubsidySats = 312_500_000;
+    private const ulong Testnet4CurrentSubsidySats = 5_000_000_000;
+
+    public static string GetGenesisFoundationAddress(string? bitcoinNetwork)
+    {
+        return BitcoinScript.NormalizeNetwork(bitcoinNetwork) == BitcoinScript.Testnet4
+            ? TestnetGenesisFoundationAddress
+            : GenesisFoundationAddress;
+    }
+
+    public static ulong GetCurrentBlockSubsidySats(string? bitcoinNetwork)
+    {
+        return BitcoinScript.NormalizeNetwork(bitcoinNetwork) == BitcoinScript.Testnet4
+            ? Testnet4CurrentSubsidySats
+            : MainnetCurrentSubsidySats;
+    }
 
     private readonly DateTime _serviceStartedUtc = DateTime.UtcNow;
     private readonly object _sync = new();
@@ -1175,6 +1192,11 @@ public class BootProtocolStateService
             };
         }
 
+        if (IsTrustedFreshParentSource(share.Source))
+        {
+            TryLearnFreshParentFromTrustedShare(share.Source, validation, currentStateSnapshot);
+        }
+
         ShareRecordingResult result;
         bool shouldRelay = false;
         bool shouldNotifyNetwork = false;
@@ -1826,7 +1848,7 @@ public class BootProtocolStateService
             currentWinnersSnapshot.Count == 0 ||
             (currentWinnersSnapshot.Count == 1 &&
              currentWinnersSnapshot[0].Difficulty <= 0 &&
-             currentWinnersSnapshot[0].Value == Program.BLOCK_REWARD / 2);
+             currentWinnersSnapshot[0].Value == GetSharedPayoutValueSatsNoLock(1));
 
         if (string.IsNullOrWhiteSpace(currentTipSnapshot) ||
             string.IsNullOrWhiteSpace(lockedTipSnapshot))
@@ -2238,25 +2260,40 @@ public class BootProtocolStateService
             CurrentTipBlockHash = null,
             CurrentTipBlockHeight = null,
             LastTestingTriggerBlockHeight = null,
-            LastRotationUtc = null
+            LastRotationUtc = ResolveConfiguredGenesisRoundStartUtcNoLock(),
+            GenesisRoundStartedUtc = ResolveConfiguredGenesisRoundStartUtcNoLock()
         };
 
         _state.WinnersList = BuildGenesisWinnersListNoLock();
         _state.CurrentStateId = ComputeStateIdFromPayoutsNoLock(_state.WinnersList, null);
         _state.CandidateStateId = ComputeCandidateStateIdNoLock();
+        EnsureGenesisRoundStartNoLock(DateTime.UtcNow);
     }
 
     private List<PayoutInfo> BuildGenesisWinnersListNoLock()
     {
+        string genesisAddress = GetGenesisFoundationAddress(_poolConfig.BitcoinNetwork);
+        ulong reward = GetSharedPayoutValueSatsNoLock(1);
         return
         [
             new PayoutInfo
             {
-                Value = Program.BLOCK_REWARD / 2,
-                Address = GenesisFoundationAddress,
-                Username = GenesisFoundationAddress
+                Value = reward,
+                Address = genesisAddress,
+                Username = genesisAddress
             }
         ];
+    }
+
+    private ulong GetBlockSubsidySatsNoLock()
+    {
+        return GetCurrentBlockSubsidySats(_poolConfig.BitcoinNetwork);
+    }
+
+    private ulong GetSharedPayoutValueSatsNoLock(int sharedPayoutCount)
+    {
+        int payoutCount = Math.Max(1, sharedPayoutCount) + 1;
+        return GetBlockSubsidySatsNoLock() / (ulong)payoutCount;
     }
 
     private void SaveStateNoLock([CallerMemberName] string? reason = null)
@@ -2456,6 +2493,7 @@ public class BootProtocolStateService
             LastGridPoolBlockDifficulty = _state.LastGridPoolBlockDifficulty,
             AcceptedParentBlockHashes = _state.AcceptedParentBlockHashes.ToList(),
             LastRotationUtc = _state.LastRotationUtc,
+            GenesisRoundStartedUtc = _state.GenesisRoundStartedUtc,
             WinnersList = ClonePayouts(_state.WinnersList),
             OnDeckList = ClonePayouts(_state.OnDeckList),
             OnDeckProofs = _state.OnDeckProofs.Select(CloneProof).ToList(),
@@ -2523,6 +2561,8 @@ public class BootProtocolStateService
             _state.RecentDatumSessions ??= [];
             _state.RecentNetworkEvents ??= [];
             _state.HashrateSamples ??= [];
+            EnsureGenesisRoundStartNoLock(DateTime.UtcNow);
+            NormalizeNetworkSensitivePayoutValuesNoLock();
             NormalizeArchivedBundlesNoLock();
             EnsureRoundMetadataNoLock();
             UpdateKnownBlockHeightNoLock(_state.CurrentTipBlockHash, _state.CurrentTipBlockHeight);
@@ -2606,6 +2646,8 @@ public class BootProtocolStateService
             _state.HashrateSamples = loaded.HashrateSamples ?? [];
             _state.ArchivedStateBundles = loaded.ArchivedStateBundles ?? [];
 
+            EnsureGenesisRoundStartNoLock(DateTime.UtcNow);
+            NormalizeNetworkSensitivePayoutValuesNoLock();
             NormalizeArchivedBundlesNoLock();
             EnsureRoundMetadataNoLock();
             TrimAcceptedShareTelemetryNoLock(DateTime.UtcNow);
@@ -2648,7 +2690,7 @@ public class BootProtocolStateService
             return;
         }
 
-        ulong reward = Program.BLOCK_REWARD / ((ulong)_state.OnDeckProofs.Count + 1);
+        ulong reward = GetSharedPayoutValueSatsNoLock(_state.OnDeckProofs.Count);
         foreach (var proof in _state.OnDeckProofs)
         {
             _state.OnDeckList.Add(new PayoutInfo
@@ -2662,10 +2704,41 @@ public class BootProtocolStateService
         }
     }
 
+    private void NormalizeNetworkSensitivePayoutValuesNoLock()
+    {
+        if (_state.CurrentRoundNumber == 0 &&
+            _state.WinnersList.Count == 1 &&
+            _state.WinnersList[0].Difficulty <= 0)
+        {
+            PayoutInfo genesisWinner = _state.WinnersList[0];
+            string expectedGenesisAddress = GetGenesisFoundationAddress(_poolConfig.BitcoinNetwork);
+            string normalizedWinnerAddress = BitcoinScript.NormalizeAddress(genesisWinner.Address);
+            bool isKnownGenesisAddress =
+                string.Equals(normalizedWinnerAddress, GenesisFoundationAddress, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalizedWinnerAddress, TestnetGenesisFoundationAddress, StringComparison.OrdinalIgnoreCase);
+
+            if (isKnownGenesisAddress)
+            {
+                genesisWinner.Address = expectedGenesisAddress;
+                genesisWinner.Username = string.IsNullOrWhiteSpace(genesisWinner.Username) ||
+                                         string.Equals(BitcoinScript.NormalizeAddress(genesisWinner.Username), normalizedWinnerAddress, StringComparison.OrdinalIgnoreCase)
+                    ? expectedGenesisAddress
+                    : genesisWinner.Username;
+                genesisWinner.Value = GetSharedPayoutValueSatsNoLock(1);
+            }
+        }
+
+        if (_state.OnDeckProofs.Count > 0)
+        {
+            RebuildOnDeckListNoLock();
+        }
+    }
+
     private BootNetworkStatusDto BuildNetworkStatusNoLock()
     {
         DateTime nowUtc = DateTime.UtcNow;
-        long? currentRoundElapsedSeconds = GetElapsedSeconds(_state.LastRotationUtc, nowUtc);
+        DateTime? currentRoundStartUtc = ResolveCurrentRoundStartUtcNoLock(nowUtc);
+        long? currentRoundElapsedSeconds = GetElapsedSeconds(currentRoundStartUtc, nowUtc);
         List<double> onDeckDifficulties = _state.OnDeckProofs
             .Select(x => x.Difficulty)
             .Where(x => x > 0)
@@ -2704,7 +2777,7 @@ public class BootProtocolStateService
             CandidateStateId = _state.CandidateStateId,
             CurrentTipBlockHash = _state.CurrentTipBlockHash,
             CurrentTipBlockHeight = _state.CurrentTipBlockHeight,
-            LastRotationUtc = _state.LastRotationUtc,
+            LastRotationUtc = currentRoundStartUtc,
             WinnersCount = _state.WinnersList.Count,
             CurrentStateProofCount = GetCurrentStateProofCountNoLock(),
             CurrentStateTotalDifficulty = currentStateTotalDifficulty,
@@ -3296,6 +3369,70 @@ public class BootProtocolStateService
         return (long)Math.Floor(totalSeconds);
     }
 
+    private DateTime? ResolveConfiguredGenesisRoundStartUtcNoLock()
+    {
+        DateTime? configured = _poolConfig.GenesisRoundStartUtc;
+        if (configured.HasValue && configured.Value != default)
+        {
+            return configured.Value.Kind == DateTimeKind.Unspecified
+                ? DateTime.SpecifyKind(configured.Value, DateTimeKind.Utc)
+                : configured.Value.ToUniversalTime();
+        }
+
+        return null;
+    }
+
+    private void EnsureGenesisRoundStartNoLock(DateTime nowUtc)
+    {
+        DateTime? configured = ResolveConfiguredGenesisRoundStartUtcNoLock();
+        DateTime? oldestShareUtc = _state.OnDeckProofs
+            .Where(proof => proof.Timestamp != default)
+            .Select(proof => (DateTime?)proof.Timestamp.ToUniversalTime())
+            .OrderBy(timestamp => timestamp)
+            .FirstOrDefault();
+
+        DateTime candidate = configured ?? _state.GenesisRoundStartedUtc ?? oldestShareUtc ?? _serviceStartedUtc;
+        if (oldestShareUtc.HasValue && oldestShareUtc.Value < candidate)
+        {
+            candidate = oldestShareUtc.Value;
+        }
+
+        if (candidate > nowUtc)
+        {
+            candidate = nowUtc;
+        }
+
+        _state.GenesisRoundStartedUtc ??= candidate;
+
+        if (_state.CurrentRoundNumber == 0 &&
+            (!_state.LastRotationUtc.HasValue || _state.LastRotationUtc.Value == default))
+        {
+            _state.LastRotationUtc = _state.GenesisRoundStartedUtc;
+        }
+    }
+
+    private DateTime? ResolveCurrentRoundStartUtcNoLock(DateTime nowUtc)
+    {
+        EnsureGenesisRoundStartNoLock(nowUtc);
+        DateTime? startedAtUtc = _state.LastRotationUtc;
+        if (_state.CurrentRoundNumber == 0)
+        {
+            DateTime? oldestShareUtc = _state.OnDeckProofs
+                .Where(proof => proof.Timestamp != default)
+                .Select(proof => (DateTime?)proof.Timestamp.ToUniversalTime())
+                .OrderBy(timestamp => timestamp)
+                .FirstOrDefault();
+
+            if (oldestShareUtc.HasValue &&
+                (!startedAtUtc.HasValue || oldestShareUtc.Value < startedAtUtc.Value))
+            {
+                startedAtUtc = oldestShareUtc.Value;
+            }
+        }
+
+        return startedAtUtc;
+    }
+
     private BootDatumDiagnosticsDto BuildLocalDatumDiagnosticsNoLock(DateTime nowUtc)
     {
         TrimShareDiagnosticsNoLock(nowUtc);
@@ -3507,7 +3644,8 @@ public class BootProtocolStateService
             return false;
         }
 
-        long? currentRoundElapsedSeconds = GetElapsedSeconds(_state.LastRotationUtc, nowUtc);
+        DateTime? currentRoundStartUtc = ResolveCurrentRoundStartUtcNoLock(nowUtc);
+        long? currentRoundElapsedSeconds = GetElapsedSeconds(currentRoundStartUtc, nowUtc);
         List<double> onDeckDifficulties = _state.OnDeckProofs
             .Select(x => x.Difficulty)
             .Where(x => x > 0)
@@ -3563,21 +3701,22 @@ public class BootProtocolStateService
 
     private static bool IsTemporaryFoundationLocalDatumSummary(BootLocalDatumMinerSummaryDto summary, string bitcoinNetwork)
     {
+        string genesisAddress = GetGenesisFoundationAddress(bitcoinNetwork);
         string address = BitcoinScript.NormalizeAddress(summary.Address);
-        if (!string.Equals(address, GenesisFoundationAddress, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(address, genesisAddress, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
         string username = summary.Username ?? string.Empty;
         if (string.IsNullOrWhiteSpace(username) ||
-            string.Equals(BitcoinScript.NormalizeAddress(username), GenesisFoundationAddress, StringComparison.OrdinalIgnoreCase))
+            string.Equals(BitcoinScript.NormalizeAddress(username), genesisAddress, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
         return ExtractAddressTokens(username, bitcoinNetwork)
-            .Any(token => !string.Equals(token, GenesisFoundationAddress, StringComparison.OrdinalIgnoreCase));
+            .Any(token => !string.Equals(token, genesisAddress, StringComparison.OrdinalIgnoreCase));
     }
 
     private static IEnumerable<string> ExtractAddressTokens(string value, string bitcoinNetwork)
@@ -4214,7 +4353,7 @@ public class BootProtocolStateService
                 _state.OnDeckList.Count == 0 &&
                 _state.OnDeckProofs.Count == 0 &&
                 _state.WinnersList[0].Difficulty <= 0 &&
-                _state.WinnersList[0].Value == Program.BLOCK_REWARD / 2);
+                _state.WinnersList[0].Value == GetSharedPayoutValueSatsNoLock(1));
     }
 
     private bool CurrentStateHasShareProofsNoLock()
@@ -4402,7 +4541,7 @@ public class BootProtocolStateService
             return [];
         }
 
-        ulong reward = Program.BLOCK_REWARD / ((ulong)list.Count + 1);
+        ulong reward = GetSharedPayoutValueSatsNoLock(list.Count);
         return list.Select(proof => new PayoutInfo
         {
             Value = reward,
@@ -4550,7 +4689,7 @@ public class BootProtocolStateService
             }
         }
 
-        return normalized;
+        return BitcoinHashes.NormalizeLikelyDisplayHashHex(normalized);
     }
 
     private static List<string> NormalizeAcceptedParentBlockHashes(IEnumerable<string?> hashes)
@@ -5096,6 +5235,11 @@ public class BootProtocolStateService
             }
 
             RememberAcceptedParentBlockHashNoLock(validation.PrevBlockHash);
+            if (string.IsNullOrWhiteSpace(_state.CurrentTipBlockHash))
+            {
+                _state.CurrentTipBlockHash = validation.PrevBlockHash;
+                _state.CandidateStateId = ComputeCandidateStateIdNoLock();
+            }
             RecordNetworkEventNoLock(
                 "fresh-parent-learned",
                 source,

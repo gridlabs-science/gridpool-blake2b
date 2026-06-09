@@ -63,6 +63,9 @@ public class PoolConfig
     [JsonPropertyName("coinbase_tag")]
     public string CoinbaseTag { get; set; } = "Grid Pool";
 
+    [JsonPropertyName("genesis_round_start_utc")]
+    public DateTime? GenesisRoundStartUtc { get; set; }
+
     [JsonPropertyName("node_mode")]
     public string NodeMode { get; set; } = "development";
 
@@ -200,6 +203,12 @@ public class PoolConfig
 
     [JsonPropertyName("stale_datum_refresh_interval_seconds")]
     public int StaleDatumRefreshIntervalSeconds { get; set; } = 10;
+
+    [JsonPropertyName("datum_keepalive_interval_seconds")]
+    public int DatumKeepaliveIntervalSeconds { get; set; } = 30;
+
+    [JsonPropertyName("bitcoin_zmq_endpoint")]
+    public string BitcoinZmqEndpoint { get; set; } = "tcp://127.0.0.1:28332";
 
     [JsonPropertyName("stratum_v1_proxy_host")]
     public string StratumV1ProxyHost { get; set; } = string.Empty;
@@ -506,13 +515,11 @@ public class Program
             //builder.Services.AddHostedService<BitcoinZmqSubscriber>();
             // *** START CONFIGURABLE SERVICE SECTION ***
 
-            // 1. Read the source from appsettings.json
-            string notificationSource = builder.Configuration["NotificationSource"] ?? "MempoolSpace";
+            string notificationSource = (builder.Configuration["NotificationSource"] ?? "MempoolSpace").Trim();
 
-            //Console.WriteLine("Using notification source: {Source}", notificationSource);
-
-            // 2. Conditionally register the correct hosted service
-            if (notificationSource.Equals("ZMQ", StringComparison.OrdinalIgnoreCase))
+            if (notificationSource.Equals("ZMQ", StringComparison.OrdinalIgnoreCase) ||
+                notificationSource.Equals("BitcoinZmq", StringComparison.OrdinalIgnoreCase) ||
+                notificationSource.Equals("BitcoinZMQ", StringComparison.OrdinalIgnoreCase))
             {
                 builder.Services.AddHostedService<BitcoinZmqSubscriber>();
                 Console.WriteLine("Block Notification source set to ZMQ");
@@ -524,8 +531,8 @@ public class Program
             }
             else
             {
-                Console.WriteLine("Unknown NotificationSource.  Check the boot_portal_settings.json config file");
-                builder.Services.AddHostedService<MempoolSpaceSocketSubscriber>();
+                throw new InvalidOperationException(
+                    $"Unknown NotificationSource '{notificationSource}'. Expected 'MempoolSpace', 'ZMQ', or 'BitcoinZmq'.");
             }
 
             // *** END CONFIGURABLE SERVICE SECTION ***
@@ -697,6 +704,11 @@ public class Program
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        config.DatumKeepaliveIntervalSeconds = Math.Clamp(config.DatumKeepaliveIntervalSeconds, 0, 300);
+        config.BitcoinZmqEndpoint = string.IsNullOrWhiteSpace(config.BitcoinZmqEndpoint)
+            ? "tcp://127.0.0.1:28332"
+            : config.BitcoinZmqEndpoint.Trim();
+
         if (string.Equals(config.BootNetworkId, "public-beta", StringComparison.OrdinalIgnoreCase) &&
             config.BootstrapPeers.Count == 0)
         {
@@ -778,6 +790,9 @@ public class ClientHandler
     private long _datumProtocolEventSequence = 0;
     private readonly CancellationToken _stoppingToken;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private CancellationTokenSource? _datumKeepaliveCts;
+    private Task? _datumKeepaliveTask;
+    private DateTime _lastServerMessageSentUtc = DateTime.MinValue;
     private readonly string _sessionId;
     private readonly DateTime _sessionStartedUtc;
     private string _sessionCloseDisposition = "open";
@@ -801,7 +816,7 @@ public class ClientHandler
         _x25519KeyLongTerm = serverLongTermXKey;
         _poolConfig = poolConfig;
         _stateService = stateService;
-        _clientPayoutAddress = BootProtocolStateService.GenesisFoundationAddress;
+        _clientPayoutAddress = BootProtocolStateService.GetGenesisFoundationAddress(_poolConfig.BitcoinNetwork);
         _stoppingToken = st;
         _sessionStartedUtc = DateTime.UtcNow;
         _sessionId = $"datum-{Interlocked.Increment(ref _nextSessionId)}";
@@ -1348,6 +1363,8 @@ public class ClientHandler
                 Detail = $"serverInitiated={!string.IsNullOrWhiteSpace(_serverInitiatedCloseMessage)}",
                 TimestampUtc = DateTime.UtcNow
             });
+            _datumKeepaliveCts?.Cancel();
+            _datumKeepaliveCts?.Dispose();
             _client.Close();
         }
     }
@@ -1387,6 +1404,61 @@ public class ClientHandler
             "datum",
             $"Requested DATUM template refresh for session {RemoteEndpointLabel}. reason={reason}; lockedPayoutAddress={_clientPayoutAddress}.");
         return true;
+    }
+
+    private void StartDatumKeepaliveLoop()
+    {
+        if (_poolConfig.DatumKeepaliveIntervalSeconds <= 0 || _datumKeepaliveTask != null)
+        {
+            return;
+        }
+
+        _datumKeepaliveCts = CancellationTokenSource.CreateLinkedTokenSource(_stoppingToken);
+        CancellationToken token = _datumKeepaliveCts.Token;
+        int intervalSeconds = Math.Clamp(_poolConfig.DatumKeepaliveIntervalSeconds, 5, 300);
+        int pollSeconds = Math.Max(5, intervalSeconds / 2);
+        _datumKeepaliveTask = Task.Run(async () =>
+        {
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(pollSeconds), token);
+                    if (token.IsCancellationRequested || !_client.Connected)
+                    {
+                        break;
+                    }
+
+                    if ((DateTime.UtcNow - _lastServerMessageSentUtc).TotalSeconds < intervalSeconds)
+                    {
+                        continue;
+                    }
+
+                    await SendEncryptedMessageAsync(
+                        0x01,
+                        [],
+                        isSigned: false,
+                        isEncryptedChannel: true,
+                        isEncryptedPubKey: false,
+                        messageLabel: "datum-keepalive");
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    RecordDatumProtocolEvent(new BootDatumProtocolEvent
+                    {
+                        Direction = "internal",
+                        EventType = "datum-keepalive-failed",
+                        MessageLabel = "datum-keepalive",
+                        Detail = ex.Message
+                    });
+                    break;
+                }
+            }
+        }, token);
     }
 
     private enum TemplateRejectKind
@@ -1836,6 +1908,7 @@ public class ClientHandler
         await SendEncryptedMessageAsync(0x02, signedPayload, true, false, true, messageLabel: "handshake-response");
         //Console.WriteLine($"[SEND] Handshake Response (0x02), length " + signedPayload.Length);
         await SendClientConfigureAsync(_poolConfig);          // Send 0x99 client configure message
+        StartDatumKeepaliveLoop();
     }
 
     private async Task SendClientConfigureAsync(PoolConfig config)
@@ -1978,6 +2051,7 @@ public class ClientHandler
             {
                 writer.Write((byte)0x11);
                 writer.Write(fetchRequest.RewardValue);
+                fetchResponse.BitcoinNetwork = _poolConfig.BitcoinNetwork;
                 byte[] payoutBytes = fetchResponse.ToBytes();
                 writer.Write((uint)payoutBytes.Length);
                 writer.Write(payoutBytes);
@@ -1992,7 +2066,7 @@ public class ClientHandler
 
             bool usingTemporarySlotZero = string.Equals(
                 BitcoinScript.NormalizeAddress(_clientPayoutAddress),
-                BitcoinScript.NormalizeAddress(BootProtocolStateService.GenesisFoundationAddress),
+                BitcoinScript.NormalizeAddress(BootProtocolStateService.GetGenesisFoundationAddress(_poolConfig.BitcoinNetwork)),
                 StringComparison.OrdinalIgnoreCase);
             string clientIdentityPreview = !string.IsNullOrWhiteSpace(_clientIdentityKey)
                 ? (_clientIdentityKey.Length > 8 ? _clientIdentityKey[..8] : _clientIdentityKey)
@@ -2963,6 +3037,7 @@ public class ClientHandler
                 await _stream.WriteAsync(message, 0, message.Length);
                 await _stream.FlushAsync();
                 sendCompleted = true;
+                _lastServerMessageSentUtc = DateTime.UtcNow;
                 sendStopwatch.Stop();
                 RecordDatumProtocolEvent(new BootDatumProtocolEvent
                 {
@@ -3348,6 +3423,7 @@ public class CoinbaserFetchMessage
 public class CoinbaserFetchResponseMessage
 {
     public List<PayoutInfo> Payouts { get; set; } = new();
+    public string BitcoinNetwork { get; set; } = BitcoinScript.Mainnet;
 
     public byte[] ToBytes()
     {
@@ -3360,92 +3436,11 @@ public class CoinbaserFetchResponseMessage
         foreach (var payout in Payouts)
         {
             writer.Write(payout.Value); // 8 bytes (amount)
-            
-            // --- MODIFICATION: Extract the actual address part ---
-            // Miners often provide addresses in the format "address.workerName".
-            // We only need the part before the first dot for script generation.
-            string address = payout.Address;
-            int dotIndex = address.IndexOf('.');
-            if (dotIndex != -1)
-            {
-                // Trim the string to include only the part before the dot
-                address = address.Substring(0, dotIndex);
-            }
-            // --- END MODIFICATION ---
 
-            byte[] script;
-            
-            // Check if the address is Bech32 (SegWit) using the cleaned 'address'
-            if (address.StartsWith("bc1") || address.StartsWith("tb1"))
+            byte[] script = BitcoinScript.AddressToScriptPubKey(payout.Address, BitcoinNetwork);
+            if (script.Length > byte.MaxValue)
             {
-                // Bech32 (SegWit) address
-                var (hrp, version, program) = Bech32.Decode(address); // Use cleaned 'address'
-                // --- START MODIFICATION: Support for P2TR (Taproot) ---
-                if (version == 0 && program.Length != 20) // Only P2WPKH (20 bytes) is explicitly allowed here
-                {
-                    // This check is fine if you ONLY want to support P2WPKH for V0, but V0 also supports 32-byte P2WSH.
-                    // It's better to check for supported versions and lengths.
-                    if (version == 0 && program.Length != 32)
-                    {
-                        // P2WSH is V0, 32 bytes. If you don't support it, keep this check.
-                        throw new InvalidOperationException($"Unsupported Bech32 address: P2WSH or invalid V0 length {payout.Address}");
-                    }
-                }
-                else if (version == 1 && program.Length != 32)
-                {
-                    // This is a P2TR (Taproot) address with a weird length?
-                    throw new InvalidOperationException($"Unsupported Bech32m address: invalid V0 length? {payout.Address}");
-                }
-                else if (version >= 2)
-                {
-                    // Unsupported Witness Version (V2 and up)
-                    throw new InvalidOperationException($"Unsupported Bech32 address: Invalid version {version} for {payout.Address}");
-                }
-                // --- END MODIFICATION ---
-                byte witnessVersionOpCode;
-                switch (version)
-                {
-                    case 0:
-                        witnessVersionOpCode = 0x00; // OP_0
-                        break;
-                    case 1:
-                        witnessVersionOpCode = 0x51; // OP_1
-                        break;
-                    default:
-                        // Use the payout.Address for the error message
-                        throw new InvalidOperationException($"Unsupported witness version {version} for SegWit address: {payout.Address}");
-                }
-                // The script construction logic for SegWit addresses is identical for all versions (V0, V1, etc.)
-                // It's: [version] [program_length] [program_bytes]
-                script = new byte[2 + program.Length];
-                script[0] = witnessVersionOpCode; // Use the decoded Witness version
-                script[1] = (byte)program.Length; // Length (20 for V0 P2WPKH, 32 for V1 P2TR)
-                Array.Copy(program, 0, script, 2, program.Length);
-                if(version == 1)
-                {
-                    //Console.WriteLine($" script = {Convert.ToHexStringLower(script)}");
-                }
-
-            }
-            else
-            {
-                // P2PKH address
-                Console.WriteLine($"Decoding Base58 payout.Address: {payout.Address}");
-                Console.WriteLine($"Decoding Base58 address: {address}");
-                byte[] payload = Base58Check.Decode(address); // Use cleaned 'address'
-                if (payload.Length != 21 || payload[0] != 0x00)
-                {
-                    // Use payout.Address for the error message to show the original input
-                    throw new InvalidOperationException($"Invalid P2PKH address: {payout.Address}");
-                }
-                byte[] pubkeyHash = payload.Skip(1).Take(20).ToArray();
-                script = new byte[25];
-                script[0] = 0x76; // OP_DUP
-                script[1] = 0xA9; // OP_HASH160
-                script[2] = 0x14; // Length of hash (20)
-                Array.Copy(pubkeyHash, 0, script, 3, 20);
-                script[23] = 0x88; // OP_EQUALVERIFY
-                script[24] = 0xAC; // OP_CHECKSIG
+                throw new InvalidOperationException($"Unsupported scriptPubKey length {script.Length} for payout address {payout.Address}.");
             }
             
             writer.Write((byte)script.Length); // 1 byte script length

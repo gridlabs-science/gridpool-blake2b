@@ -348,7 +348,8 @@ The installer configures Bitcoin Core as a lightweight mining node, not a hot wa
 Low-RAM systems:
 
 - If RAM is below roughly 1.2 GB and no swap exists, the installer creates a 4 GB swapfile by default.
-- This is primarily to survive package install, Docker build, and service startup on very small Pis.
+- This is primarily to survive package install, DATUM build, and service startup on very small Pis.
+- Boot/Grid Pool pulls the prebuilt `ghcr.io/gridlabs-science/boot-protocol:latest` image by default instead of building the Docker image locally.
 - Override with `--swap-mb 0` if you prefer no installer-created swap.
 - DATUM Stratum defaults are intentionally small in this installer: 4 max ASIC clients, 1 Stratum thread, and 30 target shares/minute. Increase `DATUM_MAX_CLIENTS`, `DATUM_MAX_CLIENTS_PER_THREAD`, and `DATUM_MAX_THREADS` only on hardware with enough RAM.
 - By default, local Bitcoin Core install now refuses very low-resource targets: under 2 GB RAM or under 30 GiB free disk. Use edge mode instead, or set `GRID_ALLOW_LOW_RESOURCE_BITCOIN=1` only if intentionally forcing a risky experiment.
@@ -435,6 +436,8 @@ Use the actual Ubuntu username if it is not `ubuntu`.
 Useful environment variables:
 
 - `GRID_BOOT_REPO_REF`: Boot branch, tag, or commit. Defaults to `main`.
+- `GRID_BOOT_IMAGE`: Boot/Grid Pool Docker image. Defaults to `ghcr.io/gridlabs-science/boot-protocol:latest`.
+- `GRID_BOOT_LOCAL_BUILD`: set to `1` to build Boot/Grid Pool from the local repo instead of pulling `GRID_BOOT_IMAGE`.
 - `GRID_DATUM_REPO_REF`: DATUM branch, tag, or commit. Defaults to `master`.
 - `BITCOIN_CORE_VERSION`: Bitcoin Core release. Defaults to `31.0`.
 - `BITCOIN_PRUNE_MB`: prune target. Defaults to `1100`.

@@ -10,7 +10,7 @@ Boot Protocol now includes a basic Docker packaging path for public beta testing
 Beta defaults now assume `299` shared Winners List slots, with slot `0` reserved for the block finder. Some of the longer discussion below still uses older 15/16-slot toy examples for intuition.
 
 1. Review `docker/boot_portal_config.sample.json`.
-2. Bring the stack up with `docker compose up --build`.
+2. Bring the stack up with `docker compose up -d`.
 3. The container persists runtime files under `./data` by default:
    - `./data/boot_portal_config.json`
    - `./data/pool_state.json`
@@ -18,6 +18,9 @@ Beta defaults now assume `299` shared Winners List slots, with slot `0` reserved
 5. Run `scripts/boot-self-check.sh http://127.0.0.1:5000` after startup to verify health, peer state, round state, and local DATUM hashrate.
 
 Notes:
+- The default Docker Compose file pulls the prebuilt image `ghcr.io/gridlabs-science/boot-protocol:latest`.
+- To build locally from source instead, run `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
+- To pin a specific published image, set `GRIDPOOL_BOOT_IMAGE`, for example `GRIDPOOL_BOOT_IMAGE=ghcr.io/gridlabs-science/boot-protocol:sha-abc1234 docker compose up -d`.
 - The container is set up for HTTP on the WebUI by default.  Terminate TLS at a reverse proxy, Cloudflare tunnel, or similar edge layer.
 - The image runs as non-root UID/GID `1000` and creates `/data/boot_portal_config.json` from `docker/boot_portal_config.sample.json` if no config exists.
 - The default sample uses `NotificationSource = "MempoolSpace"` so a local `bitcoind` is not required for first boot.
