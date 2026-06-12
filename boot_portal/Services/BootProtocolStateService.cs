@@ -48,6 +48,7 @@ public class BootProtocolStateService
     private readonly Queue<string> _seenShareQueue = new();
     private readonly List<BootShareDiagnosticTelemetry> _recentShareDiagnostics = [];
     private readonly List<BootDatumProtocolEvent> _recentDatumProtocolEvents = [];
+    private readonly Dictionary<string, PeerRelayFirstArrival> _peerRelayFirstArrivals = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, BootDatumSessionTelemetry> _activeDatumSessions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, LocalDatumAddressHashrateTracker> _localDatumHashrateByAddress = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _lastLocalDatumHashrateRollupByAddress = new(StringComparer.OrdinalIgnoreCase);
@@ -68,10 +69,13 @@ public class BootProtocolStateService
     private const int MaxRecentDatumSessions = 5000;
     private const int MaxRecentDatumProtocolEvents = 25000;
     private const int MaxRecentNetworkEvents = 5000;
+    private const int MaxRecentPeerRelayObservations = 10000;
     private const int MaxRecentCandidateBundles = 512;
     private const int MinLocalDatumMinerDisplaySamples = 8;
 
     private PoolState _state = new();
+
+    private sealed record PeerRelayFirstArrival(DateTime TimestampUtc, string Transport);
 
     public event Func<string, Task>? WinnersListChanged;
     public event Func<string, Task>? WorkTemplatesInvalidated;
@@ -440,6 +444,18 @@ public class BootProtocolStateService
         lock (_sync)
         {
             return BuildNetworkEventSeriesNoLock(windowKey, limit, eventType, source);
+        }
+    }
+
+    public BootPeerRelayLatencySeriesDto GetPeerRelayLatency(
+        string? windowKey = "12h",
+        int limit = 500,
+        string? remoteEndpoint = null,
+        string? transport = null)
+    {
+        lock (_sync)
+        {
+            return BuildPeerRelayLatencySeriesNoLock(windowKey, limit, remoteEndpoint, transport);
         }
     }
 
@@ -1124,6 +1140,52 @@ public class BootProtocolStateService
         }
     }
 
+    public void UpdatePeerUdpHeartbeat(string endpoint, string nodeId, string status, bool success, DateTime lastSeenUtc)
+    {
+        lock (_sync)
+        {
+            bool changed = UpsertPeerNoLock(
+                endpoint,
+                status,
+                null,
+                success ? lastSeenUtc : null,
+                persistStatusOnly: true,
+                allowSuppressed: true,
+                source: "udp",
+                allowPrivate: true);
+            BootPeerStatus? peer = FindPeerNoLock(endpoint);
+            if (peer != null)
+            {
+                if (!string.IsNullOrWhiteSpace(nodeId) && !string.Equals(peer.NodeId, nodeId, StringComparison.Ordinal))
+                {
+                    peer.NodeId = nodeId;
+                    changed = true;
+                }
+
+                if (success)
+                {
+                    peer.LastSuccessUtc = lastSeenUtc;
+                    peer.UdpRelaySuccessCount++;
+                    peer.FailureCount = 0;
+                    peer.LastFailureUtc = null;
+                }
+                else
+                {
+                    peer.UdpRelayFailureCount++;
+                    peer.FailureCount++;
+                    peer.LastFailureUtc = lastSeenUtc;
+                }
+
+                changed = true;
+            }
+
+            if (changed)
+            {
+                RequestDeferredSaveNoLock();
+            }
+        }
+    }
+
     public void MarkPeerSessionFailure(string endpoint, string status)
     {
         lock (_sync)
@@ -1321,6 +1383,8 @@ public class BootProtocolStateService
 
     public async Task<ShareRecordingResult> RecordShareAsync(RecordedShareSubmission share)
     {
+        DateTime arrivalUtc = DateTime.UtcNow;
+        var validationStopwatch = Stopwatch.StartNew();
         List<PayoutInfo> winnersSnapshot;
         string currentStateSnapshot;
         List<string> acceptedParentBlockHashesSnapshot;
@@ -1373,6 +1437,9 @@ public class BootProtocolStateService
             }
         }
 
+        validationStopwatch.Stop();
+        double validationDurationMs = validationStopwatch.Elapsed.TotalMilliseconds;
+
         if (!validation.IsValid)
         {
             BootNetworkStatusDto networkStatus;
@@ -1388,6 +1455,18 @@ public class BootProtocolStateService
                     validation.RejectionReason,
                     share.Difficulty,
                     nowUtc);
+                RecordPeerRelayObservationNoLock(
+                    share.Source,
+                    validation.ShareId,
+                    validation.MinerAddress,
+                    string.IsNullOrWhiteSpace(validation.Username) ? validation.MinerAddress : validation.Username,
+                    accepted: false,
+                    affectedOnDeck: false,
+                    rejectionReason: validation.RejectionReason ?? "Invalid share",
+                    difficulty: validation.Difficulty,
+                    payloadBytes: share.PayloadBytes,
+                    validationDurationMs: validationDurationMs,
+                    timestampUtc: arrivalUtc);
                 RequestDeferredHistorySaveNoLock();
                 networkStatus = BuildNetworkStatusNoLock();
             }
@@ -1422,6 +1501,18 @@ public class BootProtocolStateService
                     "Low difficulty",
                     validation.Difficulty,
                     nowUtc);
+                RecordPeerRelayObservationNoLock(
+                    share.Source,
+                    validation.ShareId,
+                    validation.MinerAddress,
+                    string.IsNullOrWhiteSpace(validation.Username) ? validation.MinerAddress : validation.Username,
+                    accepted: false,
+                    affectedOnDeck: false,
+                    rejectionReason: "Low difficulty",
+                    difficulty: validation.Difficulty,
+                    payloadBytes: share.PayloadBytes,
+                    validationDurationMs: validationDurationMs,
+                    timestampUtc: arrivalUtc);
                 RequestDeferredHistorySaveNoLock();
                 networkStatus = BuildNetworkStatusNoLock();
             }
@@ -1463,6 +1554,18 @@ public class BootProtocolStateService
                     "Round changed during validation",
                     validation.Difficulty,
                     DateTime.UtcNow);
+                RecordPeerRelayObservationNoLock(
+                    share.Source,
+                    validation.ShareId,
+                    validation.MinerAddress,
+                    string.IsNullOrWhiteSpace(validation.Username) ? validation.MinerAddress : validation.Username,
+                    accepted: false,
+                    affectedOnDeck: false,
+                    rejectionReason: "Round changed during validation",
+                    difficulty: validation.Difficulty,
+                    payloadBytes: share.PayloadBytes,
+                    validationDurationMs: validationDurationMs,
+                    timestampUtc: arrivalUtc);
                 RequestDeferredHistorySaveNoLock();
                 return new ShareRecordingResult
                 {
@@ -1486,6 +1589,18 @@ public class BootProtocolStateService
                     "Accepted parent set changed during validation",
                     validation.Difficulty,
                     DateTime.UtcNow);
+                RecordPeerRelayObservationNoLock(
+                    share.Source,
+                    validation.ShareId,
+                    validation.MinerAddress,
+                    string.IsNullOrWhiteSpace(validation.Username) ? validation.MinerAddress : validation.Username,
+                    accepted: false,
+                    affectedOnDeck: false,
+                    rejectionReason: "Accepted parent set changed during validation",
+                    difficulty: validation.Difficulty,
+                    payloadBytes: share.PayloadBytes,
+                    validationDurationMs: validationDurationMs,
+                    timestampUtc: arrivalUtc);
                 RequestDeferredHistorySaveNoLock();
                 return new ShareRecordingResult
                 {
@@ -1510,6 +1625,18 @@ public class BootProtocolStateService
                     "Duplicate share",
                     validation.Difficulty,
                     proof.Timestamp);
+                RecordPeerRelayObservationNoLock(
+                    share.Source,
+                    proof.ShareId,
+                    proof.MinerAddress,
+                    string.IsNullOrWhiteSpace(proof.Username) ? proof.MinerAddress : proof.Username,
+                    accepted: false,
+                    affectedOnDeck: false,
+                    rejectionReason: "Duplicate share",
+                    difficulty: validation.Difficulty,
+                    payloadBytes: share.PayloadBytes,
+                    validationDurationMs: validationDurationMs,
+                    timestampUtc: arrivalUtc);
                 RequestDeferredHistorySaveNoLock();
                 return new ShareRecordingResult
                 {
@@ -1572,6 +1699,18 @@ public class BootProtocolStateService
                 rejectionReason: null,
                 difficulty: validation.Difficulty,
                 timestampUtc: proof.Timestamp);
+            RecordPeerRelayObservationNoLock(
+                share.Source,
+                proof.ShareId,
+                proof.MinerAddress,
+                string.IsNullOrWhiteSpace(proof.Username) ? proof.MinerAddress : proof.Username,
+                accepted: true,
+                affectedOnDeck: affectedOnDeck,
+                rejectionReason: null,
+                difficulty: validation.Difficulty,
+                payloadBytes: share.PayloadBytes,
+                validationDurationMs: validationDurationMs,
+                timestampUtc: arrivalUtc);
             bool capturedHashrateSample = MaybeCaptureHashrateSampleNoLock(proof.Timestamp, force: false);
             _state.CandidateStateId = ComputeCandidateStateIdNoLock();
             CacheCurrentCandidateBundleNoLock();
@@ -1800,7 +1939,9 @@ public class BootProtocolStateService
             _state.RecentDatumShareResponses = [];
             _state.RecentDatumSessions = [];
             _state.RecentNetworkEvents = [];
+            _state.RecentPeerRelayObservations = [];
             _activeDatumSessions.Clear();
+            _peerRelayFirstArrivals.Clear();
             _recentShareDiagnostics.Clear();
             _state.HashrateSamples = [];
             _state.LocalDatumMinerHashrateSamples = [];
@@ -2758,6 +2899,7 @@ public class BootProtocolStateService
             RecentDatumShareResponses = [],
             RecentDatumSessions = [],
             RecentNetworkEvents = [],
+            RecentPeerRelayObservations = [],
             HashrateSamples = [],
             LocalDatumMinerHashrateSamples = [],
             ArchivedStateBundles = []
@@ -2774,6 +2916,7 @@ public class BootProtocolStateService
             RecentDatumShareResponses = _state.RecentDatumShareResponses.Select(CloneDatumShareResponse).ToList(),
             RecentDatumSessions = _state.RecentDatumSessions.Select(CloneDatumSession).ToList(),
             RecentNetworkEvents = _state.RecentNetworkEvents.Select(CloneNetworkEvent).ToList(),
+            RecentPeerRelayObservations = _state.RecentPeerRelayObservations.Select(ClonePeerRelayObservation).ToList(),
             HashrateSamples = _state.HashrateSamples.Select(CloneHashratePoint).ToList(),
             LocalDatumMinerHashrateSamples = _state.LocalDatumMinerHashrateSamples.Select(CloneLocalDatumMinerHashrateRollupPoint).ToList(),
             ArchivedStateBundles = _state.ArchivedStateBundles.Select(CloneBundle).ToList()
@@ -2814,6 +2957,7 @@ public class BootProtocolStateService
             _state.RecentDatumShareResponses ??= [];
             _state.RecentDatumSessions ??= [];
             _state.RecentNetworkEvents ??= [];
+            _state.RecentPeerRelayObservations ??= [];
             _state.HashrateSamples ??= [];
             _state.LocalDatumMinerHashrateSamples ??= [];
             _state.Peers ??= [];
@@ -2832,11 +2976,13 @@ public class BootProtocolStateService
             RebuildActiveDatumSessionIndexNoLock();
             TrimDatumSessionsNoLock(DateTime.UtcNow);
             TrimNetworkEventsNoLock(DateTime.UtcNow);
+            TrimPeerRelayObservationsNoLock(DateTime.UtcNow);
             TrimHashrateSamplesNoLock(DateTime.UtcNow);
             TrimLocalDatumMinerHashrateSamplesNoLock(DateTime.UtcNow);
             RebuildLocalDatumHashrateRollupIndexNoLock();
             NormalizePeerAddressBookNoLock(DateTime.UtcNow);
             RebuildLocalDatumAddressHashrateNoLock();
+            RebuildPeerRelayFirstArrivalsNoLock();
             _recentShareDiagnostics.Clear();
             _recentShareDiagnostics.AddRange(_state.RecentRejectedShareDiagnostics.Select(CloneShareDiagnostic));
 
@@ -2902,6 +3048,7 @@ public class BootProtocolStateService
             _state.RecentDatumShareResponses = loaded.RecentDatumShareResponses ?? [];
             _state.RecentDatumSessions = loaded.RecentDatumSessions ?? [];
             _state.RecentNetworkEvents = loaded.RecentNetworkEvents ?? [];
+            _state.RecentPeerRelayObservations = loaded.RecentPeerRelayObservations ?? [];
             _state.HashrateSamples = loaded.HashrateSamples ?? [];
             _state.LocalDatumMinerHashrateSamples = loaded.LocalDatumMinerHashrateSamples ?? [];
             _state.ArchivedStateBundles = loaded.ArchivedStateBundles ?? [];
@@ -2918,10 +3065,12 @@ public class BootProtocolStateService
             RebuildActiveDatumSessionIndexNoLock();
             TrimDatumSessionsNoLock(DateTime.UtcNow);
             TrimNetworkEventsNoLock(DateTime.UtcNow);
+            TrimPeerRelayObservationsNoLock(DateTime.UtcNow);
             TrimHashrateSamplesNoLock(DateTime.UtcNow);
             TrimLocalDatumMinerHashrateSamplesNoLock(DateTime.UtcNow);
             RebuildLocalDatumHashrateRollupIndexNoLock();
             RebuildLocalDatumAddressHashrateNoLock();
+            RebuildPeerRelayFirstArrivalsNoLock();
             _recentShareDiagnostics.Clear();
             _recentShareDiagnostics.AddRange(_state.RecentRejectedShareDiagnostics.Select(CloneShareDiagnostic));
             _logger.LogInformation("Loaded Boot protocol history from {Label} disk file.", label);
@@ -3374,6 +3523,91 @@ public class BootProtocolStateService
         };
     }
 
+    private BootPeerRelayLatencySeriesDto BuildPeerRelayLatencySeriesNoLock(
+        string? windowKey,
+        int limit,
+        string? remoteEndpoint,
+        string? transport)
+    {
+        DateTime nowUtc = DateTime.UtcNow;
+        TrimPeerRelayObservationsNoLock(nowUtc);
+        DateTime cutoffUtc = ResolveTelemetryCutoffUtc(windowKey, nowUtc, GetShareDiagnosticRetentionHours());
+        string normalizedRemoteEndpoint = NormalizePeerEndpoint(remoteEndpoint ?? string.Empty);
+        string normalizedTransport = string.IsNullOrWhiteSpace(transport)
+            ? string.Empty
+            : transport.Trim();
+
+        IEnumerable<BootPeerRelayObservation> query = _state.RecentPeerRelayObservations
+            .Where(item => item.TimestampUtc >= cutoffUtc);
+
+        if (!string.IsNullOrWhiteSpace(normalizedRemoteEndpoint))
+        {
+            query = query.Where(item => string.Equals(
+                NormalizePeerEndpoint(item.RemoteEndpoint),
+                normalizedRemoteEndpoint,
+                StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(normalizedTransport))
+        {
+            query = query.Where(item => string.Equals(
+                item.Transport,
+                normalizedTransport,
+                StringComparison.OrdinalIgnoreCase));
+        }
+
+        List<BootPeerRelayObservation> matching = query
+            .OrderBy(item => item.TimestampUtc)
+            .ToList();
+        List<BootPeerRelayTransportSummaryDto> summaries = matching
+            .GroupBy(item => item.Transport, StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                List<double> deltas = group
+                    .Select(item => item.DeltaFromFirstMs)
+                    .Where(value => value >= 0)
+                    .OrderBy(value => value)
+                    .ToList();
+                List<int> payloadSizes = group
+                    .Select(item => item.PayloadBytes)
+                    .Where(value => value > 0)
+                    .OrderBy(value => value)
+                    .ToList();
+
+                return new BootPeerRelayTransportSummaryDto
+                {
+                    Transport = group.Key,
+                    ArrivalCount = group.Count(),
+                    FirstArrivalCount = group.Count(item => item.IsFirstArrival),
+                    AcceptedCount = group.Count(item => item.Accepted),
+                    DuplicateCount = group.Count(item => string.Equals(item.RejectionReason, "Duplicate share", StringComparison.OrdinalIgnoreCase)),
+                    RejectedCount = group.Count(item => !item.Accepted),
+                    AverageDeltaFromFirstMs = deltas.Count > 0 ? deltas.Average() : null,
+                    MedianDeltaFromFirstMs = Percentile(deltas, 0.5),
+                    P95DeltaFromFirstMs = Percentile(deltas, 0.95),
+                    AveragePayloadBytes = payloadSizes.Count > 0 ? payloadSizes.Average() : null,
+                    MinPayloadBytes = payloadSizes.Count > 0 ? payloadSizes[0] : null,
+                    MaxPayloadBytes = payloadSizes.Count > 0 ? payloadSizes[^1] : null
+                };
+            })
+            .OrderByDescending(item => item.FirstArrivalCount)
+            .ThenBy(item => item.Transport, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        List<BootPeerRelayObservation> observations = matching
+            .TakeLast(Math.Clamp(limit, 1, MaxRecentPeerRelayObservations))
+            .Select(ClonePeerRelayObservation)
+            .ToList();
+
+        return new BootPeerRelayLatencySeriesDto
+        {
+            WindowSeconds = (int)Math.Max(0, (nowUtc - cutoffUtc).TotalSeconds),
+            TotalEvents = matching.Count,
+            Transports = summaries,
+            Observations = observations
+        };
+    }
+
     private bool TryGetDatumSessionNoLock(string sessionId, out BootDatumSessionTelemetry session)
     {
         if (_activeDatumSessions.TryGetValue(sessionId, out session!))
@@ -3792,6 +4026,67 @@ public class BootProtocolStateService
         };
     }
 
+    private void RecordPeerRelayObservationNoLock(
+        string source,
+        string shareId,
+        string minerAddress,
+        string username,
+        bool accepted,
+        bool affectedOnDeck,
+        string? rejectionReason,
+        double difficulty,
+        int payloadBytes,
+        double validationDurationMs,
+        DateTime timestampUtc)
+    {
+        if (string.IsNullOrWhiteSpace(shareId) ||
+            !BootPeerSource.TryParsePeerSource(source, out string transport, out string remoteEndpoint))
+        {
+            return;
+        }
+
+        string normalizedShareId = BitcoinHashes.NormalizeHex(shareId);
+        if (string.IsNullOrWhiteSpace(normalizedShareId))
+        {
+            normalizedShareId = shareId.Trim();
+        }
+
+        if (!_peerRelayFirstArrivals.TryGetValue(normalizedShareId, out PeerRelayFirstArrival? firstArrival) ||
+            timestampUtc < firstArrival.TimestampUtc)
+        {
+            firstArrival = new PeerRelayFirstArrival(timestampUtc, transport);
+            _peerRelayFirstArrivals[normalizedShareId] = firstArrival;
+        }
+
+        _state.RecentPeerRelayObservations.Add(new BootPeerRelayObservation
+        {
+            ShareId = normalizedShareId,
+            Transport = transport,
+            Source = source,
+            RemoteEndpoint = NormalizePeerEndpoint(remoteEndpoint),
+            MinerAddress = minerAddress,
+            Username = string.IsNullOrWhiteSpace(username) ? minerAddress : username,
+            Difficulty = difficulty,
+            Accepted = accepted,
+            AffectedOnDeck = affectedOnDeck,
+            RejectionReason = rejectionReason,
+            IsFirstArrival = timestampUtc == firstArrival.TimestampUtc &&
+                string.Equals(transport, firstArrival.Transport, StringComparison.OrdinalIgnoreCase),
+            FirstTransport = firstArrival.Transport,
+            DeltaFromFirstMs = Math.Max(0, (timestampUtc - firstArrival.TimestampUtc).TotalMilliseconds),
+            PayloadBytes = Math.Max(0, payloadBytes),
+            ValidationDurationMs = Math.Max(0, validationDurationMs),
+            CurrentRoundNumber = _state.CurrentRoundNumber,
+            CurrentStateId = _state.CurrentStateId,
+            CandidateStateId = _state.CandidateStateId,
+            CurrentTipBlockHash = _state.CurrentTipBlockHash,
+            CurrentTipBlockHeight = _state.CurrentTipBlockHeight,
+            TimestampUtc = timestampUtc
+        });
+
+        TrimPeerRelayObservationsNoLock(timestampUtc);
+    }
+
     private void RecordNetworkEventNoLock(
         string eventType,
         string source,
@@ -3891,6 +4186,22 @@ public class BootProtocolStateService
         foreach (BootAcceptedShareTelemetry share in _state.RecentAcceptedShares.OrderBy(share => share.TimestampUtc))
         {
             RecordLocalDatumAddressHashrateNoLock(share);
+        }
+    }
+
+    private void RebuildPeerRelayFirstArrivalsNoLock()
+    {
+        _peerRelayFirstArrivals.Clear();
+        foreach (BootPeerRelayObservation observation in _state.RecentPeerRelayObservations
+            .Where(item => !string.IsNullOrWhiteSpace(item.ShareId))
+            .OrderBy(item => item.TimestampUtc))
+        {
+            if (!_peerRelayFirstArrivals.ContainsKey(observation.ShareId))
+            {
+                _peerRelayFirstArrivals[observation.ShareId] = new PeerRelayFirstArrival(
+                    observation.TimestampUtc,
+                    string.IsNullOrWhiteSpace(observation.Transport) ? "unknown" : observation.Transport);
+            }
         }
     }
 
@@ -4263,6 +4574,29 @@ public class BootProtocolStateService
             .ToList();
     }
 
+    private void TrimPeerRelayObservationsNoLock(DateTime nowUtc)
+    {
+        DateTime cutoffUtc = nowUtc.AddHours(-GetShareDiagnosticRetentionHours());
+        _state.RecentPeerRelayObservations = _state.RecentPeerRelayObservations
+            .Where(item => item.TimestampUtc >= cutoffUtc)
+            .OrderBy(item => item.TimestampUtc)
+            .TakeLast(MaxRecentPeerRelayObservations)
+            .ToList();
+
+        HashSet<string> retainedShareIds = _state.RecentPeerRelayObservations
+            .Select(item => item.ShareId)
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string shareId in _peerRelayFirstArrivals.Keys.ToList())
+        {
+            if (!retainedShareIds.Contains(shareId))
+            {
+                _peerRelayFirstArrivals.Remove(shareId);
+            }
+        }
+    }
+
     private void TrimAcceptedShareTelemetryNoLock(DateTime nowUtc)
     {
         DateTime cutoffUtc = nowUtc.AddHours(-GetAcceptedShareTelemetryRetentionHours());
@@ -4426,6 +4760,18 @@ public class BootProtocolStateService
 
         DateTime requestedCutoffUtc = nowUtc.Subtract(requestedWindow.Value);
         return requestedCutoffUtc > retentionCutoffUtc ? requestedCutoffUtc : retentionCutoffUtc;
+    }
+
+    private static double? Percentile(IReadOnlyList<double> sortedValues, double percentile)
+    {
+        if (sortedValues.Count == 0)
+        {
+            return null;
+        }
+
+        double clamped = Math.Clamp(percentile, 0, 1);
+        int index = (int)Math.Ceiling(clamped * sortedValues.Count) - 1;
+        return sortedValues[Math.Clamp(index, 0, sortedValues.Count - 1)];
     }
 
     private DateTime ResolveHashrateSeriesCutoffUtc(string? windowKey, DateTime nowUtc)
@@ -5567,6 +5913,8 @@ public class BootProtocolStateService
         score -= Math.Min(60, peer.RelayFailureCount * 3);
         score += Math.Min(24, peer.SessionSuccessCount);
         score -= Math.Min(80, peer.SessionFailureCount * 4);
+        score += Math.Min(20, peer.UdpRelaySuccessCount);
+        score -= Math.Min(60, peer.UdpRelayFailureCount * 3);
         score -= Math.Min(80, peer.FailureCount * 10);
         if (IsPeerFailureStatus(peer.Status))
         {
@@ -5826,6 +6174,7 @@ public class BootProtocolStateService
         string normalized = status.Trim().ToLowerInvariant();
         return normalized is "timeout" or "error" or "empty" or "foreign-network" or "relay-timeout" or "relay-error" or "relay-rate-limited" ||
                normalized is "session-timeout" or "session-error" or "session-rejected" or "session-closed" or "session-handshake-failed" ||
+               normalized is "udp-error" or "udp-invalid" or "udp-too-large" ||
                normalized.StartsWith("relay-http-", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -6102,6 +6451,8 @@ public class BootProtocolStateService
             RelayFailureCount = peer.RelayFailureCount,
             SessionSuccessCount = peer.SessionSuccessCount,
             SessionFailureCount = peer.SessionFailureCount,
+            UdpRelaySuccessCount = peer.UdpRelaySuccessCount,
+            UdpRelayFailureCount = peer.UdpRelayFailureCount,
             LastCurrentStateId = peer.LastCurrentStateId,
             LastCandidateStateId = peer.LastCandidateStateId,
             LastTipBlockHash = peer.LastTipBlockHash,
@@ -6344,6 +6695,34 @@ public class BootProtocolStateService
             CurrentTipBlockHash = networkEvent.CurrentTipBlockHash,
             CurrentTipBlockHeight = networkEvent.CurrentTipBlockHeight,
             TimestampUtc = networkEvent.TimestampUtc
+        };
+    }
+
+    private static BootPeerRelayObservation ClonePeerRelayObservation(BootPeerRelayObservation observation)
+    {
+        return new BootPeerRelayObservation
+        {
+            ShareId = observation.ShareId,
+            Transport = observation.Transport,
+            Source = observation.Source,
+            RemoteEndpoint = observation.RemoteEndpoint,
+            MinerAddress = observation.MinerAddress,
+            Username = observation.Username,
+            Difficulty = observation.Difficulty,
+            Accepted = observation.Accepted,
+            AffectedOnDeck = observation.AffectedOnDeck,
+            RejectionReason = observation.RejectionReason,
+            IsFirstArrival = observation.IsFirstArrival,
+            FirstTransport = observation.FirstTransport,
+            DeltaFromFirstMs = observation.DeltaFromFirstMs,
+            PayloadBytes = observation.PayloadBytes,
+            ValidationDurationMs = observation.ValidationDurationMs,
+            CurrentRoundNumber = observation.CurrentRoundNumber,
+            CurrentStateId = observation.CurrentStateId,
+            CandidateStateId = observation.CandidateStateId,
+            CurrentTipBlockHash = observation.CurrentTipBlockHash,
+            CurrentTipBlockHeight = observation.CurrentTipBlockHeight,
+            TimestampUtc = observation.TimestampUtc
         };
     }
 

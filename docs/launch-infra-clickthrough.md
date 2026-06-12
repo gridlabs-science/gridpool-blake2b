@@ -134,6 +134,7 @@ Create inbound rules:
 1. `TCP` port `80` from `0.0.0.0/0` and `::/0`
 2. `TCP` port `443` from `0.0.0.0/0` and `::/0`
 3. `TCP` port `3008` from `0.0.0.0/0` and `::/0`
+4. `UDP` port `5001` from `0.0.0.0/0` and `::/0` for authenticated V3 peer fast relay
 
 Do **not** open public SSH yet if you plan to use only Tailscale SSH.
 
@@ -149,7 +150,7 @@ Save the firewall.
 Done when:
 
 - the firewall exists
-- it contains at least `80`, `443`, and `3008` inbound
+- it contains at least `80`, `443`, `3008`, and UDP `5001` inbound
 
 Hand back to Codex:
 
@@ -470,4 +471,3 @@ Do the simplest thing:
 3. once Tailscale SSH works, we close public SSH again
 
 That is cleaner than getting stuck on access controls before the nodes even exist.
-

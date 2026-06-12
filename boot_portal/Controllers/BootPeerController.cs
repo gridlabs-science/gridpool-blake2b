@@ -94,7 +94,10 @@ public class BootPeerController : ControllerBase
             MerklePath = announcement.Share.MerklePath,
             PrevBlockHash = announcement.Share.PrevBlockHash,
             Difficulty = announcement.Share.Difficulty,
-            Source = string.IsNullOrWhiteSpace(senderEndpoint) ? "peer" : $"peer:{senderEndpoint}"
+            PayloadBytes = Request.ContentLength.HasValue
+                ? (int)Math.Min(int.MaxValue, Request.ContentLength.Value)
+                : 0,
+            Source = string.IsNullOrWhiteSpace(senderEndpoint) ? "peer-http" : $"peer-http:{senderEndpoint}"
         }, "peer-block");
 
         if (!result.Accepted && !string.Equals(result.RejectionReason, "Duplicate share", StringComparison.Ordinal))

@@ -105,6 +105,14 @@ public static class PoolConfigValidator
         {
             errors.Add("peer_session_max_frame_bytes must be less than or equal to max_share_request_bytes");
         }
+        ValidateNonNegativePort(errors, config.PeerUdpBindPort, "peer_udp_bind_port");
+        ValidateRequiredPort(errors, config.PeerUdpPort, "peer_udp_port");
+        ValidatePositive(errors, config.PeerUdpMaxDatagramBytes, "peer_udp_max_datagram_bytes");
+        ValidatePositive(errors, config.PeerUdpReplayWindow, "peer_udp_replay_window");
+        if (config.PeerUdpMaxDatagramBytes < 512)
+        {
+            errors.Add("peer_udp_max_datagram_bytes must be at least 512");
+        }
         ValidatePositive(errors, config.MiningApiShareRateLimitPerMinute, "mining_api_share_rate_limit_per_minute");
         ValidatePositive(errors, config.AdminRateLimitPerMinute, "admin_rate_limit_per_minute");
         ValidatePositive(errors, config.MaxShareRequestBytes, "max_share_request_bytes");

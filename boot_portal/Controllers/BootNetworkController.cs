@@ -136,6 +136,17 @@ public class BootNetworkController : ControllerBase
     }
 
     [EnableRateLimiting("network-read")]
+    [HttpGet("peer-relay-latency")]
+    public IActionResult GetPeerRelayLatency(
+        [FromQuery] string? window = "12h",
+        [FromQuery] int limit = 500,
+        [FromQuery] string? remoteEndpoint = null,
+        [FromQuery] string? transport = null)
+    {
+        return Ok(_stateService.GetPeerRelayLatency(window, limit, remoteEndpoint, transport));
+    }
+
+    [EnableRateLimiting("network-read")]
     [HttpGet("coinbaser-diagnostics")]
     public IActionResult GetCoinbaserDiagnostics(
         [FromQuery] string? window = "12h",

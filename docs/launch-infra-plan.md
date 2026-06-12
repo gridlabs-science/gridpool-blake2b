@@ -523,6 +523,7 @@ Steps:
      - Tailscale
      - `80/443` for UI / reverse proxy
      - DATUM port `3008`
+     - UDP port `5001` for authenticated V3 peer fast relay
      - bitcoind ports only if intentionally public
    - deny:
      - public SSH if Tailscale SSH is in use

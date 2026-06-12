@@ -58,9 +58,11 @@ Current V2 limits:
 ## V3: FIBRE-Inspired UDP Share Fast Relay
 
 - Add a compact binary single-packet message for new on-deck share proofs.
-- Current observed proof sizes:
+- Current observed proof sizes in the small lab topology:
   - JSON share proof: roughly 1.3 KB to 2.1 KB;
   - compact binary share proof: roughly 0.5 KB to 0.9 KB.
+- Those measurements are not representative of the mature 300-recipient pool case. A P2WPKH output is roughly 31 bytes (8-byte value, 1-byte script length, 22-byte script). A full 300-address Winners List therefore adds roughly 9,300 bytes of output data before the coinbase input, extranonce/script data, tx framing, merkle path, and auth overhead.
+- Expected mature full-proof UDP payload: roughly 9.8 KB to 10.5 KB for 300 unique P2WPKH payout addresses, well above the 1200-byte no-fragmentation target.
 - Target a safe UDP payload under 1200 bytes to avoid IP fragmentation.
 - Use UDP only as an optimistic fast data plane:
   - HTTP/persistent peer channel remains canonical fallback;
@@ -68,6 +70,53 @@ Current V2 limits:
   - receiver validates every share before using it;
   - missing context triggers normal HTTP state/share fetch.
 - Do not ship raw unauthenticated UDP. Require per-peer authentication/encryption, replay windows, rate limits, and duplicate suppression.
+
+### V3 Implementation Status
+
+The first V3 implementation is now an authenticated UDP fast-relay overlay:
+
+- UDP is enabled by `enable_peer_udp_fast_relay`.
+- Default bind/advertised UDP port is `5001`.
+- UDP relay only operates after a V2 persistent peer session exists.
+- V3 UDP keys are derived from the V2 X25519 session secret and both session nonces.
+- Datagram header:
+  - 4-byte magic: `GP3S`;
+  - 1-byte V3 datagram version;
+  - 16-byte truncated sender node key;
+  - 8-byte per-session sequence.
+- Datagram body is AES-GCM encrypted/authenticated.
+- Receiver drops datagrams unless it has a live V2 session for the sender node key.
+- Receiver keeps a replay window per session.
+- Payload is a compact binary full share proof:
+  - 80-byte block header;
+  - exact coinbase transaction;
+  - merkle path;
+  - optional truncated username.
+- If a proof cannot fit within `peer_udp_max_datagram_bytes` (default 1200), UDP relay is skipped and V2/HTTP carry the share normally.
+- UDP is an optimistic fast path only. V2 session relay and HTTP share relay remain correctness fallbacks.
+- Relay latency and packet-fit telemetry is available at `/api/network/peer-relay-latency`.
+- `peer_relay_latency_probe_all_transports` can be enabled in lab testing to intentionally send redundant HTTP/WebSocket/UDP copies and measure which transport arrives first.
+
+### Slot-0-Only Compression Decision
+
+Slot-0-only UDP packets are deferred for the first V3 implementation, but should now be treated as the likely V3.1/V4 path for production-scale fast relay.
+
+In theory, every converged node has the same Winners List, which defines most of the coinbase payout structure. A packet containing only the slot-0 address plus the header and compact work fields could be much smaller.
+
+For the first V3 implementation, the complexity is deferred because the fallback path is correct and lower-risk:
+
+- Receivers must verify the header merkle root, which requires the exact coinbase transaction hash.
+- DATUM/direct clients can vary extranonce material, tags, coinbase script data, and transaction selection.
+- During latency-driven team splits, peers may have different current Winners Lists; reconstruction failure would be ambiguous.
+- Current measured compact full proofs fit under the safe 1200-byte UDP budget only in small test conditions.
+
+Recommended V3.1 design direction:
+
+- Negotiate a compact-share capability during the V2 encrypted session.
+- Include a current-state identifier or Winners List commitment in each compact UDP packet.
+- Send slot-0 address/script, header, merkle path, and the minimal coinbase variable fields required to reconstruct the exact coinbase transaction.
+- Receiver reconstructs the full coinbase from its local Winners List and validates the merkle root and share difficulty.
+- If reconstruction fails because state differs, receiver requests or waits for the full V2/HTTP proof and records the event as a possible team-split/convergence signal.
 
 ## V4: Bitcoin Header / Compact Block Relay
 

@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
+using System.Net;
 using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -8,6 +9,22 @@ using boot_portal.Models;
 using boot_portal.Utils;
 
 namespace boot_portal.Services;
+
+public sealed class BootPeerUdpDatagramTarget
+{
+    public string RemoteEndpoint { get; init; } = string.Empty;
+    public string RemoteNodeId { get; init; } = string.Empty;
+    public string Host { get; init; } = string.Empty;
+    public int Port { get; init; }
+    public byte[] Datagram { get; init; } = [];
+}
+
+public sealed class BootPeerUdpReceivedPayload
+{
+    public string RemoteEndpoint { get; init; } = string.Empty;
+    public string RemoteNodeId { get; init; } = string.Empty;
+    public byte[] Payload { get; init; } = [];
+}
 
 public sealed class BootPeerSessionManager : BackgroundService
 {
@@ -144,6 +161,96 @@ public sealed class BootPeerSessionManager : BackgroundService
             });
 
         return relayedEndpoints;
+    }
+
+    public List<BootPeerUdpDatagramTarget> BuildUdpDatagramTargets(
+        ReadOnlySpan<byte> payload,
+        string? sourceEndpoint,
+        int maxDatagramBytes)
+    {
+        if (!_poolConfig.EnablePeerPersistentSessions || _sessions.IsEmpty)
+        {
+            return [];
+        }
+
+        string normalizedSource = NormalizeEndpoint(sourceEndpoint ?? string.Empty);
+        byte[] senderNodeKey = GetNodeKey(_identity.NodeId);
+        var targets = new List<BootPeerUdpDatagramTarget>();
+        foreach (PeerSession session in _sessions.Values)
+        {
+            if (!session.IsOpen ||
+                string.IsNullOrWhiteSpace(session.RemoteEndpoint) ||
+                string.Equals(session.RemoteEndpoint, normalizedSource, StringComparison.OrdinalIgnoreCase) ||
+                !TryBuildUdpHost(session.RemoteEndpoint, out string host, out int port))
+            {
+                continue;
+            }
+
+            ulong sequence = session.NextUdpSendSequence++;
+            byte[] datagram = session.Crypto.EncryptUdp(payload, sequence, senderNodeKey);
+            if (datagram.Length > maxDatagramBytes)
+            {
+                continue;
+            }
+
+            targets.Add(new BootPeerUdpDatagramTarget
+            {
+                RemoteEndpoint = session.RemoteEndpoint,
+                RemoteNodeId = session.RemoteNodeId,
+                Host = host,
+                Port = port,
+                Datagram = datagram
+            });
+        }
+
+        return targets;
+    }
+
+    public bool TryDecryptUdpDatagram(
+        ReadOnlySpan<byte> datagram,
+        out BootPeerUdpReceivedPayload received,
+        out string reason)
+    {
+        received = new BootPeerUdpReceivedPayload();
+        reason = string.Empty;
+        if (!_poolConfig.EnablePeerPersistentSessions)
+        {
+            reason = "sessions-disabled";
+            return false;
+        }
+
+        if (!BootPeerSessionCrypto.TryReadUdpHeader(datagram, out byte[] senderNodeKey, out ulong sequence, out reason))
+        {
+            return false;
+        }
+
+        PeerSession? session = _sessions.Values.FirstOrDefault(candidate =>
+            candidate.IsOpen &&
+            GetNodeKey(candidate.RemoteNodeId).SequenceEqual(senderNodeKey));
+        if (session == null)
+        {
+            reason = "unknown-session";
+            return false;
+        }
+
+        if (!session.Crypto.TryDecryptUdp(datagram, sequence, out byte[] payload, out reason))
+        {
+            return false;
+        }
+
+        if (!session.AcceptUdpSequence(sequence, Math.Max(128, _poolConfig.PeerUdpReplayWindow)))
+        {
+            reason = "replay";
+            return false;
+        }
+
+        received = new BootPeerUdpReceivedPayload
+        {
+            RemoteEndpoint = session.RemoteEndpoint,
+            RemoteNodeId = session.RemoteNodeId,
+            Payload = payload
+        };
+        return true;
     }
 
     private async Task ConnectOutboundSessionAsync(string endpoint, CancellationToken cancellationToken)
@@ -301,6 +408,7 @@ public sealed class BootPeerSessionManager : BackgroundService
                 return;
             }
 
+            int frameBytes = Encoding.UTF8.GetByteCount(frameJson);
             BootPeerSessionEncryptedFrame? frame = JsonSerializer.Deserialize<BootPeerSessionEncryptedFrame>(frameJson, JsonOptions);
             if (frame == null || !string.Equals(frame.Type, "encrypted", StringComparison.OrdinalIgnoreCase))
             {
@@ -318,18 +426,18 @@ public sealed class BootPeerSessionManager : BackgroundService
             BootPeerSessionPayload? payload = JsonSerializer.Deserialize<BootPeerSessionPayload>(payloadJson, JsonOptions);
             if (payload != null)
             {
-                await HandlePayloadAsync(session, payload, cancellationToken);
+                await HandlePayloadAsync(session, payload, frameBytes, cancellationToken);
             }
         }
     }
 
-    private async Task HandlePayloadAsync(PeerSession session, BootPeerSessionPayload payload, CancellationToken cancellationToken)
+    private async Task HandlePayloadAsync(PeerSession session, BootPeerSessionPayload payload, int frameBytes, CancellationToken cancellationToken)
     {
         string type = payload.Type.Trim().ToLowerInvariant();
         switch (type)
         {
             case "share":
-                await HandleSharePayloadAsync(session, payload.Share, cancellationToken);
+                await HandleSharePayloadAsync(session, payload.Share, frameBytes, cancellationToken);
                 break;
             case "address-book":
                 if (payload.AddressBook != null)
@@ -357,6 +465,7 @@ public sealed class BootPeerSessionManager : BackgroundService
     private async Task HandleSharePayloadAsync(
         PeerSession session,
         PeerShareAnnouncement? announcement,
+        int frameBytes,
         CancellationToken cancellationToken)
     {
         if (announcement?.Share == null)
@@ -401,9 +510,10 @@ public sealed class BootPeerSessionManager : BackgroundService
             MerklePath = announcement.Share.MerklePath,
             PrevBlockHash = announcement.Share.PrevBlockHash,
             Difficulty = announcement.Share.Difficulty,
+            PayloadBytes = Math.Max(0, frameBytes),
             Source = string.IsNullOrWhiteSpace(senderEndpoint)
                 ? $"peer-session:{ShortNodeId(session.RemoteNodeId)}"
-                : $"peer:{senderEndpoint}"
+                : $"peer-session:{senderEndpoint}"
         }, "peer-block");
 
         if (!result.Accepted && !string.Equals(result.RejectionReason, "Duplicate share", StringComparison.Ordinal))
@@ -529,6 +639,20 @@ public sealed class BootPeerSessionManager : BackgroundService
         return builder.Uri;
     }
 
+    private bool TryBuildUdpHost(string endpoint, out string host, out int port)
+    {
+        host = string.Empty;
+        port = _poolConfig.PeerUdpPort;
+        if (!Uri.TryCreate(NormalizeEndpoint(endpoint), UriKind.Absolute, out Uri? uri) ||
+            string.IsNullOrWhiteSpace(uri.Host))
+        {
+            return false;
+        }
+
+        host = uri.Host;
+        return true;
+    }
+
     private async Task<T?> ReceivePlainJsonAsync<T>(WebSocket socket, CancellationToken cancellationToken)
     {
         string? json = await ReceiveStringAsync(socket, cancellationToken);
@@ -615,6 +739,12 @@ public sealed class BootPeerSessionManager : BackgroundService
         return nodeId.Length <= 12 ? nodeId : nodeId[..12];
     }
 
+    private static byte[] GetNodeKey(string? nodeId)
+    {
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(nodeId ?? string.Empty));
+        return hash[..16];
+    }
+
     private sealed class PeerSession
     {
         public PeerSession(
@@ -639,7 +769,11 @@ public sealed class BootPeerSessionManager : BackgroundService
         public SemaphoreSlim SendLock { get; } = new(1, 1);
         public ulong NextSendSequence { get; set; }
         public ulong NextReceiveSequence { get; set; }
+        public ulong NextUdpSendSequence { get; set; }
         public bool IsOpen => Socket.State == WebSocketState.Open;
+        private readonly object _udpReplayLock = new();
+        private readonly HashSet<ulong> _udpReceivedSequences = [];
+        private readonly Queue<ulong> _udpReceivedSequenceQueue = [];
 
         public void Abort()
         {
@@ -651,26 +785,60 @@ public sealed class BootPeerSessionManager : BackgroundService
             {
             }
         }
+
+        public bool AcceptUdpSequence(ulong sequence, int replayWindow)
+        {
+            lock (_udpReplayLock)
+            {
+                if (!_udpReceivedSequences.Add(sequence))
+                {
+                    return false;
+                }
+
+                _udpReceivedSequenceQueue.Enqueue(sequence);
+                while (_udpReceivedSequenceQueue.Count > replayWindow &&
+                       _udpReceivedSequenceQueue.TryDequeue(out ulong expired))
+                {
+                    _udpReceivedSequences.Remove(expired);
+                }
+
+                return true;
+            }
+        }
     }
 
     private sealed class BootPeerSessionCrypto
     {
+        private static readonly byte[] UdpMagic = "GP3S"u8.ToArray();
         private static readonly byte[] AssociatedData = Encoding.UTF8.GetBytes("GridPool peer session v2 encrypted frame");
+        private static readonly byte[] UdpAssociatedData = Encoding.UTF8.GetBytes("GridPool peer udp fast relay v3");
         private readonly byte[] _sendKey;
         private readonly byte[] _receiveKey;
         private readonly byte[] _sendNoncePrefix;
         private readonly byte[] _receiveNoncePrefix;
+        private readonly byte[] _udpSendKey;
+        private readonly byte[] _udpReceiveKey;
+        private readonly byte[] _udpSendNoncePrefix;
+        private readonly byte[] _udpReceiveNoncePrefix;
 
         private BootPeerSessionCrypto(
             byte[] sendKey,
             byte[] receiveKey,
             byte[] sendNoncePrefix,
-            byte[] receiveNoncePrefix)
+            byte[] receiveNoncePrefix,
+            byte[] udpSendKey,
+            byte[] udpReceiveKey,
+            byte[] udpSendNoncePrefix,
+            byte[] udpReceiveNoncePrefix)
         {
             _sendKey = sendKey;
             _receiveKey = receiveKey;
             _sendNoncePrefix = sendNoncePrefix;
             _receiveNoncePrefix = receiveNoncePrefix;
+            _udpSendKey = udpSendKey;
+            _udpReceiveKey = udpReceiveKey;
+            _udpSendNoncePrefix = udpSendNoncePrefix;
+            _udpReceiveNoncePrefix = udpReceiveNoncePrefix;
         }
 
         public static BootPeerSessionCrypto Create(
@@ -685,18 +853,30 @@ public sealed class BootPeerSessionManager : BackgroundService
             byte[] responderToInitiatorKey = Derive(sharedSecret, initiatorNonce, responderNonce, "key:responder-to-initiator");
             byte[] initiatorToResponderPrefix = Derive(sharedSecret, initiatorNonce, responderNonce, "nonce:initiator-to-responder")[..4];
             byte[] responderToInitiatorPrefix = Derive(sharedSecret, initiatorNonce, responderNonce, "nonce:responder-to-initiator")[..4];
+            byte[] udpInitiatorToResponderKey = Derive(sharedSecret, initiatorNonce, responderNonce, "udp-key:initiator-to-responder");
+            byte[] udpResponderToInitiatorKey = Derive(sharedSecret, initiatorNonce, responderNonce, "udp-key:responder-to-initiator");
+            byte[] udpInitiatorToResponderPrefix = Derive(sharedSecret, initiatorNonce, responderNonce, "udp-nonce:initiator-to-responder")[..4];
+            byte[] udpResponderToInitiatorPrefix = Derive(sharedSecret, initiatorNonce, responderNonce, "udp-nonce:responder-to-initiator")[..4];
 
             return localIsInitiator
                 ? new BootPeerSessionCrypto(
                     initiatorToResponderKey,
                     responderToInitiatorKey,
                     initiatorToResponderPrefix,
-                    responderToInitiatorPrefix)
+                    responderToInitiatorPrefix,
+                    udpInitiatorToResponderKey,
+                    udpResponderToInitiatorKey,
+                    udpInitiatorToResponderPrefix,
+                    udpResponderToInitiatorPrefix)
                 : new BootPeerSessionCrypto(
                     responderToInitiatorKey,
                     initiatorToResponderKey,
                     responderToInitiatorPrefix,
-                    initiatorToResponderPrefix);
+                    initiatorToResponderPrefix,
+                    udpResponderToInitiatorKey,
+                    udpInitiatorToResponderKey,
+                    udpResponderToInitiatorPrefix,
+                    udpInitiatorToResponderPrefix);
         }
 
         public BootPeerSessionEncryptedFrame Encrypt(string payloadJson, ulong sequence)
@@ -724,6 +904,77 @@ public sealed class BootPeerSessionManager : BackgroundService
             return Encoding.UTF8.GetString(plaintext);
         }
 
+        public byte[] EncryptUdp(ReadOnlySpan<byte> payload, ulong sequence, ReadOnlySpan<byte> senderNodeKey)
+        {
+            byte[] ciphertext = new byte[payload.Length];
+            byte[] tag = new byte[16];
+            byte[] header = BuildUdpHeader(senderNodeKey, sequence);
+            using var aes = new AesGcm(_udpSendKey, tag.Length);
+            aes.Encrypt(BuildNonce(_udpSendNoncePrefix, sequence), payload, ciphertext, tag, header.Concat(UdpAssociatedData).ToArray());
+
+            byte[] datagram = new byte[header.Length + ciphertext.Length + tag.Length];
+            Buffer.BlockCopy(header, 0, datagram, 0, header.Length);
+            Buffer.BlockCopy(ciphertext, 0, datagram, header.Length, ciphertext.Length);
+            Buffer.BlockCopy(tag, 0, datagram, header.Length + ciphertext.Length, tag.Length);
+            return datagram;
+        }
+
+        public bool TryDecryptUdp(ReadOnlySpan<byte> datagram, ulong sequence, out byte[] payload, out string reason)
+        {
+            payload = [];
+            reason = string.Empty;
+            if (datagram.Length < UdpHeaderLength + 16)
+            {
+                reason = "datagram-too-short";
+                return false;
+            }
+
+            ReadOnlySpan<byte> header = datagram[..UdpHeaderLength];
+            ReadOnlySpan<byte> ciphertext = datagram.Slice(UdpHeaderLength, datagram.Length - UdpHeaderLength - 16);
+            ReadOnlySpan<byte> tag = datagram[^16..];
+            byte[] plaintext = new byte[ciphertext.Length];
+            try
+            {
+                using var aes = new AesGcm(_udpReceiveKey, tag.Length);
+                aes.Decrypt(BuildNonce(_udpReceiveNoncePrefix, sequence), ciphertext, tag, plaintext, header.ToArray().Concat(UdpAssociatedData).ToArray());
+                payload = plaintext;
+                return true;
+            }
+            catch (CryptographicException)
+            {
+                reason = "auth-failed";
+                return false;
+            }
+        }
+
+        public static bool TryReadUdpHeader(ReadOnlySpan<byte> datagram, out byte[] senderNodeKey, out ulong sequence, out string reason)
+        {
+            senderNodeKey = [];
+            sequence = 0;
+            reason = string.Empty;
+            if (datagram.Length < UdpHeaderLength + 16)
+            {
+                reason = "datagram-too-short";
+                return false;
+            }
+
+            if (!datagram[..4].SequenceEqual(UdpMagic))
+            {
+                reason = "bad-magic";
+                return false;
+            }
+
+            if (datagram[4] != 1)
+            {
+                reason = "unsupported-version";
+                return false;
+            }
+
+            senderNodeKey = datagram.Slice(5, 16).ToArray();
+            sequence = BinaryPrimitives.ReadUInt64BigEndian(datagram.Slice(21, 8));
+            return true;
+        }
+
         private static byte[] Derive(byte[] sharedSecret, byte[] initiatorNonce, byte[] responderNonce, string label)
         {
             byte[] labelBytes = Encoding.UTF8.GetBytes("GridPool peer session v2\n" + label);
@@ -741,6 +992,23 @@ public sealed class BootPeerSessionManager : BackgroundService
             Buffer.BlockCopy(prefix, 0, nonce, 0, Math.Min(4, prefix.Length));
             BinaryPrimitives.WriteUInt64BigEndian(nonce.AsSpan(4), sequence);
             return nonce;
+        }
+
+        private const int UdpHeaderLength = 29;
+
+        private static byte[] BuildUdpHeader(ReadOnlySpan<byte> senderNodeKey, ulong sequence)
+        {
+            if (senderNodeKey.Length != 16)
+            {
+                throw new ArgumentException("UDP sender node key must be 16 bytes.");
+            }
+
+            var header = new byte[UdpHeaderLength];
+            Buffer.BlockCopy(UdpMagic, 0, header, 0, UdpMagic.Length);
+            header[4] = 1;
+            senderNodeKey.CopyTo(header.AsSpan(5, 16));
+            BinaryPrimitives.WriteUInt64BigEndian(header.AsSpan(21, 8), sequence);
+            return header;
         }
     }
 }

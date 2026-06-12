@@ -177,6 +177,24 @@ public class PoolConfig
     [JsonPropertyName("peer_session_clock_skew_seconds")]
     public int PeerSessionClockSkewSeconds { get; set; } = 900;
 
+    [JsonPropertyName("enable_peer_udp_fast_relay")]
+    public bool EnablePeerUdpFastRelay { get; set; } = true;
+
+    [JsonPropertyName("peer_udp_bind_port")]
+    public int PeerUdpBindPort { get; set; } = 5001;
+
+    [JsonPropertyName("peer_udp_port")]
+    public int PeerUdpPort { get; set; } = 5001;
+
+    [JsonPropertyName("peer_udp_max_datagram_bytes")]
+    public int PeerUdpMaxDatagramBytes { get; set; } = 1200;
+
+    [JsonPropertyName("peer_udp_replay_window")]
+    public int PeerUdpReplayWindow { get; set; } = 4096;
+
+    [JsonPropertyName("peer_relay_latency_probe_all_transports")]
+    public bool PeerRelayLatencyProbeAllTransports { get; set; } = false;
+
     [JsonPropertyName("mining_api_share_rate_limit_per_minute")]
     public int MiningApiShareRateLimitPerMinute { get; set; } = 120;
 
@@ -538,6 +556,7 @@ public class Program
             builder.Services.AddSingleton<BootShareVerifier>();
             builder.Services.AddSingleton<BootProtocolStateService>();
             builder.Services.AddSingleton<BootPeerSessionManager>();
+            builder.Services.AddSingleton<BootPeerUdpRelayService>();
             builder.Services.AddHttpClient("BootPeerClient", client =>
             {
                 client.Timeout = TimeSpan.FromSeconds(Math.Max(2, _poolConfig.PeerRequestTimeoutSeconds));
@@ -612,6 +631,7 @@ public class Program
                     logger);
             });
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<BootPeerSessionManager>());
+            builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<BootPeerUdpRelayService>());
             builder.Services.AddHostedService<BootPeerSyncService>();
 
             var app = builder.Build();
@@ -768,6 +788,10 @@ public class Program
         config.PeerSessionIdleTimeoutSeconds = Math.Clamp(config.PeerSessionIdleTimeoutSeconds, 30, 3600);
         config.PeerSessionMaxFrameBytes = Math.Clamp(config.PeerSessionMaxFrameBytes, 4096, Math.Max(4096, config.MaxShareRequestBytes));
         config.PeerSessionClockSkewSeconds = Math.Clamp(config.PeerSessionClockSkewSeconds, 60, 86400);
+        config.PeerUdpBindPort = Math.Clamp(config.PeerUdpBindPort, 0, 65535);
+        config.PeerUdpPort = Math.Clamp(config.PeerUdpPort, 1, 65535);
+        config.PeerUdpMaxDatagramBytes = Math.Clamp(config.PeerUdpMaxDatagramBytes, 512, 65507);
+        config.PeerUdpReplayWindow = Math.Clamp(config.PeerUdpReplayWindow, 128, 1_000_000);
         config.BitcoinZmqEndpoint = string.IsNullOrWhiteSpace(config.BitcoinZmqEndpoint)
             ? "tcp://127.0.0.1:28332"
             : config.BitcoinZmqEndpoint.Trim();

@@ -294,6 +294,7 @@ Default public ports:
 
 - `5000/tcp`: Boot/Grid Pool Web UI
 - `3008/tcp`: Boot DATUM pool endpoint
+- `5001/udp`: authenticated GridPool V3 peer fast relay
 - `23334/tcp`: DATUM Stratum V1 endpoint for ASICs
 - `7152/tcp`: DATUM API bound to localhost only
 

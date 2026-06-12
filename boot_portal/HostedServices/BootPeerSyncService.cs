@@ -14,6 +14,7 @@ public class BootPeerSyncService : BackgroundService
     private readonly PoolConfig _poolConfig;
     private readonly BootProtocolStateService _stateService;
     private readonly BootPeerSessionManager _sessionManager;
+    private readonly BootPeerUdpRelayService _udpRelayService;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<BootPeerSyncService> _logger;
 
@@ -21,12 +22,14 @@ public class BootPeerSyncService : BackgroundService
         PoolConfig poolConfig,
         BootProtocolStateService stateService,
         BootPeerSessionManager sessionManager,
+        BootPeerUdpRelayService udpRelayService,
         IHttpClientFactory httpClientFactory,
         ILogger<BootPeerSyncService> logger)
     {
         _poolConfig = poolConfig;
         _stateService = stateService;
         _sessionManager = sessionManager;
+        _udpRelayService = udpRelayService;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
@@ -110,15 +113,16 @@ public class BootPeerSyncService : BackgroundService
     {
         await foreach (var proof in _stateService.AcceptedShares.ReadAllAsync(stoppingToken))
         {
-            string? sourceEndpoint = proof.Source.StartsWith("peer:", StringComparison.OrdinalIgnoreCase)
-                ? proof.Source["peer:".Length..]
+            string? sourceEndpoint = BootPeerSource.TryParsePeerSource(proof.Source, out _, out string parsedSourceEndpoint)
+                ? parsedSourceEndpoint
                 : null;
+            await _udpRelayService.RelayShareAsync(proof, sourceEndpoint, stoppingToken);
             HashSet<string> sessionRelayedEndpoints = await _sessionManager.RelayToConnectedSessionsAsync(
                 proof,
                 sourceEndpoint,
                 stoppingToken);
             List<string> peers = _stateService.GetPeerEndpointsForShareRelay(sourceEndpoint);
-            if (sessionRelayedEndpoints.Count > 0)
+            if (sessionRelayedEndpoints.Count > 0 && !_poolConfig.PeerRelayLatencyProbeAllTransports)
             {
                 peers = peers
                     .Where(peer => !sessionRelayedEndpoints.Contains(NormalizeEndpoint(peer)))

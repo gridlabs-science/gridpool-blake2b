@@ -1015,6 +1015,11 @@ install_boot() {
                 enable_peer_sync: true,
                 bootstrap_peers: $peers,
                 enable_admin_api: false,
+                enable_peer_persistent_sessions: true,
+                enable_peer_udp_fast_relay: true,
+                peer_udp_bind_port: 5001,
+                peer_udp_port: 5001,
+                peer_udp_max_datagram_bytes: 1200,
                 pool_payout_script: $payout,
                 coinbase_tag: $tag,
                 min_diff: 300

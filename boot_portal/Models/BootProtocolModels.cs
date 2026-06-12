@@ -10,6 +10,7 @@ public class RecordedShareSubmission
     public string? PrevBlockHash { get; set; }
     public double Difficulty { get; set; }
     public string Source { get; set; } = "unknown";
+    public int PayloadBytes { get; set; }
 }
 
 public class BootShareProof
@@ -59,6 +60,8 @@ public class BootPeerStatus
     public int RelayFailureCount { get; set; }
     public int SessionSuccessCount { get; set; }
     public int SessionFailureCount { get; set; }
+    public int UdpRelaySuccessCount { get; set; }
+    public int UdpRelayFailureCount { get; set; }
     public string LastCurrentStateId { get; set; } = string.Empty;
     public string LastCandidateStateId { get; set; } = string.Empty;
     public string LastTipBlockHash { get; set; } = string.Empty;
@@ -253,6 +256,47 @@ public class BootShareDiagnosticTelemetry
     public string? CurrentTipBlockHash { get; set; }
     public long? CurrentTipBlockHeight { get; set; }
     public DateTime TimestampUtc { get; set; }
+}
+
+public class BootPeerRelayObservation
+{
+    public string ShareId { get; set; } = string.Empty;
+    public string Transport { get; set; } = string.Empty;
+    public string Source { get; set; } = string.Empty;
+    public string RemoteEndpoint { get; set; } = string.Empty;
+    public string MinerAddress { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public double Difficulty { get; set; }
+    public bool Accepted { get; set; }
+    public bool AffectedOnDeck { get; set; }
+    public string? RejectionReason { get; set; }
+    public bool IsFirstArrival { get; set; }
+    public string FirstTransport { get; set; } = string.Empty;
+    public double DeltaFromFirstMs { get; set; }
+    public int PayloadBytes { get; set; }
+    public double ValidationDurationMs { get; set; }
+    public int CurrentRoundNumber { get; set; }
+    public string CurrentStateId { get; set; } = string.Empty;
+    public string CandidateStateId { get; set; } = string.Empty;
+    public string? CurrentTipBlockHash { get; set; }
+    public long? CurrentTipBlockHeight { get; set; }
+    public DateTime TimestampUtc { get; set; }
+}
+
+public class BootPeerRelayTransportSummaryDto
+{
+    public string Transport { get; set; } = string.Empty;
+    public int ArrivalCount { get; set; }
+    public int FirstArrivalCount { get; set; }
+    public int AcceptedCount { get; set; }
+    public int DuplicateCount { get; set; }
+    public int RejectedCount { get; set; }
+    public double? AverageDeltaFromFirstMs { get; set; }
+    public double? MedianDeltaFromFirstMs { get; set; }
+    public double? P95DeltaFromFirstMs { get; set; }
+    public double? AveragePayloadBytes { get; set; }
+    public int? MinPayloadBytes { get; set; }
+    public int? MaxPayloadBytes { get; set; }
 }
 
 public class BootCoinbaserFetchTelemetry
@@ -458,6 +502,14 @@ public class BootNetworkEventSeriesDto
     public int WindowSeconds { get; set; }
     public int TotalEvents { get; set; }
     public List<BootNetworkEvent> Events { get; set; } = [];
+}
+
+public class BootPeerRelayLatencySeriesDto
+{
+    public int WindowSeconds { get; set; }
+    public int TotalEvents { get; set; }
+    public List<BootPeerRelayTransportSummaryDto> Transports { get; set; } = [];
+    public List<BootPeerRelayObservation> Observations { get; set; } = [];
 }
 
 public class BootHashratePoint
