@@ -43,10 +43,12 @@ public class BootPeerStatus
     public string Endpoint { get; set; } = string.Empty;
     public string Status { get; set; } = "unimplemented";
     public string Source { get; set; } = string.Empty;
+    public string NodeId { get; set; } = string.Empty;
     public bool IsConfiguredSeed { get; set; }
     public DateTime? DiscoveredUtc { get; set; }
     public DateTime? LastAttemptUtc { get; set; }
     public DateTime? LastSuccessUtc { get; set; }
+    public DateTime? LastSessionUtc { get; set; }
     public double? LatencyMs { get; set; }
     public DateTime? LastSeenUtc { get; set; }
     public DateTime? LastFailureUtc { get; set; }
@@ -55,6 +57,8 @@ public class BootPeerStatus
     public int FailureCount { get; set; }
     public int RelaySuccessCount { get; set; }
     public int RelayFailureCount { get; set; }
+    public int SessionSuccessCount { get; set; }
+    public int SessionFailureCount { get; set; }
     public string LastCurrentStateId { get; set; } = string.Empty;
     public string LastCandidateStateId { get; set; } = string.Empty;
     public string LastTipBlockHash { get; set; } = string.Empty;
@@ -518,6 +522,37 @@ public class PeerShareAnnouncement
     public int ProtocolVersion { get; set; }
     public string NetworkId { get; set; } = string.Empty;
     public BootShareProof Share { get; set; } = new();
+}
+
+public class BootPeerSessionHello
+{
+    public string Type { get; set; } = "hello";
+    public int ProtocolVersion { get; set; }
+    public string NetworkId { get; set; } = string.Empty;
+    public string Endpoint { get; set; } = string.Empty;
+    public string NodeId { get; set; } = string.Empty;
+    public string X25519PublicKey { get; set; } = string.Empty;
+    public string Nonce { get; set; } = string.Empty;
+    public string TimestampUtc { get; set; } = string.Empty;
+    public string Signature { get; set; } = string.Empty;
+}
+
+public class BootPeerSessionEncryptedFrame
+{
+    public string Type { get; set; } = "encrypted";
+    public ulong Sequence { get; set; }
+    public string Ciphertext { get; set; } = string.Empty;
+    public string Tag { get; set; } = string.Empty;
+}
+
+public class BootPeerSessionPayload
+{
+    public string Type { get; set; } = string.Empty;
+    public string MessageId { get; set; } = Guid.NewGuid().ToString("N");
+    public DateTime SentUtc { get; set; } = DateTime.UtcNow;
+    public PeerShareAnnouncement? Share { get; set; }
+    public BootPeerAddressBookDto? AddressBook { get; set; }
+    public string? Text { get; set; }
 }
 
 public class BootStateBundle

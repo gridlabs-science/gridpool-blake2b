@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.WebSockets;
 using boot_portal.Models;
 using boot_portal.Services;
 using boot_portal.Utils;
@@ -14,13 +15,39 @@ public class BootPeerController : ControllerBase
 {
     private readonly PoolConfig _poolConfig;
     private readonly BootProtocolStateService _stateService;
+    private readonly BootPeerSessionManager _sessionManager;
     private readonly ILogger<BootPeerController> _logger;
 
-    public BootPeerController(PoolConfig poolConfig, BootProtocolStateService stateService, ILogger<BootPeerController> logger)
+    public BootPeerController(
+        PoolConfig poolConfig,
+        BootProtocolStateService stateService,
+        BootPeerSessionManager sessionManager,
+        ILogger<BootPeerController> logger)
     {
         _poolConfig = poolConfig;
         _stateService = stateService;
+        _sessionManager = sessionManager;
         _logger = logger;
+    }
+
+    [HttpGet("session")]
+    public async Task GetPeerSession()
+    {
+        if (!_poolConfig.EnablePeerSync || !_poolConfig.EnablePeerPersistentSessions)
+        {
+            Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        if (!HttpContext.WebSockets.IsWebSocketRequest)
+        {
+            Response.StatusCode = StatusCodes.Status400BadRequest;
+            await Response.WriteAsJsonAsync(new { status = "rejected", reason = "Expected WebSocket upgrade" });
+            return;
+        }
+
+        using WebSocket socket = await HttpContext.WebSockets.AcceptWebSocketAsync();
+        await _sessionManager.AcceptInboundSessionAsync(socket, HttpContext.RequestAborted);
     }
 
     [HttpPost("share")]

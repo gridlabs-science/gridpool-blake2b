@@ -96,6 +96,15 @@ public static class PoolConfigValidator
         ValidatePositive(errors, config.PeerPruneFailureCount, "peer_prune_failure_count");
         ValidatePositive(errors, config.NetworkReadRateLimitPerMinute, "network_read_rate_limit_per_minute");
         ValidatePositive(errors, config.PeerWriteRateLimitPerMinute, "peer_write_rate_limit_per_minute");
+        ValidatePositive(errors, config.PeerSessionTarget, "peer_session_target");
+        ValidatePositive(errors, config.PeerSessionConnectIntervalSeconds, "peer_session_connect_interval_seconds");
+        ValidatePositive(errors, config.PeerSessionIdleTimeoutSeconds, "peer_session_idle_timeout_seconds");
+        ValidatePositive(errors, config.PeerSessionMaxFrameBytes, "peer_session_max_frame_bytes");
+        ValidatePositive(errors, config.PeerSessionClockSkewSeconds, "peer_session_clock_skew_seconds");
+        if (config.PeerSessionMaxFrameBytes > config.MaxShareRequestBytes)
+        {
+            errors.Add("peer_session_max_frame_bytes must be less than or equal to max_share_request_bytes");
+        }
         ValidatePositive(errors, config.MiningApiShareRateLimitPerMinute, "mining_api_share_rate_limit_per_minute");
         ValidatePositive(errors, config.AdminRateLimitPerMinute, "admin_rate_limit_per_minute");
         ValidatePositive(errors, config.MaxShareRequestBytes, "max_share_request_bytes");

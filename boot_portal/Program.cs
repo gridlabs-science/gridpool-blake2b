@@ -159,6 +159,24 @@ public class PoolConfig
     [JsonPropertyName("peer_write_rate_limit_per_minute")]
     public int PeerWriteRateLimitPerMinute { get; set; } = 3000;
 
+    [JsonPropertyName("enable_peer_persistent_sessions")]
+    public bool EnablePeerPersistentSessions { get; set; } = true;
+
+    [JsonPropertyName("peer_session_target")]
+    public int PeerSessionTarget { get; set; } = 8;
+
+    [JsonPropertyName("peer_session_connect_interval_seconds")]
+    public int PeerSessionConnectIntervalSeconds { get; set; } = 15;
+
+    [JsonPropertyName("peer_session_idle_timeout_seconds")]
+    public int PeerSessionIdleTimeoutSeconds { get; set; } = 120;
+
+    [JsonPropertyName("peer_session_max_frame_bytes")]
+    public int PeerSessionMaxFrameBytes { get; set; } = 262144;
+
+    [JsonPropertyName("peer_session_clock_skew_seconds")]
+    public int PeerSessionClockSkewSeconds { get; set; } = 900;
+
     [JsonPropertyName("mining_api_share_rate_limit_per_minute")]
     public int MiningApiShareRateLimitPerMinute { get; set; } = 120;
 
@@ -516,8 +534,10 @@ public class Program
             builder.Services.AddControllers();
             builder.Services.AddSignalR();    // For real-time updates
             builder.Services.AddSingleton(_poolConfig);
+            builder.Services.AddSingleton(new BootPeerIdentity(ed25519Key, x25519Key));
             builder.Services.AddSingleton<BootShareVerifier>();
             builder.Services.AddSingleton<BootProtocolStateService>();
+            builder.Services.AddSingleton<BootPeerSessionManager>();
             builder.Services.AddHttpClient("BootPeerClient", client =>
             {
                 client.Timeout = TimeSpan.FromSeconds(Math.Max(2, _poolConfig.PeerRequestTimeoutSeconds));
@@ -591,12 +611,14 @@ public class Program
                     hubContext,
                     logger);
             });
+            builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<BootPeerSessionManager>());
             builder.Services.AddHostedService<BootPeerSyncService>();
 
             var app = builder.Build();
 
             // 2. Configure the web app
             app.UseStaticFiles(); // Serve static files like CSS, JS, images
+            app.UseWebSockets();
             app.UseRouting();
             app.UseRateLimiter();
             app.MapRazorPages(); // Use a simple page system
@@ -741,6 +763,11 @@ public class Program
             .ToList();
 
         config.DatumKeepaliveIntervalSeconds = Math.Clamp(config.DatumKeepaliveIntervalSeconds, 0, 300);
+        config.PeerSessionTarget = Math.Clamp(config.PeerSessionTarget, 1, Math.Max(1, config.PeerShareRelayTarget));
+        config.PeerSessionConnectIntervalSeconds = Math.Clamp(config.PeerSessionConnectIntervalSeconds, 5, 300);
+        config.PeerSessionIdleTimeoutSeconds = Math.Clamp(config.PeerSessionIdleTimeoutSeconds, 30, 3600);
+        config.PeerSessionMaxFrameBytes = Math.Clamp(config.PeerSessionMaxFrameBytes, 4096, Math.Max(4096, config.MaxShareRequestBytes));
+        config.PeerSessionClockSkewSeconds = Math.Clamp(config.PeerSessionClockSkewSeconds, 60, 86400);
         config.BitcoinZmqEndpoint = string.IsNullOrWhiteSpace(config.BitcoinZmqEndpoint)
             ? "tcp://127.0.0.1:28332"
             : config.BitcoinZmqEndpoint.Trim();

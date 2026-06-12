@@ -32,6 +32,29 @@ V1 keeps the existing HTTP control/data path and hardens peer discovery. Later p
 - Prefer Noise because it does not require home miners to own domains or TLS certificates, supports node identity keys, and gives a route to encrypted UDP packet keys.
 - Keep HTTPS as the recommended public relay transport until native encrypted sessions exist.
 
+### V2 Implementation Status
+
+The first V2 implementation is now an additive WebSocket transport:
+
+- `GET /api/peer/session` accepts WebSocket peer sessions.
+- Nodes dial a bounded set of high-scoring peers from the V1 address book when `enable_peer_persistent_sessions` is true.
+- Each session starts with a signed `hello` message using the node's long-term Ed25519 identity key.
+- The signed hello binds protocol version, network id, advertised endpoint, Ed25519 node id, X25519 public key, nonce, and timestamp.
+- After both hellos are exchanged, peers derive per-direction AES-GCM keys from their X25519 shared secret and both nonces.
+- All post-handshake session frames are encrypted and sequence-checked.
+- Accepted shares are relayed over open V2 sessions first, then fall back to the existing HTTP `/api/peer/share` relay path for peers not reached by session.
+- Inbound V2 share frames are validated through the same share payload and proof verification path as HTTP peer shares.
+- V2 session health contributes to peer scoring, but V1 HTTP polling and relay remain canonical fallback.
+
+This is **Noise-inspired**, not a complete Noise protocol implementation. It gives encrypted long-lived sessions and identity continuity using primitives already present in the codebase, while leaving a cleaner Noise XX/IK transport as a later hardening step.
+
+Current V2 limits:
+
+- No forward secrecy yet because the first implementation uses the node's long-term X25519 key for session key agreement.
+- No explicit peer allowlist or reputation identity policy yet; self-signed node identities are useful for continuity, not Sybil prevention.
+- Session transport currently carries share relay, address gossip, and ping/pong only. State-bundle sync still uses HTTP.
+- WebSocket sessions are still TCP-based. The UDP fast-relay path remains V3.
+
 ## V3: FIBRE-Inspired UDP Share Fast Relay
 
 - Add a compact binary single-packet message for new on-deck share proofs.

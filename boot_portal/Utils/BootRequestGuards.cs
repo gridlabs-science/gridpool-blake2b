@@ -17,6 +17,16 @@ public static class BootRequestGuards
             return new BootRequestValidationFailure(StatusCodes.Status413PayloadTooLarge, "Share payload exceeds configured size limit");
         }
 
+        return ValidateSharePayload(config, minerAddress, headerHex, coinbaseHex, merklePath);
+    }
+
+    public static BootRequestValidationFailure? ValidateSharePayload(
+        PoolConfig config,
+        string? minerAddress,
+        string? headerHex,
+        string? coinbaseHex,
+        IReadOnlyCollection<string>? merklePath)
+    {
         if (string.IsNullOrWhiteSpace(headerHex))
         {
             return new BootRequestValidationFailure(StatusCodes.Status400BadRequest, "Missing block header");

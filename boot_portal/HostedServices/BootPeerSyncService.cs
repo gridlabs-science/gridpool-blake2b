@@ -13,17 +13,20 @@ public class BootPeerSyncService : BackgroundService
 {
     private readonly PoolConfig _poolConfig;
     private readonly BootProtocolStateService _stateService;
+    private readonly BootPeerSessionManager _sessionManager;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<BootPeerSyncService> _logger;
 
     public BootPeerSyncService(
         PoolConfig poolConfig,
         BootProtocolStateService stateService,
+        BootPeerSessionManager sessionManager,
         IHttpClientFactory httpClientFactory,
         ILogger<BootPeerSyncService> logger)
     {
         _poolConfig = poolConfig;
         _stateService = stateService;
+        _sessionManager = sessionManager;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
@@ -110,7 +113,18 @@ public class BootPeerSyncService : BackgroundService
             string? sourceEndpoint = proof.Source.StartsWith("peer:", StringComparison.OrdinalIgnoreCase)
                 ? proof.Source["peer:".Length..]
                 : null;
+            HashSet<string> sessionRelayedEndpoints = await _sessionManager.RelayToConnectedSessionsAsync(
+                proof,
+                sourceEndpoint,
+                stoppingToken);
             List<string> peers = _stateService.GetPeerEndpointsForShareRelay(sourceEndpoint);
+            if (sessionRelayedEndpoints.Count > 0)
+            {
+                peers = peers
+                    .Where(peer => !sessionRelayedEndpoints.Contains(NormalizeEndpoint(peer)))
+                    .ToList();
+            }
+
             using var semaphore = new SemaphoreSlim(_stateService.GetPeerRelayParallelism());
 
             var relayTasks = peers.Select(peer => RelayShareWithLimitAsync(peer, proof, semaphore, stoppingToken)).ToArray();

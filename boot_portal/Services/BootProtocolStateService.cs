@@ -842,6 +842,11 @@ public class BootProtocolStateService
         return GetEligiblePeerEndpoints(GetPeerShareRelayTarget(), markAttempt: false, sourceEndpoint);
     }
 
+    public List<string> GetPeerEndpointsForPersistentSessions()
+    {
+        return GetEligiblePeerEndpoints(GetPeerSessionTarget(), markAttempt: false, sourceEndpoint: null);
+    }
+
     public int GetPeerRelayParallelism()
     {
         return Math.Min(GetPeerRelayParallelismLimit(), GetPeerShareRelayTarget());
@@ -1072,6 +1077,72 @@ public class BootProtocolStateService
             if (peer != null && string.Equals(status, "relayed", StringComparison.OrdinalIgnoreCase))
             {
                 peer.RelaySuccessCount++;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                RequestDeferredSaveNoLock();
+            }
+        }
+    }
+
+    public void UpdatePeerSessionHeartbeat(string endpoint, string nodeId, string status, DateTime lastSeenUtc)
+    {
+        lock (_sync)
+        {
+            bool changed = UpsertPeerNoLock(
+                endpoint,
+                status,
+                null,
+                lastSeenUtc,
+                persistStatusOnly: true,
+                allowSuppressed: true,
+                source: "session",
+                allowPrivate: true);
+            BootPeerStatus? peer = FindPeerNoLock(endpoint);
+            if (peer != null)
+            {
+                if (!string.IsNullOrWhiteSpace(nodeId) && !string.Equals(peer.NodeId, nodeId, StringComparison.Ordinal))
+                {
+                    peer.NodeId = nodeId;
+                    changed = true;
+                }
+
+                peer.LastSessionUtc = lastSeenUtc;
+                peer.LastSuccessUtc = lastSeenUtc;
+                peer.FailureCount = 0;
+                peer.LastFailureUtc = null;
+                peer.SessionSuccessCount++;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                RequestDeferredSaveNoLock();
+            }
+        }
+    }
+
+    public void MarkPeerSessionFailure(string endpoint, string status)
+    {
+        lock (_sync)
+        {
+            bool changed = UpsertPeerNoLock(
+                endpoint,
+                status,
+                null,
+                null,
+                persistStatusOnly: true,
+                allowSuppressed: false,
+                source: "session",
+                allowPrivate: true);
+            BootPeerStatus? peer = FindPeerNoLock(endpoint);
+            if (peer != null)
+            {
+                peer.SessionFailureCount++;
+                peer.FailureCount++;
+                peer.LastFailureUtc = DateTime.UtcNow;
                 changed = true;
             }
 
@@ -4320,6 +4391,8 @@ public class BootProtocolStateService
 
     private int GetPeerShareRelayTarget() => Math.Clamp(_poolConfig.PeerShareRelayTarget, 1, GetPeerAddressBookMaxEntries());
 
+    private int GetPeerSessionTarget() => Math.Clamp(_poolConfig.PeerSessionTarget, 1, GetPeerAddressBookMaxEntries());
+
     private int GetPeerRelayParallelismLimit() => Math.Clamp(_poolConfig.PeerRelayParallelism, 1, 256);
 
     private int GetPeerAddressBookMaxEntries() => Math.Clamp(Math.Max(_poolConfig.PeerAddressBookMaxEntries, _poolConfig.MaxPeers), 1, 100000);
@@ -5459,6 +5532,12 @@ public class BootProtocolStateService
             score += 15;
         }
 
+        if (peer.LastSessionUtc.HasValue)
+        {
+            double sessionAgeMinutes = Math.Max(0, (nowUtc - peer.LastSessionUtc.Value).TotalMinutes);
+            score += sessionAgeMinutes <= 10 ? 18 : sessionAgeMinutes <= 60 ? 8 : 2;
+        }
+
         if (!string.IsNullOrWhiteSpace(peer.LastCurrentStateId) &&
             string.Equals(peer.LastCurrentStateId, _state.CurrentStateId, StringComparison.OrdinalIgnoreCase))
         {
@@ -5486,6 +5565,8 @@ public class BootProtocolStateService
 
         score += Math.Min(30, peer.RelaySuccessCount * 2);
         score -= Math.Min(60, peer.RelayFailureCount * 3);
+        score += Math.Min(24, peer.SessionSuccessCount);
+        score -= Math.Min(80, peer.SessionFailureCount * 4);
         score -= Math.Min(80, peer.FailureCount * 10);
         if (IsPeerFailureStatus(peer.Status))
         {
@@ -5744,6 +5825,7 @@ public class BootProtocolStateService
 
         string normalized = status.Trim().ToLowerInvariant();
         return normalized is "timeout" or "error" or "empty" or "foreign-network" or "relay-timeout" or "relay-error" or "relay-rate-limited" ||
+               normalized is "session-timeout" or "session-error" or "session-rejected" or "session-closed" or "session-handshake-failed" ||
                normalized.StartsWith("relay-http-", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -6004,10 +6086,12 @@ public class BootProtocolStateService
             Endpoint = peer.Endpoint,
             Status = peer.Status,
             Source = peer.Source,
+            NodeId = peer.NodeId,
             IsConfiguredSeed = peer.IsConfiguredSeed,
             DiscoveredUtc = peer.DiscoveredUtc,
             LastAttemptUtc = peer.LastAttemptUtc,
             LastSuccessUtc = peer.LastSuccessUtc,
+            LastSessionUtc = peer.LastSessionUtc,
             LatencyMs = peer.LatencyMs,
             LastSeenUtc = peer.LastSeenUtc,
             LastFailureUtc = peer.LastFailureUtc,
@@ -6016,6 +6100,8 @@ public class BootProtocolStateService
             FailureCount = peer.FailureCount,
             RelaySuccessCount = peer.RelaySuccessCount,
             RelayFailureCount = peer.RelayFailureCount,
+            SessionSuccessCount = peer.SessionSuccessCount,
+            SessionFailureCount = peer.SessionFailureCount,
             LastCurrentStateId = peer.LastCurrentStateId,
             LastCandidateStateId = peer.LastCandidateStateId,
             LastTipBlockHash = peer.LastTipBlockHash,
