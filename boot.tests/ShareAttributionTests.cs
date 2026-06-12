@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSec.Cryptography;
 
 namespace boot.tests;
 
@@ -986,7 +987,11 @@ public sealed class ShareAttributionTests
             {
                 ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
             };
-            PeerController = new BootPeerController(config, stateService, NullLogger<BootPeerController>.Instance)
+            PeerController = new BootPeerController(
+                config,
+                stateService,
+                CreatePeerSessionManager(config, stateService),
+                NullLogger<BootPeerController>.Instance)
             {
                 ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
             };
@@ -1040,6 +1045,19 @@ public sealed class ShareAttributionTests
                 NullLogger<BootProtocolStateService>.Instance);
 
             return new TestHarness(tempDirectory, previousStatePath, previousHistoryPath, config, stateService);
+        }
+
+        private static BootPeerSessionManager CreatePeerSessionManager(PoolConfig config, BootProtocolStateService stateService)
+        {
+            var identity = new BootPeerIdentity(
+                Key.Create(SignatureAlgorithm.Ed25519, new KeyCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextExport }),
+                Key.Create(KeyAgreementAlgorithm.X25519, new KeyCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextExport }));
+
+            return new BootPeerSessionManager(
+                config,
+                stateService,
+                identity,
+                NullLogger<BootPeerSessionManager>.Instance);
         }
 
         public void Dispose()
