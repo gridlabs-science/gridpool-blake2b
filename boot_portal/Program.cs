@@ -120,6 +120,33 @@ public class PoolConfig
     [JsonPropertyName("max_peers")]
     public int MaxPeers { get; set; } = 64;
 
+    [JsonPropertyName("peer_outbound_target")]
+    public int PeerOutboundTarget { get; set; } = 16;
+
+    [JsonPropertyName("peer_share_relay_target")]
+    public int PeerShareRelayTarget { get; set; } = 32;
+
+    [JsonPropertyName("peer_relay_parallelism")]
+    public int PeerRelayParallelism { get; set; } = 16;
+
+    [JsonPropertyName("peer_address_book_max_entries")]
+    public int PeerAddressBookMaxEntries { get; set; } = 2048;
+
+    [JsonPropertyName("peer_address_gossip_limit")]
+    public int PeerAddressGossipLimit { get; set; } = 128;
+
+    [JsonPropertyName("peer_failure_backoff_min_seconds")]
+    public int PeerFailureBackoffMinSeconds { get; set; } = 30;
+
+    [JsonPropertyName("peer_failure_backoff_max_seconds")]
+    public int PeerFailureBackoffMaxSeconds { get; set; } = 1800;
+
+    [JsonPropertyName("peer_tombstone_seconds")]
+    public int PeerTombstoneSeconds { get; set; } = 86400;
+
+    [JsonPropertyName("peer_allow_private_advertisements")]
+    public bool PeerAllowPrivateAdvertisements { get; set; } = false;
+
     [JsonPropertyName("peer_prune_after_seconds")]
     public int PeerPruneAfterSeconds { get; set; } = 3600;
 
@@ -167,6 +194,15 @@ public class PoolConfig
 
     [JsonPropertyName("local_datum_hashrate_max_addresses")]
     public int LocalDatumHashrateMaxAddresses { get; set; } = 5000;
+
+    [JsonPropertyName("local_datum_hashrate_rollup_interval_seconds")]
+    public int LocalDatumHashrateRollupIntervalSeconds { get; set; } = 60;
+
+    [JsonPropertyName("local_datum_hashrate_rollup_retention_days")]
+    public int LocalDatumHashrateRollupRetentionDays { get; set; } = 7;
+
+    [JsonPropertyName("local_datum_hashrate_rollup_max_points")]
+    public int LocalDatumHashrateRollupMaxPoints { get; set; } = 500000;
 
     [JsonPropertyName("max_accepted_share_telemetry_entries")]
     public int MaxAcceptedShareTelemetryEntries { get; set; } = 20000;

@@ -39,7 +39,7 @@ public class BootPeerSyncService : BackgroundService
         _stateService.SeedPeers(_poolConfig.BootstrapPeers);
         if (string.IsNullOrWhiteSpace(_poolConfig.PublicBaseUrl))
         {
-            _logger.LogWarning("Peer sync is enabled but public_base_url is not configured. This node can dial peers but cannot be advertised correctly.");
+            _logger.LogInformation("Peer sync is enabled without public_base_url. This node will sync outbound but will not advertise itself as a reachable peer.");
         }
 
         Task syncLoop = RunPeerSyncLoopAsync(stoppingToken);
@@ -107,43 +107,45 @@ public class BootPeerSyncService : BackgroundService
     {
         await foreach (var proof in _stateService.AcceptedShares.ReadAllAsync(stoppingToken))
         {
-            List<string> peers = _stateService.GetPeerEndpoints();
             string? sourceEndpoint = proof.Source.StartsWith("peer:", StringComparison.OrdinalIgnoreCase)
                 ? proof.Source["peer:".Length..]
                 : null;
+            List<string> peers = _stateService.GetPeerEndpointsForShareRelay(sourceEndpoint);
+            using var semaphore = new SemaphoreSlim(_stateService.GetPeerRelayParallelism());
 
-            foreach (string peer in peers)
-            {
-                if (stoppingToken.IsCancellationRequested)
-                {
-                    break;
-                }
+            var relayTasks = peers.Select(peer => RelayShareWithLimitAsync(peer, proof, semaphore, stoppingToken)).ToArray();
+            await Task.WhenAll(relayTasks);
+        }
+    }
 
-                if (!string.IsNullOrWhiteSpace(sourceEndpoint) &&
-                    string.Equals(NormalizeEndpoint(peer), NormalizeEndpoint(sourceEndpoint), StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                try
-                {
-                    await RelayShareAsync(peer, proof, stoppingToken);
-                }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (OperationCanceledException ex)
-                {
-                    _logger.LogDebug(ex, "Timed out relaying share {ShareId} to {Peer}.", proof.ShareId, peer);
-                    _stateService.MarkPeerFailure(peer, "relay-timeout");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Failed to relay share {ShareId} to {Peer}.", proof.ShareId, peer);
-                    _stateService.MarkPeerFailure(peer, "relay-error");
-                }
-            }
+    private async Task RelayShareWithLimitAsync(
+        string peer,
+        BootShareProof proof,
+        SemaphoreSlim semaphore,
+        CancellationToken stoppingToken)
+    {
+        await semaphore.WaitAsync(stoppingToken);
+        try
+        {
+            await RelayShareAsync(peer, proof, stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogDebug(ex, "Timed out relaying share {ShareId} to {Peer}.", proof.ShareId, peer);
+            _stateService.MarkPeerFailure(peer, "relay-timeout");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to relay share {ShareId} to {Peer}.", proof.ShareId, peer);
+            _stateService.MarkPeerFailure(peer, "relay-error");
+        }
+        finally
+        {
+            semaphore.Release();
         }
     }
 
@@ -164,7 +166,7 @@ public class BootPeerSyncService : BackgroundService
             return;
         }
 
-        string remoteEndpoint = NormalizeEndpoint(string.IsNullOrWhiteSpace(remote.SelfEndpoint) ? peer : remote.SelfEndpoint);
+        string remoteEndpoint = _stateService.ResolvePeerEndpoint(peer, remote.SelfEndpoint);
         _stateService.UpdatePeerHeartbeat(remoteEndpoint, "connected", stopwatch.Elapsed.TotalMilliseconds, DateTime.UtcNow);
         _stateService.MergeDiscoveredPeers(remote.Peers.Select(x => x.Endpoint).Append(remoteEndpoint));
 
@@ -173,6 +175,13 @@ public class BootPeerSyncService : BackgroundService
             _stateService.MarkPeerFailure(remoteEndpoint, "foreign-network");
             return;
         }
+
+        _stateService.UpdatePeerNetworkSnapshot(
+            remoteEndpoint,
+            remote.CurrentStateId,
+            remote.CandidateStateId,
+            remote.CurrentTipBlockHash);
+        await FetchPeerAddressesAsync(client, remoteEndpoint, stoppingToken);
 
         BootNetworkStatusDto local = _stateService.GetNetworkStatus();
 
@@ -259,6 +268,36 @@ public class BootPeerSyncService : BackgroundService
         }
 
         await _stateService.TryImportCandidateStateAsync(bundle, remoteEndpoint);
+    }
+
+    private async Task FetchPeerAddressesAsync(HttpClient client, string remoteEndpoint, CancellationToken stoppingToken)
+    {
+        try
+        {
+            string url = $"{remoteEndpoint}/api/network/peer-addresses?limit={Math.Max(1, _poolConfig.PeerAddressGossipLimit)}";
+            using HttpResponseMessage response = await client.GetAsync(url, stoppingToken);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return;
+            }
+
+            response.EnsureSuccessStatusCode();
+            BootPeerAddressBookDto? addressBook = await response.Content.ReadFromJsonAsync<BootPeerAddressBookDto>(cancellationToken: stoppingToken);
+            if (addressBook == null)
+            {
+                return;
+            }
+
+            _stateService.MergeDiscoveredPeers(addressBook.Peers.Select(peer => peer.Endpoint).Append(addressBook.SelfEndpoint));
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to fetch peer address gossip from {Peer}.", remoteEndpoint);
+        }
     }
 
     private void AddPeerAnnouncementHeaders(HttpRequestMessage request)

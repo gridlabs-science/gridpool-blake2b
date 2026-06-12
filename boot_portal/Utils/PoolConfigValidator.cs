@@ -80,6 +80,18 @@ public static class PoolConfigValidator
         ValidatePositive(errors, config.PeerSyncIntervalSeconds, "peer_sync_interval_seconds");
         ValidatePositive(errors, config.PeerRequestTimeoutSeconds, "peer_request_timeout_seconds");
         ValidatePositive(errors, config.MaxPeers, "max_peers");
+        ValidatePositive(errors, config.PeerOutboundTarget, "peer_outbound_target");
+        ValidatePositive(errors, config.PeerShareRelayTarget, "peer_share_relay_target");
+        ValidatePositive(errors, config.PeerRelayParallelism, "peer_relay_parallelism");
+        ValidatePositive(errors, config.PeerAddressBookMaxEntries, "peer_address_book_max_entries");
+        ValidatePositive(errors, config.PeerAddressGossipLimit, "peer_address_gossip_limit");
+        ValidatePositive(errors, config.PeerFailureBackoffMinSeconds, "peer_failure_backoff_min_seconds");
+        ValidatePositive(errors, config.PeerFailureBackoffMaxSeconds, "peer_failure_backoff_max_seconds");
+        ValidatePositive(errors, config.PeerTombstoneSeconds, "peer_tombstone_seconds");
+        if (config.PeerFailureBackoffMaxSeconds < config.PeerFailureBackoffMinSeconds)
+        {
+            errors.Add("peer_failure_backoff_max_seconds must be greater than or equal to peer_failure_backoff_min_seconds");
+        }
         ValidateNonNegative(errors, config.PeerPruneAfterSeconds, "peer_prune_after_seconds");
         ValidatePositive(errors, config.PeerPruneFailureCount, "peer_prune_failure_count");
         ValidatePositive(errors, config.NetworkReadRateLimitPerMinute, "network_read_rate_limit_per_minute");

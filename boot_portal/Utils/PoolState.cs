@@ -28,6 +28,7 @@ public class PoolState
     public List<BootDatumSessionTelemetry> RecentDatumSessions { get; set; } = [];
     public List<BootNetworkEvent> RecentNetworkEvents { get; set; } = [];
     public List<BootHashratePoint> HashrateSamples { get; set; } = [];
+    public List<BootLocalDatumMinerHashrateRollupPoint> LocalDatumMinerHashrateSamples { get; set; } = [];
     public List<BootStateBundle> ArchivedStateBundles { get; set; } = [];
     public List<BootPeerStatus> Peers { get; set; } = [];
     public Dictionary<string, string> KnownDatumPayoutAddresses { get; set; } = [];
@@ -43,6 +44,7 @@ public class PoolStateHistory
     public List<BootDatumSessionTelemetry> RecentDatumSessions { get; set; } = [];
     public List<BootNetworkEvent> RecentNetworkEvents { get; set; } = [];
     public List<BootHashratePoint> HashrateSamples { get; set; } = [];
+    public List<BootLocalDatumMinerHashrateRollupPoint> LocalDatumMinerHashrateSamples { get; set; } = [];
     public List<BootStateBundle> ArchivedStateBundles { get; set; } = [];
 }
 

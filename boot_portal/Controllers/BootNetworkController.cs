@@ -39,6 +39,14 @@ public class BootNetworkController : ControllerBase
         return Ok(_stateService.GetNetworkStatus().LaunchReadiness);
     }
 
+    [EnableRateLimiting("network-read")]
+    [HttpGet("peer-addresses")]
+    public IActionResult GetPeerAddresses([FromQuery] int limit = 128)
+    {
+        RememberAnnouncedPeer();
+        return Ok(_stateService.GetPeerAddressBook(limit));
+    }
+
     private void RememberAnnouncedPeer()
     {
         if (!_poolConfig.EnablePeerSync)
@@ -97,9 +105,10 @@ public class BootNetworkController : ControllerBase
     [HttpGet("local-miners")]
     public IActionResult GetLocalDatumMiners(
         [FromQuery] string? address = null,
-        [FromQuery] int limit = 50)
+        [FromQuery] int limit = 50,
+        [FromQuery] string? window = "24h")
     {
-        return Ok(_stateService.GetLocalDatumMinerSummaries(address, limit));
+        return Ok(_stateService.GetLocalDatumMinerSummaries(address, limit, window));
     }
 
     [EnableRateLimiting("network-read")]

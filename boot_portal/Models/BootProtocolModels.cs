@@ -42,10 +42,40 @@ public class BootPeerStatus
 {
     public string Endpoint { get; set; } = string.Empty;
     public string Status { get; set; } = "unimplemented";
+    public string Source { get; set; } = string.Empty;
+    public bool IsConfiguredSeed { get; set; }
+    public DateTime? DiscoveredUtc { get; set; }
+    public DateTime? LastAttemptUtc { get; set; }
+    public DateTime? LastSuccessUtc { get; set; }
     public double? LatencyMs { get; set; }
     public DateTime? LastSeenUtc { get; set; }
     public DateTime? LastFailureUtc { get; set; }
+    public DateTime? SuppressedUntilUtc { get; set; }
+    public DateTime? TombstonedUntilUtc { get; set; }
     public int FailureCount { get; set; }
+    public int RelaySuccessCount { get; set; }
+    public int RelayFailureCount { get; set; }
+    public string LastCurrentStateId { get; set; } = string.Empty;
+    public string LastCandidateStateId { get; set; } = string.Empty;
+    public string LastTipBlockHash { get; set; } = string.Empty;
+    public double Score { get; set; }
+}
+
+public class BootPeerAddressBookDto
+{
+    public string SelfEndpoint { get; set; } = string.Empty;
+    public int TotalKnownPeers { get; set; }
+    public int ReturnedCount { get; set; }
+    public List<BootPeerAddressDto> Peers { get; set; } = [];
+}
+
+public class BootPeerAddressDto
+{
+    public string Endpoint { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public double Score { get; set; }
+    public DateTime? LastSeenUtc { get; set; }
+    public DateTime? LastSuccessUtc { get; set; }
 }
 
 public class BootPeerTombstoneRequest
@@ -131,6 +161,17 @@ public class BootLocalDatumMinerSeriesDto
 public class BootLocalDatumMinerHashratePointDto
 {
     public DateTime TimestampUtc { get; set; }
+    public double? HashrateThs { get; set; }
+    public string HashrateDisplay { get; set; } = "--";
+    public int SampleCount { get; set; }
+}
+
+public class BootLocalDatumMinerHashrateRollupPoint
+{
+    public string Address { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public DateTime TimestampUtc { get; set; }
+    public int CurrentRoundNumber { get; set; }
     public double? HashrateThs { get; set; }
     public string HashrateDisplay { get; set; } = "--";
     public int SampleCount { get; set; }

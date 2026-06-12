@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Net;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -48,6 +50,7 @@ public class BootProtocolStateService
     private readonly List<BootDatumProtocolEvent> _recentDatumProtocolEvents = [];
     private readonly Dictionary<string, BootDatumSessionTelemetry> _activeDatumSessions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, LocalDatumAddressHashrateTracker> _localDatumHashrateByAddress = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DateTime> _lastLocalDatumHashrateRollupByAddress = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<BootStateBundle> _recentCandidateBundles = [];
     private Task? _deferredSaveTask;
     private bool _deferredSavePending;
@@ -374,7 +377,7 @@ public class BootProtocolStateService
         }
     }
 
-    public BootLocalDatumMinerSeriesDto GetLocalDatumMinerSummaries(string? address = null, int? limit = null)
+    public BootLocalDatumMinerSeriesDto GetLocalDatumMinerSummaries(string? address = null, int? limit = null, string? windowKey = "24h")
     {
         lock (_sync)
         {
@@ -414,7 +417,7 @@ public class BootProtocolStateService
             }
 
             List<BootLocalDatumMinerHashratePointDto> points = summaries.Count == 1
-                ? BuildLocalDatumMinerHashratePointsNoLock(summaries[0].Address, nowUtc)
+                ? BuildLocalDatumMinerHashratePointsNoLock(summaries[0].Address, nowUtc, windowKey)
                 : [];
 
             return new BootLocalDatumMinerSeriesDto
@@ -831,16 +834,89 @@ public class BootProtocolStateService
 
     public List<string> GetPeerEndpoints()
     {
-        string selfEndpoint = GetSelfEndpoint();
+        return GetEligiblePeerEndpoints(GetPeerOutboundTarget(), markAttempt: true, sourceEndpoint: null);
+    }
+
+    public List<string> GetPeerEndpointsForShareRelay(string? sourceEndpoint = null)
+    {
+        return GetEligiblePeerEndpoints(GetPeerShareRelayTarget(), markAttempt: false, sourceEndpoint);
+    }
+
+    public int GetPeerRelayParallelism()
+    {
+        return Math.Min(GetPeerRelayParallelismLimit(), GetPeerShareRelayTarget());
+    }
+
+    public BootPeerAddressBookDto GetPeerAddressBook(int? limit = null)
+    {
         lock (_sync)
         {
-            return _state.Peers
-                .Select(x => x.Endpoint)
-                .Where(x =>
-                    !string.IsNullOrWhiteSpace(x) &&
-                    (string.IsNullOrWhiteSpace(selfEndpoint) ||
-                     !string.Equals(NormalizePeerEndpoint(x), selfEndpoint, StringComparison.OrdinalIgnoreCase)))
+            DateTime nowUtc = DateTime.UtcNow;
+            NormalizePeerAddressBookNoLock(nowUtc);
+            RefreshPeerScoresNoLock(nowUtc);
+            int requestedLimit = Math.Clamp(limit ?? GetPeerAddressGossipLimit(), 1, GetPeerAddressGossipLimit());
+            List<BootPeerAddressDto> peers = _state.Peers
+                .Where(peer => IsPeerAdvertisableNoLock(peer, nowUtc))
+                .OrderByDescending(peer => peer.Score)
+                .ThenByDescending(peer => peer.LastSuccessUtc ?? peer.LastSeenUtc ?? DateTime.MinValue)
+                .Take(requestedLimit)
+                .Select(peer => new BootPeerAddressDto
+                {
+                    Endpoint = peer.Endpoint,
+                    Status = peer.Status,
+                    Score = peer.Score,
+                    LastSeenUtc = peer.LastSeenUtc,
+                    LastSuccessUtc = peer.LastSuccessUtc
+                })
                 .ToList();
+
+            return new BootPeerAddressBookDto
+            {
+                SelfEndpoint = GetSelfEndpoint(),
+                TotalKnownPeers = _state.Peers.Count(peer => IsPeerAdvertisableNoLock(peer, nowUtc)),
+                ReturnedCount = peers.Count,
+                Peers = peers
+            };
+        }
+    }
+
+    private List<string> GetEligiblePeerEndpoints(int targetCount, bool markAttempt, string? sourceEndpoint)
+    {
+        lock (_sync)
+        {
+            DateTime nowUtc = DateTime.UtcNow;
+            NormalizePeerAddressBookNoLock(nowUtc);
+            RefreshPeerScoresNoLock(nowUtc);
+            string normalizedSource = string.IsNullOrWhiteSpace(sourceEndpoint)
+                ? string.Empty
+                : NormalizePeerEndpoint(sourceEndpoint);
+            List<BootPeerStatus> selectedPeers = _state.Peers
+                .Where(peer => IsPeerEligibleForAttemptNoLock(peer, nowUtc, normalizedSource))
+                .OrderByDescending(peer => peer.Score)
+                .ThenBy(peer => peer.LastAttemptUtc ?? DateTime.MinValue)
+                .ThenBy(peer => peer.Endpoint, StringComparer.OrdinalIgnoreCase)
+                .Take(Math.Max(1, targetCount))
+                .ToList();
+
+            if (markAttempt)
+            {
+                foreach (BootPeerStatus peer in selectedPeers)
+                {
+                    peer.LastAttemptUtc = nowUtc;
+                    if (string.Equals(peer.Status, "configured", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(peer.Status, "discovered", StringComparison.OrdinalIgnoreCase))
+                    {
+                        peer.Status = "dialing";
+                    }
+                }
+
+                if (selectedPeers.Count > 0)
+                {
+                    RequestDeferredSaveNoLock();
+                }
+            }
+
+            return selectedPeers.Select(peer => peer.Endpoint).ToList();
         }
     }
 
@@ -859,6 +935,19 @@ public class BootProtocolStateService
         return NormalizePeerEndpoint(_poolConfig.PublicBaseUrl);
     }
 
+    public string ResolvePeerEndpoint(string dialedEndpoint, string? advertisedEndpoint)
+    {
+        if (!string.IsNullOrWhiteSpace(advertisedEndpoint) &&
+            TryNormalizePeerEndpoint(advertisedEndpoint, AllowPrivatePeerAdvertisements(), out string normalizedAdvertised, out _))
+        {
+            return normalizedAdvertised;
+        }
+
+        return TryNormalizePeerEndpoint(dialedEndpoint, allowPrivate: true, out string normalizedDialed, out _)
+            ? normalizedDialed
+            : NormalizePeerEndpoint(dialedEndpoint);
+    }
+
     public bool IsCompatiblePeerNetwork(int protocolVersion, string networkId)
     {
         return protocolVersion == _poolConfig.BootProtocolVersion &&
@@ -872,11 +961,21 @@ public class BootProtocolStateService
         {
             foreach (string endpoint in endpoints)
             {
-                changed |= UpsertPeerNoLock(endpoint, "configured", null, null, persistStatusOnly: false, allowSuppressed: true);
+                changed |= UpsertPeerNoLock(
+                    endpoint,
+                    "configured",
+                    null,
+                    null,
+                    persistStatusOnly: false,
+                    allowSuppressed: true,
+                    source: "configured",
+                    isConfiguredSeed: true,
+                    allowPrivate: true);
             }
 
             if (changed)
             {
+                TrimPeerAddressBookNoLock(DateTime.UtcNow);
                 RequestDeferredSaveNoLock();
             }
         }
@@ -889,11 +988,20 @@ public class BootProtocolStateService
         {
             foreach (string endpoint in endpoints)
             {
-                changed |= UpsertPeerNoLock(endpoint, "discovered", null, null, persistStatusOnly: false, allowSuppressed: false);
+                changed |= UpsertPeerNoLock(
+                    endpoint,
+                    "discovered",
+                    null,
+                    null,
+                    persistStatusOnly: false,
+                    allowSuppressed: false,
+                    source: "gossip",
+                    allowPrivate: AllowPrivatePeerAdvertisements());
             }
 
             if (changed)
             {
+                TrimPeerAddressBookNoLock(DateTime.UtcNow);
                 RequestDeferredSaveNoLock();
             }
         }
@@ -901,7 +1009,11 @@ public class BootProtocolStateService
 
     public void AnnouncePeer(string endpoint)
     {
-        string normalized = NormalizePeerEndpoint(endpoint);
+        if (!TryNormalizePeerEndpoint(endpoint, AllowPrivatePeerAdvertisements(), out string normalized, out _))
+        {
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(normalized) ||
             (!string.IsNullOrWhiteSpace(GetSelfEndpoint()) &&
              string.Equals(normalized, GetSelfEndpoint(), StringComparison.OrdinalIgnoreCase)))
@@ -912,22 +1024,19 @@ public class BootProtocolStateService
         bool changed = false;
         lock (_sync)
         {
-            _suppressedPeerEndpoints.Remove(normalized);
-            if (_state.Peers.Any(x => string.Equals(x.Endpoint, normalized, StringComparison.OrdinalIgnoreCase)) ||
-                _state.Peers.Count >= _poolConfig.MaxPeers)
-            {
-                return;
-            }
-
-            _state.Peers.Add(new BootPeerStatus
-            {
-                Endpoint = normalized,
-                Status = "discovered"
-            });
-            changed = true;
+            changed = UpsertPeerNoLock(
+                normalized,
+                "discovered",
+                null,
+                null,
+                persistStatusOnly: false,
+                allowSuppressed: false,
+                source: "header",
+                allowPrivate: AllowPrivatePeerAdvertisements());
 
             if (changed)
             {
+                TrimPeerAddressBookNoLock(DateTime.UtcNow);
                 RequestDeferredSaveNoLock();
             }
         }
@@ -937,12 +1046,32 @@ public class BootProtocolStateService
     {
         lock (_sync)
         {
-            bool changed = UpsertPeerNoLock(endpoint, status, latencyMs, lastSeenUtc, persistStatusOnly: true, allowSuppressed: true);
+            bool changed = UpsertPeerNoLock(
+                endpoint,
+                status,
+                latencyMs,
+                lastSeenUtc,
+                persistStatusOnly: true,
+                allowSuppressed: true,
+                source: "heartbeat",
+                allowPrivate: true);
             BootPeerStatus? peer = FindPeerNoLock(endpoint);
+            if (peer != null && !IsPeerFailureStatus(status))
+            {
+                peer.LastSuccessUtc = lastSeenUtc;
+                changed = true;
+            }
+
             if (peer != null && (peer.FailureCount != 0 || peer.LastFailureUtc.HasValue))
             {
                 peer.FailureCount = 0;
                 peer.LastFailureUtc = null;
+                changed = true;
+            }
+
+            if (peer != null && string.Equals(status, "relayed", StringComparison.OrdinalIgnoreCase))
+            {
+                peer.RelaySuccessCount++;
                 changed = true;
             }
 
@@ -957,12 +1086,24 @@ public class BootProtocolStateService
     {
         lock (_sync)
         {
-            bool changed = UpsertPeerNoLock(endpoint, status, null, null, persistStatusOnly: true, allowSuppressed: false);
+            bool changed = UpsertPeerNoLock(
+                endpoint,
+                status,
+                null,
+                null,
+                persistStatusOnly: true,
+                allowSuppressed: false,
+                source: "failure",
+                allowPrivate: true);
             BootPeerStatus? peer = FindPeerNoLock(endpoint);
             if (peer != null)
             {
                 peer.FailureCount++;
                 peer.LastFailureUtc = DateTime.UtcNow;
+                if (status.StartsWith("relay-", StringComparison.OrdinalIgnoreCase))
+                {
+                    peer.RelayFailureCount++;
+                }
                 changed = true;
             }
 
@@ -973,10 +1114,37 @@ public class BootProtocolStateService
         }
     }
 
+    public void UpdatePeerNetworkSnapshot(string endpoint, string? currentStateId, string? candidateStateId, string? tipBlockHash)
+    {
+        lock (_sync)
+        {
+            BootPeerStatus? peer = FindPeerNoLock(endpoint);
+            if (peer == null)
+            {
+                return;
+            }
+
+            string nextCurrentStateId = currentStateId ?? string.Empty;
+            string nextCandidateStateId = candidateStateId ?? string.Empty;
+            string nextTipBlockHash = tipBlockHash ?? string.Empty;
+            bool changed =
+                !string.Equals(peer.LastCurrentStateId, nextCurrentStateId, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(peer.LastCandidateStateId, nextCandidateStateId, StringComparison.OrdinalIgnoreCase) ||
+                !BitcoinHashes.AreEquivalent(peer.LastTipBlockHash, nextTipBlockHash);
+            peer.LastCurrentStateId = nextCurrentStateId;
+            peer.LastCandidateStateId = nextCandidateStateId;
+            peer.LastTipBlockHash = nextTipBlockHash;
+            peer.LastSuccessUtc = DateTime.UtcNow;
+            if (changed)
+            {
+                RequestDeferredSaveNoLock();
+            }
+        }
+    }
+
     public bool TombstonePeer(string endpoint)
     {
-        string normalized = NormalizePeerEndpoint(endpoint);
-        if (string.IsNullOrWhiteSpace(normalized))
+        if (!TryNormalizePeerEndpoint(endpoint, allowPrivate: true, out string normalized, out _))
         {
             return false;
         }
@@ -990,14 +1158,25 @@ public class BootProtocolStateService
 
         lock (_sync)
         {
-            int removed = _state.Peers.RemoveAll(peer =>
-                string.Equals(NormalizePeerEndpoint(peer.Endpoint), normalized, StringComparison.OrdinalIgnoreCase));
-            if (removed <= 0)
+            DateTime nowUtc = DateTime.UtcNow;
+            DateTime tombstonedUntilUtc = nowUtc.AddSeconds(GetPeerTombstoneSeconds());
+            BootPeerStatus? peer = FindPeerNoLock(normalized);
+            if (peer == null)
             {
-                return false;
+                peer = new BootPeerStatus
+                {
+                    Endpoint = normalized,
+                    DiscoveredUtc = nowUtc,
+                    Source = "admin"
+                };
+                _state.Peers.Add(peer);
             }
 
-            SuppressPeerNoLock(normalized, DateTime.UtcNow.AddDays(1));
+            peer.Status = "tombstoned";
+            peer.TombstonedUntilUtc = tombstonedUntilUtc;
+            peer.SuppressedUntilUtc = tombstonedUntilUtc;
+            peer.LastFailureUtc = nowUtc;
+            SuppressPeerNoLock(normalized, tombstonedUntilUtc);
             RecordNetworkEventNoLock(
                 "peer-tombstoned",
                 "admin",
@@ -1553,8 +1732,10 @@ public class BootProtocolStateService
             _activeDatumSessions.Clear();
             _recentShareDiagnostics.Clear();
             _state.HashrateSamples = [];
+            _state.LocalDatumMinerHashrateSamples = [];
             ResetAcceptedParentBlockHashesNoLock(currentTipBlockHash);
             _localDatumHashrateByAddress.Clear();
+            _lastLocalDatumHashrateRollupByAddress.Clear();
             RecordNetworkEventNoLock(
                 "genesis-reset",
                 "admin",
@@ -2497,7 +2678,7 @@ public class BootProtocolStateService
             WinnersList = ClonePayouts(_state.WinnersList),
             OnDeckList = ClonePayouts(_state.OnDeckList),
             OnDeckProofs = _state.OnDeckProofs.Select(CloneProof).ToList(),
-            Peers = CloneExternalPeersNoLock(),
+            Peers = _state.Peers.Select(ClonePeer).ToList(),
             KnownDatumPayoutAddresses = new Dictionary<string, string>(_state.KnownDatumPayoutAddresses, StringComparer.Ordinal),
             BestShare = CloneBestShare(_state.BestShare),
             RecentAcceptedShares = [],
@@ -2507,6 +2688,7 @@ public class BootProtocolStateService
             RecentDatumSessions = [],
             RecentNetworkEvents = [],
             HashrateSamples = [],
+            LocalDatumMinerHashrateSamples = [],
             ArchivedStateBundles = []
         };
     }
@@ -2522,6 +2704,7 @@ public class BootProtocolStateService
             RecentDatumSessions = _state.RecentDatumSessions.Select(CloneDatumSession).ToList(),
             RecentNetworkEvents = _state.RecentNetworkEvents.Select(CloneNetworkEvent).ToList(),
             HashrateSamples = _state.HashrateSamples.Select(CloneHashratePoint).ToList(),
+            LocalDatumMinerHashrateSamples = _state.LocalDatumMinerHashrateSamples.Select(CloneLocalDatumMinerHashrateRollupPoint).ToList(),
             ArchivedStateBundles = _state.ArchivedStateBundles.Select(CloneBundle).ToList()
         };
     }
@@ -2561,6 +2744,8 @@ public class BootProtocolStateService
             _state.RecentDatumSessions ??= [];
             _state.RecentNetworkEvents ??= [];
             _state.HashrateSamples ??= [];
+            _state.LocalDatumMinerHashrateSamples ??= [];
+            _state.Peers ??= [];
             EnsureGenesisRoundStartNoLock(DateTime.UtcNow);
             NormalizeNetworkSensitivePayoutValuesNoLock();
             NormalizeArchivedBundlesNoLock();
@@ -2577,6 +2762,9 @@ public class BootProtocolStateService
             TrimDatumSessionsNoLock(DateTime.UtcNow);
             TrimNetworkEventsNoLock(DateTime.UtcNow);
             TrimHashrateSamplesNoLock(DateTime.UtcNow);
+            TrimLocalDatumMinerHashrateSamplesNoLock(DateTime.UtcNow);
+            RebuildLocalDatumHashrateRollupIndexNoLock();
+            NormalizePeerAddressBookNoLock(DateTime.UtcNow);
             RebuildLocalDatumAddressHashrateNoLock();
             _recentShareDiagnostics.Clear();
             _recentShareDiagnostics.AddRange(_state.RecentRejectedShareDiagnostics.Select(CloneShareDiagnostic));
@@ -2644,6 +2832,7 @@ public class BootProtocolStateService
             _state.RecentDatumSessions = loaded.RecentDatumSessions ?? [];
             _state.RecentNetworkEvents = loaded.RecentNetworkEvents ?? [];
             _state.HashrateSamples = loaded.HashrateSamples ?? [];
+            _state.LocalDatumMinerHashrateSamples = loaded.LocalDatumMinerHashrateSamples ?? [];
             _state.ArchivedStateBundles = loaded.ArchivedStateBundles ?? [];
 
             EnsureGenesisRoundStartNoLock(DateTime.UtcNow);
@@ -2659,6 +2848,8 @@ public class BootProtocolStateService
             TrimDatumSessionsNoLock(DateTime.UtcNow);
             TrimNetworkEventsNoLock(DateTime.UtcNow);
             TrimHashrateSamplesNoLock(DateTime.UtcNow);
+            TrimLocalDatumMinerHashrateSamplesNoLock(DateTime.UtcNow);
+            RebuildLocalDatumHashrateRollupIndexNoLock();
             RebuildLocalDatumAddressHashrateNoLock();
             _recentShareDiagnostics.Clear();
             _recentShareDiagnostics.AddRange(_state.RecentRejectedShareDiagnostics.Select(CloneShareDiagnostic));
@@ -3655,8 +3846,10 @@ public class BootProtocolStateService
             currentRoundElapsedSeconds.HasValue && currentRoundElapsedSeconds.Value >= 60
                 ? EstimateRankAdjustedHashrateThs(onDeckDifficulties, currentRoundElapsedSeconds)
                 : null;
-        double? localDatumHashrateThs = EstimateLocalDatumHashrateThsNoLock(
-            BuildLocalDatumMinerSummariesNoLock(nowUtc, GetLocalDatumMaxTrackedAddresses()));
+        List<BootLocalDatumMinerSummaryDto> localDatumMinerSummaries =
+            BuildLocalDatumMinerSummariesNoLock(nowUtc, GetLocalDatumMaxTrackedAddresses());
+        double? localDatumHashrateThs = EstimateLocalDatumHashrateThsNoLock(localDatumMinerSummaries);
+        CaptureLocalDatumMinerHashrateRollupsNoLock(nowUtc, localDatumMinerSummaries);
 
         _state.HashrateSamples.Add(new BootHashratePoint
         {
@@ -3783,7 +3976,77 @@ public class BootProtocolStateService
             .ToList();
     }
 
-    private List<BootLocalDatumMinerHashratePointDto> BuildLocalDatumMinerHashratePointsNoLock(string address, DateTime nowUtc)
+    private void CaptureLocalDatumMinerHashrateRollupsNoLock(DateTime nowUtc, IEnumerable<BootLocalDatumMinerSummaryDto> minerSummaries)
+    {
+        int intervalSeconds = GetLocalDatumHashrateRollupIntervalSeconds();
+        foreach (BootLocalDatumMinerSummaryDto summary in minerSummaries)
+        {
+            string address = BitcoinScript.NormalizeAddress(summary.Address);
+            if (string.IsNullOrWhiteSpace(address) ||
+                IsTemporaryFoundationLocalDatumSummary(summary, _poolConfig.BitcoinNetwork) ||
+                !IsActiveLocalDatumMinerSummaryNoLock(summary, nowUtc) ||
+                !summary.CurrentHashrateThs.HasValue ||
+                summary.CurrentHashrateThs.Value <= 0)
+            {
+                continue;
+            }
+
+            if (_lastLocalDatumHashrateRollupByAddress.TryGetValue(address, out DateTime lastRollupUtc) &&
+                (nowUtc - lastRollupUtc).TotalSeconds < intervalSeconds)
+            {
+                continue;
+            }
+
+            _state.LocalDatumMinerHashrateSamples.Add(new BootLocalDatumMinerHashrateRollupPoint
+            {
+                Address = address,
+                Username = string.IsNullOrWhiteSpace(summary.Username) ? address : summary.Username,
+                TimestampUtc = nowUtc,
+                CurrentRoundNumber = _state.CurrentRoundNumber,
+                HashrateThs = summary.CurrentHashrateThs,
+                HashrateDisplay = summary.CurrentHashrateDisplay,
+                SampleCount = summary.HashrateSampleCount
+            });
+            _lastLocalDatumHashrateRollupByAddress[address] = nowUtc;
+        }
+
+        TrimLocalDatumMinerHashrateSamplesNoLock(nowUtc);
+    }
+
+    private List<BootLocalDatumMinerHashratePointDto> BuildLocalDatumMinerHashratePointsNoLock(string address, DateTime nowUtc, string? windowKey)
+    {
+        string normalizedAddress = BitcoinScript.NormalizeAddress(address);
+        if (string.IsNullOrWhiteSpace(normalizedAddress))
+        {
+            return [];
+        }
+
+        DateTime cutoffUtc = ResolveHashrateSeriesCutoffUtc(windowKey, nowUtc);
+        TrimLocalDatumMinerHashrateSamplesNoLock(nowUtc);
+        List<BootLocalDatumMinerHashratePointDto> points = _state.LocalDatumMinerHashrateSamples
+            .Where(point =>
+                point.TimestampUtc >= cutoffUtc &&
+                string.Equals(BitcoinScript.NormalizeAddress(point.Address), normalizedAddress, StringComparison.OrdinalIgnoreCase) &&
+                point.HashrateThs.HasValue &&
+                point.HashrateThs.Value > 0)
+            .OrderBy(point => point.TimestampUtc)
+            .Select(point => new BootLocalDatumMinerHashratePointDto
+            {
+                TimestampUtc = point.TimestampUtc,
+                HashrateThs = point.HashrateThs,
+                HashrateDisplay = string.IsNullOrWhiteSpace(point.HashrateDisplay)
+                    ? FormatObservedHashrate(point.HashrateThs)
+                    : point.HashrateDisplay,
+                SampleCount = point.SampleCount
+            })
+            .ToList();
+
+        return points.Count > 0
+            ? points
+            : BuildLocalDatumMinerHashratePointsFromRawSamplesNoLock(normalizedAddress, nowUtc);
+    }
+
+    private List<BootLocalDatumMinerHashratePointDto> BuildLocalDatumMinerHashratePointsFromRawSamplesNoLock(string address, DateTime nowUtc)
     {
         string normalizedAddress = BitcoinScript.NormalizeAddress(address);
         if (string.IsNullOrWhiteSpace(normalizedAddress) ||
@@ -3993,6 +4256,40 @@ public class BootProtocolStateService
             .ToList();
     }
 
+    private void TrimLocalDatumMinerHashrateSamplesNoLock(DateTime nowUtc)
+    {
+        DateTime cutoffUtc = nowUtc.AddDays(-GetLocalDatumHashrateRollupRetentionDays());
+        int originalCount = _state.LocalDatumMinerHashrateSamples.Count;
+        _state.LocalDatumMinerHashrateSamples = _state.LocalDatumMinerHashrateSamples
+            .Where(point =>
+                point.TimestampUtc >= cutoffUtc &&
+                !string.IsNullOrWhiteSpace(point.Address) &&
+                point.HashrateThs.HasValue &&
+                point.HashrateThs.Value > 0)
+            .OrderBy(point => point.TimestampUtc)
+            .TakeLast(GetLocalDatumHashrateRollupMaxPoints())
+            .ToList();
+        if (_state.LocalDatumMinerHashrateSamples.Count != originalCount)
+        {
+            RebuildLocalDatumHashrateRollupIndexNoLock();
+        }
+    }
+
+    private void RebuildLocalDatumHashrateRollupIndexNoLock()
+    {
+        _lastLocalDatumHashrateRollupByAddress.Clear();
+        foreach (BootLocalDatumMinerHashrateRollupPoint point in _state.LocalDatumMinerHashrateSamples.OrderBy(point => point.TimestampUtc))
+        {
+            string address = BitcoinScript.NormalizeAddress(point.Address);
+            if (string.IsNullOrWhiteSpace(address))
+            {
+                continue;
+            }
+
+            _lastLocalDatumHashrateRollupByAddress[address] = point.TimestampUtc;
+        }
+    }
+
     private int GetHashrateSampleIntervalSeconds() => Math.Clamp(_poolConfig.HashrateSampleIntervalSeconds, 10, 3600);
 
     private int GetHashrateLocalWindowSeconds() => Math.Clamp(_poolConfig.HashrateLocalWindowSeconds, 60, 86400);
@@ -4003,6 +4300,12 @@ public class BootProtocolStateService
 
     private int GetLocalDatumMaxTrackedAddresses() => Math.Clamp(_poolConfig.LocalDatumHashrateMaxAddresses, 1, 50000);
 
+    private int GetLocalDatumHashrateRollupIntervalSeconds() => Math.Clamp(_poolConfig.LocalDatumHashrateRollupIntervalSeconds, 30, 3600);
+
+    private int GetLocalDatumHashrateRollupRetentionDays() => Math.Clamp(_poolConfig.LocalDatumHashrateRollupRetentionDays, 1, 90);
+
+    private int GetLocalDatumHashrateRollupMaxPoints() => Math.Clamp(_poolConfig.LocalDatumHashrateRollupMaxPoints, 1000, 5_000_000);
+
     private int GetMaxAcceptedShareTelemetryEntries() => Math.Clamp(_poolConfig.MaxAcceptedShareTelemetryEntries, 1000, 1_000_000);
 
     private int GetHashrateSampleRetentionDays() => Math.Clamp(_poolConfig.HashrateSampleRetentionDays, 1, 365);
@@ -4012,6 +4315,22 @@ public class BootProtocolStateService
     private int GetShareDiagnosticRetentionHours() => Math.Clamp(_poolConfig.ShareDiagnosticRetentionHours, 1, 168);
 
     private int GetDatumShareResponseSlowMs() => Math.Clamp(_poolConfig.DatumShareResponseSlowMs, 50, 30000);
+
+    private int GetPeerOutboundTarget() => Math.Clamp(_poolConfig.PeerOutboundTarget, 1, GetPeerAddressBookMaxEntries());
+
+    private int GetPeerShareRelayTarget() => Math.Clamp(_poolConfig.PeerShareRelayTarget, 1, GetPeerAddressBookMaxEntries());
+
+    private int GetPeerRelayParallelismLimit() => Math.Clamp(_poolConfig.PeerRelayParallelism, 1, 256);
+
+    private int GetPeerAddressBookMaxEntries() => Math.Clamp(Math.Max(_poolConfig.PeerAddressBookMaxEntries, _poolConfig.MaxPeers), 1, 100000);
+
+    private int GetPeerAddressGossipLimit() => Math.Clamp(_poolConfig.PeerAddressGossipLimit, 1, 10000);
+
+    private int GetPeerFailureBackoffMinSeconds() => Math.Clamp(_poolConfig.PeerFailureBackoffMinSeconds, 1, 3600);
+
+    private int GetPeerFailureBackoffMaxSeconds() => Math.Clamp(Math.Max(_poolConfig.PeerFailureBackoffMaxSeconds, _poolConfig.PeerFailureBackoffMinSeconds), 1, 86400);
+
+    private int GetPeerTombstoneSeconds() => Math.Clamp(_poolConfig.PeerTombstoneSeconds, 60, 31_536_000);
 
     private DateTime ResolveTelemetryCutoffUtc(string? windowKey, DateTime nowUtc, int retentionHours)
     {
@@ -4363,12 +4682,18 @@ public class BootProtocolStateService
 
     private List<BootPeerStatus> CloneExternalPeersNoLock()
     {
+        DateTime nowUtc = DateTime.UtcNow;
+        NormalizePeerAddressBookNoLock(nowUtc);
+        RefreshPeerScoresNoLock(nowUtc);
         string selfEndpoint = GetSelfEndpoint();
         return _state.Peers
             .Where(peer =>
                 !string.IsNullOrWhiteSpace(peer.Endpoint) &&
+                !IsPeerTombstonedNoLock(peer, nowUtc) &&
                 (string.IsNullOrWhiteSpace(selfEndpoint) ||
                  !string.Equals(NormalizePeerEndpoint(peer.Endpoint), selfEndpoint, StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(peer => peer.Score)
+            .ThenBy(peer => peer.Endpoint, StringComparer.OrdinalIgnoreCase)
             .Select(ClonePeer)
             .ToList();
     }
@@ -4940,10 +5265,12 @@ public class BootProtocolStateService
         double? latencyMs,
         DateTime? lastSeenUtc,
         bool persistStatusOnly,
-        bool allowSuppressed)
+        bool allowSuppressed,
+        string source = "",
+        bool isConfiguredSeed = false,
+        bool allowPrivate = false)
     {
-        string normalized = NormalizePeerEndpoint(endpoint);
-        if (string.IsNullOrWhiteSpace(normalized))
+        if (!TryNormalizePeerEndpoint(endpoint, allowPrivate, out string normalized, out _))
         {
             return false;
         }
@@ -4954,6 +5281,7 @@ public class BootProtocolStateService
             return false;
         }
 
+        DateTime nowUtc = DateTime.UtcNow;
         if (allowSuppressed)
         {
             _suppressedPeerEndpoints.Remove(normalized);
@@ -4966,25 +5294,47 @@ public class BootProtocolStateService
         var existing = _state.Peers.FirstOrDefault(x => string.Equals(x.Endpoint, normalized, StringComparison.OrdinalIgnoreCase));
         if (existing == null)
         {
-            if (_state.Peers.Count >= _poolConfig.MaxPeers)
-            {
-                return false;
-            }
-
             _state.Peers.Add(new BootPeerStatus
             {
                 Endpoint = normalized,
                 Status = status,
+                Source = source,
+                IsConfiguredSeed = isConfiguredSeed,
+                DiscoveredUtc = nowUtc,
                 LatencyMs = latencyMs,
                 LastSeenUtc = lastSeenUtc
             });
+            TrimPeerAddressBookNoLock(nowUtc);
             return true;
+        }
+
+        if (IsPeerTombstonedNoLock(existing, nowUtc))
+        {
+            return false;
         }
 
         bool changed = false;
         if (!string.IsNullOrWhiteSpace(status) && !string.Equals(existing.Status, status, StringComparison.Ordinal))
         {
             existing.Status = status;
+            changed = true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(source) && string.IsNullOrWhiteSpace(existing.Source))
+        {
+            existing.Source = source;
+            changed = true;
+        }
+
+        if (isConfiguredSeed && !existing.IsConfiguredSeed)
+        {
+            existing.IsConfiguredSeed = true;
+            changed = true;
+        }
+
+        if (!existing.DiscoveredUtc.HasValue)
+        {
+            existing.DiscoveredUtc = nowUtc;
             changed = true;
         }
 
@@ -5003,12 +5353,203 @@ public class BootProtocolStateService
         return changed && !persistStatusOnly ? true : changed;
     }
 
+    private void NormalizePeerAddressBookNoLock(DateTime nowUtc)
+    {
+        string selfEndpoint = GetSelfEndpoint();
+        _state.Peers = _state.Peers
+            .Select(peer =>
+            {
+                if (!TryNormalizePeerEndpoint(peer.Endpoint, allowPrivate: true, out string normalized, out _))
+                {
+                    return null;
+                }
+
+                peer.Endpoint = normalized;
+                peer.DiscoveredUtc ??= peer.LastSeenUtc ?? peer.LastFailureUtc ?? nowUtc;
+                peer.Source = string.IsNullOrWhiteSpace(peer.Source) ? "legacy" : peer.Source;
+                if (peer.TombstonedUntilUtc.HasValue && peer.TombstonedUntilUtc.Value <= nowUtc)
+                {
+                    peer.TombstonedUntilUtc = null;
+                    if (string.Equals(peer.Status, "tombstoned", StringComparison.OrdinalIgnoreCase))
+                    {
+                        peer.Status = "discovered";
+                    }
+                }
+
+                if (peer.SuppressedUntilUtc.HasValue && peer.SuppressedUntilUtc.Value <= nowUtc)
+                {
+                    peer.SuppressedUntilUtc = null;
+                }
+
+                if (!string.IsNullOrWhiteSpace(selfEndpoint) &&
+                    string.Equals(normalized, selfEndpoint, StringComparison.OrdinalIgnoreCase))
+                {
+                    return null;
+                }
+
+                return peer;
+            })
+            .OfType<BootPeerStatus>()
+            .GroupBy(peer => peer.Endpoint, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group
+                .OrderByDescending(peer => peer.IsConfiguredSeed)
+                .ThenByDescending(peer => peer.LastSuccessUtc ?? peer.LastSeenUtc ?? peer.DiscoveredUtc ?? DateTime.MinValue)
+                .First())
+            .ToList();
+
+        TrimPeerAddressBookNoLock(nowUtc);
+    }
+
+    private void TrimPeerAddressBookNoLock(DateTime nowUtc)
+    {
+        RefreshPeerScoresNoLock(nowUtc);
+        int maxEntries = GetPeerAddressBookMaxEntries();
+        if (_state.Peers.Count <= maxEntries)
+        {
+            return;
+        }
+
+        int removeCount = _state.Peers.Count - maxEntries;
+        HashSet<string> removeEndpoints = _state.Peers
+            .Where(peer => !peer.IsConfiguredSeed && !IsPeerTombstonedNoLock(peer, nowUtc))
+            .OrderBy(peer => peer.Score)
+            .ThenBy(peer => peer.LastSuccessUtc ?? peer.LastSeenUtc ?? peer.DiscoveredUtc ?? DateTime.MinValue)
+            .Take(removeCount)
+            .Select(peer => peer.Endpoint)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (removeEndpoints.Count == 0)
+        {
+            return;
+        }
+
+        _state.Peers = _state.Peers
+            .Where(peer => !removeEndpoints.Contains(peer.Endpoint))
+            .ToList();
+    }
+
+    private void RefreshPeerScoresNoLock(DateTime nowUtc)
+    {
+        foreach (BootPeerStatus peer in _state.Peers)
+        {
+            peer.Score = ComputePeerScoreNoLock(peer, nowUtc);
+        }
+    }
+
+    private double ComputePeerScoreNoLock(BootPeerStatus peer, DateTime nowUtc)
+    {
+        if (IsPeerTombstonedNoLock(peer, nowUtc) || IsPeerSuppressedNoLock(peer.Endpoint, nowUtc))
+        {
+            return -100000;
+        }
+
+        double score = 0;
+        if (peer.IsConfiguredSeed)
+        {
+            score += 20;
+        }
+
+        if (peer.LastSuccessUtc.HasValue)
+        {
+            double successAgeMinutes = Math.Max(0, (nowUtc - peer.LastSuccessUtc.Value).TotalMinutes);
+            score += successAgeMinutes <= 10 ? 60 : successAgeMinutes <= 60 ? 35 : successAgeMinutes <= 360 ? 15 : 5;
+        }
+        else if (peer.LastSeenUtc.HasValue)
+        {
+            score += 15;
+        }
+
+        if (!string.IsNullOrWhiteSpace(peer.LastCurrentStateId) &&
+            string.Equals(peer.LastCurrentStateId, _state.CurrentStateId, StringComparison.OrdinalIgnoreCase))
+        {
+            score += 15;
+        }
+
+        if (!string.IsNullOrWhiteSpace(peer.LastCandidateStateId) &&
+            string.Equals(peer.LastCandidateStateId, _state.CandidateStateId, StringComparison.OrdinalIgnoreCase))
+        {
+            score += 8;
+        }
+
+        if (!string.IsNullOrWhiteSpace(peer.LastTipBlockHash) &&
+            BitcoinHashes.AreEquivalent(peer.LastTipBlockHash, _state.CurrentTipBlockHash))
+        {
+            score += 10;
+        }
+
+        if (peer.LatencyMs.HasValue)
+        {
+            score += peer.LatencyMs.Value <= 100 ? 12 :
+                peer.LatencyMs.Value <= 500 ? 8 :
+                peer.LatencyMs.Value <= 1500 ? 3 : -5;
+        }
+
+        score += Math.Min(30, peer.RelaySuccessCount * 2);
+        score -= Math.Min(60, peer.RelayFailureCount * 3);
+        score -= Math.Min(80, peer.FailureCount * 10);
+        if (IsPeerFailureStatus(peer.Status))
+        {
+            score -= 20;
+        }
+
+        return score;
+    }
+
+    private bool IsPeerEligibleForAttemptNoLock(BootPeerStatus peer, DateTime nowUtc, string? sourceEndpoint)
+    {
+        string endpoint = NormalizePeerEndpoint(peer.Endpoint);
+        if (string.IsNullOrWhiteSpace(endpoint) ||
+            (!string.IsNullOrWhiteSpace(sourceEndpoint) && string.Equals(endpoint, sourceEndpoint, StringComparison.OrdinalIgnoreCase)) ||
+            IsPeerTombstonedNoLock(peer, nowUtc) ||
+            IsPeerSuppressedNoLock(endpoint, nowUtc) ||
+            IsPeerInFailureBackoffNoLock(peer, nowUtc))
+        {
+            return false;
+        }
+
+        return TryNormalizePeerEndpoint(endpoint, allowPrivate: true, out _, out _);
+    }
+
+    private bool IsPeerAdvertisableNoLock(BootPeerStatus peer, DateTime nowUtc)
+    {
+        if (!IsPeerEligibleForAttemptNoLock(peer, nowUtc, sourceEndpoint: null))
+        {
+            return false;
+        }
+
+        if (!AllowPrivatePeerAdvertisements() && IsPrivatePeerEndpoint(peer.Endpoint))
+        {
+            return false;
+        }
+
+        return !IsPeerFailureStatus(peer.Status) || peer.LastSuccessUtc.HasValue;
+    }
+
+    private bool IsPeerInFailureBackoffNoLock(BootPeerStatus peer, DateTime nowUtc)
+    {
+        if (!peer.LastFailureUtc.HasValue || peer.FailureCount <= 0)
+        {
+            return false;
+        }
+
+        int minSeconds = GetPeerFailureBackoffMinSeconds();
+        int maxSeconds = GetPeerFailureBackoffMaxSeconds();
+        int exponent = Math.Min(10, Math.Max(0, peer.FailureCount - 1));
+        double backoffSeconds = Math.Min(maxSeconds, minSeconds * Math.Pow(2, exponent));
+        return peer.LastFailureUtc.Value.AddSeconds(backoffSeconds) > nowUtc;
+    }
+
     private void SuppressPeerNoLock(string endpoint, DateTime untilUtc)
     {
         string normalized = NormalizePeerEndpoint(endpoint);
         if (!string.IsNullOrWhiteSpace(normalized))
         {
             _suppressedPeerEndpoints[normalized] = untilUtc;
+            BootPeerStatus? peer = FindPeerNoLock(normalized);
+            if (peer != null)
+            {
+                peer.SuppressedUntilUtc = untilUtc;
+            }
         }
     }
 
@@ -5017,16 +5558,39 @@ public class BootProtocolStateService
         string normalized = NormalizePeerEndpoint(endpoint);
         if (!_suppressedPeerEndpoints.TryGetValue(normalized, out DateTime untilUtc))
         {
-            return false;
+            BootPeerStatus? peer = FindPeerNoLock(normalized);
+            if (peer?.SuppressedUntilUtc == null)
+            {
+                return false;
+            }
+
+            untilUtc = peer.SuppressedUntilUtc.Value;
         }
 
         if (untilUtc <= nowUtc)
         {
             _suppressedPeerEndpoints.Remove(normalized);
+            BootPeerStatus? peer = FindPeerNoLock(normalized);
+            if (peer != null)
+            {
+                peer.SuppressedUntilUtc = null;
+            }
+
             return false;
         }
 
         return true;
+    }
+
+    private static bool IsPeerTombstonedNoLock(BootPeerStatus peer, DateTime nowUtc)
+    {
+        return peer.TombstonedUntilUtc.HasValue && peer.TombstonedUntilUtc.Value > nowUtc;
+    }
+
+    private bool AllowPrivatePeerAdvertisements()
+    {
+        return _poolConfig.PeerAllowPrivateAdvertisements ||
+            string.Equals(_poolConfig.NodeMode, "development", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string NormalizePeerEndpoint(string endpoint)
@@ -5037,6 +5601,98 @@ public class BootProtocolStateService
         }
 
         return endpoint.Trim().TrimEnd('/');
+    }
+
+    private static bool TryNormalizePeerEndpoint(
+        string? endpoint,
+        bool allowPrivate,
+        out string normalized,
+        out string rejectionReason)
+    {
+        normalized = string.Empty;
+        rejectionReason = string.Empty;
+        if (string.IsNullOrWhiteSpace(endpoint))
+        {
+            rejectionReason = "empty";
+            return false;
+        }
+
+        string trimmed = endpoint.Trim().TrimEnd('/');
+        if (!Uri.TryCreate(trimmed, UriKind.Absolute, out Uri? uri) ||
+            string.IsNullOrWhiteSpace(uri.Host) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            rejectionReason = "invalid-url";
+            return false;
+        }
+
+        string host = uri.Host.Trim().ToLowerInvariant();
+        if (IsPlaceholderPeerHost(host))
+        {
+            rejectionReason = "placeholder";
+            return false;
+        }
+
+        if (!allowPrivate && IsPrivatePeerHost(host))
+        {
+            rejectionReason = "private-endpoint";
+            return false;
+        }
+
+        var builder = new UriBuilder(uri.Scheme.ToLowerInvariant(), host, uri.IsDefaultPort ? -1 : uri.Port);
+        normalized = builder.Uri.GetLeftPart(UriPartial.Authority).TrimEnd('/');
+        return true;
+    }
+
+    private static bool IsPlaceholderPeerHost(string host)
+    {
+        return string.Equals(host, "boot.example.com", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(host, "datum.example.com", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(host, "example.com", StringComparison.OrdinalIgnoreCase) ||
+            host.EndsWith(".example.com", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPrivatePeerEndpoint(string endpoint)
+    {
+        return Uri.TryCreate(endpoint, UriKind.Absolute, out Uri? uri) && IsPrivatePeerHost(uri.Host);
+    }
+
+    private static bool IsPrivatePeerHost(string host)
+    {
+        if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!IPAddress.TryParse(host, out IPAddress? address))
+        {
+            return false;
+        }
+
+        if (IPAddress.IsLoopback(address))
+        {
+            return true;
+        }
+
+        if (address.AddressFamily == AddressFamily.InterNetwork)
+        {
+            byte[] bytes = address.GetAddressBytes();
+            return bytes[0] == 10 ||
+                (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) ||
+                (bytes[0] == 192 && bytes[1] == 168) ||
+                (bytes[0] == 169 && bytes[1] == 254) ||
+                bytes[0] == 0;
+        }
+
+        if (address.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            byte[] bytes = address.GetAddressBytes();
+            return address.IsIPv6LinkLocal ||
+                address.IsIPv6SiteLocal ||
+                (bytes[0] & 0xfe) == 0xfc;
+        }
+
+        return false;
     }
 
     private BootPeerStatus? FindPeerNoLock(string endpoint)
@@ -5118,7 +5774,7 @@ public class BootProtocolStateService
 
         if (string.IsNullOrWhiteSpace(_poolConfig.PublicBaseUrl))
         {
-            dto.Warnings.Add("public_base_url is not configured, so peers cannot reliably advertise this node.");
+            dto.Info.Add("public_base_url is not configured; this node will operate as outbound-only and will not advertise itself as a reachable relay.");
         }
 
         if (string.IsNullOrWhiteSpace(_poolConfig.DatumPublicHost))
@@ -5140,7 +5796,6 @@ public class BootProtocolStateService
         dto.ReadyForProductionRoundMode =
             !_poolConfig.TestingRoundResetEnabled &&
             string.Equals(_poolConfig.NodeMode, "production", StringComparison.OrdinalIgnoreCase) &&
-            !string.IsNullOrWhiteSpace(_poolConfig.PublicBaseUrl) &&
             !string.IsNullOrWhiteSpace(_poolConfig.DatumPublicHost);
 
         return dto;
@@ -5348,10 +6003,23 @@ public class BootProtocolStateService
         {
             Endpoint = peer.Endpoint,
             Status = peer.Status,
+            Source = peer.Source,
+            IsConfiguredSeed = peer.IsConfiguredSeed,
+            DiscoveredUtc = peer.DiscoveredUtc,
+            LastAttemptUtc = peer.LastAttemptUtc,
+            LastSuccessUtc = peer.LastSuccessUtc,
             LatencyMs = peer.LatencyMs,
             LastSeenUtc = peer.LastSeenUtc,
             LastFailureUtc = peer.LastFailureUtc,
-            FailureCount = peer.FailureCount
+            SuppressedUntilUtc = peer.SuppressedUntilUtc,
+            TombstonedUntilUtc = peer.TombstonedUntilUtc,
+            FailureCount = peer.FailureCount,
+            RelaySuccessCount = peer.RelaySuccessCount,
+            RelayFailureCount = peer.RelayFailureCount,
+            LastCurrentStateId = peer.LastCurrentStateId,
+            LastCandidateStateId = peer.LastCandidateStateId,
+            LastTipBlockHash = peer.LastTipBlockHash,
+            Score = peer.Score
         };
     }
 
@@ -5365,6 +6033,20 @@ public class BootProtocolStateService
             TeamEstimatedHashrateDisplay = point.TeamEstimatedHashrateDisplay,
             LocalDatumHashrateThs = point.LocalDatumHashrateThs,
             LocalDatumHashrateDisplay = point.LocalDatumHashrateDisplay
+        };
+    }
+
+    private static BootLocalDatumMinerHashrateRollupPoint CloneLocalDatumMinerHashrateRollupPoint(BootLocalDatumMinerHashrateRollupPoint point)
+    {
+        return new BootLocalDatumMinerHashrateRollupPoint
+        {
+            Address = point.Address,
+            Username = point.Username,
+            TimestampUtc = point.TimestampUtc,
+            CurrentRoundNumber = point.CurrentRoundNumber,
+            HashrateThs = point.HashrateThs,
+            HashrateDisplay = point.HashrateDisplay,
+            SampleCount = point.SampleCount
         };
     }
 
