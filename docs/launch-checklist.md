@@ -205,6 +205,7 @@ These should wait until the `3` hosted nodes exist:
   - miner-to-node reachability
   - no Cloudflare proxy on DATUM TCP
   - correct advertised `datum_public_host`
+  - correct advertised `datum_public_port`
   - public firewall and provider networking behavior
 - Launch runbook rehearsal.
   - fresh deploy

@@ -4,10 +4,11 @@
   "enable_peer_sync": true,
   "public_base_url": "https://boot.example.com",
   "datum_public_host": "datum.example.com",
+  "datum_public_port": 0,
   "node_mode": "development",
   "bitcoin_network": "mainnet",
   "bootstrap_peers": [
-    "https://gridpool.net"
+    "https://main.gridpool.net"
   ],
   "enable_admin_api": false,
   "admin_api_key": "",

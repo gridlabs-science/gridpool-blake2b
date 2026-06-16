@@ -17,8 +17,8 @@ GRID_BOOT_NETWORK_ID_WAS_SET="${GRID_BOOT_NETWORK_ID+x}"
 GRID_FOUNDATION_PAYOUT_ADDRESS="${GRID_FOUNDATION_PAYOUT_ADDRESS:-bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3}"
 GRID_POOL_PAYOUT_ADDRESS="${GRID_POOL_PAYOUT_ADDRESS:-$GRID_FOUNDATION_PAYOUT_ADDRESS}"
 GRID_POOL_COINBASE_TAG="${GRID_POOL_COINBASE_TAG:-Grid Pool}"
-GRID_BOOT_BOOTSTRAP_PEERS="${GRID_BOOT_BOOTSTRAP_PEERS:-https://gridpool.net}"
-GRID_BOOT_NETWORK_ID="${GRID_BOOT_NETWORK_ID:-public-beta}"
+GRID_BOOT_BOOTSTRAP_PEERS="${GRID_BOOT_BOOTSTRAP_PEERS:-https://main.gridpool.net}"
+GRID_BOOT_NETWORK_ID="${GRID_BOOT_NETWORK_ID:-mainnet-beta}"
 GRID_BOOT_NODE_MODE="${GRID_BOOT_NODE_MODE:-sovereign}"
 BITCOIN_NETWORK="${BITCOIN_NETWORK:-mainnet}"
 GRID_BOOT_STATE_FILE="${GRID_BOOT_STATE_FILE:-pool_state.json}"
@@ -44,6 +44,7 @@ GRID_SWAP_FILE="${GRID_SWAP_FILE:-/swapfile}"
 
 BOOT_WEB_PORT="${BOOT_WEB_PORT:-5000}"
 BOOT_DATUM_PORT="${BOOT_DATUM_PORT:-3008}"
+BOOT_DATUM_PUBLIC_PORT="${BOOT_DATUM_PUBLIC_PORT:-$BOOT_DATUM_PORT}"
 DATUM_STRATUM_PORT="${DATUM_STRATUM_PORT:-23334}"
 DATUM_API_PORT="${DATUM_API_PORT:-7152}"
 DATUM_VARDIFF_MIN="${DATUM_VARDIFF_MIN:-1024}"
@@ -106,7 +107,7 @@ Useful environment overrides:
   BITCOIN_RPC_USER, BITCOIN_RPC_PASSWORD, BITCOIN_RPC_URL, BITCOIN_ASSUMEVALID
   BITCOIN_ASSUMEUTXO_SNAPSHOT, BITCOIN_ASSUMEUTXO_STREAM, BITCOIN_ASSUMEUTXO_MIN_HEADERS
   BITCOIN_DBCACHE_MB, BITCOIN_MAX_MEMPOOL_MB
-  BOOT_WEB_PORT, BOOT_DATUM_PORT, DATUM_STRATUM_PORT, DATUM_API_PORT
+  BOOT_WEB_PORT, BOOT_DATUM_PORT, BOOT_DATUM_PUBLIC_PORT, DATUM_STRATUM_PORT, DATUM_API_PORT
   DATUM_MAX_CLIENTS, DATUM_MAX_CLIENTS_PER_THREAD, DATUM_MAX_THREADS
   DATUM_POOL_PASS_WORKERS, DATUM_POOL_PASS_FULL_USERS
 
@@ -398,6 +399,7 @@ sudo_env_args() {
         GRID_ALLOW_LOW_RESOURCE_BITCOIN
         BOOT_WEB_PORT
         BOOT_DATUM_PORT
+        BOOT_DATUM_PUBLIC_PORT
         BOOT_PUBLIC_BASE_URL
         BOOT_DATUM_PUBLIC_HOST
         DATUM_POOL_HOST
@@ -461,7 +463,7 @@ confirm_inputs() {
                 GRID_BOOT_NETWORK_ID="testnet4-beta"
             fi
             if [[ -z "$GRID_BOOT_BOOTSTRAP_PEERS_WAS_SET" ]]; then
-                GRID_BOOT_BOOTSTRAP_PEERS=""
+                GRID_BOOT_BOOTSTRAP_PEERS="https://test.gridpool.net"
             fi
             if [[ "$GRID_BOOT_STATE_FILE" == "pool_state.json" ]]; then
                 GRID_BOOT_STATE_FILE="pool_state.testnet4.json"
@@ -505,6 +507,7 @@ confirm_inputs() {
 
     BOOT_PUBLIC_BASE_URL="${BOOT_PUBLIC_BASE_URL:-http://${GRID_PRIMARY_IP}:${BOOT_WEB_PORT}}"
     BOOT_DATUM_PUBLIC_HOST="${BOOT_DATUM_PUBLIC_HOST:-$GRID_PRIMARY_IP}"
+    BOOT_DATUM_PUBLIC_PORT="${BOOT_DATUM_PUBLIC_PORT:-$BOOT_DATUM_PORT}"
     DATUM_POOL_HOST="${DATUM_POOL_HOST:-127.0.0.1}"
     BITCOIN_DBCACHE_MB_RESOLVED="$(resolve_bitcoin_dbcache_mb)"
     GRID_SWAP_MB_RESOLVED="$(resolve_swap_mb)"
@@ -515,7 +518,7 @@ confirm_inputs() {
     log "install root: $GRID_HOME"
     log "detected primary IP: $GRID_PRIMARY_IP"
     log "Boot UI: $BOOT_PUBLIC_BASE_URL"
-    log "DATUM pool endpoint advertised to miners: ${BOOT_DATUM_PUBLIC_HOST}:${BOOT_DATUM_PORT}"
+    log "DATUM pool endpoint advertised to miners: ${BOOT_DATUM_PUBLIC_HOST}:${BOOT_DATUM_PUBLIC_PORT}"
     log "ASIC Stratum endpoint after install: ${GRID_PRIMARY_IP}:${DATUM_STRATUM_PORT}"
     log "payout address: $GRID_POOL_PAYOUT_ADDRESS"
     log "Bitcoin network: $BITCOIN_NETWORK"
@@ -1001,6 +1004,7 @@ install_boot() {
             --arg tag "$GRID_POOL_COINBASE_TAG" \
             --argjson webPort "$BOOT_WEB_PORT" \
             --argjson datumPort "$BOOT_DATUM_PORT" \
+            --argjson datumPublicPort "$BOOT_DATUM_PUBLIC_PORT" \
             --argjson peers "$peers_json" \
             '{
                 NotificationSource: "BitcoinZmq",
@@ -1009,6 +1013,7 @@ install_boot() {
                 Datum_Port: $datumPort,
                 public_base_url: $publicBaseUrl,
                 datum_public_host: $datumPublicHost,
+                datum_public_port: $datumPublicPort,
                 node_mode: $nodeMode,
                 bitcoin_network: $bitcoinNetwork,
                 boot_network_id: $networkId,
@@ -1226,6 +1231,7 @@ GRID_DATUM_REPO_REF=${GRID_DATUM_REPO_REF}
 GRID_PRIMARY_IP=${GRID_PRIMARY_IP}
 BOOT_PUBLIC_BASE_URL=${BOOT_PUBLIC_BASE_URL}
 BOOT_DATUM_PUBLIC_HOST=${BOOT_DATUM_PUBLIC_HOST}
+BOOT_DATUM_PUBLIC_PORT=${BOOT_DATUM_PUBLIC_PORT}
 BOOT_WEB_PORT=${BOOT_WEB_PORT}
 BOOT_DATUM_PORT=${BOOT_DATUM_PORT}
 DATUM_STRATUM_PORT=${DATUM_STRATUM_PORT}
@@ -1274,7 +1280,7 @@ Grid Pool sovereign stack install complete.
 
 Endpoints:
   Web UI:             ${BOOT_PUBLIC_BASE_URL}
-  DATUM pool target:  ${BOOT_DATUM_PUBLIC_HOST}:${BOOT_DATUM_PORT}
+  DATUM pool target:  ${BOOT_DATUM_PUBLIC_HOST}:${BOOT_DATUM_PUBLIC_PORT}
   DATUM pool pubkey:  ${pubkey:-see: docker logs boot-portal}
   ASIC Stratum:       ${GRID_PRIMARY_IP}:${DATUM_STRATUM_PORT}
   DATUM local API:    http://127.0.0.1:${DATUM_API_PORT}

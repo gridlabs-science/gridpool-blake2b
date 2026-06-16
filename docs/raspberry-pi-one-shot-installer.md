@@ -450,7 +450,8 @@ Useful environment variables:
 - `BITCOIN_RPC_URL`: external Bitcoin RPC URL for DATUM when using `--no-bitcoin`. Defaults to `http://127.0.0.1:8332`.
 - `BOOT_PUBLIC_BASE_URL`: advertised Boot Web UI URL. Defaults to `http://detected-lan-ip:5000`.
 - `BOOT_DATUM_PUBLIC_HOST`: advertised DATUM host. Defaults to detected LAN IP.
-- `GRID_BOOT_BOOTSTRAP_PEERS`: comma-separated bootstrap peers. Defaults to `https://gridpool.net`.
+- `BOOT_DATUM_PUBLIC_PORT`: advertised DATUM port. Defaults to `BOOT_DATUM_PORT`; set this when NAT maps a different public port to the local DATUM listener.
+- `GRID_BOOT_BOOTSTRAP_PEERS`: comma-separated bootstrap peers. Defaults to `https://main.gridpool.net` for mainnet. Testnet4 installs default to `https://test.gridpool.net`.
 - `DATUM_POOLED_MINING_ONLY`: defaults to `false`, allowing solo fallback templates if Boot is unavailable.
 - `GRID_SWAP_MB`: `auto` by default. Set `0` to disable installer-created swap.
 - `GRID_ALLOW_LOW_RESOURCE_BITCOIN`: set to `1` to force local Bitcoin install on hardware that the installer would otherwise reject.

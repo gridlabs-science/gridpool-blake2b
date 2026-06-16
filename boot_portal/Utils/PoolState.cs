@@ -52,7 +52,7 @@ public class PoolStateHistory
 
 public class BootProtocolMetadata
 {
-    public string NetworkId { get; set; } = "public-beta";
+    public string NetworkId { get; set; } = "mainnet-beta";
     public int ProtocolVersion { get; set; } = 1;
 }
 

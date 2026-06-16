@@ -70,6 +70,7 @@ public static class PoolConfigValidator
         }
 
         ValidateRequiredPort(errors, config.DatumPort, "Datum_Port");
+        ValidateNonNegativePort(errors, config.DatumPublicPort, "datum_public_port");
         ValidateNonNegativePort(errors, config.WebUiPortHttp, "WebUI_Port_http");
         ValidateNonNegativePort(errors, config.WebUiPortHttps, "WebUI_Port_https");
         if (config.WebUiPortHttp == 0 && config.WebUiPortHttps == 0)

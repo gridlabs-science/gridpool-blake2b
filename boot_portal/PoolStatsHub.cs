@@ -29,7 +29,7 @@ public class PoolStatsHub : Hub
         // Send Server Config Info (Public Key)
         await Clients.Caller.SendAsync("UpdateServerInfo", new { 
             pubKey = DatumServer.ServerPubKeyHex,
-            poolPort = DatumServer.PoolPort,
+            poolPort = ResolveDatumPort(),
             datumHost = ResolveDatumHost()
         });
     }
@@ -53,5 +53,12 @@ public class PoolStatsHub : Hub
         }
 
         return "--";
+    }
+
+    private int ResolveDatumPort()
+    {
+        return _poolConfig.DatumPublicPort > 0
+            ? _poolConfig.DatumPublicPort
+            : DatumServer.PoolPort;
     }
 }

@@ -39,7 +39,7 @@ Each testnet4 Boot node should use a config like:
   "pool_payout_script": "tb1...",
   "enable_peer_sync": true,
   "bootstrap_peers": [
-    "http://FIRST-TESTNET-BOOT-NODE:5000"
+    "https://test.gridpool.net"
   ],
   "min_diff": 300,
   "coinbase_tag": "Grid Pool"
@@ -56,7 +56,7 @@ For a full sovereign node with local Bitcoin Core:
 sudo ./scripts/install-sovereign-stack.sh \
   --bitcoin-network testnet4 \
   --payout-address tb1... \
-  --bootstrap-peers "" \
+  --bootstrap-peers https://test.gridpool.net \
   --yes
 ```
 
@@ -73,7 +73,7 @@ sudo ./scripts/install-sovereign-stack.sh \
 The installer automatically switches defaults for testnet4:
 
 - `GRID_BOOT_NETWORK_ID=testnet4-beta`, unless explicitly overridden.
-- `GRID_BOOT_BOOTSTRAP_PEERS=""`, unless explicitly overridden.
+- `GRID_BOOT_BOOTSTRAP_PEERS="https://test.gridpool.net"`, unless explicitly overridden.
 - `GRID_BOOT_STATE_FILE=pool_state.testnet4.json`, unless explicitly overridden.
 - Bitcoin Core config includes `chain=testnet4`.
 - Local Bitcoin RPC is pinned to `127.0.0.1:8332` with `rpcport=8332`, avoiding chain-specific default port ambiguity.
@@ -108,7 +108,8 @@ Before starting a node:
 - A mainnet payout address in `bitcoin_network=testnet4` config should fail validation.
 - A testnet payout address in `bitcoin_network=mainnet` config should fail validation.
 - Nodes with different `boot_network_id` values should not converge.
-- Mainnet public seed `https://gridpool.net` should not be used for testnet4 unless it is intentionally serving testnet4.
+- Mainnet public seed `https://main.gridpool.net` should not be used for testnet4.
+- Root landing page `https://gridpool.net` should not be used as a Boot peer seed.
 
 ## Important Limitation
 

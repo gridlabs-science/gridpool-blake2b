@@ -14,11 +14,12 @@
   "WebUI_Port_https": 0,
   "public_base_url": "https://boot.example.com",
   "datum_public_host": "datum.example.com",
+  "datum_public_port": 0,
   "node_mode": "development",
   "bitcoin_network": "mainnet",
   "enable_peer_sync": true,
   "bootstrap_peers": [
-    "https://gridpool.net"
+    "https://main.gridpool.net"
   ],
   "peer_sync_interval_seconds": 15,
   "peer_request_timeout_seconds": 5,
@@ -34,7 +35,7 @@
   "max_merkle_path_entries": 64,
   "testing_round_reset_mode": "none",
   "testing_round_reset_low_nibble_threshold": 0,
-  "boot_network_id": "public-beta",
+  "boot_network_id": "mainnet-beta",
   "boot_protocol_version": 1,
   "enable_admin_api": false,
   "admin_api_key": "change-this-admin-key",

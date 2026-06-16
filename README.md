@@ -4,8 +4,34 @@ A decentralized protocol for bitcoin hashing nodes to share block rewards and re
 - It's not really a pool in the classic sense.  It's more like "shared lottery mining", with smaller payouts and better odds than pure solo mining.
 - This implementation works with DATUM or (soon) Hydrapool. 
 
-## Docker Beta Quickstart
-Boot Protocol now includes a basic Docker packaging path for public beta testing.
+## GridPool Node Quickstart
+Most miners should start by running only a GridPool node, then pointing an existing DATUM Gateway at it. This keeps Bitcoin and DATUM under your own control while adding the GridPool reward-sharing network layer.
+
+On a Linux host with Docker, or on a Raspberry Pi / Ubuntu box where Docker can be installed:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gridlabs-science/boot-protocol/main/scripts/install-gridpool-node.sh \
+  | sudo bash -s -- --payout-address YOUR_BTC_ADDRESS
+```
+
+The installer:
+- pulls `ghcr.io/gridlabs-science/boot-protocol:latest`
+- starts the WebUI on port `5000`
+- starts the DATUM-facing GridPool listener on port `3008`
+- advertises your LAN IP and DATUM pubkey in the local WebUI
+- uses local Bitcoin ZMQ notifications if it detects `127.0.0.1:28332`; otherwise it falls back to MempoolSpace notifications for first boot
+
+After install:
+
+1. Open the local WebUI printed by the script, usually `http://LAN_IP:5000`.
+2. Copy the displayed Pool Host, Pool Port, and Pool Pubkey.
+3. Paste those into DATUM.
+4. Point ASICs at DATUM, not directly at GridPool.
+
+If you need a full fresh sovereign stack, including pruned Bitcoin Core and DATUM Gateway, use the full-stack installer in `docs/raspberry-pi-one-shot-installer.md`.
+
+## Docker Compose Quickstart
+Boot Protocol also includes a basic Docker Compose packaging path for manual public beta testing.
 
 Beta defaults now assume `299` shared Winners List slots, with slot `0` reserved for the block finder. Some of the longer discussion below still uses older 15/16-slot toy examples for intuition.
 
@@ -25,13 +51,14 @@ Notes:
 - The image runs as non-root UID/GID `1000` and creates `/data/boot_portal_config.json` from `docker/boot_portal_config.sample.json` if no config exists.
 - The default sample uses `NotificationSource = "MempoolSpace"` so a local `bitcoind` is not required for first boot.
 - If you want local ZMQ block notifications, change the config and make sure the container can reach your Bitcoin node.
-- The public beta bootstrap seed remains `https://gridpool.net` unless you override `bootstrap_peers`.
+- The mainnet beta bootstrap seed is `https://main.gridpool.net` unless you override `bootstrap_peers`.
+- Testnet4 beta nodes should use `bitcoin_network = "testnet4"`, `boot_network_id = "testnet4-beta"`, and bootstrap from `https://test.gridpool.net`.
 - Health probes are exposed at `/health/live` and `/health/ready`.
 - The default DATUM primary coinbase tag is `Grid Pool`; set `coinbase_tag` to another string, or `""` for unbranded blocks.
 - Back up the Docker `./data` directory before machine moves, package upgrades, or host rebuilds. It contains live config, server identity keys, pool state, and history.
 - Hydrapool and other direct HTTP submitters should follow `docs/hydrapool-http-submission.md`.
 
-## Raspberry Pi Sovereign Install
+## Raspberry Pi Full-Stack Sovereign Install
 For a one-shot Raspberry Pi / Ubuntu install that sets up a pruned Bitcoin Core node, DATUM Gateway, and Boot/Grid Pool together, see `docs/raspberry-pi-one-shot-installer.md`.
 
 The installer entrypoint is:

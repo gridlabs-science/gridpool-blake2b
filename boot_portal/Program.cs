@@ -76,7 +76,7 @@ public class PoolConfig
     public ulong MinDiff { get; set; } = 1024;
 
     [JsonPropertyName("boot_network_id")]
-    public string BootNetworkId { get; set; } = "public-beta";
+    public string BootNetworkId { get; set; } = "mainnet-beta";
 
     [JsonPropertyName("boot_protocol_version")]
     public int BootProtocolVersion { get; set; } = 1;
@@ -107,6 +107,9 @@ public class PoolConfig
 
     [JsonPropertyName("datum_public_host")]
     public string DatumPublicHost { get; set; } = string.Empty;
+
+    [JsonPropertyName("datum_public_port")]
+    public int DatumPublicPort { get; set; } = 0;
 
     [JsonPropertyName("bootstrap_peers")]
     public List<string> BootstrapPeers { get; set; } = [];
@@ -308,7 +311,7 @@ public class ServerConfig
 
 public class Program
 {
-    public const string DefaultPublicSeedEndpoint = "https://gridpool.net";
+    public const string DefaultPublicSeedEndpoint = "https://main.gridpool.net";
     // TODO: I should optionally load this from config, instead of hard-coded like this.
     private static int DatumPort = 3008;  //Defaults to 3008.  Should get set by config file.
     public static ulong BLOCK_REWARD = 312_500_000;  //TODO: Need to detect this from the blockchain, so it gracefully handles the next epoch
@@ -753,7 +756,7 @@ public class Program
             ? "development"
             : config.NodeMode.Trim().ToLowerInvariant();
         config.BootNetworkId = string.IsNullOrWhiteSpace(config.BootNetworkId)
-            ? "public-beta"
+            ? "mainnet-beta"
             : config.BootNetworkId.Trim();
 
         config.TestingRoundResetMode = string.IsNullOrWhiteSpace(config.TestingRoundResetMode)
@@ -796,8 +799,9 @@ public class Program
             ? "tcp://127.0.0.1:28332"
             : config.BitcoinZmqEndpoint.Trim();
 
-        if (string.Equals(config.BootNetworkId, "public-beta", StringComparison.OrdinalIgnoreCase) &&
-            config.BootstrapPeers.Count == 0)
+        if (string.Equals(config.BootNetworkId, "mainnet-beta", StringComparison.OrdinalIgnoreCase) &&
+            config.BootstrapPeers.Count == 0 &&
+            !string.Equals(config.PublicBaseUrl.Trim().TrimEnd('/'), DefaultPublicSeedEndpoint, StringComparison.OrdinalIgnoreCase))
         {
             config.BootstrapPeers.Add(DefaultPublicSeedEndpoint);
         }
