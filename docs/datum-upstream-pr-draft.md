@@ -6,7 +6,7 @@
 
 ## Problem Summary
 
-In a BOOT-backed mining setup, one DATUM client repeatedly disconnected and reconnected every roughly 12s to 29s while another DATUM deployment remained stable.
+In a GridPool-backed mining setup, one DATUM client repeatedly disconnected and reconnected every roughly 12s to 29s while another DATUM deployment remained stable.
 
 The disconnect warning on the affected client was:
 
@@ -14,7 +14,7 @@ The disconnect warning on the affected client was:
 
 That warning was inconsistent with observed reality:
 
-- the BOOT server was still sending accepted-share responses and coinbaser responses immediately before the client closed
+- the GridPool server was still sending accepted-share responses and coinbaser responses immediately before the client closed
 - the DATUM client logs showed impossible timeout-state combinations where the same session claimed timeout while also recording a newer server-message timestamp
 
 ## Why This Looks Like a DATUM-Side Bug
@@ -56,12 +56,12 @@ Before patch:
 
 After wider debug instrumentation:
 
-- behavior improved sharply, indicating the bug was in DATUM-side timeout/reconnect handling rather than BOOT messaging
+- behavior improved sharply, indicating the bug was in DATUM-side timeout/reconnect handling rather than GridPool messaging
 
 After reduction to the minimal patch:
 
 - the affected client stayed on one DATUM session for a clean 3 minute validation window
-- BOOT protocol telemetry showed zero `session-close` events in that window
+- GridPool protocol telemetry showed zero `session-close` events in that window
 - accepted share traffic continued normally
 
 ## Risk / Tradeoff

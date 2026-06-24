@@ -4,13 +4,13 @@ Date: 2026-04-23
 
 ## Problem
 
-Laptop DATUM was reconnecting to BOOT every roughly 12s to 29s while the main StartOS DATUM remained stable.
+Laptop DATUM was reconnecting to GridPool every roughly 12s to 29s while the main StartOS DATUM remained stable.
 
-Observed BOOT symptom:
+Observed GridPool symptom:
 
 - DATUM sessions repeatedly ended as `client-disconnected-no-data`
-- BOOT was still accepting shares and serving coinbaser fetch responses immediately before close
-- BOOT did not appear to be initiating the disconnect
+- GridPool was still accepting shares and serving coinbaser fetch responses immediately before close
+- GridPool did not appear to be initiating the disconnect
 
 Observed DATUM symptom:
 
@@ -19,31 +19,31 @@ Observed DATUM symptom:
 
 ## Key Findings
 
-### 1. BOOT is not going silent before the disconnect
+### 1. GridPool is not going silent before the disconnect
 
-Using BOOT-side protocol event telemetry:
+Using GridPool-side protocol event telemetry:
 
 - accepted share responses and coinbaser responses were still being sent
-- the terminal BOOT sequence for churned sessions was typically:
+- the terminal GridPool sequence for churned sessions was typically:
   - `send share-response-accepted`
   - sometimes `send coinbaser-fetch-response`
   - `recv-header-eof`
   - `session-close client-disconnected-no-data`
 
-This argues against BOOT sending an incomplete message and then stalling.
+This argues against GridPool sending an incomplete message and then stalling.
 
-### 2. The same laptop DATUM client can show the same behavior against different BOOT servers
+### 2. The same laptop DATUM client can show the same behavior against different GridPool servers
 
 Tests run:
 
-- laptop DATUM -> laptop BOOT over loopback
-- laptop DATUM -> main BOOT over LAN
+- laptop DATUM -> laptop GridPool over loopback
+- laptop DATUM -> main GridPool over LAN
 
 Result:
 
-- both paths showed the same basic close pattern from BOOT's perspective: the client closed the socket
+- both paths showed the same basic close pattern from GridPool's perspective: the client closed the socket
 
-This weakens the theory that the bug is caused by the laptop BOOT runtime itself.
+This weakens the theory that the bug is caused by the laptop GridPool runtime itself.
 
 ### 3. The DATUM timeout log is internally contradictory
 
@@ -77,7 +77,7 @@ The current laptop DATUM test build snapshots timeout-related globals into local
 After that change, churn improved sharply:
 
 - pre-change: repeated 12s to 29s reconnects
-- current run: one BOOT session stayed open for about 245s, then the next has remained open well beyond the old failure window
+- current run: one GridPool session stayed open for about 245s, then the next has remained open well beyond the old failure window
 
 This suggests the timeout branch was being tripped by inconsistent multi-read access to shared globals, not by real server silence.
 
@@ -94,7 +94,7 @@ The highest-risk shared fields are:
 - `datum_state`
 - `protocol_state`
 
-The current evidence points more toward a DATUM-side race / shared-state bug than a BOOT protocol bug.
+The current evidence points more toward a DATUM-side race / shared-state bug than a GridPool protocol bug.
 
 More specific theory:
 
@@ -124,9 +124,9 @@ The laptop DATUM was rebuilt with only the minimal patch above.
 
 Spot-check validation on 2026-04-24:
 
-- BOOT protocol telemetry showed a single laptop session id, `datum-615`, for the entire 3 minute validation window
-- zero `session-close` events were observed in the BOOT protocol-event stream during that window
-- the last BOOT events remained normal mining traffic such as `share-response-accepted` and `coinbaser-fetch-response`
+- GridPool protocol telemetry showed a single laptop session id, `datum-615`, for the entire 3 minute validation window
+- zero `session-close` events were observed in the GridPool protocol-event stream during that window
+- the last GridPool events remained normal mining traffic such as `share-response-accepted` and `coinbaser-fetch-response`
 - the DATUM log no longer showed the old repeating `No data received from server in over 600 seconds` churn during that validation window
 
 This is enough to rule out the old 12s to 29s reconnect loop under the reduced patch.
@@ -156,4 +156,4 @@ Started:
 The soak is intended to answer:
 
 - whether the timeout-snapshot change actually suppresses the churn under normal mining load
-- whether any new BOOT divergence or reject-pattern regression appears while the laptop DATUM is stable
+- whether any new GridPool divergence or reject-pattern regression appears while the laptop DATUM is stable

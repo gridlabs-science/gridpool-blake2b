@@ -2,12 +2,12 @@
 
 ## Goal
 
-Compare stale-share and invalid-share behavior across two mining setups by swapping miners between the two DATUM + Boot node stacks.
+Compare stale-share and invalid-share behavior across two mining setups by swapping miners between the two DATUM + GridPool node stacks.
 
 Questions:
 
 - Does the bad behavior follow a specific miner / firmware?
-- Does it stay with a specific Boot + DATUM node stack?
+- Does it stay with a specific GridPool + DATUM node stack?
 - Do reject patterns differ between the StartOS DATUM path and the source-built laptop DATUM path?
 
 ## Test A
@@ -150,7 +150,7 @@ Interpretation:
 - Because the higher-hashrate miner is currently on the laptop, this run alone cannot distinguish:
   - miner / firmware behavior
   - laptop DATUM behavior
-  - laptop Boot-node behavior
+  - laptop GridPool-node behavior
 
 ## What To Compare In Test B
 
@@ -168,7 +168,7 @@ After swapping the miners, compare:
 Most important discriminator:
 
 - If `Slot 0 mismatch` follows the space heater miner, the problem is likely miner / firmware specific.
-- If it stays on the laptop stack after the swap, the problem is likely in the laptop DATUM / Boot integration path.
+- If it stays on the laptop stack after the swap, the problem is likely in the laptop DATUM / GridPool integration path.
 
 ## Interim Single-Node Observation
 
@@ -177,7 +177,7 @@ Timestamp of snapshot: 2026-04-07 around 12:05 EDT
 Context:
 
 - The Bitaxe dropped off the laptop path and fell back to the main / StartOS DATUM node.
-- That put both miners onto the main Boot + DATUM stack temporarily.
+- That put both miners onto the main GridPool + DATUM stack temporarily.
 
 ### Reject Breakdown On Main Node
 
@@ -212,8 +212,8 @@ The more important finding is in the connection logs:
 
 Interpretation:
 
-- the upstream DATUM gateway appears to be multiplexing multiple downstream miners through one Boot-facing client identity
-- Boot currently remembers payout / slot-0 state keyed too coarsely at the DATUM client level
+- the upstream DATUM gateway appears to be multiplexing multiple downstream miners through one GridPool-facing client identity
+- GridPool currently remembers payout / slot-0 state keyed too coarsely at the DATUM client level
 - when two miners with different payout addresses share one DATUM client identity, they can overwrite each other's remembered slot-0 expectation
 
 This is a much stronger explanation for the `Slot 0 mismatch` storm than a pure miner-firmware issue.
@@ -221,7 +221,7 @@ This is a much stronger explanation for the `Slot 0 mismatch` storm than a pure 
 ### Likely Next Engineering Direction
 
 - stop treating one DATUM client identity as equal to one payout address
-- key slot-0 / payout expectations per submitted job or per submitted address, not just per Boot-facing DATUM session
+- key slot-0 / payout expectations per submitted job or per submitted address, not just per GridPool-facing DATUM session
 - re-check whether the same issue also exists on the laptop stack when multiple downstream miners share one DATUM connection
 
 ## Test A Rerun After DATUM Session Lock Fix
@@ -230,9 +230,9 @@ Timestamp of snapshot: 2026-04-08 around 00:20 EDT
 
 Context:
 
-- The Boot nodes were updated with the "one DATUM session = one payout address" rule.
+- The GridPool nodes were updated with the "one DATUM session = one payout address" rule.
 - Sessions now start with the 256 Foundation address in slot `0` until the first valid DATUM share locks the session payout address.
-- Slot `0` differences no longer invalidate an otherwise valid Boot share as long as the Winners List payouts are correct.
+- Slot `0` differences no longer invalidate an otherwise valid GridPool share as long as the Winners List payouts are correct.
 - The miner assignment is back to the original Test A shape:
   - main / StartOS node: Bitaxe / `...9s8y`
   - laptop / source-built DATUM node: space heater / `...q4p`
@@ -337,7 +337,7 @@ Interpretation:
 - The "one DATUM session = one payout address" change appears to have done its intended job.
 - `Slot 0 mismatch` is no longer the dominant rejection category on either node.
 - The main / StartOS path now looks close to healthy in this test shape.
-- The laptop / source-built DATUM path is still worse, but now mainly because of `Payout mismatch`, not because Boot is confusing multiple payout identities on one session.
+- The laptop / source-built DATUM path is still worse, but now mainly because of `Payout mismatch`, not because GridPool is confusing multiple payout identities on one session.
 - The next debugging target should stay focused on why the laptop DATUM path still produces a much higher payout-mismatch rate even after session locking.
 
 ## Overnight Timing Analysis After Persisted Reject/Event Telemetry
@@ -351,7 +351,7 @@ Context:
   - `GET /api/network/share-diagnostics?window=12h&source=datum&accepted=false&limit=5000`
   - `GET /api/network/events?window=12h&limit=5000`
 - The goal was to determine whether the remaining rejections cluster:
-  - immediately after Boot round rotations
+  - immediately after GridPool round rotations
   - immediately after ordinary Bitcoin chain-tip updates
   - or remain spread throughout the round
 
@@ -452,7 +452,7 @@ The analysis-time summary showed:
 
 After that point:
 
-- the laptop Boot node still kept receiving chain-tip and round-rotation events
+- the laptop GridPool node still kept receiving chain-tip and round-rotation events
 - but the local DATUM path produced no new accepted or rejected local shares in the later windows
 
 This means the back half of the overnight run was **not** a clean two-miner comparison anymore. The most likely interpretations are:
@@ -551,7 +551,7 @@ That points to a self-reinforcing reconnect loop on the laptop path, not just no
 
 ### Root Cause Identified
 
-Boot was disconnecting DATUM sessions after only:
+GridPool was disconnecting DATUM sessions after only:
 
 - `4` consecutive stale payout/template rejects
 
@@ -564,7 +564,7 @@ So the larger laptop miner was more likely to be forcibly disconnected even if b
 
 ### Code Change Applied
 
-The stale-template reset logic in `Program.cs` was changed so that Boot now:
+The stale-template reset logic in `Program.cs` was changed so that GridPool now:
 
 - still requests template refresh immediately on payout/solo-fallback rejects
 - only forces a disconnect if stale rejects persist for at least `20s`
@@ -584,7 +584,7 @@ The new behavior is visible in the fresh laptop log:
 - session reconnects
 - locks to `...trvzs3`
 - receives several `Solo fallback template` rejects
-- Boot now waits about `21s` before disconnecting, instead of severing the session after a few fast shares
+- GridPool now waits about `21s` before disconnecting, instead of severing the session after a few fast shares
 
 Representative log pattern:
 
@@ -597,12 +597,12 @@ This confirms the new logic is active.
 
 ### Interpretation After The Fix
 
-The fix removes the share-rate bias in Boot's forced-reconnect behavior, but it does **not** solve the deeper upstream issue yet.
+The fix removes the share-rate bias in GridPool's forced-reconnect behavior, but it does **not** solve the deeper upstream issue yet.
 
-The laptop DATUM path is still, at least sometimes, serving a non-Boot single-recipient template for around `20s` after reconnect/transition. So there are two layers:
+The laptop DATUM path is still, at least sometimes, serving a non-GridPool single-recipient template for around `20s` after reconnect/transition. So there are two layers:
 
-1. Boot was amplifying the problem by disconnecting too aggressively.
-2. The laptop DATUM stack still appears to spend real time on solo-fallback or stale non-Boot work.
+1. GridPool was amplifying the problem by disconnecting too aggressively.
+2. The laptop DATUM stack still appears to spend real time on solo-fallback or stale non-GridPool work.
 
 ### Next Question
 
@@ -610,7 +610,7 @@ After this change, the next run should answer:
 
 - does the laptop still show a large `Solo fallback template` / `Payout mismatch` burden even without the old rapid reconnect loop?
 
-If yes, the next bug target is the laptop DATUM gateway's template refresh / fallback behavior rather than Boot's disconnect policy.
+If yes, the next bug target is the laptop DATUM gateway's template refresh / fallback behavior rather than GridPool's disconnect policy.
 
 ## 2026-04-11 Later Check: Improved, But Laptop Still Not Healthy
 
@@ -643,7 +643,7 @@ Laptop node summary:
 
 - The laptop no longer shows the earlier ultra-fast reconnect storm.
 - In the last `6h`, laptop `datum-session-lock` median interval was about `64.5s`, versus the earlier `38s` behavior.
-- So the Boot-side time-based reset materially reduced the self-inflicted churn.
+- So the GridPool-side time-based reset materially reduced the self-inflicted churn.
 
 ### What Is Still Wrong
 
@@ -665,14 +665,14 @@ Representative fresh laptop log pattern:
 - then:
   - `submitted 6 consecutive stale payout shares ... over 32.3s. Disconnecting to force a clean reconnect.`
 
-So the new Boot logic is better, but the upstream laptop DATUM path still appears to spend on the order of `30s` serving stale/solo-fallback work after some reconnects or transitions.
+So the new GridPool logic is better, but the upstream laptop DATUM path still appears to spend on the order of `30s` serving stale/solo-fallback work after some reconnects or transitions.
 
 ### Current Best Interpretation
 
-- Boot is no longer the dominant cause of the laptop bias.
-- The remaining issue looks upstream of Boot:
+- GridPool is no longer the dominant cause of the laptop bias.
+- The remaining issue looks upstream of GridPool:
   - DATUM is still sometimes mining on a single-recipient fallback template after reconnect/transition
-  - Boot correctly rejects those shares as non-Boot work
+  - GridPool correctly rejects those shares as non-GridPool work
 - `Low difficulty` is present but secondary
 
 ### Likely Next Step
@@ -680,6 +680,6 @@ So the new Boot logic is better, but the upstream laptop DATUM path still appear
 The next diagnostic or mitigation pass should focus on the laptop DATUM behavior:
 
 - either inspect the DATUM client logs directly
-- or further soften Boot's reset behavior specifically for `Solo fallback template`
+- or further soften GridPool's reset behavior specifically for `Solo fallback template`
 
-At this point, the best candidate bug is no longer Boot's payout-identity handling. It is the laptop DATUM template-refresh / fallback path.
+At this point, the best candidate bug is no longer GridPool's payout-identity handling. It is the laptop DATUM template-refresh / fallback path.

@@ -3150,13 +3150,14 @@ public class BootProtocolStateService
         DateTime nowUtc = DateTime.UtcNow;
         DateTime? currentRoundStartUtc = ResolveCurrentRoundStartUtcNoLock(nowUtc);
         long? currentRoundElapsedSeconds = GetElapsedSeconds(currentRoundStartUtc, nowUtc);
+        long? currentRoundHashrateElapsedSeconds = ResolveCurrentRoundHashrateElapsedSecondsNoLock(nowUtc);
         List<double> onDeckDifficulties = _state.OnDeckProofs
             .Select(x => x.Difficulty)
             .Where(x => x > 0)
             .ToList();
         double currentStateTotalDifficulty = _state.WinnersList.Sum(x => x.Difficulty);
         double onDeckTotalDifficulty = onDeckDifficulties.Sum();
-        double? currentRoundObservedHashrateThs = EstimateRankAdjustedHashrateThs(onDeckDifficulties, currentRoundElapsedSeconds);
+        double? currentRoundObservedHashrateThs = EstimateRankAdjustedHashrateThs(onDeckDifficulties, currentRoundHashrateElapsedSeconds);
         BootDatumDiagnosticsDto localDatumDiagnostics = BuildLocalDatumDiagnosticsNoLock(nowUtc);
         List<BootLocalDatumMinerSummaryDto> allLocalDatumMiners = BuildLocalDatumMinerSummariesNoLock(nowUtc, GetLocalDatumMaxTrackedAddresses());
         List<BootLocalDatumMinerSummaryDto> activeLocalDatumMiners = allLocalDatumMiners
@@ -3929,6 +3930,43 @@ public class BootProtocolStateService
         return startedAtUtc;
     }
 
+    private long? ResolveCurrentRoundHashrateElapsedSecondsNoLock(DateTime nowUtc)
+    {
+        DateTime? startedAtUtc = ResolveCurrentRoundStartUtcNoLock(nowUtc);
+        DateTime? activeProofStartUtc = ResolveActiveOnDeckHashrateStartUtcNoLock();
+        if (activeProofStartUtc.HasValue &&
+            (!startedAtUtc.HasValue || activeProofStartUtc.Value > startedAtUtc.Value))
+        {
+            startedAtUtc = activeProofStartUtc.Value;
+        }
+
+        return GetElapsedSeconds(startedAtUtc, nowUtc);
+    }
+
+    private DateTime? ResolveActiveOnDeckHashrateStartUtcNoLock()
+    {
+        List<DateTime> proofTimes = _state.OnDeckProofs
+            .Where(proof => proof.Timestamp != default)
+            .Select(proof => proof.Timestamp.ToUniversalTime())
+            .OrderBy(timestamp => timestamp)
+            .ToList();
+        if (proofTimes.Count == 0)
+        {
+            return null;
+        }
+
+        // The on-deck list is a rolling high-difficulty sample. During long
+        // public-beta/genesis rounds, a single old high-luck share from a tiny
+        // miner can otherwise anchor the elapsed time and make the displayed
+        // team hashrate look far lower than the active mining set. Trim only a
+        // tiny number of oldest timestamps so the estimate remains conservative
+        // while ignoring isolated stale anchors.
+        int trimCount = proofTimes.Count >= 100
+            ? Math.Clamp((int)Math.Floor(proofTimes.Count * 0.01d), 1, 5)
+            : 0;
+        return proofTimes[Math.Min(trimCount, proofTimes.Count - 1)];
+    }
+
     private BootDatumDiagnosticsDto BuildLocalDatumDiagnosticsNoLock(DateTime nowUtc)
     {
         TrimShareDiagnosticsNoLock(nowUtc);
@@ -4217,8 +4255,7 @@ public class BootProtocolStateService
             return false;
         }
 
-        DateTime? currentRoundStartUtc = ResolveCurrentRoundStartUtcNoLock(nowUtc);
-        long? currentRoundElapsedSeconds = GetElapsedSeconds(currentRoundStartUtc, nowUtc);
+        long? currentRoundElapsedSeconds = ResolveCurrentRoundHashrateElapsedSecondsNoLock(nowUtc);
         List<double> onDeckDifficulties = _state.OnDeckProofs
             .Select(x => x.Difficulty)
             .Where(x => x > 0)

@@ -4,56 +4,98 @@
 <head>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>Grid Anti-Pool</title>
+    <title>GridPool</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
         :root {
-            --bg-color: #111111;
-            --text-color: #eeeeee;
-            --text-muted: #888888;
-            --accent-color: #bd59ff;
+            --bg-color: #080a0d;
+            --panel-color: rgba(18, 23, 25, 0.92);
+            --panel-soft: rgba(23, 29, 31, 0.88);
+            --text-color: #f1f4ed;
+            --text-muted: #a9b2a7;
+            --accent-color: #58f07c;
+            --accent-secondary: #ffb23f;
+            --testnet-color: #67d8ff;
             --highlight-color: #ffffff; /* Bright white for search matches */
-            --border-color: #333333;
+            --border-color: rgba(216, 222, 208, 0.14);
             --container-width: 1500px;
+        }
+
+        body.network-testnet {
+            --accent-color: var(--testnet-color);
+            --accent-secondary: #ffcf70;
         }
 
         body {
             font-family: 'Roboto Mono', monospace;
-            background-color: var(--bg-color);
+            background:
+                radial-gradient(circle at 18% 10%, rgba(88, 240, 124, 0.12), transparent 32rem),
+                radial-gradient(circle at 86% 6%, rgba(255, 178, 63, 0.1), transparent 30rem),
+                linear-gradient(rgba(88, 240, 124, 0.025) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(88, 240, 124, 0.018) 1px, transparent 1px),
+                var(--bg-color);
+            background-size: auto, auto, 48px 48px, 48px 48px, auto;
             color: var(--text-color);
             margin: 0;
-            padding: 0; /* Removed padding for banner */
+            padding: 0;
             line-height: 1.4;
         }
 
-        /* --- DEV BANNER --- */
-        .dev-banner {
-            background: repeating-linear-gradient(
-                45deg,
-                #d4af37,
-                #d4af37 10px,
-                #bfa030 10px,
-                #bfa030 20px
-            );
-            color: #000;
-            text-align: center;
-            font-weight: bold;
-            padding: 5px;
-            font-size: 0.8rem;
-            border-bottom: 2px solid #000;
+        .environment-banner {
             position: sticky;
             top: 0;
             z-index: 1000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 12px;
+            padding: 9px 18px;
+            border-bottom: 1px solid rgba(216, 222, 208, 0.12);
+            background:
+                linear-gradient(90deg, rgba(88, 240, 124, 0.18), rgba(255, 178, 63, 0.12)),
+                rgba(8, 10, 13, 0.94);
+            color: var(--text-color);
+            font-size: 0.82rem;
+            backdrop-filter: blur(16px);
         }
 
-        /* --- LOGO STYLING --- */
+        .environment-banner strong {
+            color: var(--accent-color);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .environment-banner span {
+            color: var(--text-muted);
+        }
+
+        body.network-testnet .environment-banner {
+            background:
+                repeating-linear-gradient(135deg, rgba(103, 216, 255, 0.2), rgba(103, 216, 255, 0.2) 10px, rgba(255, 207, 112, 0.15) 10px, rgba(255, 207, 112, 0.15) 20px),
+                rgba(8, 10, 13, 0.95);
+        }
+
+        .node-header {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) minmax(280px, 420px);
+            gap: 24px;
+            align-items: center;
+            margin-bottom: 24px;
+            padding: 24px;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            background:
+                linear-gradient(rgba(88, 240, 124, 0.055) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 178, 63, 0.045) 1px, transparent 1px),
+                rgba(18, 23, 25, 0.9);
+            background-size: 30px 30px, 30px 30px, auto;
+            box-shadow: 0 18px 60px rgba(0, 0, 0, 0.3);
+        }
+
         .logo-img {
-            position: absolute;
-            top: 45px; /* Adjusted for banner */
-            left: 30px;
-            width: 160px;
+            width: 118px;
             height: auto;
             opacity: 0.9;
             transition: opacity 0.3s;
@@ -63,11 +105,60 @@
             opacity: 1;
         }
 
+        .node-title-block h1 {
+            margin-bottom: 8px;
+            text-align: left;
+        }
+
+        .node-network-card {
+            justify-self: end;
+            display: grid;
+            gap: 9px;
+            width: 100%;
+            padding: 16px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: rgba(4, 5, 6, 0.42);
+        }
+
+        .node-network-card-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            color: var(--text-muted);
+            font-size: 0.82rem;
+        }
+
+        .node-network-card-row strong {
+            color: var(--text-color);
+            text-align: right;
+        }
+
+        .network-badge {
+            display: inline-flex;
+            width: fit-content;
+            min-height: 30px;
+            align-items: center;
+            padding: 5px 10px;
+            border: 1px solid rgba(88, 240, 124, 0.5);
+            border-radius: 999px;
+            color: var(--accent-color);
+            font-weight: 800;
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        body.network-testnet .network-badge {
+            border-color: rgba(103, 216, 255, 0.58);
+            color: var(--testnet-color);
+        }
+
         /* Main Layout */
         .main-container {
             max-width: var(--container-width);
             margin: 0 auto;
-            padding: 40px 20px 20px 20px;
+            padding: 28px 20px 20px 20px;
         }
 
         /* Typography */
@@ -82,14 +173,18 @@
             color: var(--accent-color);
             text-align: center;
             margin-top: 0;
+            font-size: clamp(2.2rem, 4.5vw, 4.8rem);
+            line-height: 0.9;
+            letter-spacing: -0.06em;
+            text-transform: none;
         }
 
         .brand-subtitle {
-            text-align: center;
+            text-align: left;
             color: var(--text-muted);
             max-width: 720px;
-            margin: -8px auto 24px auto;
-            font-size: 0.95rem;
+            margin: 0;
+            font-size: 1rem;
         }
 
         h2 {
@@ -1200,12 +1295,13 @@
 
         /* --- RESPONSIVE --- */
         @@media (max-width: 1100px) {
-            .logo-img {
-                position: relative;
-                display: block;
-                margin: 0 auto 20px auto;
-                top: 0;
-                left: 0;
+            .node-header {
+                grid-template-columns: auto minmax(0, 1fr);
+            }
+
+            .node-network-card {
+                grid-column: 1 / -1;
+                justify-self: stretch;
             }
 
             .charts-section {
@@ -1247,6 +1343,33 @@
         }
 
         @@media (max-width: 700px) {
+            .environment-banner {
+                align-items: flex-start;
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            .node-header {
+                grid-template-columns: 1fr;
+                padding: 18px;
+            }
+
+            .logo-img {
+                width: 88px;
+            }
+
+            .node-title-block h1 {
+                font-size: 2.5rem;
+            }
+
+            .node-network-card-row {
+                display: grid;
+            }
+
+            .node-network-card-row strong {
+                text-align: left;
+            }
+
             .brand-subtitle {
                 font-size: 0.85rem;
                 margin-bottom: 20px;
@@ -1296,15 +1419,34 @@
 </head>
 <body>
 
-<div class="dev-banner">
-    ⚠️ DEVELOPER PREVIEW: EXPECT FREQUENT SERVER REBOOTS AND COPIUS BUGS ⚠️
+<div class="environment-banner" id="environment-banner">
+    <strong id="environment-banner-title">Public Beta</strong>
+    <span id="environment-banner-copy">Experimental non-custodial mining protocol. Mainnet payouts are real; verify your setup.</span>
 </div>
 
-<img src="logo.png" alt="Grid Labs" class="logo-img"/>
-
 <div class="main-container">
-    <h1>GRID ANTI-POOL</h1>
-    <div class="brand-subtitle">The un-pool for sovereign Bitcoin miners.</div>
+    <header class="node-header">
+        <img src="logo.png" alt="Grid Labs" class="logo-img"/>
+        <div class="node-title-block">
+            <div class="network-badge" id="network-badge">Public beta</div>
+            <h1 id="brand-title">GridPool</h1>
+            <div class="brand-subtitle" id="brand-subtitle">The pool for cypherpunks. Sovereign templates, shared variance, no pool wallet.</div>
+        </div>
+        <div class="node-network-card" aria-label="Node network summary">
+            <div class="node-network-card-row">
+                <span>Network</span>
+                <strong id="header-network-name">Loading...</strong>
+            </div>
+            <div class="node-network-card-row">
+                <span>Node</span>
+                <strong id="header-node-endpoint">--</strong>
+            </div>
+            <div class="node-network-card-row">
+                <span>Round mode</span>
+                <strong id="header-round-mode">--</strong>
+            </div>
+        </div>
+    </header>
 
     <div class="mode-toolbar">
         <div class="mode-toolbar-left">
@@ -1340,7 +1482,7 @@
             <div>
                 <h2>Connect Your Miner</h2>
                 <div class="connect-panel-subtitle">
-                    Point a DATUM Gateway at this Boot node, then search your payout address above to switch into your personal dashboard.
+                    Point a DATUM Gateway at this GridPool node, then search your payout address above to switch into your personal dashboard.
                     No cookies needed: bookmarked address links hide this setup panel automatically.
                 </div>
             </div>
@@ -1350,13 +1492,13 @@
             <div class="connect-card">
                 <h3>Supported Paths</h3>
                 <div class="connect-list">
-                    <div><strong>Works now:</strong> DATUM Gateway connected to this Boot node.</div>
+                    <div><strong>Works now:</strong> DATUM Gateway connected to this GridPool node.</div>
                     <div><strong>Coming soon:</strong> Hydrapool HTTP share submission.</div>
                     <div><strong>Wanted:</strong> CK Pool, Public Pool, Stratum V2, FutureBit, and other sovereign template builders integrating the <a href="https://github.com/gridlabs-science/boot-protocol/blob/main/docs/hydrapool-http-submission.md" target="_blank" rel="noopener noreferrer">HTTP API spec</a>.</div>
                     <div><span>Raw Stratum V1 directly from an ASIC is not supported here. This protocol is for miners who can build their own block templates.</span></div>
                 </div>
                 <div class="connect-warning">
-                    Sovereign-miner assumption: your DATUM or compatible server builds the template, owns slot 0, and submits verified shares to Boot.
+                    Sovereign-miner assumption: your DATUM or compatible server builds the template, owns slot 0, and submits verified shares to GridPool.
                 </div>
             </div>
             <div class="connect-card">
@@ -1446,7 +1588,7 @@
     <div class="info-grid">
         <div class="info-box">
             <h3>🏆 All-Time Best Diff</h3>
-            <div class="info-value accent-value" id="record-diff">0</div>
+            <div class="info-value accent-value" id="record-diff">--</div>
             <h3>Miner</h3>
             <div class="info-value" id="record-miner">None</div>
             <h3>Time (UTC)</h3>
@@ -1491,7 +1633,7 @@
             <div class="search-results" id="commitment-note"></div>
             <div class="search-results" id="testing-trigger-note"></div>
             <div class="search-results" id="launch-readiness-note"></div>
-            <div class="search-results" id="round-hashrate-note">Team estimate uses the median rank-adjusted current On Deck share set. Local DATUM estimate uses a rolling window of directly connected DATUM shares.</div>
+            <div class="search-results" id="round-hashrate-note">Team estimate uses the median rank-adjusted current On Deck share set. Genesis estimates use the active share window so idle setup time does not dilute the display. Local DATUM estimate uses a rolling window of directly connected DATUM shares.</div>
             <div class="search-results" id="datum-rejection-note"></div>
         </div>
     </div>
@@ -1638,7 +1780,7 @@
     <div class="modal-content">
         <span class="close-modal" onclick="toggleModal('theory-modal')">&times;</span>
         <h2>Why It's Not A Pool</h2>
-        <p>Grid Anti-Pool operates differently than traditional pools. It's more like a protocol for solo miners to split
+        <p>GridPool operates differently than traditional pools. It's more like a protocol for solo miners to split
             rewards in exchange for better odds.</p>
         <p>Nodes maintain a "Winners List", which defines the 299 shared payout slots for the coinbase split. Slot 0 always belongs to the block finder, so a full template has 300 total payout slots.
             Miners make their own templates using this coinbase payout, and submit the highest difficulty shares to the
@@ -1661,15 +1803,15 @@
     <div class="modal-content">
         <span class="close-modal" onclick="toggleModal('help-modal')">&times;</span>
         <h2>How to Connect</h2>
-        <p>Grid Pool currently accepts shares from DATUM Gateway clients. Hydrapool support is planned next through the HTTP share submission API.</p>
+        <p>GridPool currently accepts shares from DATUM Gateway clients. Hydrapool support is planned next through the HTTP share submission API.</p>
         <h3>Connect with DATUM</h3>
         <p>1. Run a DATUM Gateway that builds sovereign Bitcoin block templates.</p>
         <p>2. Configure DATUM with this page's host, port, and pool public key.</p>
-        <p>3. Point your ASICs at DATUM, not directly at Boot. Raw Stratum V1 miner connections are not supported.</p>
+        <p>3. Point your ASICs at DATUM, not directly at GridPool. Raw Stratum V1 miner connections are not supported.</p>
         <p>4. Search your payout address on this page to switch into your personal dashboard.</p>
         <h3>Integrate another server</h3>
         <p>CK Pool, Public Pool, Stratum V2, FutureBit, and other template-building servers can integrate through the <a href="https://github.com/gridlabs-science/boot-protocol/blob/main/docs/hydrapool-http-submission.md" target="_blank" rel="noopener noreferrer">HTTP API spec</a> in the repository.</p>
-        <p>The trust model is simple: your server owns slot 0, builds the block template, verifies shares, and submits them to Boot.</p>
+        <p>The trust model is simple: your server owns slot 0, builds the block template, verifies shares, and submits them to GridPool.</p>
     </div>
 </div>
 
@@ -1750,6 +1892,14 @@
             userTouchedSearch = true;
         });
 
+        document.getElementById('local-miner-shortcuts')?.addEventListener('click', (event) => {
+            const button = event.target.closest('.shortcut-chip');
+            const address = button?.dataset?.minerAddress;
+            if (address) {
+                selectLocalMiner(address);
+            }
+        });
+
         const requestedMode = new URLSearchParams(window.location.search).get("mode");
         if (["lottery", "business", "nerd"].includes(requestedMode)) {
             setUiMode(requestedMode, { persist: false, resetDisclosure: true });
@@ -1759,6 +1909,7 @@
 
         updateConnectPanelVisibility();
         syncConnectionInfoPanel();
+        updateEnvironmentChrome();
     });
 
     const connection = new signalR.HubConnectionBuilder()
@@ -1853,6 +2004,51 @@
 
 
     // --- STANDARD HELPERS ---
+    function isTestnetState(state = latestNetworkState) {
+        const bitcoinNetwork = String(state?.bitcoinNetwork || "").toLowerCase();
+        const networkId = String(state?.networkId || "").toLowerCase();
+        return bitcoinNetwork.includes("test") || networkId.includes("test");
+    }
+
+    function getNetworkDisplayName(state = latestNetworkState) {
+        if (!state) return "Loading...";
+        if (isTestnetState(state)) return "Testnet4";
+        return "Mainnet";
+    }
+
+    function updateEnvironmentChrome(state = latestNetworkState) {
+        const isTestnet = isTestnetState(state);
+        document.body.classList.toggle("network-testnet", isTestnet);
+        document.body.classList.toggle("network-mainnet", !isTestnet);
+
+        const bannerTitle = document.getElementById("environment-banner-title");
+        const bannerCopy = document.getElementById("environment-banner-copy");
+        const badge = document.getElementById("network-badge");
+        const brandTitle = document.getElementById("brand-title");
+        const subtitle = document.getElementById("brand-subtitle");
+        const headerNetworkName = document.getElementById("header-network-name");
+        const headerNodeEndpoint = document.getElementById("header-node-endpoint");
+        const headerRoundMode = document.getElementById("header-round-mode");
+
+        if (bannerTitle) bannerTitle.innerText = isTestnet ? "Testnet4" : "Public Beta";
+        if (bannerCopy) {
+            bannerCopy.innerText = isTestnet
+                ? "Testing network only. No real BTC. Use testnet addresses and isolated DATUM settings."
+                : "Experimental non-custodial mining protocol. Mainnet payouts are real; verify your setup.";
+        }
+        if (badge) badge.innerText = isTestnet ? "Testnet4 beta" : "Mainnet beta";
+        if (brandTitle) brandTitle.innerText = isTestnet ? "GridPool Testnet4" : "GridPool";
+        if (subtitle) {
+            subtitle.innerText = isTestnet
+                ? "Real trigger testing for GridPool round rotation. Test coins only."
+                : "The pool for cypherpunks. Sovereign templates, shared variance, no pool wallet.";
+        }
+        if (headerNetworkName) headerNetworkName.innerText = state ? `${getNetworkDisplayName(state)} · ${state.networkId || "--"}` : "Loading...";
+        if (headerNodeEndpoint) headerNodeEndpoint.innerText = state?.selfEndpoint || window.location.host || "--";
+        if (headerRoundMode) headerRoundMode.innerText = state ? formatRoundTriggerMode(state) : "--";
+        document.title = isTestnet ? "GridPool Testnet4" : "GridPool";
+    }
+
     function formatAddress(address) {
         if (!address) return "Unknown";
         const dotIndex = address.indexOf('.');
@@ -1877,6 +2073,15 @@
         const shortAddress = address.length <= 6 ? address : address.substring(address.length - 6);
         const shortWorker = worker ? `.${worker.substring(0, 6)}` : "";
         return `${shortAddress}${shortWorker}`;
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? "")
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#39;");
     }
 
     function getBaseMinerAddress(value) {
@@ -2025,6 +2230,11 @@
     }
 
     function getCurrentRoundEstimatedHashrateThs() {
+        if (Number(latestNetworkState?.currentRoundNumber) === 0 &&
+            Number(latestNetworkState?.currentRoundObservedHashrateThs) > 0) {
+            return latestNetworkState.currentRoundObservedHashrateThs;
+        }
+
         const elapsedSeconds = getCurrentRoundElapsedSeconds();
         const difficulties = (globalOnDeckList || [])
             .map(item => Number(item.difficulty) || 0)
@@ -2130,6 +2340,8 @@
         const term = currentSearchValue();
         const winnerMatches = !term ? [] : globalWinnersList.filter(item => minerMatchesSearch(item, term));
         const onDeckMatches = !term ? [] : globalOnDeckList.filter(item => minerMatchesSearch(item, term));
+        const winnerBestDifficulty = getBestDifficultyFromItems(winnerMatches);
+        const onDeckBestDifficulty = getBestDifficultyFromItems(onDeckMatches);
         const recentCanonicalRounds = getCanonicalRoundHistory(12);
         const paidRounds = term
             ? recentCanonicalRounds.filter(entry => (computeRecipientShare(entry.paidRecipients, entry.paidTotalValue)?.value || 0) > 0)
@@ -2150,11 +2362,30 @@
             onDeckSlots: onDeckMatches.length,
             winnerValue: winnerMatches.reduce((sum, item) => sum + (item.value || 0), 0),
             onDeckValue: onDeckMatches.reduce((sum, item) => sum + (item.value || 0), 0),
+            winnerBestDifficulty,
+            onDeckBestDifficulty,
+            bestDifficulty: Math.max(winnerBestDifficulty, onDeckBestDifficulty),
             paidRounds,
             nextRounds,
             recentCanonicalRounds,
             avgPaidShare
         };
+    }
+
+    function getBestDifficultyFromItems(items) {
+        return (items || [])
+            .map(item => Number(item?.difficulty) || 0)
+            .reduce((best, value) => Math.max(best, value), 0);
+    }
+
+    function getSelectedMinerBestDifficulty(search = null, localMiner = null) {
+        const searchBest = Number((search || getSearchContext()).bestDifficulty) || 0;
+        const localBest = Number((localMiner || getSelectedLocalMinerSummary())?.currentRoundBestDifficulty) || 0;
+        return Math.max(searchBest, localBest);
+    }
+
+    function getSelectedMinerBestDifficultyDisplay(search = null, localMiner = null) {
+        return formatDifficultyDisplay(getSelectedMinerBestDifficulty(search, localMiner));
     }
 
     function getAverageRoundDurationSeconds() {
@@ -2349,6 +2580,7 @@
 
     function selectLocalMiner(address) {
         const input = document.getElementById("search-input");
+        if (!input || !address) return;
         input.value = address;
         userTouchedSearch = false;
         performSearch();
@@ -2382,10 +2614,10 @@
 
         container.hidden = false;
         container.innerHTML = miners.map(miner => `
-            <button type="button" class="shortcut-chip${selected?.address === miner.address ? " active" : ""}" onclick="selectLocalMiner(${JSON.stringify(miner.address)})" title="${miner.address}">
+            <button type="button" class="shortcut-chip${selected?.address === miner.address ? " active" : ""}" data-miner-address="${escapeHtml(miner.address)}" title="${escapeHtml(miner.address)}">
                 <span class="shortcut-chip-label">Local DATUM Miner</span>
-                <span class="shortcut-chip-value">${formatMinerLabel(miner.address)}</span>
-                <span class="shortcut-chip-note">${miner.currentHashrateDisplay || "--"} · best this round ${miner.currentRoundBestDifficultyDisplay || "--"}</span>
+                <span class="shortcut-chip-value">${escapeHtml(formatMinerLabel(miner.address))}</span>
+                <span class="shortcut-chip-note">${escapeHtml(miner.currentHashrateDisplay || "--")} · best this round ${escapeHtml(miner.currentRoundBestDifficultyDisplay || "--")}</span>
             </button>
         `).join("");
     }
@@ -2566,7 +2798,7 @@
     }
 
     function buildDifficultyGaugeCard(localMiner) {
-        const myBest = Number(localMiner?.currentRoundBestDifficulty) || 0;
+        const myBest = getSelectedMinerBestDifficulty(null, localMiner);
         const threshold = getCurrentOnDeckThresholdDifficulty();
         const teamBest = getCurrentTeamBestDifficulty();
         const networkDifficulty = getBitcoinNetworkDifficulty();
@@ -2647,7 +2879,7 @@
         if (topReason === "Solo fallback template") {
             return {
                 label: "Template Churn",
-                note: "This usually means DATUM kept miners on local fallback work instead of the Boot coinbase split.",
+                note: "This usually means DATUM kept miners on local fallback work instead of the GridPool coinbase split.",
                 detail: "Needs attention"
             };
         }
@@ -2988,7 +3220,7 @@
                     ? `Average wait to be paid: ${teamBlockRate ? formatDurationLong(1 / teamBlockRate) : "--"}.`
                     : search.onDeckSlots > 0
                         ? "You still need this queue to survive until lock."
-                        : `Your best hit this round: ${localMiner?.currentRoundBestDifficultyDisplay || "--"}.`;
+                        : `Your best hit this round: ${getSelectedMinerBestDifficultyDisplay(search, localMiner)}.`;
 
             setModeCard(
                 1,
@@ -3754,7 +3986,7 @@
         const paidSearchShare = computeRecipientShare(entry.paidRecipients, entry.paidTotalValue);
         const nextSearchShare = computeRecipientShare(entry.nextRecipients, entry.nextWinnerTotalValue);
         const orphanedWarning = entry.isOrphaned
-            ? `<div class="round-detail-warning">This round was observed locally but is not on the node's current canonical Boot state chain. It was superseded by a competing state after convergence.</div>`
+            ? `<div class="round-detail-warning">This round was observed locally but is not on the node's current canonical GridPool state chain. It was superseded by a competing state after convergence.</div>`
             : "";
         const isLottery = activeUiMode === "lottery";
         const isBusiness = activeUiMode === "business";
@@ -4281,7 +4513,7 @@
             }
 
             const btcValue = payout.value / 100000000.0;
-            const useFullLabel = listViewModes[tableId] === 'full' && activeUiMode !== 'nerd';
+            const useFullLabel = listViewModes[tableId] === 'full';
             const formattedAddr = formatAttributionLabel(payout, useFullLabel);
             const diffVal = payout.difficulty || 0;
             const diffDisplay = payout.diffString || diffVal.toLocaleString(undefined, {maximumFractionDigits: 2});
@@ -4416,9 +4648,12 @@
 
     connection.on("UpdateRecord", (record) => {
         if (record) {
-            document.getElementById("record-diff").innerText = record.difficulty.toLocaleString(undefined, {maximumFractionDigits: 2});
-            document.getElementById("record-miner").innerText = formatAddress(record.minerAddress);
-            document.getElementById("record-time").innerText = record.timestamp ? new Date(record.timestamp).toLocaleString() : "--";
+            const difficulty = Number(record.difficulty ?? record.Difficulty) || 0;
+            const minerAddress = record.minerAddress ?? record.MinerAddress ?? "";
+            const timestamp = record.timestamp ?? record.Timestamp ?? null;
+            document.getElementById("record-diff").innerText = formatDifficultyDisplay(difficulty);
+            document.getElementById("record-miner").innerText = minerAddress ? formatAddress(minerAddress) : "--";
+            document.getElementById("record-time").innerText = timestamp ? new Date(timestamp).toLocaleString() : "--";
         }
     });
 
@@ -4449,6 +4684,7 @@
     connection.on("UpdateNetworkState", (state) => {
         if (!state) return;
         latestNetworkState = state;
+        updateEnvironmentChrome(state);
         document.getElementById("self-endpoint").innerText = state.selfEndpoint || "--";
         document.getElementById("network-id").innerText = state.networkId || "--";
         document.getElementById("current-round-number").innerText = state.currentRoundNumber ?? "--";

@@ -1,8 +1,12 @@
-# boot-protocol
-A decentralized protocol for bitcoin hashing nodes to share block rewards and reduce variance
-- It's like P2Pool, but much simpler, which gives boot-protocol different advantages and disadvantages.
-- It's not really a pool in the classic sense.  It's more like "shared lottery mining", with smaller payouts and better odds than pure solo mining.
-- This implementation works with DATUM or (soon) Hydrapool. 
+# GridPool
+GridPool is a decentralized reward-sharing protocol for sovereign Bitcoin miners. It reduces solo-mining payout variance without a custodial pool wallet, a centralized share ledger, or a separate sharechain.
+
+- It is like P2Pool in spirit, but much simpler: miners coordinate on coinbase payout lists instead of maintaining a secondary blockchain.
+- It is not a traditional pool. It is closer to shared lottery mining: smaller payouts, better odds, and local block-template control.
+- This reference implementation works with DATUM today. Hydrapool and other HTTP share submitters are planned.
+
+## Naming Note
+GridPool was originally developed under the working name "Boot Protocol." Some internal code, repository names, API headers, config keys, service names, and scripts still use `boot` for compatibility during the beta transition. Public docs, UI, and operator-facing language should use **GridPool**. When precision is needed, use **GridPool protocol** for the reward-sharing rules and **GridPool internode protocol** for peer-to-peer state synchronization and share relay.
 
 ## GridPool Node Quickstart
 Most miners should start by running only a GridPool node, then pointing an existing DATUM Gateway at it. This keeps Bitcoin and DATUM under your own control while adding the GridPool reward-sharing network layer.
@@ -31,7 +35,7 @@ After install:
 If you need a full fresh sovereign stack, including pruned Bitcoin Core and DATUM Gateway, use the full-stack installer in `docs/raspberry-pi-one-shot-installer.md`.
 
 ## Docker Compose Quickstart
-Boot Protocol also includes a basic Docker Compose packaging path for manual public beta testing.
+GridPool includes a basic Docker Compose packaging path for manual public beta testing.
 
 Beta defaults now assume `299` shared Winners List slots, with slot `0` reserved for the block finder. Some of the longer discussion below still uses older 15/16-slot toy examples for intuition.
 
@@ -59,7 +63,7 @@ Notes:
 - Hydrapool and other direct HTTP submitters should follow `docs/hydrapool-http-submission.md`.
 
 ## Raspberry Pi Full-Stack Sovereign Install
-For a one-shot Raspberry Pi / Ubuntu install that sets up a pruned Bitcoin Core node, DATUM Gateway, and Boot/Grid Pool together, see `docs/raspberry-pi-one-shot-installer.md`.
+For a one-shot Raspberry Pi / Ubuntu install that sets up a pruned Bitcoin Core node, DATUM Gateway, and GridPool together, see `docs/raspberry-pi-one-shot-installer.md`.
 
 The installer entrypoint is:
 
@@ -111,35 +115,35 @@ The second (upcoming) solution is Braid Pool, an exciting new decentralized pool
 
 The third (also upcoming) solution is Ocean Pool.  Ocean Pool of course is already operating, and allows hashers the choice of three different templates.  They are working hard on adding the ability for miners to build their own templates, which will solve the problem of centralized block template creation.  Being a centralized entity themselves (albeit with nicely decentralized block template construction), there is the black swan risk that Ocean could get shut down by regulators.  Miners on Ocean also run the risk of reduced revenue from a block witholding attack.  
 
-Boot Protocol is named a protocol, not a pool, because it is attacking the variance "problem" from the other side.  All pools attempt to estimate the actual amount of effort a miner puts in by tracking shares, either from centralized servers (Ocean) or using a side chain (P2Pool and Braid Pool).  Boot Protocol never attempts to track actual work inputs, and never centralizes the block rewards at all.  Conceptually, Boot Protocol is much closer to Solo mining, albiet with up to 300x reduced variance.  This concept accepts some variance, in exchange for other advantages.
+GridPool attacks the variance problem from the other side. Traditional pools estimate miner effort by tracking many shares in a centralized database. P2Pool-style systems decentralize share accounting with a sharechain. GridPool never centralizes the block reward and does not maintain a separate chain. Miners build Bitcoin templates that pay a shared Winners List, then relay high-difficulty proofs so the next payout list can be verified by peers. Conceptually, GridPool is much closer to solo mining, but with up to roughly 300x lower variance when the shared list is full.
 
-## Advantages of Boot Protocol
-Compared to solo mining, Boot Protocol should have up to 300x reduced variance.  
-Compared to standard pooled mining (eg. Ocean with sovereign block template construction), Boot Protocol should offer reduced bandwidth requirements and much more resiliance to regulatory attack.
-Compared to decentralized pooled mining, Boot Protocol should have reduced bandwidth requirements, reduced computational overhead, and a vastly simpler code base.  
+## Advantages of GridPool
+Compared to solo mining, GridPool should have up to 300x reduced variance.  
+Compared to standard pooled mining (eg. Ocean with sovereign block template construction), GridPool should offer reduced bandwidth requirements and much more resiliance to regulatory attack.
+Compared to decentralized pooled mining, GridPool should have reduced bandwidth requirements, reduced computational overhead, and a vastly simpler code base.  
 
 ### Block Witholding attacks (killer feature?)
-Boot Protocol should be far more resistant against *(and possibly immune to?) block witholding attacks*.  If proven, this would be the only known method of sharing block rewards in a decentralized permissionless manner that is not vulnerable to block witholding.  
+GridPool should be far more resistant against *(and possibly immune to?) block witholding attacks*.  If proven, this would be the only known method of sharing block rewards in a decentralized permissionless manner that is not vulnerable to block witholding.  
 
 ---
-## Boot Protocol Pseudocode
+## GridPool Pseudocode
 Key terms:
 - Winners List:  A list of 299 shared payout addresses that have provided the highest difficulty hashes on the current template.  The miner's own address remains slot `0`, so the full payout set has 300 total slots.  This list is finalized once a new real Bitcoin block is found.
-- Boot Protocol Message (BPM): This consists of the block header, and just enough information from the Merkle Tree that other nodes can verify the addresses listed in the coinbase transaction
+- GridPool Share Proof: This consists of the block header, and just enough information from the Merkle Tree that other nodes can verify the addresses listed in the coinbase transaction
 - WL Threshold Difficulty: Defined as 1/2 the difficulty of the lowest difficulty proof from the previous round's Winners List. This threshold could be raised to reduce bandwidth requirements, or lowered if necessary.
 - Team: In this context, a team is the loose grouping of miners that are all working on templates built from the same Winners List.  They are sharing their proofs with each other, attempting to get on the next Winners List
 
 1. Create a block template using a local Bitcoin node.  The Coinbase payout should split the block reward evenly between your own address and the 299 shared addresses in the primary Winners List (see later steps).  If the WL has less than 299 entries (not including your own address in spot 0), divide the rewards equally between however many addresses are on the list.  Your own address is always spot '0'.
 2. Start hashing on this template.  Once the first solution is found that meets the WL Threshold Difficulty, move to step 3:
-3. Create a Boot Protocol Message.  Using the found solution (which is just a Bitcoin block with a lower difficulty target), broadcast this proof to other nodes.
-4. Continue hashing while listening for other BPMs.
+3. Create a GridPool share proof.  Using the found solution (which is just a Bitcoin block with a lower difficulty target), broadcast this proof to other nodes.
+4. Continue hashing while listening for other GridPool share proofs.
    If one is recieved, validate it:
      It must be a valid Bitcoin block, albeit with lower difficulty.
      If spots 1-15 of the coinbase transaction match our own template's, then this proof of work is from our team.
        Check the difficulty against our current Winner's List.
        If it is better than any of those in spots 1-15, then insert it into the list in the appropriate spot and remove the lowest difficulty proof from the WL.  Then re-broadcast it to other nodes.
        Else if it is lower than spot 15, ignore it.  It this happens repeatedly, then this node might be trying a DOS attack, consider disconnecting or blacklisting them.
-     If spots 1-15 of the coinbase do NOT match our own template's, then this proof of work is from a different team also using the Boot Protocol.  Create a second (or 3rd, or 4th) Winner's List, and add this proof of work to it, and finally re-broadcast the message.
+     If spots 1-15 of the coinbase do NOT match our own template's, then this proof of work is from a different team also using GridPool.  Create a second (or 3rd, or 4th) Winner's List, and add this proof of work to it, and finally re-broadcast the message.
    If we have created multiple Winner's Lists, periodically check which list has the highest total difficulty.  Sum up the difficulty from each of the 15 proofs on each list.  Select the one with the highest total difficulty as the primary list.  Note:  This might need to be highest average difficulty, or highest median dificulty.  I'm not sure yet, and not good enough at statistics to figure it out.  
 5. When a new real Bitcoin block is found, freeze the Winner's List(s).  Only keep the primary list, secondary lists can be deleted.  Go to Step 1.
 ---

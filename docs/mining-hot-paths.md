@@ -1,4 +1,4 @@
-# Boot Protocol Mining Hot Paths
+# GridPool protocol Mining Hot Paths
 
 ## Purpose
 
@@ -21,15 +21,15 @@ Files:
 - [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs)
 
 Path:
-1. DATUM requests a coinbaser response from Boot.
-2. Boot parses the request.
-3. Boot reads current payout state.
-4. Boot builds coinbase outputs.
-5. Boot serializes the response.
-6. Boot writes the encrypted response back to DATUM.
+1. DATUM requests a coinbaser response from GridPool.
+2. GridPool parses the request.
+3. GridPool reads current payout state.
+4. GridPool builds coinbase outputs.
+5. GridPool serializes the response.
+6. GridPool writes the encrypted response back to DATUM.
 
 Why it matters:
-- If this stalls, DATUM times out waiting for Boot and mines fallback templates.
+- If this stalls, DATUM times out waiting for GridPool and mines fallback templates.
 - That produces `Solo fallback template` rejects and can trigger reconnect churn.
 
 Current instrumentation:
@@ -56,14 +56,14 @@ Files:
 - [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs)
 
 Path:
-1. DATUM share arrives at Boot.
-2. Boot verifies:
+1. DATUM share arrives at GridPool.
+2. GridPool verifies:
    - parent block validity
-   - Boot payout validity
+   - GridPool payout validity
    - duplicate share rules
-3. If accepted, Boot inserts the share into the top-`299` On Deck set.
-4. Boot recomputes candidate state ID.
-5. Boot emits SignalR/UI updates and relays the accepted share to peers.
+3. If accepted, GridPool inserts the share into the top-`299` On Deck set.
+4. GridPool recomputes candidate state ID.
+5. GridPool emits SignalR/UI updates and relays the accepted share to peers.
 
 Why it matters:
 - This is the main steady-state hot path while mining.
@@ -82,10 +82,10 @@ Files:
 - [Program.cs](boot_portal/Program.cs)
 
 Path:
-1. Boot observes a new Bitcoin tip.
-2. Boot updates current accepted parent set.
-3. Boot invalidates work templates.
-4. Boot nudges DATUM to refresh.
+1. GridPool observes a new Bitcoin tip.
+2. GridPool updates current accepted parent set.
+3. GridPool invalidates work templates.
+4. GridPool nudges DATUM to refresh.
 
 Why it matters:
 - This path decides how quickly miners stop working on obsolete parents.

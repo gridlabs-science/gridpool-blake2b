@@ -1,10 +1,10 @@
 # DATUM Fallback and Reconnect Behavior
 
-This note documents the current DATUM Gateway behavior that matters for Boot integration, based on reading the local DATUM source in `../datum_gateway/src`.
+This note documents the current DATUM Gateway behavior that matters for GridPool integration, based on reading the local DATUM source in `../datum_gateway/src`.
 
 ## Executive Summary
 
-In DATUM `reward_sharing = prefer` mode, a short burst of non-Boot shares immediately after connect/reconnect is normal.
+In DATUM `reward_sharing = prefer` mode, a short burst of non-GridPool shares immediately after connect/reconnect is normal.
 
 The reason is not just "the miner is slow to switch jobs". DATUM itself is designed to:
 
@@ -13,7 +13,7 @@ The reason is not just "the miner is slow to switch jobs". DATUM itself is desig
 - wait only up to 5 seconds for the remote coinbaser
 - continue serving work even if the full remote payout split is not ready
 
-That means Boot should expect some single-recipient fallback templates right after:
+That means GridPool should expect some single-recipient fallback templates right after:
 
 - initial pool connect
 - upstream reconnect
@@ -160,7 +160,7 @@ The main protocol loop exits and reconnects if:
 
 Implication:
 
-- if Boot rejects all fallback/stale shares for 30 seconds, DATUM may reconnect even though the connection itself is healthy
+- if GridPool rejects all fallback/stale shares for 30 seconds, DATUM may reconnect even though the connection itself is healthy
 - that reconnect can throw DATUM right back into the same fallback window
 - this can create a positive feedback loop
 
@@ -181,9 +181,9 @@ Important limitation from DATUM’s own docs:
 - Stratum usernames only matter in pooled mode
 - in non-pooled mode, only `mining.pool_address` is used
 
-For Boot, the safest supported configuration is:
+For GridPool, the safest supported configuration is:
 
-- one DATUM session represents one Boot payout identity
+- one DATUM session represents one GridPool payout identity
 - DATUM should not pass multiple payout addresses upstream on one session
 - worker names are fine
 
@@ -196,7 +196,7 @@ These should be expected occasionally:
 - a few single-recipient fallback templates right after initial connect
 - a few fallback shares right after upstream reconnect
 - a few stale/wrong-parent shares right after block changes
-- a local DATUM share built on a fresh Bitcoin parent before Boot's own block notifier has observed that parent
+- a local DATUM share built on a fresh Bitcoin parent before GridPool's own block notifier has observed that parent
 - some single-output work during coinbaser delay windows
 
 ### Suspicious
@@ -208,30 +208,30 @@ These point to a real issue:
 - repeated reconnect -> fallback -> reconnect loops
 - large reject bursts closely tied to `datum-session-lock` / reconnect events
 
-## Boot Integration Implications
+## GridPool Integration Implications
 
-These findings support the following Boot-side policy:
+These findings support the following GridPool-side policy:
 
 1. A small burst of `Solo fallback template` rejects immediately after DATUM connect/reconnect is normal.
-2. Boot should not overreact to the first few rejects right after session lock.
-3. Forced Boot-side DATUM disconnects can make things worse by pushing DATUM back into the same fallback window.
-4. Boot may learn a fresh parent from its directly connected DATUM client after validating the submitted share without the parent allow-list.
+2. GridPool should not overreact to the first few rejects right after session lock.
+3. Forced GridPool-side DATUM disconnects can make things worse by pushing DATUM back into the same fallback window.
+4. GridPool may learn a fresh parent from its directly connected DATUM client after validating the submitted share without the parent allow-list.
 5. The remaining health signal to watch is:
    - how often DATUM reconnects
    - how long fallback rejects persist after each reconnect
 
 ## Fresh Parent Handling
 
-DATUM can observe a new Bitcoin tip and begin generating work before Boot's own notifier path sees that same tip.
+DATUM can observe a new Bitcoin tip and begin generating work before GridPool's own notifier path sees that same tip.
 
-Boot now treats that case as normal only on the trusted local DATUM path:
+GridPool now treats that case as normal only on the trusted local DATUM path:
 
 - validate the share header, merkle root, slot-0 attribution, payout list, and difficulty
 - if the only failure was that the parent is unknown, add the share's `prevhash` to the accepted parent set
-- accept the share without advancing Boot's displayed `currentTipBlockHash`
+- accept the share without advancing GridPool's displayed `currentTipBlockHash`
 - let the normal Bitcoin notifier or peer state update advance the displayed tip and trigger any deterministic test rotation
 
-This deliberately does not apply to the public HTTP path. Hydrapool/HTTP shares must remain trustless: Boot should not accept an unknown parent from an untrusted caller unless it also has a way to verify the parent header.
+This deliberately does not apply to the public HTTP path. Hydrapool/HTTP shares must remain trustless: GridPool should not accept an unknown parent from an untrusted caller unless it also has a way to verify the parent header.
 
 ## DATUM Flush/Refresh Controls
 
@@ -245,8 +245,8 @@ Relevant code:
 
 Implication:
 
-- Boot can ask DATUM to check for new work quickly.
-- Boot cannot currently guarantee that every ASIC immediately drops already-buffered old templates.
+- GridPool can ask DATUM to check for new work quickly.
+- GridPool cannot currently guarantee that every ASIC immediately drops already-buffered old templates.
 - Squashing late payout-mismatch rejects to zero may require a DATUM fork, miner firmware changes, or both.
 
 ## 2026-04-21 Laptop Soak Finding
@@ -256,17 +256,17 @@ During the laptop/main two-node soak, the laptop showed two separate problems:
 - High-rate laptop share relays were being throttled by the main node's `peer-write` limiter at the old `90/min` default.
 - The laptop DATUM process repeatedly opened new upstream DATUM sessions, visible as frequent `datum-session-lock` events from changing source ports.
 
-The relay-throttle issue is a Boot configuration/design issue, not a DATUM issue. At roughly `8-9 TH/s` and low min difficulty, the laptop can produce hundreds of accepted shares per minute, so `90/min` is too low for peer relay. The test default was raised to `3000/min`, and `peer-relay-failed` events were added so future throttling can be seen through `/api/network/events` instead of only by scraping logs.
+The relay-throttle issue is a GridPool configuration/design issue, not a DATUM issue. At roughly `8-9 TH/s` and low min difficulty, the laptop can produce hundreds of accepted shares per minute, so `90/min` is too low for peer relay. The test default was raised to `3000/min`, and `peer-relay-failed` events were added so future throttling can be seen through `/api/network/events` instead of only by scraping logs.
 
-The reconnect churn appears DATUM-side from Boot's perspective:
+The reconnect churn appears DATUM-side from GridPool's perspective:
 
-- Boot logs show `Client <endpoint> disconnected (no data)`.
+- GridPool logs show `Client <endpoint> disconnected (no data)`.
 - Laptop DATUM logs show repeated `Starting DATUM v0.2-beta client...`.
 - DATUM only refreshes its internal share-acceptance watchdog on accepted share responses, not rejected ones.
 
 Interpretation:
 
-- If Boot rejects every share from a stale/fallback window for long enough, DATUM can reconnect even when the TCP path is otherwise healthy.
+- If GridPool rejects every share from a stale/fallback window for long enough, DATUM can reconnect even when the TCP path is otherwise healthy.
 - Reconnects then create another short temporary/fallback-template window.
 - After the peer-write limit was raised, the immediate post-fix window showed `100%` DATUM acceptance on both nodes and converged candidate state, while session-lock churn still appeared. That means reconnect churn should be treated as a warning signal, but it is only a launch blocker if it correlates with sustained reject bursts or convergence failure.
 
@@ -279,10 +279,10 @@ Tooling:
 
 These are the most promising follow-ups:
 
-1. Correlate Boot `Solo fallback template` rejects against DATUM reconnect/session-lock events.
+1. Correlate GridPool `Solo fallback template` rejects against DATUM reconnect/session-lock events.
 2. Inspect DATUM logs on the laptop for the exact reason its upstream session is reconnecting so often.
-3. Consider whether Boot should use a longer grace period before forcing any session reset.
-4. Consider whether Boot should distinguish "normal initial fallback window" from "persistent unhealthy fallback loop" in the UI.
+3. Consider whether GridPool should use a longer grace period before forcing any session reset.
+4. Consider whether GridPool should distinguish "normal initial fallback window" from "persistent unhealthy fallback loop" in the UI.
 
 ## Files Reviewed
 

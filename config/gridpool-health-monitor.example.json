@@ -1,0 +1,88 @@
+{
+  "monitorName": "gridpool-mainnet-beta",
+  "timezone": "America/New_York",
+  "requestTimeoutMs": 8000,
+  "alertCooldownMinutes": 60,
+  "codexCooldownMinutes": 360,
+  "morningDigest": {
+    "enabled": true,
+    "hourLocal": 7
+  },
+  "telegram": {
+    "enabled": true,
+    "botTokenEnv": "TELEGRAM_BOT_TOKEN",
+    "allowedChatIdsEnv": "TELEGRAM_ALLOWED_CHAT_IDS"
+  },
+  "codex": {
+    "enabled": true,
+    "repoDir": "/home/keegreil/Documents/GitHub/boot-protocol",
+    "timeoutSeconds": 600,
+    "model": "",
+    "resumeArgs": [
+      "exec",
+      "-C",
+      "/home/keegreil/Documents/GitHub/boot-protocol",
+      "--sandbox",
+      "read-only",
+      "--ask-for-approval",
+      "never",
+      "resume",
+      "--last"
+    ]
+  },
+  "thresholds": {
+    "endpointFailureConsecutive": 2,
+    "hashrateDropFraction": 0.35,
+    "hashrateSpikeMultiplier": 2.0,
+    "hashrateSamplesForTrend": 3,
+    "minimumHashrateThsForTrend": 1,
+    "activeHydrapoolWorkerMaxAgeMinutes": 60
+  },
+  "nodes": [
+    {
+      "name": "main",
+      "baseUrl": "http://127.0.0.1:5000",
+      "critical": true,
+      "minimumPeerCount": 0
+    }
+  ],
+  "hydrapools": [
+    {
+      "name": "main-hydrapool",
+      "baseUrl": "http://127.0.0.1:46884",
+      "critical": false,
+      "usernameEnv": "HYDRAPOOL_API_USER",
+      "passwordEnv": "HYDRAPOOL_API_PASSWORD",
+      "defaultUsername": "hydrapool",
+      "defaultPassword": "hydrapool"
+    }
+  ],
+  "services": [
+    {
+      "name": "bootserverapp.service",
+      "critical": true
+    },
+    {
+      "name": "hydrapool-gridpool.service",
+      "critical": false
+    },
+    {
+      "name": "cloudflared.service",
+      "critical": true
+    },
+    {
+      "name": "docker.service",
+      "critical": false
+    }
+  ],
+  "knownAddresses": [
+    {
+      "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
+      "label": "256 Foundation genesis/default payout"
+    },
+    {
+      "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+      "label": "Grid Labs main address"
+    }
+  ]
+}

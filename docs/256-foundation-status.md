@@ -1,7 +1,7 @@
-# Boot Protocol Current Status and Launch Readiness
+# GridPool protocol Current Status and Launch Readiness
 
 ## Executive Summary
-Boot Protocol is an advanced open-source prototype with live DATUM integration, multi-node peer synchronization, share relay, WebUI tooling, Docker packaging, and active real-world testing across multiple nodes.
+GridPool protocol is an advanced open-source prototype with live DATUM integration, multi-node peer synchronization, share relay, WebUI tooling, Docker packaging, and active real-world testing across multiple nodes.
 
 The project is best described as being in `late prototype / launch hardening` stage. The core system exists and works. The remaining effort is primarily stabilization, documentation, deployment polish, interoperability completion, and launch operations.
 
@@ -9,9 +9,9 @@ The project is best described as being in `late prototype / launch hardening` st
 
 ### Core protocol behavior
 - Maintains a shared Winners List and On Deck List
-- Accepts and ranks high-difficulty Boot shares
+- Accepts and ranks high-difficulty GridPool shares
 - Promotes accepted shares into the next round's Winners List
-- Supports the rule that a valid Bitcoin block is also a valid Boot share before round lock
+- Supports the rule that a valid Bitcoin block is also a valid GridPool share before round lock
 
 ### Mining integration
 - Works with DATUM today
@@ -19,9 +19,9 @@ The project is best described as being in `late prototype / launch hardening` st
 - Builds compressed coinbase payout outputs while preserving logical slot accounting
 
 ### Node-to-node behavior
-- Boot nodes discover peers and poll each other
+- GridPool nodes discover peers and poll each other
 - Nodes exchange current state bundles and candidate state bundles
-- Accepted shares are relayed across the Boot network
+- Accepted shares are relayed across the GridPool network
 - Nodes now converge across multiple running instances in active testing
 
 ### Validation and operational controls
@@ -49,13 +49,13 @@ The project is best described as being in `late prototype / launch hardening` st
 
 ### Interoperability and future work
 - Hydrapool support depends in part on upstream acceptance of the integration path
-- On-chain Boot state commitments are planned but not yet embedded, because current miner-side coinbase hooks are limited
+- On-chain GridPool state commitments are planned but not yet embedded, because current miner-side coinbase hooks are limited
 - Wider ecosystem compatibility beyond DATUM remains future-scope work
 
 ## Launch Readiness Definition
-For Boot Protocol to be considered ready for public launch, the following should be true:
+For GridPool protocol to be considered ready for public launch, the following should be true:
 
-- at least several public Boot nodes can converge on the same Winners List and On Deck state
+- at least several public GridPool nodes can converge on the same Winners List and On Deck state
 - DATUM-based miners can join and submit shares reliably
 - round rotation works predictably under testing conditions
 - Docker and standard Linux deployment are documented and repeatable
@@ -100,4 +100,4 @@ Additional support would accelerate the final 20% of work that turns a working p
 - documentation and launch operations
 
 ## Conclusion
-Boot Protocol is already a real system. The remaining work is not invention from scratch, but the finishing work required to make it stable, understandable, and launch-ready for sovereign Bitcoin miners and the 256 Foundation.
+GridPool protocol is already a real system. The remaining work is not invention from scratch, but the finishing work required to make it stable, understandable, and launch-ready for sovereign Bitcoin miners and the 256 Foundation.

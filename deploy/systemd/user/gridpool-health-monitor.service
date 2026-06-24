@@ -1,0 +1,11 @@
+[Unit]
+Description=GridPool health monitor
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Documents/GitHub/boot-protocol
+EnvironmentFile=%h/.config/gridpool-health-monitor/monitor.env
+ExecStart=%h/Documents/GitHub/boot-protocol/scripts/gridpool-health-monitor-launcher.sh --config %h/.config/gridpool-health-monitor/config.json --state-dir %h/.local/state/gridpool-monitor
+Nice=5

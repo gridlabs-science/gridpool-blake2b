@@ -1,6 +1,6 @@
 # Hydrapool HTTP Share Submission
 
-This document records the expected HTTP integration path for Hydrapool or any other non-DATUM client that submits Boot/Grid Pool shares directly.
+This document records the expected HTTP integration path for Hydrapool or any other non-DATUM client that submits GridPool shares directly.
 
 ## Endpoint
 

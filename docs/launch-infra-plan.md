@@ -1,8 +1,8 @@
-# Boot Launch Infrastructure Rollout Plan
+# GridPool Launch Infrastructure Rollout Plan
 
 ## Purpose
 
-This document defines the first launch-like infrastructure rollout for Boot / Grid Anti-Pool.
+This document defines the first launch-like infrastructure rollout for GridPool / GridPool.
 
 It is designed to be:
 
@@ -23,7 +23,7 @@ Use:
 - `3` public cloud nodes for the initial launch-like environment
 - `1` home machine kept as `dev/staging`
 - `Tailscale` for admin access only
-- public DNS hostnames for Boot peer traffic and DATUM miner traffic
+- public DNS hostnames for GridPool peer traffic and DATUM miner traffic
 - `Cloudflare DNS` for all records
 - `Cloudflare proxy` only for the human-facing UI entrypoint, not for DATUM or peer ingress
 
@@ -54,21 +54,21 @@ Initial public cluster:
    - region: `Ashburn`
    - role: full-stack public node
    - runs:
-     - Boot
+     - GridPool
      - DATUM
      - bitcoind
 2. `usw1`
    - region: `Hillsboro`
    - role: full-stack public node
    - runs:
-     - Boot
+     - GridPool
      - DATUM
      - bitcoind
 3. `euw1`
    - region: `Falkenstein` or `Helsinki`
    - role: public seed / relay node
    - runs:
-     - Boot
+     - GridPool
      - local bitcoind preferred
      - DATUM optional at first
 
@@ -154,7 +154,7 @@ Reasoning:
 - EU has a better price/performance option in `CAX21`
 - Singapore is materially more expensive, so it stays optional in phase 1
 - all of these are enough for:
-  - Boot
+  - GridPool
   - reverse proxy
   - Tailscale
   - logs
@@ -331,7 +331,7 @@ Proxy policy:
 
 Reason:
 
-- Boot peer sync and DATUM mining ingress should hit stable, explicit origin nodes
+- GridPool peer sync and DATUM mining ingress should hit stable, explicit origin nodes
 - the public UI can later be separated or fronted differently without changing miner endpoints
 
 ## UI Routing Decision
@@ -375,8 +375,8 @@ Admin access model:
 
 Public traffic model:
 
-- Boot UI over public DNS
-- Boot peer sync over public DNS
+- GridPool UI over public DNS
+- GridPool peer sync over public DNS
 - DATUM over public DNS
 
 ### Current Automation Available In This Repo
@@ -425,7 +425,7 @@ Steps:
 3. Decide whether `euw1` includes DATUM immediately.
    - owner: `YOU`
    - recommendation:
-     - `Boot + bitcoind` at minimum
+     - `GridPool + bitcoind` at minimum
      - DATUM optional on first pass
    - done when:
      - role is written down for `euw1`
@@ -577,7 +577,7 @@ Goal:
 
 Steps:
 
-1. Create `A` records for node-specific Boot UI / peer endpoints.
+1. Create `A` records for node-specific GridPool UI / peer endpoints.
    - owner: `YOU`
    - records:
      - `use1.gridpool.net`
@@ -620,10 +620,10 @@ Steps:
    - recommendation:
      - `Caddy` for simpler TLS and config
 
-2. Put Boot WebUI behind the reverse proxy.
+2. Put GridPool WebUI behind the reverse proxy.
    - owner: `CODEX`
    - proxy target:
-     - local Boot HTTP port `5000`
+     - local GridPool HTTP port `5000`
 
 3. Ensure node-specific UIs are public over `443`.
    - owner: `CODEX`
@@ -707,13 +707,13 @@ Steps:
    - owner: `CODEX`
    - success criteria:
      - bitcoind fully synced
-     - Boot sees local block notifications
+     - GridPool sees local block notifications
 
-## Phase 8: Boot Node Deployment
+## Phase 8: GridPool Node Deployment
 
 Goal:
 
-- create the first stable public Boot peer network
+- create the first stable public GridPool peer network
 
 Configuration model:
 
@@ -736,7 +736,7 @@ Suggested mapping:
 
 Steps:
 
-1. Generate unique Boot keys per node.
+1. Generate unique GridPool keys per node.
    - owner: `CODEX`
    - success criteria:
      - no key reuse across nodes
@@ -746,13 +746,13 @@ Steps:
    - you approve secrets / DNS values
    - I write and validate config files
 
-3. Start Boot on `use1`.
+3. Start GridPool on `use1`.
    - owner: `CODEX`
 
-4. Start Boot on `usw1`.
+4. Start GridPool on `usw1`.
    - owner: `CODEX`
 
-5. Start Boot on `euw1`.
+5. Start GridPool on `euw1`.
    - owner: `CODEX`
 
 6. Verify peer convergence.
@@ -788,9 +788,9 @@ Steps:
      - `pooled_mining_only = false`
      - `work_update_seconds = 5`
      - `vardiff_target_shares_min = 150`
-     - `vardiff_min` set coherently with Boot `min_diff`
+     - `vardiff_min` set coherently with GridPool `min_diff`
 
-4. Point DATUM at the local Boot node on each host.
+4. Point DATUM at the local GridPool node on each host.
    - owner: `CODEX`
 
 5. Test real miner connectivity.
@@ -872,7 +872,7 @@ Checklist:
 2. All public nodes reachable by Tailscale SSH for admin.
    - owner: `CODEX`
 
-3. Boot peer sync stable with no Tailscale dependency.
+3. GridPool peer sync stable with no Tailscale dependency.
    - owner: `CODEX`
 
 4. Coinbaser hot path healthy on all public DATUM nodes.
@@ -895,7 +895,7 @@ Once the VPS instances exist and I have Tailscale SSH or another stable SSH path
 - firewall setup
 - reverse proxy setup
 - repo checkout
-- Boot deploy
+- GridPool deploy
 - config validation
 - service setup
 - DNS verification
@@ -920,5 +920,5 @@ Do these next, in order:
 2. Put Tailscale on them and let me verify SSH access.
 3. Create the explicit `use1/usw1/euw1` DNS records.
 4. Let me standardize the Linux deploy path on those nodes.
-5. Move Boot peer traffic to public DNS hostnames.
+5. Move GridPool peer traffic to public DNS hostnames.
 6. Re-run `G2` in that environment before doing more protocol surgery.

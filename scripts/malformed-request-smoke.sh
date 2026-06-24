@@ -55,13 +55,13 @@ for _ in $(seq 1 60); do
 done
 
 if ! kill -0 "$SERVER_PID" >/dev/null 2>&1; then
-    echo "Boot server exited during startup."
+    echo "GridPool server exited during startup."
     cat "$LOG_PATH"
     exit 1
 fi
 
 if ! curl -fsS "http://127.0.0.1:${HTTP_PORT}/api/network/summary" >/dev/null 2>&1; then
-    echo "Boot server did not become ready in time."
+    echo "GridPool server did not become ready in time."
     cat "$LOG_PATH"
     exit 1
 fi
@@ -119,7 +119,7 @@ if ! awk "BEGIN { exit !($summary_time < 2.0) }"; then
 fi
 
 if ! kill -0 "$SERVER_PID" >/dev/null 2>&1; then
-    echo "Boot server exited after malformed requests."
+    echo "GridPool server exited after malformed requests."
     cat "$LOG_PATH"
     exit 1
 fi

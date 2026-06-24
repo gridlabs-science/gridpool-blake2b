@@ -42,6 +42,9 @@ logs/
 scripts/deploy-nodes.local.env
 scripts/deploy-latest.sh
 scripts/deploy-local*.sh
+scripts/gridpool-health-monitor.local.json
+gridpool-health-monitor.local.json
+gridpool-monitor-state/
 
 # Visual Studio 2015 cache/options directory
 .vs/

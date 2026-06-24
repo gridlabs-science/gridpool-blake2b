@@ -1,0 +1,21 @@
+[Unit]
+Description=Hydrapool GridPool Stratum bridge
+Wants=network-online.target docker.service bootserverapp.service
+After=network-online.target docker.service bootserverapp.service
+
+[Service]
+Type=simple
+User=keegreil
+Group=keegreil
+SupplementaryGroups=docker
+WorkingDirectory=/home/keegreil/Documents/GitHub/hydrapool
+ExecStart=/home/keegreil/Documents/GitHub/boot-protocol/scripts/hydrapool-gridpool-launcher.sh
+Restart=always
+RestartSec=10
+TimeoutStartSec=240
+TimeoutStopSec=30
+KillSignal=SIGINT
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

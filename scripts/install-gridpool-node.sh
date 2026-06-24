@@ -31,7 +31,7 @@ usage() {
 Usage: $(basename "$0") [options]
 
 Install a GridPool node only. This is for miners who already have Bitcoin and
-DATUM running, and only need the GridPool/Boot node that DATUM connects to.
+DATUM running, and only need the GridPool node that DATUM connects to.
 
 Options:
   --payout-address ADDRESS      Slot-0 fallback payout address for this node
@@ -45,7 +45,7 @@ Options:
   --public-base-url URL         Advertised WebUI URL (default: http://LAN_IP:web-port)
   --bootstrap-peers URLS        Comma-separated bootstrap peers
   --home DIR                    Install directory (default: $GRID_HOME)
-  --image IMAGE                 Boot Docker image (default: $GRID_BOOT_IMAGE)
+  --image IMAGE                 GridPool Docker image (default: $GRID_BOOT_IMAGE)
   --configure-ufw               Open WebUI, DATUM, and UDP relay ports if UFW is active
   --no-open-browser             Do not try to launch a local browser
   --yes                         Do not ask confirmation prompts

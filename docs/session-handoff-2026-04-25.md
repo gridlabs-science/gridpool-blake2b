@@ -2,7 +2,7 @@
 
 Workspace: `<repo-root>`
 
-This note captures the current BOOT/DATUM stability work so a new session can resume without reconstructing the last several days of testing.
+This note captures the current GridPool/DATUM stability work so a new session can resume without reconstructing the last several days of testing.
 
 ## Current Repo State
 
@@ -25,11 +25,11 @@ Do not revert unrelated dirty files. Some of these changes are deployed and unde
 
 ## Recent Work
 
-Main objective: stabilize DATUM/BOOT testing, improve soak tooling, and reduce false hashrate chart spikes.
+Main objective: stabilize DATUM/GridPool testing, improve soak tooling, and reduce false hashrate chart spikes.
 
 Key code changes made:
 
-- BOOT stale payout behavior changed so stale payout mismatches trigger template refresh warnings instead of forced DATUM disconnects by default.
+- GridPool stale payout behavior changed so stale payout mismatches trigger template refresh warnings instead of forced DATUM disconnects by default.
 - Added config around stale DATUM handling in `Program.cs`: `stale_datum_force_disconnect_enabled`, `stale_datum_refresh_interval_seconds`.
 - Added DATUM session/protocol telemetry endpoints earlier: `/api/network/datum-sessions`, `/api/network/datum-protocol-events`, `/api/network/datum-share-responses`.
 - Added monitor checkpointing:

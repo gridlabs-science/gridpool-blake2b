@@ -9,7 +9,7 @@ The goal is to focus on tasks that:
 - improve launch readiness without requiring paid infrastructure
 - reduce technical or game-theoretic uncertainty
 - make the protocol easier to explain to miners, partners, and reviewers
-- preserve Boot's core trust model
+- preserve GridPool's core trust model
 
 These are not all launch blockers. Each item is marked as:
 
@@ -20,13 +20,13 @@ These are not all launch blockers. Each item is marked as:
 
 ## Core Constraints
 
-Boot's share-validation model should stay tag-agnostic and transaction-policy-agnostic:
+GridPool's share-validation model should stay tag-agnostic and transaction-policy-agnostic:
 
 - share attribution comes from the coinbase slot-0 payout address
 - a submitted share proves work over a block header
 - the header commits to the coinbase and transaction merkle root
 - peers normally do not need the full transaction list to validate a share
-- Boot should not require any specific coinbase branding tag for consensus
+- GridPool should not require any specific coinbase branding tag for consensus
 - Hydrapool and HTTP-submitted shares must remain valid with or without a Grid Pool tag
 
 ## Task 1: Coinbase Tag Default
@@ -52,7 +52,7 @@ Important distinction:
 - A tag can be spoofed by any miner, while the payout list and slot-0 commitment are cryptographically tied to the hashed block header.
 
 Implementation notes for later:
-- Change Boot's default `coinbase_tag` from `Boot protocol` to `Grid Pool`.
+- Change GridPool's default `coinbase_tag` from the old beta tag to `Grid Pool`.
 - Keep the value configurable in `boot_portal_config.json`.
 - Validate configured tag length at startup instead of silently truncating.
 - Keep share verification independent of tag contents.
@@ -104,9 +104,9 @@ Status:
 - `Valuable before three-node launch infrastructure`
 
 Goal:
-- Make Grid Pool easy to install for sovereign miners who already run home-server appliance stacks.
+- Make GridPool easy to install for sovereign miners who already run home-server appliance stacks.
 - Treat Docker/systemd as the canonical install path first, then wrap that path for Umbrel and Start9 / StartOS.
-- Provide a one-shot Raspberry Pi 5 installer for miners who want a pruned Bitcoin node, DATUM, and Boot on a small sovereign box.
+- Provide a one-shot Raspberry Pi 5 installer for miners who want a pruned Bitcoin node, DATUM, and GridPool on a small sovereign box.
 
 Why this matters:
 - Many target users already run Bitcoin, DATUM, or related services on appliance-style nodes.
@@ -115,15 +115,15 @@ Why this matters:
 
 Umbrel packaging notes:
 - Research current Umbrel app manifest requirements.
-- Package Boot as a Docker service with persistent `/data`.
+- Package GridPool as a Docker service with persistent `/data`.
 - Expose WebUI through Umbrel's app proxy.
 - Expose DATUM TCP port explicitly, likely outside the proxied web path.
 - Provide config UI or clear instructions for payout address, public node URL, DATUM public host / port, bootstrap peers, and node mode.
-- Decide whether Umbrel package should bundle Boot only, or optionally guide the user to a separate DATUM app.
+- Decide whether Umbrel package should bundle GridPool only, or optionally guide the user to a separate DATUM app.
 
 Start9 / StartOS packaging notes:
 - Research current StartOS service packaging format and dependency model.
-- Package Boot with persistent config/state volumes.
+- Package GridPool with persistent config/state volumes.
 - Expose WebUI and DATUM TCP interfaces in the StartOS service manifest.
 - Provide properties/actions for editing payout address, setting node mode, configuring bootstrap peers, viewing DATUM connection details, and backup/restore.
 - Decide whether a StartOS dependency on Bitcoin Core and/or DATUM should be optional or documented manually.
@@ -133,7 +133,7 @@ Raspberry Pi one-shot installer notes:
 - Keep the script best-effort compatible with Debian and Raspberry Pi OS.
 - Install a pruned Bitcoin Core node with ZMQ enabled.
 - Install DATUM Gateway from upstream source or a pinned release.
-- Install Boot/Grid Pool from the canonical Docker image or local repo.
+- Install GridPool from the canonical Docker image or local repo.
 - Create systemd services, firewall guidance, config summary, and a final `boot-self-check` run.
 - Prefer verified upstream binaries/releases for Bitcoin Core over distro packages.
 
@@ -170,11 +170,11 @@ Status:
 - `Beta`
 
 Problem statement:
-- A miner may want to know if some Boot peers are rejecting, delaying, or failing to relay their valid shares for non-consensus reasons.
+- A miner may want to know if some GridPool peers are rejecting, delaying, or failing to relay their valid shares for non-consensus reasons.
 - Possible targets include transaction-policy censorship, payout-address censorship, jurisdictional filtering, or arbitrary peer discrimination.
 
 Current protocol reality:
-- A normal Boot share submission contains enough to validate:
+- A normal GridPool share submission contains enough to validate:
   - the block header
   - the coinbase transaction
   - the merkle path connecting the coinbase to the header merkle root
@@ -224,7 +224,7 @@ Game-theoretic interpretation:
 
 Acceptance criteria:
 - Every locally valid share above the advertised relay floor gets a peer-delivery record.
-- For each peer, Boot can report accepted, rejected, ignored, and later-observed counts.
+- For each peer, GridPool can report accepted, rejected, ignored, and later-observed counts.
 - Rejection reasons are normalized enough to compare across peers.
 - A peer that rejects a locally valid share records the exact local validation facts that contradicted the rejection.
 - The system distinguishes normal race windows from persistent peer-specific filtering.
@@ -248,15 +248,15 @@ Possible designs:
 - A miner can publish the full block template or txid list for a high-value share.
 - A miner can publish compact transaction-set evidence after a real block is found.
 - A miner can publish inclusion proofs for specific watched transactions.
-- A Boot node can compare its local mempool against observed solved blocks and estimate missing-fee or missing-transaction behavior.
+- A GridPool node can compare its local mempool against observed solved blocks and estimate missing-fee or missing-transaction behavior.
 
 Major caveats:
 - Full transaction templates are large compared with share proofs.
 - Revealing full templates may leak miner policy, fee strategy, and timing information.
 - Requiring full templates would hurt scaling and complicate Hydrapool compatibility.
 - Mempools differ naturally, so absence of a transaction is not proof of censorship.
-- A merkle root alone does not prove that a specific transaction was included. A txid plus a merkle branch can prove inclusion against the merkle root, but Boot's current share proof normally only includes the coinbase branch.
-- A censoring peer therefore cannot reliably detect arbitrary blacklisted transaction inclusion from the normal Boot share proof unless it receives a transaction inclusion proof, full transaction list, or out-of-band template data.
+- A merkle root alone does not prove that a specific transaction was included. A txid plus a merkle branch can prove inclusion against the merkle root, but GridPool's current share proof normally only includes the coinbase branch.
+- A censoring peer therefore cannot reliably detect arbitrary blacklisted transaction inclusion from the normal GridPool share proof unless it receives a transaction inclusion proof, full transaction list, or out-of-band template data.
 
 Recommendation:
 - Keep this out of launch consensus.
@@ -264,7 +264,7 @@ Recommendation:
 - Keep priority low until there is evidence that peers are rejecting otherwise-valid shares based on transaction policy.
 
 Acceptance criteria for a research prototype:
-- Produce a sample report comparing one Boot node's local mempool to a mined block's included transactions.
+- Produce a sample report comparing one GridPool node's local mempool to a mined block's included transactions.
 - Clearly separate "not seen locally", "seen but absent", "possibly unavailable", and "likely policy filtered".
 - Avoid declaring censorship without repeated evidence.
 
@@ -303,15 +303,15 @@ Status:
 - `Research`
 
 Goal:
-- Decide whether Boot should eventually commit the round state ID into coinbase data.
+- Decide whether GridPool should eventually commit the round state ID into coinbase data.
 
 Current state:
-- Boot can compute a state commitment preview.
+- GridPool can compute a state commitment preview.
 - Embedding a dynamic per-round commitment requires miner-side template support.
 - DATUM and Hydrapool compatibility would need careful design.
 
 Pros:
-- Stronger on-chain proof that a block belongs to a specific Boot round/team state.
+- Stronger on-chain proof that a block belongs to a specific GridPool round/team state.
 - Easier independent verification.
 - Could make third-party explorers more accurate.
 
@@ -421,7 +421,7 @@ Status:
 - `Needs more planning before implementation`
 
 Goal:
-- Use Boot's native proof-of-work environment to make spam and expensive peer traffic costly while keeping honest miners and lightweight nodes able to join.
+- Use GridPool's native proof-of-work environment to make spam and expensive peer traffic costly while keeping honest miners and lightweight nodes able to join.
 
 Planning state:
 - This idea is promising but not fully baked.
@@ -429,7 +429,7 @@ Planning state:
 
 Background:
 - Proof-of-work was originally useful as an anti-spam / anti-DoS primitive.
-- Boot has a natural source of useful work: valid mining shares.
+- GridPool has a natural source of useful work: valid mining shares.
 - A peer that can produce a high-enough share has paid a real cost that is cheap for honest miners and expensive for attackers to fake at scale.
 
 Design principle:
@@ -499,7 +499,7 @@ Open questions:
 - Whether credit should key by peer public key, endpoint, slot-0 address, or a combination.
 - Whether work credit should be shared across connected peers or remain strictly local.
 - How aggressive overload targets should be before small miners are harmed.
-- Whether hashcash challenges should be standardized for interoperability between Boot implementations.
+- Whether hashcash challenges should be standardized for interoperability between GridPool implementations.
 
 ## Task 12: Public Network Map
 
@@ -509,7 +509,7 @@ Status:
 - `Needs more planning before implementation`
 
 Goal:
-- Add a visual map of public Boot nodes so users can see network spread, robustness, and nearby connection options.
+- Add a visual map of public GridPool nodes so users can see network spread, robustness, and nearby connection options.
 
 User-facing concept:
 - Show public nodes on a map.

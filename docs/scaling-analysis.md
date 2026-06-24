@@ -1,8 +1,8 @@
-# Boot Protocol Scaling Analysis
+# GridPool protocol Scaling Analysis
 
 ## Purpose
 
-This document analyzes whether Boot Protocol can scale far beyond the current test setup, including the extreme stretch goal of eventually supporting a very large fraction of global Bitcoin hashrate.
+This document analyzes whether GridPool protocol can scale far beyond the current test setup, including the extreme stretch goal of eventually supporting a very large fraction of global Bitcoin hashrate.
 
 The goal is not to prove that outcome today. The goal is to identify:
 
@@ -167,7 +167,7 @@ This is the strongest scaling concern in the current design.
 
 ## Scaling Conditions For Very Large Networks
 
-Boot could plausibly scale to very large hashrate only if these conditions hold:
+GridPool could plausibly scale to very large hashrate only if these conditions hold:
 
 ### 1. Peer degree stays bounded
 

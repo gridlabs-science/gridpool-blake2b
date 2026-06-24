@@ -1,8 +1,8 @@
-# Boot Protocol Stress-Test Plan
+# GridPool protocol Stress-Test Plan
 
 ## Purpose
 
-This document defines how to stress-test Boot Protocol before launch.
+This document defines how to stress-test GridPool protocol before launch.
 
 The goals are:
 
@@ -28,12 +28,12 @@ Current checked-in helpers:
 Two independent dimensions matter:
 
 1. `Mining-side load`
-   - many DATUM clients or DATUM-like sessions hitting one Boot node
+   - many DATUM clients or DATUM-like sessions hitting one GridPool node
    - many accepted and rejected shares
    - reconnect churn
 
 2. `Network-side load`
-   - many Boot peers
+   - many GridPool peers
    - share relay fanout
    - candidate/current state polling and fetches
    - node join/rejoin churn
@@ -51,7 +51,7 @@ The harness should support:
   - can also submit stale/fallback/malformed patterns on purpose
 
 - `peer-sim`
-  - simulates Boot peers polling summaries
+  - simulates GridPool peers polling summaries
   - relays peer shares
   - fetches candidate/current state bundles
 
@@ -75,7 +75,7 @@ The harness should support:
 - open sockets
 - GC pause indicators if available
 
-### Boot protocol
+### GridPool protocol
 
 - current and candidate convergence time
 - peer poll success/failure counts
@@ -116,7 +116,7 @@ Purpose:
 
 Scenario:
 - `10` DATUM sessions
-- `2` Boot peers
+- `2` GridPool peers
 - run for `15m`
 
 Pass criteria:
@@ -129,7 +129,7 @@ Pass criteria:
 ### Suite B: Single-Node Mining Load
 
 Purpose:
-- test one Boot node serving many miners
+- test one GridPool node serving many miners
 
 Scenarios:
 
@@ -186,7 +186,7 @@ Purpose:
 
 Scenario:
 - `500` DATUM sessions
-- `25` Boot peers
+- `25` GridPool peers
 - `2h` run
 
 Pass criteria:
@@ -248,7 +248,7 @@ Each run should capture:
 Minimum before public beta:
 
 - `500` concurrent DATUM sessions
-- `25` Boot peers
+- `25` GridPool peers
 - `2h` mixed run
 - all pass criteria met
 

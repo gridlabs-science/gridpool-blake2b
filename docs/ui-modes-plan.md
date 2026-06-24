@@ -1,4 +1,4 @@
-# Boot UI Modes Plan
+# GridPool UI Modes Plan
 
 ## Goal
 The current WebUI is excellent for protocol testing, debugging, and ops visibility, but it is too dense for a production-facing mining product. The public UI should support three distinct user mindsets:
@@ -8,7 +8,7 @@ The current WebUI is excellent for protocol testing, debugging, and ops visibili
 - `Nerd Mode`: the current data-heavy dashboard for protocol debugging, testing, and advanced node operators.
 
 ## Branding Note
-- Current experimental UI name: `Grid Anti-Pool`
+- Current experimental UI name: `GridPool`
 - Do not fully propagate branding/copy changes through the product until the final name is chosen
 - Once the name is finalized, do one deliberate propagation pass across:
   - page title / hero copy
@@ -118,7 +118,7 @@ Recommended wording changes:
 Primary user:
 - mining businesses
 - sovereign operators
-- people deciding whether Boot is attractive versus solo or pool mining
+- people deciding whether GridPool is attractive versus solo or pool mining
 
 Primary questions:
 - What variance reduction am I actually getting?

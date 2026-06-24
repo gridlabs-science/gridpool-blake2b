@@ -1,6 +1,6 @@
 # Raspberry Pi Sovereign Stack Installer
 
-This document describes the first one-shot installer path for a small sovereign Grid Pool node.
+This document describes the first one-shot installer path for a small sovereign GridPool node.
 
 Target hardware:
 - Raspberry Pi 5, 8 GB preferred
@@ -8,7 +8,7 @@ Target hardware:
 - fast SSD strongly preferred for Bitcoin initial block download
 - reliable LAN connection
 
-Raspberry Pi 3-class hardware should not be treated as a full sovereign stack target. In live testing, a Pi 3 with under 1 GB RAM and a 29 GB SD card could run Boot and DATUM, but local Bitcoin Core sync/template service was too resource constrained. For that hardware class, use edge mode: run Boot + DATUM locally and point DATUM at a trusted Bitcoin RPC server on the LAN.
+Raspberry Pi 3-class hardware should not be treated as a full sovereign stack target. In live testing, a Pi 3 with under 1 GB RAM and a 29 GB SD card could run GridPool and DATUM, but local Bitcoin Core sync/template service was too resource constrained. For that hardware class, use edge mode: run GridPool + DATUM locally and point DATUM at a trusted Bitcoin RPC server on the LAN.
 
 ## Quick Start: Fresh Raspberry Pi 5
 
@@ -41,7 +41,7 @@ sudo ./scripts/install-sovereign-stack.sh \
 That command installs the full stack:
 
 - pruned Bitcoin Core
-- Grid Pool / Boot web UI
+- GridPool web UI
 - DATUM Gateway
 
 After the install completes, check the services:
@@ -53,13 +53,13 @@ cd /opt/grid-pool/boot-protocol &&
 sudo docker compose -f docker-compose.sovereign.yml ps
 ```
 
-Open the Grid Pool UI from a browser on the same LAN:
+Open the GridPool UI from a browser on the same LAN:
 
 ```text
 http://PI_LAN_IP:5000
 ```
 
-Point ASICs to DATUM, not directly to Boot:
+Point ASICs to DATUM, not directly to GridPool:
 
 ```text
 stratum+tcp://PI_LAN_IP:23334
@@ -71,7 +71,7 @@ For a quick smoke test before using your real payout address, omit `--payout-add
 
 ### Faster Edge-Mode Smoke Test
 
-If you only want to test Boot + DATUM first, and you already have a trusted Bitcoin Core RPC server on your LAN, skip local Bitcoin Core:
+If you only want to test GridPool + DATUM first, and you already have a trusted Bitcoin Core RPC server on your LAN, skip local Bitcoin Core:
 
 ```bash
 sudo apt-get update &&
@@ -96,7 +96,7 @@ Fast sovereign mode means:
 - the Pi runs its own local Bitcoin Core node
 - the Pi loads a UTXO snapshot to become usable quickly
 - Bitcoin Core still background-validates the historical chain after startup
-- DATUM and Boot build templates from the Pi's local Bitcoin node
+- DATUM and GridPool build templates from the Pi's local Bitcoin node
 
 This is the preferred low-friction full-stack path for a Pi 5 once a trusted snapshot workflow is available.
 
@@ -234,7 +234,7 @@ Check ordinary blockchain status:
 bitcoin-cli -conf=/etc/bitcoin/bitcoin.conf -datadir=/var/lib/bitcoind getblockchaininfo
 ```
 
-Once the snapshot chainstate catches up to tip, check Boot and DATUM:
+Once the snapshot chainstate catches up to tip, check GridPool and DATUM:
 
 ```bash
 /opt/grid-pool/boot-protocol/scripts/boot-self-check.sh http://127.0.0.1:5000 &&
@@ -282,18 +282,18 @@ If DATUM starts before Bitcoin catches up, that is normal. Mining templates are 
 `scripts/install-sovereign-stack.sh` installs:
 
 - Bitcoin Core, pruned, with RPC, ZMQ block notifications, and DATUM `blocknotify`
-- Boot/Grid Pool from Docker Compose using host networking
+- GridPool from Docker Compose using host networking
 - DATUM Gateway from upstream source
 - `bitcoind.service`
 - `datum-gateway.service`
-- Boot container `boot-portal`
+- GridPool container `boot-portal`
 
 For edge mode, pass `--no-bitcoin --bitcoin-rpc-url http://HOST:PORT`. That skips local Bitcoin Core and configures DATUM to fetch templates from the external RPC source.
 
 Default public ports:
 
-- `5000/tcp`: Boot/Grid Pool Web UI
-- `3008/tcp`: Boot DATUM pool endpoint
+- `5000/tcp`: GridPool Web UI
+- `3008/tcp`: GridPool DATUM pool endpoint
 - `5001/udp`: authenticated GridPool V3 peer fast relay
 - `23334/tcp`: DATUM Stratum V1 endpoint for ASICs
 - `7152/tcp`: DATUM API bound to localhost only
@@ -350,7 +350,7 @@ Low-RAM systems:
 
 - If RAM is below roughly 1.2 GB and no swap exists, the installer creates a 4 GB swapfile by default.
 - This is primarily to survive package install, DATUM build, and service startup on very small Pis.
-- Boot/Grid Pool pulls the prebuilt `ghcr.io/gridlabs-science/boot-protocol:latest` image by default instead of building the Docker image locally.
+- GridPool pulls the prebuilt `ghcr.io/gridlabs-science/boot-protocol:latest` image by default instead of building the Docker image locally.
 - Override with `--swap-mb 0` if you prefer no installer-created swap.
 - DATUM Stratum defaults are intentionally small in this installer: 4 max ASIC clients, 1 Stratum thread, and 30 target shares/minute. Increase `DATUM_MAX_CLIENTS`, `DATUM_MAX_CLIENTS_PER_THREAD`, and `DATUM_MAX_THREADS` only on hardware with enough RAM.
 - By default, local Bitcoin Core install now refuses very low-resource targets: under 2 GB RAM or under 30 GiB free disk. Use edge mode instead, or set `GRID_ALLOW_LOW_RESOURCE_BITCOIN=1` only if intentionally forcing a risky experiment.
@@ -436,9 +436,9 @@ Use the actual Ubuntu username if it is not `ubuntu`.
 
 Useful environment variables:
 
-- `GRID_BOOT_REPO_REF`: Boot branch, tag, or commit. Defaults to `main`.
-- `GRID_BOOT_IMAGE`: Boot/Grid Pool Docker image. Defaults to `ghcr.io/gridlabs-science/boot-protocol:latest`.
-- `GRID_BOOT_LOCAL_BUILD`: set to `1` to build Boot/Grid Pool from the local repo instead of pulling `GRID_BOOT_IMAGE`.
+- `GRID_BOOT_REPO_REF`: GridPool branch, tag, or commit. Defaults to `main`.
+- `GRID_BOOT_IMAGE`: GridPool Docker image. Defaults to `ghcr.io/gridlabs-science/boot-protocol:latest`.
+- `GRID_BOOT_LOCAL_BUILD`: set to `1` to build GridPool from the local repo instead of pulling `GRID_BOOT_IMAGE`.
 - `GRID_DATUM_REPO_REF`: DATUM branch, tag, or commit. Defaults to `master`.
 - `BITCOIN_CORE_VERSION`: Bitcoin Core release. Defaults to `31.0`.
 - `BITCOIN_PRUNE_MB`: prune target. Defaults to `1100`.
@@ -448,11 +448,11 @@ Useful environment variables:
 - `BITCOIN_ASSUMEUTXO_SNAPSHOT`: optional local path or HTTP(S) URL to a UTXO snapshot.
 - `BITCOIN_ASSUMEUTXO_STREAM`: `auto` by default. HTTP(S) snapshots are streamed instead of saved locally.
 - `BITCOIN_RPC_URL`: external Bitcoin RPC URL for DATUM when using `--no-bitcoin`. Defaults to `http://127.0.0.1:8332`.
-- `BOOT_PUBLIC_BASE_URL`: advertised Boot Web UI URL. Defaults to `http://detected-lan-ip:5000`.
+- `BOOT_PUBLIC_BASE_URL`: advertised GridPool Web UI URL. Defaults to `http://detected-lan-ip:5000`.
 - `BOOT_DATUM_PUBLIC_HOST`: advertised DATUM host. Defaults to detected LAN IP.
 - `BOOT_DATUM_PUBLIC_PORT`: advertised DATUM port. Defaults to `BOOT_DATUM_PORT`; set this when NAT maps a different public port to the local DATUM listener.
 - `GRID_BOOT_BOOTSTRAP_PEERS`: comma-separated bootstrap peers. Defaults to `https://main.gridpool.net` for mainnet. Testnet4 installs default to `https://test.gridpool.net`.
-- `DATUM_POOLED_MINING_ONLY`: defaults to `false`, allowing solo fallback templates if Boot is unavailable.
+- `DATUM_POOLED_MINING_ONLY`: defaults to `false`, allowing solo fallback templates if GridPool is unavailable.
 - `GRID_SWAP_MB`: `auto` by default. Set `0` to disable installer-created swap.
 - `GRID_ALLOW_LOW_RESOURCE_BITCOIN`: set to `1` to force local Bitcoin install on hardware that the installer would otherwise reject.
 - `DATUM_MAX_CLIENTS`: defaults to `4`.
@@ -520,6 +520,6 @@ sudo tail -f /var/log/datum_gateway/datum.log
 
 - The script is a first-pass beta installer. It backs up overwritten config files, but it is not yet a polished uninstall/rollback tool.
 - Bitcoin Core release tarballs are checked against `SHA256SUMS` fetched from `bitcoincore.org`; full maintainer-signature verification should be added before recommending this to nontechnical users.
-- Boot currently uses host networking in this installer so the container can reach Bitcoin ZMQ at `127.0.0.1:28332`.
+- GridPool currently uses host networking in this installer so the container can reach Bitcoin ZMQ at `127.0.0.1:28332`.
 - DATUM may start before Bitcoin is fully synced. That is acceptable, but mining templates will not be useful until the Bitcoin node is caught up.
 - Ubuntu 25.10 is useful for early testing, but Ubuntu 24.04 LTS should remain the primary documented target before launch.

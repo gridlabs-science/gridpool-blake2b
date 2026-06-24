@@ -1,24 +1,24 @@
 # Public Beta Split-Network Cutover
 
-This is the launch-prep shape for running Grid Pool as two separate public beta networks.
+This is the launch-prep shape for running GridPool as two separate public beta networks.
 
 ## Network Roles
 
 - `https://main.gridpool.net`
   - Bitcoin network: `mainnet`
-  - Boot network ID: `mainnet-beta`
+  - GridPool network ID: `mainnet-beta`
   - Round trigger: real GridPool block found (`testing_round_reset_mode = "none"`)
   - Purpose: mainnet soft launch and broad miner onboarding
 
 - `https://test.gridpool.net`
   - Bitcoin network: `testnet4`
-  - Boot network ID: `testnet4-beta`
+  - GridPool network ID: `testnet4-beta`
   - Round trigger: real GridPool block found (`testing_round_reset_mode = "none"`)
   - Purpose: round-rotation, pool-split, and block-found behavior testing
 
 - `https://gridpool.net`
   - Human landing page only.
-  - Do not use as a Boot peer bootstrap endpoint after this cutover.
+  - Do not use as a GridPool peer bootstrap endpoint after this cutover.
 
 ## Hard Break From Old Public Beta
 
@@ -26,11 +26,11 @@ The old `public-beta` network ID is intentionally abandoned. Official nodes shou
 
 For official seed nodes:
 
-1. Stop Boot.
+1. Stop GridPool.
 2. Back up existing `pool_state*.json` and history files.
 3. Move the old state files out of the active state path.
 4. Configure the node for either `mainnet-beta` or `testnet4-beta`.
-5. Start Boot and allow it to initialize a fresh genesis/Foundation-only state.
+5. Start GridPool and allow it to initialize a fresh genesis/Foundation-only state.
 
 This creates a clean genesis-era display for the public beta and avoids carrying stale deterministic-test rounds forward.
 
@@ -79,10 +79,10 @@ Use any valid testnet4 payout address for `pool_payout_script`; the value above 
 If using Cloudflare Tunnel on the dev machine:
 
 1. Add a public hostname for `main.gridpool.net`.
-2. Route it to the dev machine Boot WebUI, usually `http://localhost:5000`.
+2. Route it to the dev machine GridPool WebUI, usually `http://localhost:5000`.
 3. Publish `datum.main.gridpool.net` as a DNS-only direct TCP endpoint, or route it through a true TCP proxy. For the current home-router setup, forward public TCP `3008` to the main node DATUM listener.
 4. Add a public hostname for `test.gridpool.net`.
-5. Route it to the Pi 5 Boot WebUI, usually `http://192.168.1.198:5000` or the Pi's Tailscale IP if that is the stable path from the tunnel host.
+5. Route it to the Pi 5 GridPool WebUI, usually `http://192.168.1.198:5000` or the Pi's Tailscale IP if that is the stable path from the tunnel host.
 6. Publish `datum.test.gridpool.net` as a DNS-only direct TCP endpoint, or route it through a true TCP proxy. For the current home-router setup, forward public TCP `3009` to the test node DATUM listener.
 7. Keep `gridpool.net` free for the separate marketing/landing site.
 

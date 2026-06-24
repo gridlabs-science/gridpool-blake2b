@@ -1,13 +1,13 @@
-# Boot Protocol Hashrate Estimation
+# GridPool protocol Hashrate Estimation
 
 ## Purpose
 
-Boot Protocol needs a usable estimate of team hashrate even when very few shares are visible.
+GridPool protocol needs a usable estimate of team hashrate even when very few shares are visible.
 
 That is a different problem from a conventional pool:
 
 - A normal pool sees a high volume of low-threshold shares and can estimate hashrate from share counts over time.
-- Boot Protocol intentionally only keeps the top `N` shares in the current `On Deck` list.
+- GridPool protocol intentionally only keeps the top `N` shares in the current `On Deck` list.
 - That means the estimator has to work from sparse, high-value order statistics rather than a flood of uniform-difficulty share counts.
 
 The current estimator works surprisingly well for this reason:
@@ -140,7 +140,7 @@ This matters because:
 - larger `k` values are much less luck-sensitive
 - the middle ranks are usually the most informative in a finite sample
 
-So the Boot estimator gets robustness by:
+So the GridPool estimator gets robustness by:
 
 - building one implied estimate from every rank
 - then taking the median instead of trusting the best share
@@ -177,9 +177,9 @@ This works well when `N` is large. By the central limit theorem, large Poisson c
 
 `1 / sqrt(N)`
 
-The problem is that Boot does not expose a large fixed-threshold share count to the public UI. It only exposes the top of the share distribution.
+The problem is that GridPool does not expose a large fixed-threshold share count to the public UI. It only exposes the top of the share distribution.
 
-So Boot is effectively using a different sufficient statistic:
+So GridPool is effectively using a different sufficient statistic:
 
 - not "how many fixed-difficulty shares arrived?"
 - but "how far out into the tail did the top `k` shares reach?"
@@ -287,7 +287,7 @@ That gives it three useful properties:
 2. It updates naturally as the On Deck list grows.
 3. It stays informative even in a decentralized setting where nodes may not want to expose all low-difficulty share traffic.
 
-This makes it unusually well suited to Boot Protocol specifically.
+This makes it unusually well suited to GridPool protocol specifically.
 
 ## Planned Next Improvements
 
@@ -375,7 +375,7 @@ Future options:
 
 ### 8. Revisit if round-reset semantics change
 
-If Boot changes the way new rounds begin, such as carrying forward prior On Deck state in some form, the estimator should be re-evaluated. A carry-forward rule changes the statistical meaning of early-round order statistics.
+If GridPool changes the way new rounds begin, such as carrying forward prior On Deck state in some form, the estimator should be re-evaluated. A carry-forward rule changes the statistical meaning of early-round order statistics.
 
 ## Suggested Experiment Plan
 
@@ -396,7 +396,7 @@ Evaluate them against:
 
 ## Bottom Line
 
-The current Boot hashrate estimator works because it turns a sparse top-share list into many implicit Poisson threshold observations:
+The current GridPool hashrate estimator works because it turns a sparse top-share list into many implicit Poisson threshold observations:
 
 - the `k`th best share tells you what hashrate would be needed to expect about `k` shares at that threshold in time `t`
 - repeating that over many ranks gives many noisy estimates

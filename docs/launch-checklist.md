@@ -1,4 +1,4 @@
-# Boot Protocol Launch Checklist
+# GridPool protocol Launch Checklist
 
 ## Purpose
 
@@ -15,7 +15,7 @@ This checklist is written against the current architecture:
 
 - DATUM is a supported mining client
 - Hydrapool HTTP share submission is a required launch path
-- Boot nodes form a decentralized peer network
+- GridPool nodes form a decentralized peer network
 - the public WebUI has `Lottery`, `Business`, and `Nerd` modes
 
 Related execution docs:
@@ -45,7 +45,7 @@ Rationale:
 
 Non-goal:
 
-- The Boot server does **not** attempt to protect miners against local compromise inside their own mining stack.
+- The GridPool server does **not** attempt to protect miners against local compromise inside their own mining stack.
 - If a miner or gateway builds templates with the wrong slot-0 address before the ASIC hashes them, the share belongs to that slot-0 address as submitted.
 
 This is a hard launch requirement because Hydrapool support depends on the HTTP share path being trustless.
@@ -77,7 +77,7 @@ These are good work items while the current test setup is still in use:
 
 - Fix untrusted peer fresh-parent handling.
   - Local DATUM can still learn fresh parents from otherwise-valid local shares.
-  - Peer and HTTP paths should not advance/learn an unknown parent from a bare `prevhash` unless Boot can verify the parent.
+  - Peer and HTTP paths should not advance/learn an unknown parent from a bare `prevhash` unless GridPool can verify the parent.
   - Add regression tests for fake-parent peer shares.
 - Change the default primary coinbase tag to `Grid Pool`.
   - Keep it configurable.
@@ -134,7 +134,7 @@ These are good work items while the current test setup is still in use:
   - connect instructions
   - production warning state
   - local miner address default selection
-  - per-address local hashrate lookup for public Boot nodes with many direct DATUM clients
+  - per-address local hashrate lookup for public GridPool nodes with many direct DATUM clients
   - mobile layout polish
 - Targeted code cleanup.
   - fix nullable warnings
@@ -462,6 +462,28 @@ Evidence:
 - operator docs:
   - [README.md](README.md)
 
+### G1.6 Observed GridPool block backfill
+
+Status:
+- `OPEN`
+
+Required implementation:
+- when a node observes a Bitcoin block on-chain before receiving the associated GridPool share over DATUM, HTTP, or peer relay, recover the winning share from the block itself before rotating rounds
+- fetch the full block by hash from Bitcoin RPC when needed
+- inspect the coinbase and verify that the non-slot-0 outputs match the current GridPool Winners List
+- reconstruct a proof from the block header, coinbase transaction, and coinbase merkle path
+- record the slot-0 payout address into the on-deck list before locking the next round
+
+Must be true:
+- ordinary non-GridPool Bitcoin blocks do not trigger GridPool round rotation
+- the same winning block share remains idempotent if it later arrives through DATUM, HTTP, or peer relay
+- nodes that see the on-chain block before the GridPool share converge to the same next Winners List as nodes that saw the share first
+
+Evidence to capture:
+- unit test for observed GridPool block backfill
+- integration test where the block notification arrives before the share submission
+- logs showing `chain-block-backfill` or equivalent source records the slot-0 address before rotation
+
 ## Gate 2: Reliability And Convergence
 
 Latest `G2` soak snapshot:
@@ -489,14 +511,14 @@ Latest `G2` soak snapshot:
     - laptop avg/p95 about `0.93 ms / 1.48 ms`
     - slow fetch count `0` on both nodes
   - remaining issue:
-    - wrong-parent rejects can begin a few seconds before Boot records the new chain tip, meaning DATUM/miner can see fresh Bitcoin work before Boot's block-notification path
+    - wrong-parent rejects can begin a few seconds before GridPool records the new chain tip, meaning DATUM/miner can see fresh Bitcoin work before GridPool's block-notification path
     - payout-mismatch bursts then continue after deterministic test rotations while DATUM/miner stale templates drain
     - laptop still shows frequent DATUM session locks/reconnects
   - example post-soak burst:
     - laptop wrong-parent rejects at `2026-04-21T21:27:11Z` to `2026-04-21T21:27:15Z`
     - laptop chain-tip/round-rotation recorded at `2026-04-21T21:27:15Z`
     - laptop payout-mismatch burst continued until about `2026-04-21T21:27:54Z`
-    - one Boot-side `datum-session-reset` fired after about `20.1s` of stale payout shares
+    - one GridPool-side `datum-session-reset` fired after about `20.1s` of stale payout shares
 
 Previous `G2` soak snapshot:
 - `2026-04-19` to `2026-04-20`
@@ -515,15 +537,15 @@ Previous `G2` soak snapshot:
 
 Working definition of `good enough` for G2:
 - `Payout mismatch`
-  - indicates the share coinbase is using the wrong Boot payout layout for the current round
+  - indicates the share coinbase is using the wrong GridPool payout layout for the current round
   - acceptable only in a short post-rotation transition window
 - `Wrong parent block`
   - indicates the share header builds on a Bitcoin `prevhash` that is outside the node's currently accepted parent-block set
-  - this is a Bitcoin-parent mismatch, not a direct "wrong Boot round" signal
+  - this is a Bitcoin-parent mismatch, not a direct "wrong GridPool round" signal
   - some amount is expected around real tip changes and round resets
-  - local DATUM shares may now teach Boot about a fresh parent before Boot's own block notifier observes it, but only after the share validates cryptographically and against the current payout list
+  - local DATUM shares may now teach GridPool about a fresh parent before GridPool's own block notifier observes it, but only after the share validates cryptographically and against the current payout list
 - `Solo fallback template`
-  - indicates the mining client is still hashing a non-Boot single-recipient template
+  - indicates the mining client is still hashing a non-GridPool single-recipient template
   - acceptable only during brief reconnect/failover windows
 
 Current working exit target:
@@ -579,13 +601,13 @@ Current mitigation:
 - [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs) accepts a local DATUM share on an unknown fresh parent if:
   - the only initial failure is `Wrong parent block`
   - revalidation without the parent allow-list succeeds
-  - the coinbase payout list matches the current Boot state
+  - the coinbase payout list matches the current GridPool state
   - computed difficulty is at least `1`
   - source is the trusted local DATUM path
 - Lower-height chain-tip or round-rotation observations are ignored unless they match the already-known tip hash.
   - stale observations are recorded as `chain-tip-stale`
   - the G2 monitor flags any sampled tip-height regression as a `G2.2` attention condition
-- HTTP shares remain strict until Boot already knows the parent, preserving the trustless Hydrapool launch path.
+- HTTP shares remain strict until GridPool already knows the parent, preserving the trustless Hydrapool launch path.
 - Automated coverage:
   - `DatumShareOnFreshParentIsAcceptedAndLearnsParentWithoutTipAdvanceAsync`
   - `HttpShareOnFreshParentIsRejectedUntilTipIsKnownAsync`
@@ -705,7 +727,7 @@ Status:
 Required implementation:
 - create a repeatable load harness for:
   - many simulated DATUM clients
-  - many peer Boot nodes
+  - many peer GridPool nodes
   - malformed/abusive clients
 
 Acceptance criteria:
@@ -739,10 +761,10 @@ Status:
 - `OPEN`
 
 Minimum beta target:
-- `25` Boot peers
+- `25` GridPool peers
 
 Preferred target:
-- `100` Boot peers in bounded-degree topology simulation
+- `100` GridPool peers in bounded-degree topology simulation
 
 Acceptance criteria:
 - no crash loops

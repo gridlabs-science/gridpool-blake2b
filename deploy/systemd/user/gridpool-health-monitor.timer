@@ -1,0 +1,12 @@
+[Unit]
+Description=Run GridPool health monitor every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=20s
+Persistent=true
+Unit=gridpool-health-monitor.service
+
+[Install]
+WantedBy=timers.target

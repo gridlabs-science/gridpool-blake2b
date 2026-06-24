@@ -1,4 +1,4 @@
-# Boot Launch Infra Click-Through Checklist
+# GridPool Launch Infra Click-Through Checklist
 
 ## Purpose
 
@@ -247,7 +247,7 @@ In Cloudflare:
 2. Open `DNS`.
 3. Add these records as `A` records:
 
-Boot hostnames:
+GridPool hostnames:
 
 - `use1.boot` -> `boot-use1 public IPv4`
 - `usw1.boot` -> `boot-usw1 public IPv4`
@@ -425,7 +425,7 @@ After that, I can take over:
 - firewall cleanup
 - reverse proxy setup
 - repo checkout
-- Boot deployment
+- GridPool deployment
 - config generation
 - service install
 - DNS verification

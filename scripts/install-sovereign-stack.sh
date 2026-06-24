@@ -70,16 +70,16 @@ usage() {
     cat <<EOF
 Usage: $SCRIPT_NAME [options]
 
-Installs a sovereign Grid Pool stack on Debian/Ubuntu-style Linux:
+Installs a sovereign GridPool stack on Debian/Ubuntu-style Linux:
   - pruned Bitcoin Core with ZMQ and DATUM blocknotify
-  - Boot/Grid Pool from Docker Compose
+  - GridPool from Docker Compose
   - DATUM Gateway from upstream source
 
 Options:
-  --payout-address ADDRESS      Bitcoin payout address for DATUM and Boot slot-0 fallback
+  --payout-address ADDRESS      Bitcoin payout address for DATUM and GridPool slot-0 fallback
                                 (default: 256 Foundation donation address)
   --home DIR                    Install root (default: $GRID_HOME)
-  --boot-ref REF                Boot repo branch/tag/commit (default: $GRID_BOOT_REPO_REF)
+  --boot-ref REF                GridPool repo branch/tag/commit (legacy flag name; default: $GRID_BOOT_REPO_REF)
   --datum-ref REF               DATUM repo branch/tag/commit (default: $GRID_DATUM_REPO_REF)
   --bitcoin-version VERSION     Bitcoin Core release version (default: $BITCOIN_CORE_VERSION)
   --bitcoin-network NETWORK     Bitcoin network: mainnet or testnet4 (default: $BITCOIN_NETWORK)
@@ -90,10 +90,10 @@ Options:
   --assumeutxo-stream auto|1|0  Stream HTTP(S) snapshots through a FIFO instead of saving first
   --bitcoin-rpc-url URL         Bitcoin RPC URL for DATUM (default: $BITCOIN_RPC_URL)
                                 Use with --no-bitcoin for edge/proxy installs.
-  --bootstrap-peers LIST        Comma-separated Boot peer URLs
+  --bootstrap-peers LIST        Comma-separated GridPool peer URLs
   --swap-mb MB|auto|0           Swapfile size for low-RAM devices (default: $GRID_SWAP_MB)
   --no-bitcoin                  Skip Bitcoin Core install/config
-  --no-boot                     Skip Boot/Grid Pool install/config
+  --no-boot                     Skip GridPool install/config
   --no-datum                    Skip DATUM install/config
   --configure-ufw               Open ports if UFW is active
   --yes                         Do not ask confirmation prompts
@@ -517,12 +517,12 @@ confirm_inputs() {
 
     log "install root: $GRID_HOME"
     log "detected primary IP: $GRID_PRIMARY_IP"
-    log "Boot UI: $BOOT_PUBLIC_BASE_URL"
+    log "GridPool UI: $BOOT_PUBLIC_BASE_URL"
     log "DATUM pool endpoint advertised to miners: ${BOOT_DATUM_PUBLIC_HOST}:${BOOT_DATUM_PUBLIC_PORT}"
     log "ASIC Stratum endpoint after install: ${GRID_PRIMARY_IP}:${DATUM_STRATUM_PORT}"
     log "payout address: $GRID_POOL_PAYOUT_ADDRESS"
     log "Bitcoin network: $BITCOIN_NETWORK"
-    log "Boot network id: $GRID_BOOT_NETWORK_ID"
+    log "GridPool network id: $GRID_BOOT_NETWORK_ID"
     if (( INSTALL_BITCOIN )); then
         BITCOIN_RPC_URL="http://127.0.0.1:8332"
         log "Bitcoin mode: local pruned node"
@@ -1037,10 +1037,10 @@ install_boot() {
     run chmod 0750 "$boot_dir/data"
 
     if [[ "$GRID_BOOT_LOCAL_BUILD" == "1" ]]; then
-        log "building and starting Boot/Grid Pool from local source"
+        log "building and starting GridPool from local source"
         run docker compose -f "$boot_dir/docker-compose.sovereign.yml" --project-directory "$boot_dir" up -d --build
     else
-        log "pulling and starting Boot/Grid Pool image ${GRID_BOOT_IMAGE}"
+        log "pulling and starting GridPool image ${GRID_BOOT_IMAGE}"
         run docker compose -f "$boot_dir/docker-compose.sovereign.yml" --project-directory "$boot_dir" pull boot-portal
         run docker compose -f "$boot_dir/docker-compose.sovereign.yml" --project-directory "$boot_dir" up -d
     fi
@@ -1091,7 +1091,7 @@ wait_for_boot_pubkey() {
         fi
 
         if (( $(date +%s) - start > timeout )); then
-            fail "could not discover Boot DATUM public key from Docker logs"
+            fail "could not discover GridPool DATUM public key from Docker logs"
         fi
         sleep 2
     done
@@ -1259,7 +1259,7 @@ run_self_check() {
     local boot_dir="$GRID_HOME/boot-protocol"
 
     if (( DRY_RUN )); then
-        log "would run Boot self-check"
+        log "would run GridPool self-check"
         return 0
     fi
 
@@ -1276,7 +1276,7 @@ print_summary() {
 
     cat <<EOF
 
-Grid Pool sovereign stack install complete.
+GridPool sovereign stack install complete.
 
 Endpoints:
   Web UI:             ${BOOT_PUBLIC_BASE_URL}

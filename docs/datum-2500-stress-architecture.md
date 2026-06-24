@@ -2,15 +2,15 @@
 
 ## Purpose
 
-This document sketches a practical path to stress-test one GridPool Boot node with `2500` concurrent DATUM-facing clients.
+This document sketches a practical path to stress-test one GridPool node with `2500` concurrent DATUM-facing clients.
 
-The primary goal is to prove that a single production-style VPS Boot node can keep `2500` DATUM sessions alive, serve coinbase/payout work quickly, and survive reconnect churn.
+The primary goal is to prove that a single production-style VPS GridPool node can keep `2500` DATUM sessions alive, serve coinbase/payout work quickly, and survive reconnect churn.
 
 The secondary goal is to make the load increasingly realistic by attaching real ASIC hashrate to some or all of those DATUM clients. That second goal is useful, but it is much harder than the connection-count goal because Stratum V1 shares are tied to the exact job/session that issued them.
 
 ## Inputs And Constraints
 
-- The target system is one GridPool Boot node, likely on a VPS.
+- The target system is one GridPool node, likely on a VPS.
 - The target DATUM-side connection count is `2500`.
 - The available LuxOS miner can split hashrate to at most `100` upstream pools/DATUM nodes.
 - It is acceptable if most of the `2500` DATUM sessions do not have real hashrate behind them during the first capacity tests.
@@ -90,32 +90,32 @@ This is important for the stress plan because synthetic or replayed low-value tr
 
 ### Phase 1: DATUM-Like Session Load Simulator
 
-Build a lightweight `datum-sim` harness that speaks just enough of the DATUM-facing protocol to stress the Boot node's DATUM server path.
+Build a lightweight `datum-sim` harness that speaks just enough of the DATUM-facing protocol to stress the GridPool node's DATUM server path.
 
 Recommended implementation:
 
 - Use .NET, Go, or Rust.
 - Run from the dev machine or a separate load box.
-- Open `2500` TCP sessions to one Boot node's DATUM-facing port.
-- Complete the Boot/DATUM handshake enough to be treated like a DATUM client.
+- Open `2500` TCP sessions to one GridPool node's DATUM-facing port.
+- Complete the GridPool/DATUM handshake enough to be treated like a DATUM client.
 - Request coinbase/payout work at realistic intervals.
 - Keep sessions alive with the same cadence as real DATUM.
 - Randomly churn a small percentage of clients.
 - Record per-client latency, disconnects, errors, and response parse failures.
 
-This phase tests the primary launch concern: can one Boot process carry thousands of DATUM clients without CPU, memory, socket, GC, or lock-contention collapse?
+This phase tests the primary launch concern: can one GridPool process carry thousands of DATUM clients without CPU, memory, socket, GC, or lock-contention collapse?
 
 This phase does not require real ASIC hashrate.
 
 Acceptance criteria:
 
 - `2500` concurrent DATUM-like sessions for `2h`.
-- Zero Boot process crashes.
+- Zero GridPool process crashes.
 - Zero systemd restarts.
 - p95 coinbase/work response latency `< 50 ms`.
 - p99 coinbase/work response latency `< 150 ms`.
 - No unbounded memory growth after the first `15m`.
-- DATUM session churn is explained by the harness, not by Boot-side failures.
+- DATUM session churn is explained by the harness, not by GridPool-side failures.
 - Reconnect storms do not cause persistent candidate/current divergence.
 
 ### Phase 2: Synthetic Share Load
@@ -152,15 +152,15 @@ Recommended topology:
 
 ```text
 LuxOS miner
-  -> DATUM client 001 -> GridPool VPS Boot
-  -> DATUM client 002 -> GridPool VPS Boot
+  -> DATUM client 001 -> GridPool VPS GridPool
+  -> DATUM client 002 -> GridPool VPS GridPool
   -> ...
-  -> DATUM client 100 -> GridPool VPS Boot
+  -> DATUM client 100 -> GridPool VPS GridPool
 ```
 
 Run this alongside `2400` idle or synthetic DATUM-like sessions from `datum-sim`.
 
-This gives a realistic Boot profile:
+This gives a realistic GridPool profile:
 
 - `2500` total DATUM-side sessions
 - `100` real hashrate-producing sessions
@@ -233,7 +233,7 @@ Acceptance criteria if built:
 
 Before running a `2500`-session test against a VPS:
 
-- Set `LimitNOFILE` for the Boot service to at least `65535`.
+- Set `LimitNOFILE` for the GridPool service to at least `65535`.
 - Confirm `ulimit -n` inside the service is at least `65535`.
 - Increase TCP backlog and connection tracking limits if needed.
 - Ensure Docker/container limits do not cap open files or memory unexpectedly.
@@ -295,8 +295,8 @@ A stronger future goal is valid real ASIC work behind all `2500` sessions, but t
 
 ## Open Questions
 
-- What exact subset of the DATUM upstream protocol must `datum-sim` speak to exercise the Boot hot path faithfully?
-- Can the existing Boot test trigger/regtest tooling generate valid share fixtures cheaply enough for load tests?
+- What exact subset of the DATUM upstream protocol must `datum-sim` speak to exercise the GridPool hot path faithfully?
+- Can the existing GridPool test trigger/regtest tooling generate valid share fixtures cheaply enough for load tests?
 - What is the target VPS size for the first real `2500`-session run?
 - Should the simulator run from one load generator or from multiple regional load boxes to avoid client-side port/CPU limits?
 - Is `100` real DATUM clients plus `2400` simulated DATUM clients sufficient evidence for launch, or do we need a real-hash fanout prototype before public release?
