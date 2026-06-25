@@ -754,6 +754,42 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public async Task SupportFeePaymentRemovesOnlyActuallyPaidSharedProofsAsync()
+    {
+        BootShareProof[] seedProofs =
+        [
+            CreateFakeProof("proof-a", 100, SampleSlotZeroAddress),
+            CreateFakeProof("proof-b", 50, AlternateAddress),
+            CreateFakeProof("proof-c", 25, SampleSlotZeroAddress)
+        ];
+        using var harness = TestHarness.Create(
+            sharedWinnerSlotCount: 3,
+            supportFeeEnabled: true,
+            workSetReserveMultiplier: 3,
+            onDeckProofs: seedProofs);
+
+        BootNetworkStatusDto snapshot = await harness.StateService.ObserveChainTipAsync(
+            "0000000000000000000000000000000000000000000000000000000000ccc301",
+            "test-chain-tip",
+            945001);
+        Assert.AreEqual(2, snapshot.ActiveSnapshotProofCount);
+
+        RoundRotationResult payment = await harness.StateService.RotateToNextRoundAsync(
+            "0000000000000000000000000000000000000000000000000000000000ccc302",
+            "test-gridpool-block",
+            manual: false,
+            blockHeight: 945002);
+
+        Assert.IsTrue(payment.Rotated, payment.Reason);
+        CollectionAssert.AreEqual(
+            new[] { "proof-a", "proof-b" },
+            payment.LockedStateBundle!.PaidSnapshotProofIds.ToArray());
+        CollectionAssert.AreEqual(
+            new[] { "proof-c" },
+            payment.LockedStateBundle.WorkSetProofs.Select(proof => proof.ShareId).ToArray());
+    }
+
+    [TestMethod]
     public async Task ShareMinedAgainstRetainedOldSnapshotContextValidatesAfterLaterSnapshotsAsync()
     {
         using var harness = TestHarness.Create(

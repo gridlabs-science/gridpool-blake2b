@@ -3439,8 +3439,9 @@ public class BootProtocolStateService
         DateTime createdUtc,
         int currentRoundNumber)
     {
-        List<BootShareProof> snapshotProofs = SortAndTrimProofs(_state.OnDeckProofs, _poolConfig.SnapshotProofSlotCount);
-        string snapshotId = ComputeStateIdNoLock(snapshotProofs, blockHash);
+        List<BootShareProof> feeFreeSnapshotProofs = SortAndTrimProofs(_state.OnDeckProofs, _poolConfig.SnapshotProofSlotCount);
+        List<BootShareProof> paidSnapshotProofs = SortAndTrimProofs(_state.OnDeckProofs, _poolConfig.SharedWinnerSlotCount);
+        string snapshotId = ComputeStateIdNoLock(paidSnapshotProofs, blockHash);
         return new BootPayoutSnapshotContext
         {
             SnapshotId = snapshotId,
@@ -3451,9 +3452,9 @@ public class BootProtocolStateService
             CreatedAtUtc = createdUtc,
             SupportFeeEnabled = _poolConfig.GridLabsSupportFeeEnabled,
             PayoutVariant = BuildPayoutVariantNoLock(),
-            ProofIds = snapshotProofs.Select(proof => proof.ShareId).ToList(),
-            WinnersList = BuildPayoutsFromProofs(snapshotProofs, includeSupportFee: _poolConfig.GridLabsSupportFeeEnabled),
-            FeeFreeWinnersList = BuildFeeFreePayoutsFromProofs(snapshotProofs)
+            ProofIds = paidSnapshotProofs.Select(proof => proof.ShareId).ToList(),
+            WinnersList = BuildPayoutsFromProofs(paidSnapshotProofs, includeSupportFee: _poolConfig.GridLabsSupportFeeEnabled),
+            FeeFreeWinnersList = BuildFeeFreePayoutsFromProofs(feeFreeSnapshotProofs)
         };
     }
 
