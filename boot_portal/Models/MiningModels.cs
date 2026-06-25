@@ -8,6 +8,7 @@ public class ShareSubmissionDto
     public string HeaderHex { get; set; } = string.Empty;    // 80 byte block header
     public string CoinbaseHex { get; set; } = string.Empty;  // The coinbase tx
     public List<string> MerklePath { get; set; } = new();    // Hashes needed to rebuild root
+    public string? PayoutSnapshotId { get; set; }
     public string? PrevBlockHash { get; set; }
     public long Nonce { get; set; }
     public double Difficulty { get; set; }
@@ -28,13 +29,18 @@ public class MiningShareAdviceDto
     public int CurrentRoundNumber { get; set; }
     public string CurrentStateId { get; set; } = string.Empty;
     public string CandidateStateId { get; set; } = string.Empty;
+    public string ActiveSnapshotId { get; set; } = string.Empty;
     public string? CurrentTipBlockHash { get; set; }
     public long? CurrentTipBlockHeight { get; set; }
     public int SharedWinnerSlotCount { get; set; }
+    public int WorkSetCount { get; set; }
+    public int WorkSetReserveLimit { get; set; }
     public int OnDeckCount { get; set; }
     public int OpenOnDeckSlots { get; set; }
     public bool OnDeckIsFull { get; set; }
     public double MinimumAcceptedDifficulty { get; set; } = 1;
+    public double? CurrentWorkSetFloorDifficulty { get; set; }
+    public string CurrentWorkSetFloorDifficultyDisplay { get; set; } = "--";
     public double? CurrentOnDeckFloorDifficulty { get; set; }
     public string CurrentOnDeckFloorDifficultyDisplay { get; set; } = "--";
     public double MinimumDifficultyToEnterOnDeck { get; set; } = 1;

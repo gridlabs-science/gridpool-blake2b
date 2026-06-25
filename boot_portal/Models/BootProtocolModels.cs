@@ -7,6 +7,7 @@ public class RecordedShareSubmission
     public string HeaderHex { get; set; } = string.Empty;
     public string CoinbaseHex { get; set; } = string.Empty;
     public List<string> MerklePath { get; set; } = [];
+    public string? PayoutSnapshotId { get; set; }
     public string? PrevBlockHash { get; set; }
     public double Difficulty { get; set; }
     public string Source { get; set; } = "unknown";
@@ -22,6 +23,7 @@ public class BootShareProof
     public string HeaderHex { get; set; } = string.Empty;
     public string CoinbaseHex { get; set; } = string.Empty;
     public List<string> MerklePath { get; set; } = [];
+    public string? PayoutSnapshotId { get; set; }
     public string? PrevBlockHash { get; set; }
     public double Difficulty { get; set; }
     public string DiffString { get; set; } = "0";
@@ -195,6 +197,13 @@ public class BootNetworkStatusDto
     public int TotalPayoutSlotCount { get; set; }
     public string CurrentStateId { get; set; } = string.Empty;
     public string CandidateStateId { get; set; } = string.Empty;
+    public string ActiveSnapshotId { get; set; } = string.Empty;
+    public string LastPaidSnapshotId { get; set; } = string.Empty;
+    public int ActiveSnapshotProofCount { get; set; }
+    public int WorkSetCount { get; set; }
+    public int WorkSetReserveLimit { get; set; }
+    public bool SupportFeeEnabled { get; set; }
+    public string PayoutVariant { get; set; } = string.Empty;
     public string? CurrentTipBlockHash { get; set; }
     public long? CurrentTipBlockHeight { get; set; }
     public DateTime? LastRotationUtc { get; set; }
@@ -621,11 +630,34 @@ public class BootStateBundle
     public long? ParentBlockHeight { get; set; }
     public DateTime CreatedAtUtc { get; set; }
     public double TotalDifficulty { get; set; }
+    public string ActiveSnapshotId { get; set; } = string.Empty;
+    public string PaidSnapshotId { get; set; } = string.Empty;
+    public List<string> ActiveSnapshotProofIds { get; set; } = [];
+    public List<string> PaidSnapshotProofIds { get; set; } = [];
+    public bool SupportFeeEnabled { get; set; }
+    public string PayoutVariant { get; set; } = string.Empty;
     public List<string> ValidParentBlockHashes { get; set; } = [];
     public List<PayoutInfo> WinnersList { get; set; } = [];
     public List<PayoutInfo> ProofWinnersList { get; set; } = [];
     public List<BootShareProof> ShareProofs { get; set; } = [];
+    public List<BootShareProof> WorkSetProofs { get; set; } = [];
+    public List<BootPayoutSnapshotContext> SnapshotContexts { get; set; } = [];
     public BootCommitmentInfo Commitment { get; set; } = new();
+}
+
+public class BootPayoutSnapshotContext
+{
+    public string SnapshotId { get; set; } = string.Empty;
+    public string PreviousSnapshotId { get; set; } = string.Empty;
+    public int CurrentRoundNumber { get; set; }
+    public string? LockedByBlockHash { get; set; }
+    public long? LockedByBlockHeight { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+    public bool SupportFeeEnabled { get; set; }
+    public string PayoutVariant { get; set; } = string.Empty;
+    public List<string> ProofIds { get; set; } = [];
+    public List<PayoutInfo> WinnersList { get; set; } = [];
+    public List<PayoutInfo> FeeFreeWinnersList { get; set; } = [];
 }
 
 public class ShareRecordingResult

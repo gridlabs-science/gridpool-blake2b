@@ -71,6 +71,7 @@ public class MiningApiController : ControllerBase
                 HeaderHex = share.HeaderHex,
                 CoinbaseHex = share.CoinbaseHex,
                 MerklePath = share.MerklePath,
+                PayoutSnapshotId = share.PayoutSnapshotId,
                 PrevBlockHash = share.PrevBlockHash,
                 Difficulty = share.Difficulty,
                 Source = "http"

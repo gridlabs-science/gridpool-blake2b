@@ -54,8 +54,23 @@ public class PoolConfig
     [JsonPropertyName("winners_list_size")]
     public int WinnersListSize { get; set; } = 299;
 
+    [JsonPropertyName("grid_labs_support_fee_enabled")]
+    public bool GridLabsSupportFeeEnabled { get; set; } = true;
+
+    [JsonPropertyName("work_set_reserve_multiplier")]
+    public int WorkSetReserveMultiplier { get; set; } = 3;
+
     [JsonIgnore]
-    public int SharedWinnerSlotCount => WinnersListSize;
+    public int SupportFeeSlotCount => GridLabsSupportFeeEnabled ? 1 : 0;
+
+    [JsonIgnore]
+    public int SharedWinnerSlotCount => Math.Max(1, WinnersListSize - SupportFeeSlotCount);
+
+    [JsonIgnore]
+    public int SnapshotProofSlotCount => WinnersListSize;
+
+    [JsonIgnore]
+    public int WorkSetReserveLimit => Math.Max(SnapshotProofSlotCount, SnapshotProofSlotCount * Math.Max(1, WorkSetReserveMultiplier));
 
     [JsonIgnore]
     public int TotalPayoutSlotCount => WinnersListSize + 1;
@@ -79,7 +94,7 @@ public class PoolConfig
     public string BootNetworkId { get; set; } = "mainnet-beta";
 
     [JsonPropertyName("boot_protocol_version")]
-    public int BootProtocolVersion { get; set; } = 1;
+    public int BootProtocolVersion { get; set; } = 2;
 
     [JsonPropertyName("admin_api_key")]
     public string? AdminApiKey { get; set; }

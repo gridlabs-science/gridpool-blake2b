@@ -346,7 +346,7 @@ public sealed class ShareAttributionTests
             manual: false,
             blockHeight: 945001);
         BootStateBundle remoteBundle = rotation.LockedStateBundle!;
-        Assert.IsTrue(remoteBundle.ShareProofs.Count > 0);
+        Assert.IsTrue(remoteBundle.WorkSetProofs.Count > 0);
 
         using var localHarness = TestHarness.Create(
             currentTipBlockHash: SamplePrevBlockHash,
@@ -585,6 +585,201 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public void V1StyleStateMigratesToV2SnapshotReserveWithoutDroppingWorkSetProofs()
+    {
+        BootShareProof[] seedProofs =
+        [
+            CreateFakeProof("proof-a", 100),
+            CreateFakeProof("proof-b", 50)
+        ];
+
+        using var harness = TestHarness.Create(
+            onDeckProofs: seedProofs,
+            seedMetadataProtocolVersion: 1);
+
+        BootNetworkStatusDto status = harness.StateService.GetNetworkStatus();
+        BootStateBundle activeBundle = harness.StateService.GetStateBundle(status.CurrentStateId)!;
+
+        Assert.AreEqual(2, status.ProtocolVersion);
+        Assert.AreEqual(seedProofs.Length, status.WorkSetCount);
+        Assert.AreEqual("seed-current", status.ActiveSnapshotId);
+        Assert.AreEqual(seedProofs.Length, harness.StateService.GetOnDeckList().Count);
+        Assert.IsTrue(activeBundle.SnapshotContexts.Any(context => context.SnapshotId == status.ActiveSnapshotId));
+        Assert.IsTrue(activeBundle.WorkSetProofs.All(proof => proof.PayoutSnapshotId == status.ActiveSnapshotId));
+    }
+
+    [TestMethod]
+    public async Task BitcoinBlockSnapshotUpdatesActiveWinnersWithoutRemovingWorkSetProofsAsync()
+    {
+        BootShareProof[] seedProofs =
+        [
+            CreateFakeProof("proof-a", 100, SampleSlotZeroAddress),
+            CreateFakeProof("proof-b", 50, AlternateAddress)
+        ];
+        using var harness = TestHarness.Create(
+            sharedWinnerSlotCount: 2,
+            onDeckProofs: seedProofs);
+
+        string previousSnapshotId = harness.StateService.GetNetworkStatus().ActiveSnapshotId;
+        BootNetworkStatusDto status = await harness.StateService.ObserveChainTipAsync(
+            "0000000000000000000000000000000000000000000000000000000000aaa001",
+            "test-chain-tip",
+            945001);
+
+        Assert.AreEqual(seedProofs.Length, status.WorkSetCount);
+        Assert.AreEqual(seedProofs.Length, status.ActiveSnapshotProofCount);
+        Assert.AreNotEqual(previousSnapshotId, status.ActiveSnapshotId);
+        CollectionAssert.AreEqual(
+            new[] { SampleSlotZeroAddress, AlternateAddress },
+            harness.StateService.GetWinnersList().Select(payout => payout.Address).ToArray());
+        Assert.AreEqual(seedProofs.Length, harness.StateService.GetOnDeckList().Count);
+    }
+
+    [TestMethod]
+    public async Task GridPoolPaymentRemovesOnlyPaidSnapshotProofsAndKeepsReserveProofsAsync()
+    {
+        BootShareProof[] seedProofs =
+        [
+            CreateFakeProof("proof-a", 100, SampleSlotZeroAddress),
+            CreateFakeProof("proof-b", 50, AlternateAddress),
+            CreateFakeProof("proof-c", 25, SampleSlotZeroAddress)
+        ];
+        using var harness = TestHarness.Create(
+            sharedWinnerSlotCount: 1,
+            workSetReserveMultiplier: 3,
+            onDeckProofs: seedProofs);
+
+        await harness.StateService.ObserveChainTipAsync(
+            "0000000000000000000000000000000000000000000000000000000000aaa101",
+            "test-chain-tip",
+            945001);
+
+        RoundRotationResult rotation = await harness.StateService.RotateToNextRoundAsync(
+            "0000000000000000000000000000000000000000000000000000000000aaa102",
+            "test-gridpool-block",
+            manual: false,
+            blockHeight: 945002);
+
+        Assert.IsTrue(rotation.Rotated, rotation.Reason);
+        Assert.AreEqual(2, rotation.NetworkStatus.WorkSetCount);
+        Assert.AreEqual(1, rotation.NetworkStatus.ActiveSnapshotProofCount);
+        Assert.AreEqual(rotation.LockedStateBundle!.PaidSnapshotProofIds.Count, 1);
+        Assert.AreEqual("proof-a", rotation.LockedStateBundle.PaidSnapshotProofIds[0]);
+        CollectionAssert.AreEqual(
+            new[] { "proof-b", "proof-c" },
+            rotation.LockedStateBundle.WorkSetProofs.Select(proof => proof.ShareId).ToArray());
+        Assert.AreEqual(AlternateAddress, harness.StateService.GetWinnersList()[0].Address);
+    }
+
+    [TestMethod]
+    public async Task ConsecutiveGridPoolBlocksWalkDeeperIntoReserveAsync()
+    {
+        BootShareProof[] seedProofs =
+        [
+            CreateFakeProof("proof-a", 100, SampleSlotZeroAddress),
+            CreateFakeProof("proof-b", 50, AlternateAddress),
+            CreateFakeProof("proof-c", 25, SampleSlotZeroAddress)
+        ];
+        using var harness = TestHarness.Create(
+            sharedWinnerSlotCount: 1,
+            workSetReserveMultiplier: 3,
+            onDeckProofs: seedProofs);
+
+        await harness.StateService.ObserveChainTipAsync(
+            "0000000000000000000000000000000000000000000000000000000000bbb101",
+            "test-chain-tip",
+            945001);
+        await harness.StateService.RotateToNextRoundAsync(
+            "0000000000000000000000000000000000000000000000000000000000bbb102",
+            "test-gridpool-block",
+            manual: false,
+            blockHeight: 945002);
+        RoundRotationResult secondPayment = await harness.StateService.RotateToNextRoundAsync(
+            "0000000000000000000000000000000000000000000000000000000000bbb103",
+            "test-gridpool-block",
+            manual: false,
+            blockHeight: 945003);
+
+        Assert.IsTrue(secondPayment.Rotated, secondPayment.Reason);
+        Assert.AreEqual(1, secondPayment.NetworkStatus.WorkSetCount);
+        Assert.AreEqual("proof-b", secondPayment.LockedStateBundle!.PaidSnapshotProofIds[0]);
+        Assert.AreEqual("proof-c", secondPayment.LockedStateBundle.WorkSetProofs[0].ShareId);
+        Assert.AreEqual(SampleSlotZeroAddress, harness.StateService.GetWinnersList()[0].Address);
+    }
+
+    [TestMethod]
+    public async Task SupportFeeSnapshotsUseCanonicalSlotAndFeeFreeSnapshotsUseAllProofSlotsAsync()
+    {
+        BootShareProof[] seedProofs =
+        [
+            CreateFakeProof("proof-a", 100, SampleSlotZeroAddress),
+            CreateFakeProof("proof-b", 50, SampleSlotZeroAddress),
+            CreateFakeProof("proof-c", 25, SampleSlotZeroAddress)
+        ];
+
+        using var feeHarness = TestHarness.Create(
+            sharedWinnerSlotCount: 3,
+            supportFeeEnabled: true,
+            onDeckProofs: seedProofs);
+        await feeHarness.StateService.ObserveChainTipAsync(
+            "0000000000000000000000000000000000000000000000000000000000ccc101",
+            "test-chain-tip",
+            945001);
+
+        List<PayoutInfo> feeWinners = feeHarness.StateService.GetWinnersList();
+        ulong expectedSlotValue = BootProtocolStateService.GetCurrentBlockSubsidySats(feeHarness.Config.BitcoinNetwork) /
+                                  (ulong)feeHarness.Config.TotalPayoutSlotCount;
+        Assert.AreEqual(3, feeWinners.Count);
+        Assert.AreEqual(AlternateAddress, feeWinners[0].Address);
+        Assert.AreEqual("Grid Labs support", feeWinners[0].Username);
+        Assert.AreEqual(expectedSlotValue, feeWinners[0].Value);
+        Assert.AreEqual(100, feeWinners[1].Difficulty);
+        Assert.AreEqual(50, feeWinners[2].Difficulty);
+
+        using var feeFreeHarness = TestHarness.Create(
+            sharedWinnerSlotCount: 3,
+            supportFeeEnabled: false,
+            onDeckProofs: seedProofs);
+        await feeFreeHarness.StateService.ObserveChainTipAsync(
+            "0000000000000000000000000000000000000000000000000000000000ccc201",
+            "test-chain-tip",
+            945001);
+
+        List<PayoutInfo> feeFreeWinners = feeFreeHarness.StateService.GetWinnersList();
+        Assert.AreEqual(3, feeFreeWinners.Count);
+        Assert.AreEqual(100, feeFreeWinners[0].Difficulty);
+        Assert.AreEqual(50, feeFreeWinners[1].Difficulty);
+        Assert.AreEqual(25, feeFreeWinners[2].Difficulty);
+        Assert.IsFalse(string.Equals(feeFreeWinners[0].Username, "Grid Labs support", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [TestMethod]
+    public async Task ShareMinedAgainstRetainedOldSnapshotContextValidatesAfterLaterSnapshotsAsync()
+    {
+        using var harness = TestHarness.Create(
+            onDeckProofs: [CreateFakeProof("context-anchor", 100, SampleSlotZeroAddress, "seed-current")]);
+        string oldSnapshotId = harness.StateService.GetNetworkStatus().ActiveSnapshotId;
+
+        await harness.StateService.ObserveChainTipAsync(
+            "0000000000000000000000000000000000000000000000000000000000ddd101",
+            "test-chain-tip",
+            945001);
+        await harness.StateService.ObserveChainTipAsync(
+            "0000000000000000000000000000000000000000000000000000000000ddd102",
+            "test-chain-tip",
+            945002);
+
+        ShareSubmissionDto oldSnapshotShare = CreateSampleShareDto();
+        oldSnapshotShare.PayoutSnapshotId = oldSnapshotId;
+        IActionResult response = await harness.MiningController.SubmitShare(oldSnapshotShare);
+        JsonObject payload = ParseObjectResult(response, StatusCodes.Status200OK);
+
+        Assert.AreEqual("accepted", payload["status"]?.GetValue<string>());
+        BootNetworkStatusDto status = harness.StateService.GetNetworkStatus();
+        Assert.AreEqual(2, status.WorkSetCount);
+    }
+
+    [TestMethod]
     public async Task LowerHeightChainTipObservationIsIgnoredWithoutRegressingTipAsync()
     {
         using var harness = TestHarness.Create();
@@ -682,7 +877,7 @@ public sealed class ShareAttributionTests
     [TestMethod]
     public async Task ShareAdviceEndpointReportsOnDeckEntryFloorAsync()
     {
-        using var harness = TestHarness.Create(sharedWinnerSlotCount: 1);
+        using var harness = TestHarness.Create(sharedWinnerSlotCount: 1, workSetReserveMultiplier: 1);
 
         IActionResult shareResponse = await harness.MiningController.SubmitShare(CreateSampleShareDto());
         JsonObject sharePayload = ParseObjectResult(shareResponse, StatusCodes.Status200OK);
@@ -783,6 +978,30 @@ public sealed class ShareAttributionTests
                 PrevBlockHash = SamplePrevBlockHash,
                 Source = "peer"
             }
+        };
+    }
+
+    private static BootShareProof CreateFakeProof(
+        string shareId,
+        double difficulty,
+        string minerAddress = SampleSlotZeroAddress,
+        string? payoutSnapshotId = null)
+    {
+        return new BootShareProof
+        {
+            ShareId = shareId,
+            MinerAddress = BitcoinScript.NormalizeAddress(minerAddress),
+            Username = minerAddress,
+            ScriptPubKeyHex = BitcoinScript.AddressToScriptPubKeyHex(minerAddress),
+            HeaderHex = SampleHeaderHex,
+            CoinbaseHex = SampleCoinbaseHex,
+            MerklePath = SampleMerklePath.ToList(),
+            PayoutSnapshotId = payoutSnapshotId,
+            PrevBlockHash = SamplePrevBlockHash,
+            Difficulty = difficulty,
+            DiffString = ClientHandler.FormatDifficulty(difficulty),
+            Source = "test-seed",
+            Timestamp = DateTime.UtcNow.AddSeconds(-difficulty)
         };
     }
 
@@ -1000,7 +1219,11 @@ public sealed class ShareAttributionTests
         public static TestHarness Create(
             string? currentTipBlockHash = null,
             int currentRoundNumber = 1,
-            int? sharedWinnerSlotCount = null)
+            int? sharedWinnerSlotCount = null,
+            int? workSetReserveMultiplier = null,
+            bool supportFeeEnabled = false,
+            IReadOnlyList<BootShareProof>? onDeckProofs = null,
+            int? seedMetadataProtocolVersion = null)
         {
             string? previousStatePath = Environment.GetEnvironmentVariable("BOOT_PORTAL_STATE_PATH");
             string? previousHistoryPath = Environment.GetEnvironmentVariable("BOOT_PORTAL_HISTORY_PATH");
@@ -1014,9 +1237,11 @@ public sealed class ShareAttributionTests
             var config = new PoolConfig
             {
                 BootNetworkId = "testnet",
-                BootProtocolVersion = 1,
+                BootProtocolVersion = 2,
                 WinnersListSize = sharedWinnerSlotCount ?? Math.Max(8, SampleExpectedWinners.Count),
-                PoolPayoutScript = SampleSlotZeroAddress
+                PoolPayoutScript = SampleSlotZeroAddress,
+                GridLabsSupportFeeEnabled = supportFeeEnabled,
+                WorkSetReserveMultiplier = workSetReserveMultiplier ?? 3
             };
 
             var seedState = new PoolState
@@ -1024,7 +1249,7 @@ public sealed class ShareAttributionTests
                 Metadata = new BootProtocolMetadata
                 {
                     NetworkId = config.BootNetworkId,
-                    ProtocolVersion = config.BootProtocolVersion
+                    ProtocolVersion = seedMetadataProtocolVersion ?? config.BootProtocolVersion
                 },
                 CurrentStateId = "seed-current",
                 CandidateStateId = "seed-candidate",
@@ -1034,7 +1259,7 @@ public sealed class ShareAttributionTests
                 AcceptedParentBlockHashes = [currentTipBlockHash ?? SamplePrevBlockHash],
                 WinnersList = SampleExpectedWinners.Select(ClonePayout).ToList(),
                 OnDeckList = [],
-                OnDeckProofs = []
+                OnDeckProofs = onDeckProofs?.Select(CloneProof).ToList() ?? []
             };
             File.WriteAllText(statePath, JsonSerializer.Serialize(seedState));
 
@@ -1080,6 +1305,26 @@ public sealed class ShareAttributionTests
                 Username = payout.Username,
                 Difficulty = payout.Difficulty,
                 DiffString = payout.DiffString
+            };
+        }
+
+        private static BootShareProof CloneProof(BootShareProof proof)
+        {
+            return new BootShareProof
+            {
+                ShareId = proof.ShareId,
+                MinerAddress = proof.MinerAddress,
+                Username = proof.Username,
+                ScriptPubKeyHex = proof.ScriptPubKeyHex,
+                HeaderHex = proof.HeaderHex,
+                CoinbaseHex = proof.CoinbaseHex,
+                MerklePath = proof.MerklePath.ToList(),
+                PayoutSnapshotId = proof.PayoutSnapshotId,
+                PrevBlockHash = proof.PrevBlockHash,
+                Difficulty = proof.Difficulty,
+                DiffString = proof.DiffString,
+                Source = proof.Source,
+                Timestamp = proof.Timestamp
             };
         }
     }

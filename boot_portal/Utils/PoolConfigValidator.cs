@@ -59,10 +59,17 @@ public static class PoolConfigValidator
             errors.Add("winners_list_size must be greater than 0");
         }
 
+        if (config.GridLabsSupportFeeEnabled && config.WinnersListSize < 2)
+        {
+            errors.Add("winners_list_size must be at least 2 when grid_labs_support_fee_enabled is true");
+        }
+
         if (config.WinnersListSize > 10_000)
         {
             errors.Add("winners_list_size is unreasonably large; expected 10000 or less");
         }
+
+        ValidatePositive(errors, config.WorkSetReserveMultiplier, "work_set_reserve_multiplier");
 
         if (config.MinDiff == 0)
         {

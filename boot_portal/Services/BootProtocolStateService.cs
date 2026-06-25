@@ -17,6 +17,8 @@ public class BootProtocolStateService
 {
     public const string GenesisFoundationAddress = "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3";
     public const string TestnetGenesisFoundationAddress = "mhK63i2JYNBsZ9aWcq6rhA1eCMFqp5MALL";
+    public const string GridLabsSupportAddress = "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y";
+    public const string TestnetGridLabsSupportAddress = TestnetGenesisFoundationAddress;
     private const ulong MainnetCurrentSubsidySats = 312_500_000;
     private const ulong Testnet4CurrentSubsidySats = 5_000_000_000;
 
@@ -32,6 +34,13 @@ public class BootProtocolStateService
         return BitcoinScript.NormalizeNetwork(bitcoinNetwork) == BitcoinScript.Testnet4
             ? Testnet4CurrentSubsidySats
             : MainnetCurrentSubsidySats;
+    }
+
+    public static string GetGridLabsSupportAddress(string? bitcoinNetwork)
+    {
+        return BitcoinScript.NormalizeNetwork(bitcoinNetwork) == BitcoinScript.Testnet4
+            ? TestnetGridLabsSupportAddress
+            : GridLabsSupportAddress;
     }
 
     private readonly DateTime _serviceStartedUtc = DateTime.UtcNow;
@@ -76,6 +85,7 @@ public class BootProtocolStateService
     private PoolState _state = new();
 
     private sealed record PeerRelayFirstArrival(DateTime TimestampUtc, string Transport);
+    private sealed record SnapshotValidationResult(BootShareValidationResult Validation, string SnapshotId);
 
     public event Func<string, Task>? WinnersListChanged;
     public event Func<string, Task>? WorkTemplatesInvalidated;
@@ -177,26 +187,32 @@ public class BootProtocolStateService
     {
         lock (_sync)
         {
-            List<double> onDeckDifficulties = _state.OnDeckProofs
+            List<double> workSetDifficulties = _state.OnDeckProofs
                 .Select(proof => proof.Difficulty)
                 .Where(difficulty => difficulty > 0)
                 .OrderByDescending(difficulty => difficulty)
                 .ToList();
+            List<double> onDeckDifficulties = workSetDifficulties
+                .Take(_poolConfig.SnapshotProofSlotCount)
+                .ToList();
+            double? workSetFloorDifficulty = workSetDifficulties.Count == 0
+                ? null
+                : workSetDifficulties[^1];
             double? floorDifficulty = onDeckDifficulties.Count == 0
                 ? null
                 : onDeckDifficulties[^1];
-            double? bestDifficulty = onDeckDifficulties.Count == 0
+            double? bestDifficulty = workSetDifficulties.Count == 0
                 ? null
-                : onDeckDifficulties[0];
-            int openSlots = Math.Max(0, _poolConfig.SharedWinnerSlotCount - _state.OnDeckProofs.Count);
+                : workSetDifficulties[0];
+            int openSlots = Math.Max(0, _poolConfig.WorkSetReserveLimit - _state.OnDeckProofs.Count);
             bool onDeckIsFull = openSlots == 0;
-            bool requiresStrictlyGreaterThanFloor = onDeckIsFull && floorDifficulty.HasValue;
+            bool requiresStrictlyGreaterThanFloor = onDeckIsFull && workSetFloorDifficulty.HasValue;
             double minimumDifficultyToEnter = requiresStrictlyGreaterThanFloor
-                ? Math.Max(1d, Math.BitIncrement(floorDifficulty!.Value))
+                ? Math.Max(1d, Math.BitIncrement(workSetFloorDifficulty!.Value))
                 : 1d;
             string submitRule = requiresStrictlyGreaterThanFloor
-                ? $"Submit only shares with computed difficulty greater than {ClientHandler.FormatDifficulty(floorDifficulty!.Value)}."
-                : "Submit any share with computed difficulty at least 1; open on-deck slots remain.";
+                ? $"Submit only shares with computed difficulty greater than {ClientHandler.FormatDifficulty(workSetFloorDifficulty!.Value)}."
+                : "Submit any share with computed difficulty at least 1; open work-set reserve slots remain.";
 
             return new MiningShareAdviceDto
             {
@@ -204,13 +220,18 @@ public class BootProtocolStateService
                 CurrentRoundNumber = _state.CurrentRoundNumber,
                 CurrentStateId = _state.CurrentStateId,
                 CandidateStateId = _state.CandidateStateId,
+                ActiveSnapshotId = _state.ActiveSnapshotId,
                 CurrentTipBlockHash = _state.CurrentTipBlockHash,
                 CurrentTipBlockHeight = _state.CurrentTipBlockHeight,
                 SharedWinnerSlotCount = _poolConfig.SharedWinnerSlotCount,
-                OnDeckCount = _state.OnDeckProofs.Count,
+                WorkSetCount = _state.OnDeckProofs.Count,
+                WorkSetReserveLimit = _poolConfig.WorkSetReserveLimit,
+                OnDeckCount = _state.OnDeckList.Count,
                 OpenOnDeckSlots = openSlots,
                 OnDeckIsFull = onDeckIsFull,
                 MinimumAcceptedDifficulty = 1d,
+                CurrentWorkSetFloorDifficulty = workSetFloorDifficulty,
+                CurrentWorkSetFloorDifficultyDisplay = workSetFloorDifficulty.HasValue ? ClientHandler.FormatDifficulty(workSetFloorDifficulty.Value) : "--",
                 CurrentOnDeckFloorDifficulty = floorDifficulty,
                 CurrentOnDeckFloorDifficultyDisplay = floorDifficulty.HasValue ? ClientHandler.FormatDifficulty(floorDifficulty.Value) : "--",
                 MinimumDifficultyToEnterOnDeck = minimumDifficultyToEnter,
@@ -1387,21 +1408,30 @@ public class BootProtocolStateService
         var validationStopwatch = Stopwatch.StartNew();
         List<PayoutInfo> winnersSnapshot;
         string currentStateSnapshot;
+        List<BootPayoutSnapshotContext> snapshotContextsSnapshot;
         List<string> acceptedParentBlockHashesSnapshot;
         lock (_sync)
         {
             winnersSnapshot = ClonePayouts(_state.WinnersList);
             currentStateSnapshot = _state.CurrentStateId;
+            snapshotContextsSnapshot = _state.SnapshotContexts.Select(CloneSnapshotContext).ToList();
             acceptedParentBlockHashesSnapshot = GetAcceptedParentBlockHashesNoLock();
         }
 
-        BootShareValidationResult validation = _shareVerifier.ValidateShare(share, winnersSnapshot, acceptedParentBlockHashesSnapshot);
+        SnapshotValidationResult snapshotValidation = ValidateShareAgainstKnownSnapshots(
+            share,
+            winnersSnapshot,
+            snapshotContextsSnapshot,
+            acceptedParentBlockHashesSnapshot);
+        BootShareValidationResult validation = snapshotValidation.Validation;
+        string matchedSnapshotId = snapshotValidation.SnapshotId;
         if (!validation.IsValid && IsWrongParentRejection(validation.RejectionReason))
         {
-            BootShareValidationResult freshParentValidation = _shareVerifier.ValidateShare(
+            SnapshotValidationResult freshParentSnapshotValidation = ValidateShareAgainstKnownSnapshotsIgnoringParent(
                 share,
                 winnersSnapshot,
-                expectedPrevBlockHashes: []);
+                snapshotContextsSnapshot);
+            BootShareValidationResult freshParentValidation = freshParentSnapshotValidation.Validation;
             if (IsTrustedFreshParentSource(share.Source))
             {
                 if (!freshParentValidation.IsValid)
@@ -1425,6 +1455,7 @@ public class BootProtocolStateService
                 else if (TryLearnFreshParentFromTrustedShare(share.Source, freshParentValidation, currentStateSnapshot))
                 {
                     validation = freshParentValidation;
+                    matchedSnapshotId = freshParentSnapshotValidation.SnapshotId;
                 }
                 else
                 {
@@ -1543,7 +1574,8 @@ public class BootProtocolStateService
         bool shouldNotifyNetwork = false;
         lock (_sync)
         {
-            if (!string.Equals(currentStateSnapshot, _state.CurrentStateId, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(currentStateSnapshot, _state.CurrentStateId, StringComparison.OrdinalIgnoreCase) &&
+                !HasSnapshotContextNoLock(matchedSnapshotId))
             {
                 RecordShareDiagnosticNoLock(
                     share.Source,
@@ -1614,6 +1646,9 @@ public class BootProtocolStateService
             }
 
             BootShareProof proof = CreateProofNoLock(validation, share.Source);
+            proof.PayoutSnapshotId = string.IsNullOrWhiteSpace(matchedSnapshotId)
+                ? _state.ActiveSnapshotId
+                : matchedSnapshotId;
             if (!RememberShareIdNoLock(proof.ShareId))
             {
                 RecordShareDiagnosticNoLock(
@@ -1659,7 +1694,7 @@ public class BootProtocolStateService
                 insertIndex++;
             }
 
-            bool affectedOnDeck = insertIndex < _poolConfig.SharedWinnerSlotCount;
+            bool affectedOnDeck = insertIndex < _poolConfig.WorkSetReserveLimit;
             if (affectedOnDeck)
             {
                 _state.OnDeckProofs.Insert(insertIndex, proof);
@@ -1670,7 +1705,7 @@ public class BootProtocolStateService
                 .ThenBy(x => x.ShareId, StringComparer.Ordinal)
                 .ToList();
 
-            while (_state.OnDeckProofs.Count > _poolConfig.SharedWinnerSlotCount)
+            while (_state.OnDeckProofs.Count > _poolConfig.WorkSetReserveLimit)
             {
                 _state.OnDeckProofs.RemoveAt(_state.OnDeckProofs.Count - 1);
             }
@@ -1756,6 +1791,143 @@ public class BootProtocolStateService
         return result;
     }
 
+    private SnapshotValidationResult ValidateShareAgainstKnownSnapshots(
+        RecordedShareSubmission share,
+        IReadOnlyList<PayoutInfo> currentWinners,
+        IReadOnlyCollection<BootPayoutSnapshotContext> snapshotContexts,
+        IReadOnlyCollection<string> expectedPrevBlockHashes)
+    {
+        List<BootPayoutSnapshotContext> orderedContexts = snapshotContexts
+            .Where(context => !string.IsNullOrWhiteSpace(context.SnapshotId))
+            .OrderByDescending(context => context.CreatedAtUtc)
+            .ToList();
+
+        IEnumerable<BootPayoutSnapshotContext> preferredContexts = string.IsNullOrWhiteSpace(share.PayoutSnapshotId)
+            ? orderedContexts
+            : orderedContexts
+                .Where(context => string.Equals(context.SnapshotId, share.PayoutSnapshotId, StringComparison.OrdinalIgnoreCase))
+                .Concat(orderedContexts.Where(context => !string.Equals(context.SnapshotId, share.PayoutSnapshotId, StringComparison.OrdinalIgnoreCase)));
+
+        BootShareValidationResult firstFailure = _shareVerifier.ValidateShare(share, currentWinners, expectedPrevBlockHashes);
+        if (firstFailure.IsValid)
+        {
+            string snapshotId = orderedContexts.FirstOrDefault(context => WinnersMatch(context.WinnersList, currentWinners))?.SnapshotId
+                ?? string.Empty;
+            return new SnapshotValidationResult(firstFailure, snapshotId);
+        }
+
+        foreach (BootPayoutSnapshotContext context in preferredContexts)
+        {
+            foreach (List<PayoutInfo> payoutVariant in GetSnapshotPayoutVariants(context))
+            {
+                BootShareValidationResult validation = _shareVerifier.ValidateShare(share, payoutVariant, expectedPrevBlockHashes);
+                if (validation.IsValid)
+                {
+                    return new SnapshotValidationResult(validation, context.SnapshotId);
+                }
+
+                firstFailure = PreferInformativeFailure(firstFailure, validation);
+            }
+        }
+
+        return new SnapshotValidationResult(firstFailure, string.Empty);
+    }
+
+    private SnapshotValidationResult ValidateShareAgainstKnownSnapshotsIgnoringParent(
+        RecordedShareSubmission share,
+        IReadOnlyList<PayoutInfo> currentWinners,
+        IReadOnlyCollection<BootPayoutSnapshotContext> snapshotContexts)
+    {
+        return ValidateShareAgainstKnownSnapshots(share, currentWinners, snapshotContexts, []);
+    }
+
+    private SnapshotValidationResult ValidateProofAgainstKnownSnapshots(
+        BootShareProof proof,
+        IReadOnlyList<PayoutInfo> currentWinners,
+        IReadOnlyCollection<BootPayoutSnapshotContext> snapshotContexts,
+        IReadOnlyCollection<string> expectedPrevBlockHashes)
+    {
+        List<BootPayoutSnapshotContext> orderedContexts = snapshotContexts
+            .Where(context => !string.IsNullOrWhiteSpace(context.SnapshotId))
+            .OrderByDescending(context => context.CreatedAtUtc)
+            .ToList();
+
+        IEnumerable<BootPayoutSnapshotContext> preferredContexts = string.IsNullOrWhiteSpace(proof.PayoutSnapshotId)
+            ? orderedContexts
+            : orderedContexts
+                .Where(context => string.Equals(context.SnapshotId, proof.PayoutSnapshotId, StringComparison.OrdinalIgnoreCase))
+                .Concat(orderedContexts.Where(context => !string.Equals(context.SnapshotId, proof.PayoutSnapshotId, StringComparison.OrdinalIgnoreCase)));
+
+        BootShareValidationResult firstFailure = _shareVerifier.ValidateShare(proof, currentWinners, expectedPrevBlockHashes);
+        if (firstFailure.IsValid)
+        {
+            string snapshotId = orderedContexts.FirstOrDefault(context => WinnersMatch(context.WinnersList, currentWinners))?.SnapshotId
+                ?? proof.PayoutSnapshotId
+                ?? string.Empty;
+            return new SnapshotValidationResult(firstFailure, snapshotId);
+        }
+
+        foreach (BootPayoutSnapshotContext context in preferredContexts)
+        {
+            foreach (List<PayoutInfo> payoutVariant in GetSnapshotPayoutVariants(context))
+            {
+                BootShareValidationResult validation = _shareVerifier.ValidateShare(proof, payoutVariant, expectedPrevBlockHashes);
+                if (validation.IsValid)
+                {
+                    return new SnapshotValidationResult(validation, context.SnapshotId);
+                }
+
+                firstFailure = PreferInformativeFailure(firstFailure, validation);
+            }
+        }
+
+        return new SnapshotValidationResult(firstFailure, proof.PayoutSnapshotId ?? string.Empty);
+    }
+
+    private static BootShareValidationResult PreferInformativeFailure(
+        BootShareValidationResult current,
+        BootShareValidationResult candidate)
+    {
+        if (current.IsValid || !string.IsNullOrWhiteSpace(current.RejectionReason))
+        {
+            return current;
+        }
+
+        return candidate;
+    }
+
+    private List<List<PayoutInfo>> GetSnapshotPayoutVariants(BootPayoutSnapshotContext context)
+    {
+        var variants = new List<List<PayoutInfo>>();
+        if (context.WinnersList.Count > 0)
+        {
+            variants.Add(ClonePayouts(context.WinnersList));
+        }
+
+        if (context.FeeFreeWinnersList.Count > 0 &&
+            !variants.Any(existing => WinnersMatch(existing, context.FeeFreeWinnersList)))
+        {
+            variants.Add(ClonePayouts(context.FeeFreeWinnersList));
+        }
+
+        return variants;
+    }
+
+    private static List<BootShareProof> SortAndTrimProofs(IEnumerable<BootShareProof> proofs, int limit)
+    {
+        return proofs
+            .GroupBy(proof => proof.ShareId, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group
+                .OrderByDescending(proof => proof.Difficulty)
+                .ThenBy(proof => proof.Timestamp)
+                .First())
+            .OrderByDescending(x => x.Difficulty)
+            .ThenBy(x => x.ShareId, StringComparer.Ordinal)
+            .Take(Math.Max(0, limit))
+            .Select(CloneProof)
+            .ToList();
+    }
+
     public async Task<ShareRecordingResult> SubmitShareAsync(RecordedShareSubmission share, string blockSource)
     {
         ShareRecordingResult result = await RecordShareAsync(share);
@@ -1784,9 +1956,6 @@ public class BootProtocolStateService
         bool winnersChanged = false;
         lock (_sync)
         {
-            List<PayoutInfo> previousWinnersSnapshot = ClonePayouts(_state.WinnersList);
-            string previousStateId = _state.CurrentStateId;
-            int previousCurrentRoundNumber = _state.CurrentRoundNumber;
             string? previousTipBlockHash = NormalizeCanonicalBlockHash(_state.CurrentTipBlockHash);
             long? previousTipBlockHeight = _state.CurrentTipBlockHeight;
             string? submittedBlockHash = NormalizeCanonicalBlockHash(blockHash);
@@ -1834,40 +2003,55 @@ public class BootProtocolStateService
                 };
             }
 
+            DateTime nowUtc = DateTime.UtcNow;
             if (manual && _state.OnDeckProofs.Count == 0)
             {
                 _state.CurrentTipBlockHash = effectiveBlockHash;
                 _state.CurrentTipBlockHeight = effectiveBlockHeight;
                 ResetAcceptedParentBlockHashesNoLock(effectiveBlockHash);
-                _state.LastRotationUtc = DateTime.UtcNow;
+                _state.LastRotationUtc = nowUtc;
                 _state.OnDeckProofs = [];
                 _state.OnDeckList = [];
             }
+            else if (manual)
+            {
+                _state.OnDeckProofs = [];
+                _state.OnDeckList = [];
+                ApplySnapshotFromWorkSetNoLock(effectiveBlockHash, effectiveBlockHeight, "manual-reset", nowUtc, advanceRound: true);
+                winnersChanged = true;
+            }
             else
             {
+                EnsureActiveSnapshotNoLock(nowUtc);
+                string previousStateId = _state.CurrentStateId;
+                string paidSnapshotId = _state.ActiveSnapshotId;
+                BootPayoutSnapshotContext? paidContext = _state.SnapshotContexts
+                    .FirstOrDefault(context => string.Equals(context.SnapshotId, paidSnapshotId, StringComparison.OrdinalIgnoreCase));
+                List<PayoutInfo> paidWinners = paidContext == null
+                    ? ClonePayouts(_state.WinnersList)
+                    : ClonePayouts(paidContext.WinnersList);
+
+                ApplyPaidSnapshotRemovalNoLock(source, effectiveBlockHash, effectiveBlockHeight, nowUtc);
+                _state.CurrentTipBlockHash = effectiveBlockHash;
+                _state.CurrentTipBlockHeight = effectiveBlockHeight;
+                PreserveAcceptedParentContinuityAfterRotationNoLock(previousTipBlockHash, effectiveBlockHash);
+                ApplySnapshotFromWorkSetNoLock(effectiveBlockHash, effectiveBlockHeight, source, nowUtc, advanceRound: true);
+
                 BootStateBundle lockedBundle = BuildBundleFromCurrentCandidateNoLock();
-                lockedBundle.StateId = ComputeStateIdNoLock(_state.OnDeckProofs, effectiveBlockHash);
+                lockedBundle.StateId = _state.CurrentStateId;
                 lockedBundle.PreviousStateId = previousStateId;
-                lockedBundle.Kind = manual ? "manual-rotation" : source;
-                lockedBundle.CurrentRoundNumber = previousCurrentRoundNumber + 1;
+                lockedBundle.Kind = source;
+                lockedBundle.CurrentRoundNumber = _state.CurrentRoundNumber;
                 lockedBundle.LockedByBlockHash = effectiveBlockHash;
                 lockedBundle.LockedByBlockHeight = effectiveBlockHeight;
                 lockedBundle.ParentBlockHash = previousTipBlockHash;
                 lockedBundle.ParentBlockHeight = previousTipBlockHeight;
-                lockedBundle.CreatedAtUtc = DateTime.UtcNow;
+                lockedBundle.CreatedAtUtc = nowUtc;
                 lockedBundle.ValidParentBlockHashes = GetAcceptedParentBlockHashesNoLock();
-                lockedBundle.ProofWinnersList = previousWinnersSnapshot;
+                lockedBundle.ProofWinnersList = paidWinners;
+                lockedBundle.PaidSnapshotId = paidSnapshotId;
+                lockedBundle.PaidSnapshotProofIds = _state.LastPaidSnapshotProofIds.ToList();
                 lockedBundle.Commitment = BuildCommitmentNoLock();
-
-                _state.CurrentTipBlockHash = effectiveBlockHash;
-                _state.CurrentTipBlockHeight = effectiveBlockHeight;
-                PreserveAcceptedParentContinuityAfterRotationNoLock(previousTipBlockHash, effectiveBlockHash);
-                _state.LastRotationUtc = DateTime.UtcNow;
-                _state.CurrentStateId = lockedBundle.StateId;
-                _state.CurrentRoundNumber = lockedBundle.CurrentRoundNumber;
-                _state.WinnersList = ClonePayouts(lockedBundle.WinnersList);
-                _state.OnDeckProofs = [];
-                _state.OnDeckList = [];
                 UpsertArchivedBundleNoLock(lockedBundle);
                 winnersChanged = true;
             }
@@ -1879,7 +2063,7 @@ public class BootProtocolStateService
                 source,
                 manual && !winnersChanged
                     ? "Manual reset cleared the active On Deck state and preserved the current Winners List."
-                    : manual ? "Manual reset completed." : $"Round rotated from {source}.",
+                    : manual ? "Manual reset completed." : $"GridPool block paid the active snapshot and activated the next payout snapshot from {source}.",
                 effectiveBlockHash,
                 effectiveBlockHeight);
             RequestDeferredSaveNoLock();
@@ -1890,7 +2074,7 @@ public class BootProtocolStateService
                 Rotated = !manual || winnersChanged,
                 Reason = manual && !winnersChanged
                     ? "Manual reset cleared On Deck state and preserved the current Winners List"
-                    : manual ? "Manual reset completed" : $"Round rotated from {source}",
+                    : manual ? "Manual reset completed" : $"GridPool block paid active snapshot from {source}",
                 BlockHash = effectiveBlockHash,
                 WinnersList = ClonePayouts(_state.WinnersList),
                 OnDeckList = ClonePayouts(_state.OnDeckList),
@@ -1977,6 +2161,9 @@ public class BootProtocolStateService
         long? effectiveBlockHeight;
         bool shouldRotateTestRound = false;
         bool metadataChanged = false;
+        bool snapshotChanged = false;
+        List<PayoutInfo> winnersSnapshot = [];
+        List<PayoutInfo> onDeckSnapshot = [];
         lock (_sync)
         {
             normalizedBlockHash = NormalizeCanonicalBlockHash(blockHash);
@@ -2030,48 +2217,49 @@ public class BootProtocolStateService
             {
                 _state.LastTestingTriggerBlockHash = normalizedBlockHash;
                 _state.LastTestingTriggerBlockHeight = effectiveBlockHeight;
-                UpdateKnownBlockHeightNoLock(normalizedBlockHash, effectiveBlockHeight);
                 RecordNetworkEventNoLock(
                     "chain-tip",
                     source,
-                    "Observed chain tip that qualified for deterministic test rotation.",
+                    "Observed chain tip that qualified for deterministic test marker; v2 consensus snapshots without payment on chain tips.",
                     normalizedBlockHash,
                     effectiveBlockHeight);
-                RequestDeferredSaveNoLock();
-                RequestDeferredHistorySaveNoLock();
-                status = BuildNetworkStatusNoLock();
             }
-            else
-            {
-                _state.CurrentTipBlockHash = normalizedBlockHash;
-                _state.CurrentTipBlockHeight = effectiveBlockHeight;
-                RememberAcceptedParentBlockHashNoLock(normalizedBlockHash);
-                UpdateKnownBlockHeightNoLock(normalizedBlockHash, effectiveBlockHeight);
-                _state.CandidateStateId = ComputeCandidateStateIdNoLock();
-                CacheCurrentCandidateBundleNoLock();
-                RecordNetworkEventNoLock("chain-tip", source, null, normalizedBlockHash, effectiveBlockHeight);
-                RequestDeferredSaveNoLock();
-                RequestDeferredHistorySaveNoLock();
 
-                status = BuildNetworkStatusNoLock();
-            }
+            _state.CurrentTipBlockHash = normalizedBlockHash;
+            _state.CurrentTipBlockHeight = effectiveBlockHeight;
+            RememberAcceptedParentBlockHashNoLock(normalizedBlockHash);
+            UpdateKnownBlockHeightNoLock(normalizedBlockHash, effectiveBlockHeight);
+            snapshotChanged = ApplySnapshotFromWorkSetNoLock(
+                normalizedBlockHash,
+                effectiveBlockHeight,
+                $"chain-tip:{source}",
+                DateTime.UtcNow,
+                advanceRound: true);
+            RequestDeferredSaveNoLock();
+            RequestDeferredHistorySaveNoLock();
+
+            status = BuildNetworkStatusNoLock();
+            winnersSnapshot = ClonePayouts(_state.WinnersList);
+            onDeckSnapshot = ClonePayouts(_state.OnDeckList);
         }
 
         if (shouldRotateTestRound && !string.IsNullOrWhiteSpace(normalizedBlockHash))
         {
             _logger.LogWarning(
-                "Deterministic test round trigger fired from {Source}: {BlockHash}",
+                "Deterministic test marker fired from {Source}: {BlockHash}",
                 source,
                 normalizedBlockHash);
-            RoundRotationResult rotation = await RotateToNextRoundAsync(
-                normalizedBlockHash,
-                $"test-trigger:{source}",
-                manual: false,
-                blockHeight: effectiveBlockHeight);
-            return rotation.NetworkStatus;
         }
 
         _logger.LogInformation("Observed new chain tip from {Source}: {BlockHash}", source, blockHash);
+        if (snapshotChanged)
+        {
+            await _hubContext.Clients.All.SendAsync("UpdateWinners", winnersSnapshot);
+            await _hubContext.Clients.All.SendAsync("UpdateOnDeck", onDeckSnapshot);
+            await _hubContext.Clients.All.SendAsync("UpdateRoundHistory", GetRoundHistory());
+            await NotifyWinnersListChangedAsync($"chain-tip:{source}");
+        }
+
         await _hubContext.Clients.All.SendAsync("UpdateNetworkState", status);
         await NotifyWorkTemplatesInvalidatedAsync($"chain-tip:{source}");
         return status;
@@ -2084,7 +2272,13 @@ public class BootProtocolStateService
             return false;
         }
 
-        if (bundle.WinnersList.Count > _poolConfig.SharedWinnerSlotCount || bundle.ShareProofs.Count > _poolConfig.SharedWinnerSlotCount)
+        List<BootShareProof> remoteWorkSetProofs = bundle.WorkSetProofs.Count > 0
+            ? bundle.WorkSetProofs
+            : bundle.ShareProofs;
+
+        if (bundle.WinnersList.Count > _poolConfig.WinnersListSize ||
+            bundle.ShareProofs.Count > _poolConfig.SnapshotProofSlotCount ||
+            remoteWorkSetProofs.Count > _poolConfig.WorkSetReserveLimit)
         {
             return false;
         }
@@ -2104,7 +2298,7 @@ public class BootProtocolStateService
         List<string> remoteAcceptedParentBlockHashes = NormalizeAcceptedParentBlockHashes(
             bundle.ValidParentBlockHashes
                 .Append(bundle.ParentBlockHash ?? string.Empty)
-                .Concat(bundle.ShareProofs.Select(proof => proof.PrevBlockHash)));
+                .Concat(remoteWorkSetProofs.Select(proof => proof.PrevBlockHash)));
         List<string> validationParentBlockHashes = MergeAcceptedParentBlockHashes(
             acceptedParentBlockHashesSnapshot,
             remoteAcceptedParentBlockHashes);
@@ -2134,7 +2328,12 @@ public class BootProtocolStateService
             IReadOnlyList<PayoutInfo> proofWinners = bundle.ProofWinnersList.Count > 0
                 ? bundle.ProofWinnersList
                 : winnersSnapshot;
-            validatedProofs = ValidateImportedProofs(bundle.ShareProofs, proofWinners, validationParentBlockHashes, $"peer-state:{sourceEndpoint}");
+            validatedProofs = ValidateImportedProofs(
+                remoteWorkSetProofs,
+                proofWinners,
+                validationParentBlockHashes,
+                $"peer-state:{sourceEndpoint}",
+                bundle.SnapshotContexts);
             expectedPayouts = BuildPayoutsFromProofs(validatedProofs);
             totalDifficulty = validatedProofs.Sum(x => x.Difficulty);
         }
@@ -2183,8 +2382,12 @@ public class BootProtocolStateService
                 return false;
             }
 
-            _state.OnDeckProofs = validatedProofs.Select(CloneProof).ToList();
-            _state.OnDeckList = ClonePayouts(expectedPayouts);
+            _state.OnDeckProofs = SortAndTrimProofs(validatedProofs, _poolConfig.WorkSetReserveLimit);
+            foreach (BootPayoutSnapshotContext context in bundle.SnapshotContexts)
+            {
+                UpsertSnapshotContextNoLock(context);
+            }
+            RebuildOnDeckListNoLock();
             SetAcceptedParentBlockHashesNoLock(mergedAcceptedParentBlockHashes, _state.CurrentTipBlockHash);
             _state.CandidateStateId = bundle.StateId;
             CacheCandidateBundleNoLock(bundle);
@@ -2216,7 +2419,9 @@ public class BootProtocolStateService
             return false;
         }
 
-        if (bundle.WinnersList.Count > _poolConfig.SharedWinnerSlotCount || bundle.ShareProofs.Count > _poolConfig.SharedWinnerSlotCount)
+        if (bundle.WinnersList.Count > _poolConfig.WinnersListSize ||
+            bundle.ShareProofs.Count > _poolConfig.SnapshotProofSlotCount ||
+            bundle.WorkSetProofs.Count > _poolConfig.WorkSetReserveLimit)
         {
             return false;
         }
@@ -2259,6 +2464,7 @@ public class BootProtocolStateService
 
         bool prooflessCurrentSnapshot = bundle.ShareProofs.Count == 0 && bundle.WinnersList.Count > 0;
         List<BootShareProof> validatedProofs;
+        List<BootShareProof> validatedWorkSetProofs = [];
         List<PayoutInfo> expectedPayouts;
         string expectedStateId;
         string legacyExpectedStateId;
@@ -2291,7 +2497,17 @@ public class BootProtocolStateService
                     bundle.ShareProofs,
                     proofWinners,
                     lockedStateParentBlockHashes,
-                    $"peer-locked:{sourceEndpoint}");
+                    $"peer-locked:{sourceEndpoint}",
+                    bundle.SnapshotContexts);
+                if (bundle.WorkSetProofs.Count > 0)
+                {
+                    validatedWorkSetProofs = ValidateImportedProofs(
+                        bundle.WorkSetProofs,
+                        proofWinners,
+                        lockedStateParentBlockHashes,
+                        $"peer-workset:{sourceEndpoint}",
+                        bundle.SnapshotContexts);
+                }
                 expectedPayouts = BuildPayoutsFromProofs(validatedProofs);
             }
             catch (Exception ex)
@@ -2363,35 +2579,68 @@ public class BootProtocolStateService
                 return false;
             }
 
-            _state.CurrentStateId = bundle.StateId;
+            string adoptedStateId = string.IsNullOrWhiteSpace(bundle.StateId)
+                ? (string.IsNullOrWhiteSpace(bundle.LockedByBlockHash) ? legacyExpectedStateId : expectedStateId)
+                : bundle.StateId;
+            string adoptedActiveSnapshotId = string.IsNullOrWhiteSpace(bundle.ActiveSnapshotId)
+                ? adoptedStateId
+                : bundle.ActiveSnapshotId;
+
+            _state.CurrentStateId = adoptedStateId;
             _state.CurrentRoundNumber = Math.Max(0, bundle.CurrentRoundNumber);
             _state.LastRotationUtc = bundle.CreatedAtUtc == default ? DateTime.UtcNow : bundle.CreatedAtUtc;
             _state.WinnersList = ClonePayouts(expectedPayouts);
             _state.CurrentTipBlockHash = observedTipSnapshot ?? currentTipSnapshot;
             _state.CurrentTipBlockHeight = observedTipBlockHeight ?? bundle.LockedByBlockHeight ?? _state.CurrentTipBlockHeight;
             TrimAcceptedParentBlockHashesToRoundNoLock(lockedTipSnapshot, _state.CurrentTipBlockHash);
-            _state.OnDeckProofs = [];
-            _state.OnDeckList = [];
+            _state.ActiveSnapshotId = adoptedActiveSnapshotId;
+            _state.ActiveSnapshotProofIds = (bundle.ActiveSnapshotProofIds ?? []).ToList();
+            if (_state.ActiveSnapshotProofIds.Count == 0 && validatedProofs.Count > 0)
+            {
+                _state.ActiveSnapshotProofIds = validatedProofs.Select(proof => proof.ShareId).ToList();
+            }
+            _state.LastPaidSnapshotId = bundle.PaidSnapshotId;
+            _state.LastPaidSnapshotProofIds = (bundle.PaidSnapshotProofIds ?? []).ToList();
+            foreach (BootPayoutSnapshotContext context in bundle.SnapshotContexts)
+            {
+                UpsertSnapshotContextNoLock(context);
+            }
+            _state.OnDeckProofs = SortAndTrimProofs(
+                validatedWorkSetProofs.Count > 0 ? validatedWorkSetProofs : _state.OnDeckProofs,
+                _poolConfig.WorkSetReserveLimit);
+            RebuildOnDeckListNoLock();
             foreach (var proof in validatedProofs)
+            {
+                RememberShareIdNoLock(proof.ShareId);
+            }
+            foreach (var proof in _state.OnDeckProofs)
             {
                 RememberShareIdNoLock(proof.ShareId);
             }
 
             BootStateBundle lockedBundle = CloneBundle(bundle);
             lockedBundle.ShareProofs = validatedProofs.Select(CloneProof).ToList();
+            lockedBundle.WorkSetProofs = _state.OnDeckProofs.Select(CloneProof).ToList();
             lockedBundle.WinnersList = ClonePayouts(expectedPayouts);
             lockedBundle.ProofWinnersList = ClonePayouts(bundle.ProofWinnersList.Count > 0
                 ? bundle.ProofWinnersList
                 : currentWinnersSnapshot);
             lockedBundle.PreviousStateId = bundle.PreviousStateId;
             lockedBundle.CurrentRoundNumber = Math.Max(0, bundle.CurrentRoundNumber);
-            lockedBundle.StateId = string.IsNullOrWhiteSpace(bundle.LockedByBlockHash) ? legacyExpectedStateId : expectedStateId;
+            lockedBundle.StateId = adoptedStateId;
             lockedBundle.TotalDifficulty = remoteLockedTotalDifficulty;
             lockedBundle.LockedByBlockHash = lockedTipSnapshot;
             lockedBundle.LockedByBlockHeight = lockedTipHeightSnapshot;
             lockedBundle.ParentBlockHash = BitcoinHashes.NormalizeHex(bundle.ParentBlockHash);
             lockedBundle.ParentBlockHeight = bundle.ParentBlockHeight;
             lockedBundle.ValidParentBlockHashes = GetAcceptedParentBlockHashesNoLock();
+            lockedBundle.ActiveSnapshotId = adoptedActiveSnapshotId;
+            lockedBundle.ActiveSnapshotProofIds = _state.ActiveSnapshotProofIds.ToList();
+            lockedBundle.PaidSnapshotId = _state.LastPaidSnapshotId;
+            lockedBundle.PaidSnapshotProofIds = _state.LastPaidSnapshotProofIds.ToList();
+            lockedBundle.SupportFeeEnabled = _poolConfig.GridLabsSupportFeeEnabled;
+            lockedBundle.PayoutVariant = BuildPayoutVariantNoLock();
+            lockedBundle.SnapshotContexts = _state.SnapshotContexts.Select(CloneSnapshotContext).ToList();
             lockedBundle.Commitment = BuildCommitmentNoLock();
             UpsertArchivedBundleNoLock(lockedBundle);
 
@@ -2437,13 +2686,14 @@ public class BootProtocolStateService
             return false;
         }
 
-        if (bundle.WinnersList.Count > _poolConfig.SharedWinnerSlotCount)
+        if (bundle.WinnersList.Count > _poolConfig.WinnersListSize ||
+            bundle.WorkSetProofs.Count > _poolConfig.WorkSetReserveLimit)
         {
             _logger.LogDebug(
                 "Rejected bootstrap state from {SourceEndpoint}: winners count {Count} exceeds configured shared slots {MaxCount}.",
                 sourceEndpoint,
                 bundle.WinnersList.Count,
-                _poolConfig.SharedWinnerSlotCount);
+                _poolConfig.WinnersListSize);
             return false;
         }
 
@@ -2509,8 +2759,16 @@ public class BootProtocolStateService
             _state.CurrentRoundNumber = Math.Max(0, bundle.CurrentRoundNumber);
             _state.LastRotationUtc = bundle.CreatedAtUtc == default ? DateTime.UtcNow : bundle.CreatedAtUtc;
             _state.WinnersList = ClonePayouts(bundle.WinnersList);
-            _state.OnDeckProofs = [];
-            _state.OnDeckList = [];
+            _state.ActiveSnapshotId = string.IsNullOrWhiteSpace(bundle.ActiveSnapshotId) ? _state.CurrentStateId : bundle.ActiveSnapshotId;
+            _state.ActiveSnapshotProofIds = (bundle.ActiveSnapshotProofIds ?? []).ToList();
+            _state.LastPaidSnapshotId = bundle.PaidSnapshotId;
+            _state.LastPaidSnapshotProofIds = (bundle.PaidSnapshotProofIds ?? []).ToList();
+            foreach (BootPayoutSnapshotContext context in bundle.SnapshotContexts)
+            {
+                UpsertSnapshotContextNoLock(context);
+            }
+            _state.OnDeckProofs = SortAndTrimProofs(bundle.WorkSetProofs, _poolConfig.WorkSetReserveLimit);
+            RebuildOnDeckListNoLock();
 
             BootStateBundle lockedBundle = CloneBundle(bundle);
             lockedBundle.PreviousStateId = bundle.PreviousStateId;
@@ -2520,6 +2778,7 @@ public class BootProtocolStateService
             lockedBundle.ValidParentBlockHashes = GetAcceptedParentBlockHashesNoLock();
             lockedBundle.WinnersList = ClonePayouts(bundle.WinnersList);
             lockedBundle.ProofWinnersList = ClonePayouts(bundle.ProofWinnersList);
+            lockedBundle.WorkSetProofs = _state.OnDeckProofs.Select(CloneProof).ToList();
             lockedBundle.Commitment = BuildCommitmentNoLock();
             UpsertArchivedBundleNoLock(lockedBundle);
 
@@ -2654,12 +2913,27 @@ public class BootProtocolStateService
             CurrentTipBlockHeight = null,
             LastTestingTriggerBlockHeight = null,
             LastRotationUtc = ResolveConfiguredGenesisRoundStartUtcNoLock(),
-            GenesisRoundStartedUtc = ResolveConfiguredGenesisRoundStartUtcNoLock()
+            GenesisRoundStartedUtc = ResolveConfiguredGenesisRoundStartUtcNoLock(),
+            SupportFeeEnabled = _poolConfig.GridLabsSupportFeeEnabled,
+            PayoutVariant = BuildPayoutVariantNoLock()
         };
 
         _state.WinnersList = BuildGenesisWinnersListNoLock();
         _state.CurrentStateId = ComputeStateIdFromPayoutsNoLock(_state.WinnersList, null);
+        _state.ActiveSnapshotId = _state.CurrentStateId;
+        _state.ActiveSnapshotProofIds = [];
         _state.CandidateStateId = ComputeCandidateStateIdNoLock();
+        UpsertSnapshotContextNoLock(new BootPayoutSnapshotContext
+        {
+            SnapshotId = _state.ActiveSnapshotId,
+            CurrentRoundNumber = _state.CurrentRoundNumber,
+            CreatedAtUtc = _state.LastRotationUtc ?? DateTime.UtcNow,
+            SupportFeeEnabled = _poolConfig.GridLabsSupportFeeEnabled,
+            PayoutVariant = BuildPayoutVariantNoLock(),
+            ProofIds = [],
+            WinnersList = ClonePayouts(_state.WinnersList),
+            FeeFreeWinnersList = RemoveSupportFeePayoutsNoLock(_state.WinnersList)
+        });
         EnsureGenesisRoundStartNoLock(DateTime.UtcNow);
     }
 
@@ -2685,8 +2959,7 @@ public class BootProtocolStateService
 
     private ulong GetSharedPayoutValueSatsNoLock(int sharedPayoutCount)
     {
-        int payoutCount = Math.Max(1, sharedPayoutCount) + 1;
-        return GetBlockSubsidySatsNoLock() / (ulong)payoutCount;
+        return GetBlockSubsidySatsNoLock() / (ulong)Math.Max(2, _poolConfig.TotalPayoutSlotCount);
     }
 
     private void SaveStateNoLock([CallerMemberName] string? reason = null)
@@ -2884,6 +3157,13 @@ public class BootProtocolStateService
             LastGridPoolBlockUtc = _state.LastGridPoolBlockUtc,
             LastGridPoolBlockMinerAddress = _state.LastGridPoolBlockMinerAddress,
             LastGridPoolBlockDifficulty = _state.LastGridPoolBlockDifficulty,
+            ActiveSnapshotId = _state.ActiveSnapshotId,
+            LastPaidSnapshotId = _state.LastPaidSnapshotId,
+            ActiveSnapshotProofIds = _state.ActiveSnapshotProofIds.ToList(),
+            LastPaidSnapshotProofIds = _state.LastPaidSnapshotProofIds.ToList(),
+            SupportFeeEnabled = _state.SupportFeeEnabled,
+            PayoutVariant = _state.PayoutVariant,
+            SnapshotContexts = _state.SnapshotContexts.Select(CloneSnapshotContext).ToList(),
             AcceptedParentBlockHashes = _state.AcceptedParentBlockHashes.ToList(),
             LastRotationUtc = _state.LastRotationUtc,
             GenesisRoundStartedUtc = _state.GenesisRoundStartedUtc,
@@ -2919,7 +3199,8 @@ public class BootProtocolStateService
             RecentPeerRelayObservations = _state.RecentPeerRelayObservations.Select(ClonePeerRelayObservation).ToList(),
             HashrateSamples = _state.HashrateSamples.Select(CloneHashratePoint).ToList(),
             LocalDatumMinerHashrateSamples = _state.LocalDatumMinerHashrateSamples.Select(CloneLocalDatumMinerHashrateRollupPoint).ToList(),
-            ArchivedStateBundles = _state.ArchivedStateBundles.Select(CloneBundle).ToList()
+            ArchivedStateBundles = _state.ArchivedStateBundles.Select(CloneBundle).ToList(),
+            SnapshotContexts = _state.SnapshotContexts.Select(CloneSnapshotContext).ToList()
         };
     }
 
@@ -2961,9 +3242,13 @@ public class BootProtocolStateService
             _state.HashrateSamples ??= [];
             _state.LocalDatumMinerHashrateSamples ??= [];
             _state.Peers ??= [];
+            _state.ActiveSnapshotProofIds ??= [];
+            _state.LastPaidSnapshotProofIds ??= [];
+            _state.SnapshotContexts ??= [];
             EnsureGenesisRoundStartNoLock(DateTime.UtcNow);
             NormalizeNetworkSensitivePayoutValuesNoLock();
             NormalizeArchivedBundlesNoLock();
+            MigrateSnapshotReserveStateNoLock(DateTime.UtcNow);
             EnsureRoundMetadataNoLock();
             UpdateKnownBlockHeightNoLock(_state.CurrentTipBlockHash, _state.CurrentTipBlockHeight);
             UpdateKnownBlockHeightNoLock(_state.LastTestingTriggerBlockHash, _state.LastTestingTriggerBlockHeight);
@@ -3052,10 +3337,18 @@ public class BootProtocolStateService
             _state.HashrateSamples = loaded.HashrateSamples ?? [];
             _state.LocalDatumMinerHashrateSamples = loaded.LocalDatumMinerHashrateSamples ?? [];
             _state.ArchivedStateBundles = loaded.ArchivedStateBundles ?? [];
+            if (loaded.SnapshotContexts is { Count: > 0 })
+            {
+                foreach (BootPayoutSnapshotContext context in loaded.SnapshotContexts)
+                {
+                    UpsertSnapshotContextNoLock(context);
+                }
+            }
 
             EnsureGenesisRoundStartNoLock(DateTime.UtcNow);
             NormalizeNetworkSensitivePayoutValuesNoLock();
             NormalizeArchivedBundlesNoLock();
+            MigrateSnapshotReserveStateNoLock(DateTime.UtcNow);
             EnsureRoundMetadataNoLock();
             TrimAcceptedShareTelemetryNoLock(DateTime.UtcNow);
             TrimShareDiagnosticsNoLock(DateTime.UtcNow);
@@ -3095,24 +3388,197 @@ public class BootProtocolStateService
 
     private void RebuildOnDeckListNoLock()
     {
-        _state.OnDeckList = [];
-        if (_state.OnDeckProofs.Count == 0)
+        _state.OnDeckProofs = SortAndTrimProofs(_state.OnDeckProofs, _poolConfig.WorkSetReserveLimit);
+        _state.OnDeckList = BuildFeeFreePayoutsFromProofs(_state.OnDeckProofs);
+    }
+
+    private bool HasSnapshotContextNoLock(string? snapshotId)
+    {
+        return !string.IsNullOrWhiteSpace(snapshotId) &&
+            _state.SnapshotContexts.Any(context => string.Equals(context.SnapshotId, snapshotId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void EnsureActiveSnapshotNoLock(DateTime nowUtc)
+    {
+        _state.SupportFeeEnabled = _poolConfig.GridLabsSupportFeeEnabled;
+        _state.PayoutVariant = BuildPayoutVariantNoLock();
+        _state.ActiveSnapshotProofIds ??= [];
+        _state.LastPaidSnapshotProofIds ??= [];
+        _state.SnapshotContexts ??= [];
+
+        if (!string.IsNullOrWhiteSpace(_state.ActiveSnapshotId) &&
+            HasSnapshotContextNoLock(_state.ActiveSnapshotId))
         {
             return;
         }
 
-        ulong reward = GetSharedPayoutValueSatsNoLock(_state.OnDeckProofs.Count);
-        foreach (var proof in _state.OnDeckProofs)
+        var context = new BootPayoutSnapshotContext
         {
-            _state.OnDeckList.Add(new PayoutInfo
-            {
-                Value = reward,
-                Address = proof.MinerAddress,
-                Username = string.IsNullOrWhiteSpace(proof.Username) ? proof.MinerAddress : proof.Username,
-                Difficulty = proof.Difficulty,
-                DiffString = proof.DiffString
-            });
+            SnapshotId = string.IsNullOrWhiteSpace(_state.CurrentStateId)
+                ? ComputeStateIdFromPayoutsNoLock(_state.WinnersList, _state.CurrentTipBlockHash)
+                : _state.CurrentStateId,
+            PreviousSnapshotId = string.Empty,
+            CurrentRoundNumber = _state.CurrentRoundNumber,
+            LockedByBlockHash = _state.CurrentTipBlockHash,
+            LockedByBlockHeight = _state.CurrentTipBlockHeight,
+            CreatedAtUtc = _state.LastRotationUtc ?? nowUtc,
+            SupportFeeEnabled = _poolConfig.GridLabsSupportFeeEnabled,
+            PayoutVariant = BuildPayoutVariantNoLock(),
+            ProofIds = _state.ActiveSnapshotProofIds.ToList(),
+            WinnersList = ClonePayouts(_state.WinnersList),
+            FeeFreeWinnersList = RemoveSupportFeePayoutsNoLock(_state.WinnersList)
+        };
+
+        _state.ActiveSnapshotId = context.SnapshotId;
+        UpsertSnapshotContextNoLock(context);
+    }
+
+    private BootPayoutSnapshotContext BuildSnapshotContextFromWorkSetNoLock(
+        string? blockHash,
+        long? blockHeight,
+        DateTime createdUtc,
+        int currentRoundNumber)
+    {
+        List<BootShareProof> snapshotProofs = SortAndTrimProofs(_state.OnDeckProofs, _poolConfig.SnapshotProofSlotCount);
+        string snapshotId = ComputeStateIdNoLock(snapshotProofs, blockHash);
+        return new BootPayoutSnapshotContext
+        {
+            SnapshotId = snapshotId,
+            PreviousSnapshotId = _state.ActiveSnapshotId,
+            CurrentRoundNumber = currentRoundNumber,
+            LockedByBlockHash = NormalizeCanonicalBlockHash(blockHash),
+            LockedByBlockHeight = blockHeight,
+            CreatedAtUtc = createdUtc,
+            SupportFeeEnabled = _poolConfig.GridLabsSupportFeeEnabled,
+            PayoutVariant = BuildPayoutVariantNoLock(),
+            ProofIds = snapshotProofs.Select(proof => proof.ShareId).ToList(),
+            WinnersList = BuildPayoutsFromProofs(snapshotProofs, includeSupportFee: _poolConfig.GridLabsSupportFeeEnabled),
+            FeeFreeWinnersList = BuildFeeFreePayoutsFromProofs(snapshotProofs)
+        };
+    }
+
+    private bool ApplySnapshotFromWorkSetNoLock(
+        string? blockHash,
+        long? blockHeight,
+        string source,
+        DateTime createdUtc,
+        bool advanceRound)
+    {
+        string? normalizedBlockHash = NormalizeCanonicalBlockHash(blockHash);
+        int nextRoundNumber = advanceRound ? _state.CurrentRoundNumber + 1 : _state.CurrentRoundNumber;
+        BootPayoutSnapshotContext context = BuildSnapshotContextFromWorkSetNoLock(
+            normalizedBlockHash,
+            blockHeight,
+            createdUtc,
+            nextRoundNumber);
+
+        bool changed = !string.Equals(context.SnapshotId, _state.ActiveSnapshotId, StringComparison.OrdinalIgnoreCase);
+        _state.CurrentTipBlockHash = normalizedBlockHash ?? _state.CurrentTipBlockHash;
+        _state.CurrentTipBlockHeight = blockHeight ?? _state.CurrentTipBlockHeight;
+        _state.LastRotationUtc = createdUtc;
+        _state.CurrentRoundNumber = nextRoundNumber;
+        _state.ActiveSnapshotId = context.SnapshotId;
+        _state.ActiveSnapshotProofIds = context.ProofIds.ToList();
+        _state.SupportFeeEnabled = context.SupportFeeEnabled;
+        _state.PayoutVariant = context.PayoutVariant;
+        _state.WinnersList = ClonePayouts(context.WinnersList);
+        _state.CurrentStateId = context.SnapshotId;
+        UpsertSnapshotContextNoLock(context);
+        RebuildOnDeckListNoLock();
+        _state.CandidateStateId = ComputeCandidateStateIdNoLock();
+        CacheCurrentCandidateBundleNoLock();
+        RecordNetworkEventNoLock(
+            "payout-snapshot",
+            source,
+            $"Activated payout snapshot {context.SnapshotId} with {context.ProofIds.Count} proof(s).",
+            normalizedBlockHash,
+            blockHeight,
+            createdUtc);
+        return changed;
+    }
+
+    private void ApplyPaidSnapshotRemovalNoLock(string source, string? blockHash, long? blockHeight, DateTime nowUtc)
+    {
+        EnsureActiveSnapshotNoLock(nowUtc);
+        string paidSnapshotId = _state.ActiveSnapshotId;
+        List<string> paidProofIds = _state.ActiveSnapshotProofIds.ToList();
+        if (paidProofIds.Count > 0)
+        {
+            HashSet<string> paid = paidProofIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            _state.OnDeckProofs = _state.OnDeckProofs
+                .Where(proof => !paid.Contains(proof.ShareId))
+                .Select(CloneProof)
+                .ToList();
         }
+
+        _state.LastPaidSnapshotId = paidSnapshotId;
+        _state.LastPaidSnapshotProofIds = paidProofIds;
+        RecordNetworkEventNoLock(
+            "snapshot-paid",
+            source,
+            $"GridPool block paid snapshot {paidSnapshotId}; removed {paidProofIds.Count} paid proof(s) from the unpaid Work Set.",
+            blockHash,
+            blockHeight,
+            nowUtc);
+    }
+
+    private void UpsertSnapshotContextNoLock(BootPayoutSnapshotContext context)
+    {
+        if (string.IsNullOrWhiteSpace(context.SnapshotId))
+        {
+            return;
+        }
+
+        _state.SnapshotContexts.RemoveAll(existing =>
+            string.Equals(existing.SnapshotId, context.SnapshotId, StringComparison.OrdinalIgnoreCase));
+        _state.SnapshotContexts.Insert(0, CloneSnapshotContext(context));
+        PruneSnapshotContextsNoLock();
+    }
+
+    private void PruneSnapshotContextsNoLock()
+    {
+        HashSet<string> protectedIds = new(StringComparer.OrdinalIgnoreCase);
+        void protect(string? id)
+        {
+            if (!string.IsNullOrWhiteSpace(id))
+            {
+                protectedIds.Add(id);
+            }
+        }
+
+        protect(_state.ActiveSnapshotId);
+        protect(_state.LastPaidSnapshotId);
+        foreach (BootShareProof proof in _state.OnDeckProofs)
+        {
+            protect(proof.PayoutSnapshotId);
+        }
+
+        int maxContexts = Math.Max(_poolConfig.MaxStateBundleHistory, _poolConfig.WorkSetReserveMultiplier * 16);
+        _state.SnapshotContexts = _state.SnapshotContexts
+            .Where(context => protectedIds.Contains(context.SnapshotId) || context.ProofIds.Count > 0)
+            .OrderByDescending(context => context.CreatedAtUtc)
+            .Take(maxContexts)
+            .Select(CloneSnapshotContext)
+            .ToList();
+    }
+
+    private List<PayoutInfo> RemoveSupportFeePayoutsNoLock(IEnumerable<PayoutInfo> payouts)
+    {
+        string supportAddress = GetGridLabsSupportAddress(_poolConfig.BitcoinNetwork);
+        string supportScript = BitcoinScript.AddressToScriptPubKeyHex(supportAddress, _poolConfig.BitcoinNetwork);
+        return payouts
+            .Where(payout =>
+            {
+                string script = BitcoinScript.AddressToScriptPubKeyHex(payout.Address, _poolConfig.BitcoinNetwork);
+                return !string.Equals(script, supportScript, StringComparison.OrdinalIgnoreCase);
+            })
+            .Select(ClonePayout)
+            .ToList();
+    }
+
+    private string BuildPayoutVariantNoLock()
+    {
+        return _poolConfig.GridLabsSupportFeeEnabled ? "gridlabs-support-v1" : "fee-free";
     }
 
     private void NormalizeNetworkSensitivePayoutValuesNoLock()
@@ -3143,6 +3609,64 @@ public class BootProtocolStateService
         {
             RebuildOnDeckListNoLock();
         }
+    }
+
+    private void MigrateSnapshotReserveStateNoLock(DateTime nowUtc)
+    {
+        _state.SupportFeeEnabled = _poolConfig.GridLabsSupportFeeEnabled;
+        _state.PayoutVariant = BuildPayoutVariantNoLock();
+        _state.ActiveSnapshotProofIds ??= [];
+        _state.LastPaidSnapshotProofIds ??= [];
+        _state.SnapshotContexts ??= [];
+        _state.OnDeckProofs = SortAndTrimProofs(_state.OnDeckProofs, _poolConfig.WorkSetReserveLimit);
+
+        if (string.IsNullOrWhiteSpace(_state.ActiveSnapshotId))
+        {
+            _state.ActiveSnapshotId = string.IsNullOrWhiteSpace(_state.CurrentStateId)
+                ? ComputeStateIdFromPayoutsNoLock(_state.WinnersList, _state.CurrentTipBlockHash)
+                : _state.CurrentStateId;
+        }
+
+        if (_state.ActiveSnapshotProofIds.Count == 0)
+        {
+            BootStateBundle? activeBundle = _state.ArchivedStateBundles
+                .FirstOrDefault(bundle => string.Equals(bundle.StateId, _state.ActiveSnapshotId, StringComparison.OrdinalIgnoreCase));
+            if (activeBundle?.ShareProofs.Count > 0)
+            {
+                _state.ActiveSnapshotProofIds = activeBundle.ShareProofs
+                    .Select(proof => proof.ShareId)
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .ToList();
+            }
+        }
+
+        foreach (BootShareProof proof in _state.OnDeckProofs)
+        {
+            if (string.IsNullOrWhiteSpace(proof.PayoutSnapshotId))
+            {
+                proof.PayoutSnapshotId = _state.ActiveSnapshotId;
+            }
+        }
+
+        if (!HasSnapshotContextNoLock(_state.ActiveSnapshotId))
+        {
+            UpsertSnapshotContextNoLock(new BootPayoutSnapshotContext
+            {
+                SnapshotId = _state.ActiveSnapshotId,
+                PreviousSnapshotId = string.Empty,
+                CurrentRoundNumber = _state.CurrentRoundNumber,
+                LockedByBlockHash = _state.CurrentTipBlockHash,
+                LockedByBlockHeight = _state.CurrentTipBlockHeight,
+                CreatedAtUtc = _state.LastRotationUtc ?? nowUtc,
+                SupportFeeEnabled = _poolConfig.GridLabsSupportFeeEnabled,
+                PayoutVariant = BuildPayoutVariantNoLock(),
+                ProofIds = _state.ActiveSnapshotProofIds.ToList(),
+                WinnersList = ClonePayouts(_state.WinnersList),
+                FeeFreeWinnersList = RemoveSupportFeePayoutsNoLock(_state.WinnersList)
+            });
+        }
+
+        RebuildOnDeckListNoLock();
     }
 
     private BootNetworkStatusDto BuildNetworkStatusNoLock()
@@ -3187,6 +3711,13 @@ public class BootProtocolStateService
             TotalPayoutSlotCount = _poolConfig.TotalPayoutSlotCount,
             CurrentStateId = _state.CurrentStateId,
             CandidateStateId = _state.CandidateStateId,
+            ActiveSnapshotId = _state.ActiveSnapshotId,
+            LastPaidSnapshotId = _state.LastPaidSnapshotId,
+            ActiveSnapshotProofCount = _state.ActiveSnapshotProofIds.Count,
+            WorkSetCount = _state.OnDeckProofs.Count,
+            WorkSetReserveLimit = _poolConfig.WorkSetReserveLimit,
+            SupportFeeEnabled = _poolConfig.GridLabsSupportFeeEnabled,
+            PayoutVariant = BuildPayoutVariantNoLock(),
             CurrentTipBlockHash = _state.CurrentTipBlockHash,
             CurrentTipBlockHeight = _state.CurrentTipBlockHeight,
             LastRotationUtc = currentRoundStartUtc,
@@ -5005,6 +5536,12 @@ public class BootProtocolStateService
 
     private BootStateBundle BuildBundleFromCurrentCandidateNoLock()
     {
+        BootPayoutSnapshotContext candidateContext = BuildSnapshotContextFromWorkSetNoLock(
+            _state.CurrentTipBlockHash,
+            _state.CurrentTipBlockHeight,
+            DateTime.UtcNow,
+            _state.CurrentRoundNumber + 1);
+        List<BootShareProof> snapshotProofs = SortAndTrimProofs(_state.OnDeckProofs, _poolConfig.SnapshotProofSlotCount);
         return new BootStateBundle
         {
             StateId = _state.CandidateStateId,
@@ -5019,10 +5556,21 @@ public class BootProtocolStateService
             ParentBlockHeight = _state.CurrentTipBlockHeight,
             CreatedAtUtc = DateTime.UtcNow,
             TotalDifficulty = _state.OnDeckProofs.Sum(x => x.Difficulty),
+            ActiveSnapshotId = _state.ActiveSnapshotId,
+            PaidSnapshotId = _state.LastPaidSnapshotId,
+            ActiveSnapshotProofIds = _state.ActiveSnapshotProofIds.ToList(),
+            PaidSnapshotProofIds = _state.LastPaidSnapshotProofIds.ToList(),
+            SupportFeeEnabled = _poolConfig.GridLabsSupportFeeEnabled,
+            PayoutVariant = BuildPayoutVariantNoLock(),
             ValidParentBlockHashes = GetAcceptedParentBlockHashesNoLock(),
-            WinnersList = ClonePayouts(_state.OnDeckList),
+            WinnersList = ClonePayouts(candidateContext.WinnersList),
             ProofWinnersList = ClonePayouts(_state.WinnersList),
-            ShareProofs = _state.OnDeckProofs.Select(CloneProof).ToList(),
+            ShareProofs = snapshotProofs.Select(CloneProof).ToList(),
+            WorkSetProofs = _state.OnDeckProofs.Select(CloneProof).ToList(),
+            SnapshotContexts = _state.SnapshotContexts
+                .Append(candidateContext)
+                .Select(CloneSnapshotContext)
+                .ToList(),
             Commitment = BuildCommitmentNoLock()
         };
     }
@@ -5032,6 +5580,11 @@ public class BootProtocolStateService
         string? previousStateId = _state.ArchivedStateBundles
             .FirstOrDefault(bundle => string.Equals(bundle.StateId, _state.CurrentStateId, StringComparison.OrdinalIgnoreCase))
             ?.PreviousStateId;
+        HashSet<string> activeProofIds = _state.ActiveSnapshotProofIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        List<BootShareProof> activeProofs = _state.OnDeckProofs
+            .Where(proof => activeProofIds.Contains(proof.ShareId))
+            .Select(CloneProof)
+            .ToList();
 
         return new BootStateBundle
         {
@@ -5047,15 +5600,27 @@ public class BootProtocolStateService
             ParentBlockHeight = null,
             CreatedAtUtc = _state.LastRotationUtc ?? DateTime.UtcNow,
             TotalDifficulty = _state.WinnersList.Sum(x => x.Difficulty),
+            ActiveSnapshotId = _state.ActiveSnapshotId,
+            PaidSnapshotId = _state.LastPaidSnapshotId,
+            ActiveSnapshotProofIds = _state.ActiveSnapshotProofIds.ToList(),
+            PaidSnapshotProofIds = _state.LastPaidSnapshotProofIds.ToList(),
+            SupportFeeEnabled = _poolConfig.GridLabsSupportFeeEnabled,
+            PayoutVariant = BuildPayoutVariantNoLock(),
             ValidParentBlockHashes = GetAcceptedParentBlockHashesNoLock(),
             WinnersList = ClonePayouts(_state.WinnersList),
             ProofWinnersList = [],
-            ShareProofs = [],
+            ShareProofs = activeProofs,
+            WorkSetProofs = _state.OnDeckProofs.Select(CloneProof).ToList(),
+            SnapshotContexts = _state.SnapshotContexts.Select(CloneSnapshotContext).ToList(),
             Commitment = BuildCommitmentNoLock()
         };
     }
 
-    private BootShareProof CreateProofNoLock(BootShareValidationResult validation, string source, DateTime? timestamp = null)
+    private BootShareProof CreateProofNoLock(
+        BootShareValidationResult validation,
+        string source,
+        DateTime? timestamp = null,
+        string? payoutSnapshotId = null)
     {
         return new BootShareProof
         {
@@ -5066,6 +5631,7 @@ public class BootProtocolStateService
             HeaderHex = validation.HeaderHex,
             CoinbaseHex = validation.CoinbaseHex,
             MerklePath = validation.MerklePath.ToList(),
+            PayoutSnapshotId = payoutSnapshotId,
             PrevBlockHash = validation.PrevBlockHash,
             Difficulty = validation.Difficulty,
             DiffString = ClientHandler.FormatDifficulty(validation.Difficulty),
@@ -5156,6 +5722,11 @@ public class BootProtocolStateService
 
     private int GetCurrentStateProofCountNoLock()
     {
+        if (_state.ActiveSnapshotProofIds.Count > 0)
+        {
+            return _state.ActiveSnapshotProofIds.Count;
+        }
+
         return _state.ArchivedStateBundles
             .Where(bundle =>
                 string.Equals(bundle.StateId, _state.CurrentStateId, StringComparison.OrdinalIgnoreCase) &&
@@ -5288,7 +5859,8 @@ public class BootProtocolStateService
         IEnumerable<BootShareProof> shareProofs,
         IReadOnlyList<PayoutInfo> expectedWinners,
         IReadOnlyCollection<string> expectedPrevBlockHashes,
-        string source)
+        string source,
+        IReadOnlyCollection<BootPayoutSnapshotContext>? snapshotContexts = null)
     {
         var proofs = shareProofs
             .Select(CloneProof)
@@ -5299,13 +5871,22 @@ public class BootProtocolStateService
         var validatedProofs = new List<BootShareProof>(proofs.Count);
         foreach (var proof in proofs)
         {
-            BootShareValidationResult validation = _shareVerifier.ValidateShare(proof, expectedWinners, expectedPrevBlockHashes);
+            SnapshotValidationResult snapshotValidation = snapshotContexts is { Count: > 0 }
+                ? ValidateProofAgainstKnownSnapshots(proof, expectedWinners, snapshotContexts, expectedPrevBlockHashes)
+                : new SnapshotValidationResult(
+                    _shareVerifier.ValidateShare(proof, expectedWinners, expectedPrevBlockHashes),
+                    proof.PayoutSnapshotId ?? string.Empty);
+            BootShareValidationResult validation = snapshotValidation.Validation;
             if (!validation.IsValid)
             {
                 throw new InvalidOperationException(validation.RejectionReason ?? "Imported share proof is invalid.");
             }
 
-            validatedProofs.Add(CreateProofNoLock(validation, source, proof.Timestamp));
+            validatedProofs.Add(CreateProofNoLock(
+                validation,
+                source,
+                proof.Timestamp,
+                string.IsNullOrWhiteSpace(snapshotValidation.SnapshotId) ? proof.PayoutSnapshotId : snapshotValidation.SnapshotId));
         }
 
         return validatedProofs
@@ -5316,14 +5897,42 @@ public class BootProtocolStateService
 
     private List<PayoutInfo> BuildPayoutsFromProofs(IEnumerable<BootShareProof> proofs)
     {
-        var list = proofs.ToList();
-        if (list.Count == 0)
+        return BuildPayoutsFromProofs(proofs, includeSupportFee: _poolConfig.GridLabsSupportFeeEnabled);
+    }
+
+    private List<PayoutInfo> BuildFeeFreePayoutsFromProofs(IEnumerable<BootShareProof> proofs)
+    {
+        return BuildPayoutsFromProofs(proofs, includeSupportFee: false);
+    }
+
+    private List<PayoutInfo> BuildPayoutsFromProofs(IEnumerable<BootShareProof> proofs, bool includeSupportFee)
+    {
+        var list = proofs
+            .OrderByDescending(x => x.Difficulty)
+            .ThenBy(x => x.ShareId, StringComparer.Ordinal)
+            .Take(includeSupportFee ? _poolConfig.SharedWinnerSlotCount : _poolConfig.SnapshotProofSlotCount)
+            .ToList();
+        var payouts = new List<PayoutInfo>();
+        ulong reward = GetSharedPayoutValueSatsNoLock(list.Count);
+        if (includeSupportFee)
         {
-            return [];
+            string supportAddress = GetGridLabsSupportAddress(_poolConfig.BitcoinNetwork);
+            payouts.Add(new PayoutInfo
+            {
+                Value = reward,
+                Address = supportAddress,
+                Username = "Grid Labs support",
+                Difficulty = 0,
+                DiffString = "support"
+            });
         }
 
-        ulong reward = GetSharedPayoutValueSatsNoLock(list.Count);
-        return list.Select(proof => new PayoutInfo
+        if (list.Count == 0)
+        {
+            return payouts;
+        }
+
+        payouts.AddRange(list.Select(proof => new PayoutInfo
         {
             Value = reward,
             Address = proof.MinerAddress,
@@ -5332,7 +5941,8 @@ public class BootProtocolStateService
             DiffString = string.IsNullOrWhiteSpace(proof.DiffString)
                 ? ClientHandler.FormatDifficulty(proof.Difficulty)
                 : proof.DiffString
-        }).ToList();
+        }));
+        return payouts;
     }
 
     private List<PayoutInfo> BuildCoinbaseOutputsNoLock(IEnumerable<PayoutInfo> payouts)
@@ -5364,7 +5974,7 @@ public class BootProtocolStateService
         return ClonePayouts(compressed);
     }
 
-    private bool WinnersMatch(List<PayoutInfo> expected, List<PayoutInfo> actual)
+    private bool WinnersMatch(IReadOnlyList<PayoutInfo> expected, IReadOnlyList<PayoutInfo> actual)
     {
         if (expected.Count != actual.Count)
         {
@@ -5415,6 +6025,7 @@ public class BootProtocolStateService
         builder.Append(_poolConfig.BootProtocolVersion).Append('\n');
         builder.Append(_poolConfig.BootNetworkId).Append('\n');
         builder.Append(currentStateId ?? string.Empty).Append('\n');
+        builder.Append(BuildPayoutVariantNoLock()).Append('\n');
 
         int index = 0;
         foreach (var share in shares
@@ -5438,6 +6049,7 @@ public class BootProtocolStateService
         builder.Append(_poolConfig.BootProtocolVersion).Append('\n');
         builder.Append(_poolConfig.BootNetworkId).Append('\n');
         builder.Append(NormalizeCanonicalBlockHash(blockHash) ?? string.Empty).Append('\n');
+        builder.Append(BuildPayoutVariantNoLock()).Append('\n');
 
         int index = 0;
         foreach (var share in shares
@@ -6421,7 +7033,7 @@ public class BootProtocolStateService
 
     private static List<PayoutInfo> ClonePayouts(IEnumerable<PayoutInfo> payouts)
     {
-        return payouts.Select(x => new PayoutInfo
+        return (payouts ?? []).Select(x => new PayoutInfo
         {
             Value = x.Value,
             Address = x.Address,
@@ -6429,6 +7041,18 @@ public class BootProtocolStateService
             Difficulty = x.Difficulty,
             DiffString = x.DiffString
         }).ToList();
+    }
+
+    private static PayoutInfo ClonePayout(PayoutInfo payout)
+    {
+        return new PayoutInfo
+        {
+            Value = payout.Value,
+            Address = payout.Address,
+            Username = payout.Username,
+            Difficulty = payout.Difficulty,
+            DiffString = payout.DiffString
+        };
     }
 
     private static BestShareRecord CloneBestShare(BestShareRecord? bestShare)
@@ -6457,6 +7081,7 @@ public class BootProtocolStateService
             HeaderHex = proof.HeaderHex,
             CoinbaseHex = proof.CoinbaseHex,
             MerklePath = proof.MerklePath.ToList(),
+            PayoutSnapshotId = proof.PayoutSnapshotId,
             PrevBlockHash = proof.PrevBlockHash,
             Difficulty = proof.Difficulty,
             DiffString = proof.DiffString,
@@ -6779,10 +7404,18 @@ public class BootProtocolStateService
             ParentBlockHeight = bundle.ParentBlockHeight,
             CreatedAtUtc = bundle.CreatedAtUtc,
             TotalDifficulty = bundle.TotalDifficulty,
-            ValidParentBlockHashes = bundle.ValidParentBlockHashes.ToList(),
+            ActiveSnapshotId = bundle.ActiveSnapshotId,
+            PaidSnapshotId = bundle.PaidSnapshotId,
+            ActiveSnapshotProofIds = (bundle.ActiveSnapshotProofIds ?? []).ToList(),
+            PaidSnapshotProofIds = (bundle.PaidSnapshotProofIds ?? []).ToList(),
+            SupportFeeEnabled = bundle.SupportFeeEnabled,
+            PayoutVariant = bundle.PayoutVariant,
+            ValidParentBlockHashes = (bundle.ValidParentBlockHashes ?? []).ToList(),
             WinnersList = ClonePayouts(bundle.WinnersList),
             ProofWinnersList = ClonePayouts(bundle.ProofWinnersList),
-            ShareProofs = bundle.ShareProofs.Select(CloneProof).ToList(),
+            ShareProofs = (bundle.ShareProofs ?? []).Select(CloneProof).ToList(),
+            WorkSetProofs = (bundle.WorkSetProofs ?? []).Select(CloneProof).ToList(),
+            SnapshotContexts = (bundle.SnapshotContexts ?? []).Select(CloneSnapshotContext).ToList(),
             Commitment = new BootCommitmentInfo
             {
                 ProtocolVersion = bundle.Commitment.ProtocolVersion,
@@ -6792,6 +7425,24 @@ public class BootProtocolStateService
                 TagPreview = bundle.Commitment.TagPreview,
                 SupportNote = bundle.Commitment.SupportNote
             }
+        };
+    }
+
+    private static BootPayoutSnapshotContext CloneSnapshotContext(BootPayoutSnapshotContext context)
+    {
+        return new BootPayoutSnapshotContext
+        {
+            SnapshotId = context.SnapshotId,
+            PreviousSnapshotId = context.PreviousSnapshotId,
+            CurrentRoundNumber = context.CurrentRoundNumber,
+            LockedByBlockHash = context.LockedByBlockHash,
+            LockedByBlockHeight = context.LockedByBlockHeight,
+            CreatedAtUtc = context.CreatedAtUtc,
+            SupportFeeEnabled = context.SupportFeeEnabled,
+            PayoutVariant = context.PayoutVariant,
+            ProofIds = (context.ProofIds ?? []).ToList(),
+            WinnersList = ClonePayouts(context.WinnersList),
+            FeeFreeWinnersList = ClonePayouts(context.FeeFreeWinnersList)
         };
     }
 

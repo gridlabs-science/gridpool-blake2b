@@ -7,8 +7,9 @@ namespace boot_portal.Services;
 
 public static class BootPeerUdpShareCodec
 {
-    private const byte Version = 1;
+    private const byte Version = 2;
     private const int MaxUsernameBytes = 255;
+    private const int MaxSnapshotIdBytes = 255;
 
     public static bool TryEncode(BootShareProof proof, PoolConfig config, out byte[] payload, out string reason)
     {
@@ -37,13 +38,20 @@ public static class BootPeerUdpShareCodec
                 username = username[..MaxUsernameBytes];
             }
 
+            byte[] snapshotId = Encoding.ASCII.GetBytes(string.IsNullOrWhiteSpace(proof.PayoutSnapshotId) ? string.Empty : proof.PayoutSnapshotId);
+            if (snapshotId.Length > MaxSnapshotIdBytes)
+            {
+                snapshotId = snapshotId[..MaxSnapshotIdBytes];
+            }
+
             int size =
                 1 + // version
                 1 + // flags
                 80 +
                 2 + coinbase.Length +
                 1 + (proof.MerklePath.Count * 32) +
-                1 + username.Length;
+                1 + username.Length +
+                1 + snapshotId.Length;
             payload = new byte[size];
             int offset = 0;
 
@@ -67,6 +75,10 @@ public static class BootPeerUdpShareCodec
 
             payload[offset++] = checked((byte)username.Length);
             Buffer.BlockCopy(username, 0, payload, offset, username.Length);
+            offset += username.Length;
+
+            payload[offset++] = checked((byte)snapshotId.Length);
+            Buffer.BlockCopy(snapshotId, 0, payload, offset, snapshotId.Length);
             return true;
         }
         catch (Exception ex) when (ex is FormatException or ArgumentException or OverflowException)
@@ -141,7 +153,7 @@ public static class BootPeerUdpShareCodec
             }
 
             int usernameLength = payload[offset++];
-            if (payload.Length != offset + usernameLength)
+            if (payload.Length < offset + usernameLength + 1)
             {
                 reason = "invalid-username-length";
                 return false;
@@ -150,6 +162,18 @@ public static class BootPeerUdpShareCodec
             string username = usernameLength == 0
                 ? string.Empty
                 : Encoding.UTF8.GetString(payload.Slice(offset, usernameLength));
+            offset += usernameLength;
+
+            int snapshotIdLength = payload[offset++];
+            if (payload.Length != offset + snapshotIdLength)
+            {
+                reason = "invalid-snapshot-id-length";
+                return false;
+            }
+
+            string snapshotId = snapshotIdLength == 0
+                ? string.Empty
+                : Encoding.ASCII.GetString(payload.Slice(offset, snapshotIdLength));
 
             share = new RecordedShareSubmission
             {
@@ -158,6 +182,7 @@ public static class BootPeerUdpShareCodec
                 HeaderHex = headerHex,
                 CoinbaseHex = coinbaseHex,
                 MerklePath = merklePath,
+                PayoutSnapshotId = snapshotId,
                 PayloadBytes = payload.Length,
                 Source = "peer-udp"
             };

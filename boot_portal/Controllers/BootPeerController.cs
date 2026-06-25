@@ -92,6 +92,7 @@ public class BootPeerController : ControllerBase
             HeaderHex = announcement.Share.HeaderHex,
             CoinbaseHex = announcement.Share.CoinbaseHex,
             MerklePath = announcement.Share.MerklePath,
+            PayoutSnapshotId = announcement.Share.PayoutSnapshotId,
             PrevBlockHash = announcement.Share.PrevBlockHash,
             Difficulty = announcement.Share.Difficulty,
             PayloadBytes = Request.ContentLength.HasValue

@@ -30,7 +30,7 @@ cat > "$CONFIG_PATH" <<JSON
   "WebUI_Port_https": 0,
   "bootstrap_peers": [],
   "boot_network_id": "smoke-test",
-  "boot_protocol_version": 1,
+  "boot_protocol_version": 2,
   "enable_admin_api": false,
   "admin_api_key": "",
   "max_share_request_bytes": 1024,

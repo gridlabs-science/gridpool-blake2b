@@ -15,6 +15,13 @@ public class PoolState
     public DateTime? LastGridPoolBlockUtc { get; set; }
     public string? LastGridPoolBlockMinerAddress { get; set; }
     public double? LastGridPoolBlockDifficulty { get; set; }
+    public string ActiveSnapshotId { get; set; } = string.Empty;
+    public string LastPaidSnapshotId { get; set; } = string.Empty;
+    public List<string> ActiveSnapshotProofIds { get; set; } = [];
+    public List<string> LastPaidSnapshotProofIds { get; set; } = [];
+    public bool SupportFeeEnabled { get; set; }
+    public string PayoutVariant { get; set; } = string.Empty;
+    public List<BootPayoutSnapshotContext> SnapshotContexts { get; set; } = [];
     public List<string> AcceptedParentBlockHashes { get; set; } = [];
     public DateTime? LastRotationUtc { get; set; }
     public DateTime? GenesisRoundStartedUtc { get; set; }
@@ -48,12 +55,13 @@ public class PoolStateHistory
     public List<BootHashratePoint> HashrateSamples { get; set; } = [];
     public List<BootLocalDatumMinerHashrateRollupPoint> LocalDatumMinerHashrateSamples { get; set; } = [];
     public List<BootStateBundle> ArchivedStateBundles { get; set; } = [];
+    public List<BootPayoutSnapshotContext> SnapshotContexts { get; set; } = [];
 }
 
 public class BootProtocolMetadata
 {
     public string NetworkId { get; set; } = "mainnet-beta";
-    public int ProtocolVersion { get; set; } = 1;
+    public int ProtocolVersion { get; set; } = 2;
 }
 
 public class BestShareRecord
