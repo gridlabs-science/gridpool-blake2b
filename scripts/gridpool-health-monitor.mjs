@@ -567,7 +567,7 @@ function buildAlerts(snapshot, state, config) {
             });
         }
 
-        maybeAddRoundAlerts(alerts, node, state);
+        maybeAddGridPoolBlockAlerts(alerts, node, state);
         maybeAddHashrateAlerts(alerts, node, state, config);
     }
 
@@ -630,31 +630,19 @@ function resetFailure(state, key) {
     state.failureCounts[key] = 0;
 }
 
-function maybeAddRoundAlerts(alerts, node, state) {
+function maybeAddGridPoolBlockAlerts(alerts, node, state) {
     const summary = node.summary || {};
-    const previous = state.lastRoundByNode[node.name];
-    const roundNumber = summary.currentRoundNumber;
-    const stateId = summary.currentStateId;
-    if (previous && roundNumber != null && previous.roundNumber != null && Number(roundNumber) !== Number(previous.roundNumber)) {
-        alerts.push({
-            severity: "critical",
-            category: "round-rotation",
-            fingerprint: `gridpool:${node.name}:round:${roundNumber}`,
-            title: `GridPool ${node.name} rotated to round ${roundNumber}`,
-            detail: `Previous round ${previous.roundNumber}; current state ${stateId || "--"}.`,
-            codexEligible: true
-        });
-    }
-
     const blockHash = summary.lastGridPoolBlockHash;
-    const previousBlockHash = state.lastGridPoolBlockByNode[node.name]?.hash;
-    if (blockHash && blockHash !== previousBlockHash) {
+    const blockMemory = state.lastGridPoolBlockByNode || {};
+    const hasPreviousBlockMemory = Object.prototype.hasOwnProperty.call(blockMemory, node.name);
+    const previousBlockHash = blockMemory[node.name]?.hash || null;
+    if (blockHash && hasPreviousBlockMemory && blockHash !== previousBlockHash) {
         alerts.push({
             severity: "critical",
             category: "gridpool-block-found",
             fingerprint: `gridpool:${node.name}:block:${blockHash}`,
             title: `GridPool block observed on ${node.name}`,
-            detail: `height=${summary.lastGridPoolBlockHeight || "--"} miner=${summary.lastGridPoolBlockMinerAddress || "--"} hash=${blockHash}`,
+            detail: `height=${summary.lastGridPoolBlockHeight || "--"} miner=${summary.lastGridPoolBlockMinerAddress || "--"} paidSnapshot=${summary.lastPaidSnapshotId || "--"} hash=${blockHash}`,
             codexEligible: true
         });
     }
@@ -840,11 +828,18 @@ function updateRoundMemory(snapshot, state) {
         state.lastRoundByNode[node.name] = {
             roundNumber: node.summary?.currentRoundNumber ?? null,
             currentStateId: node.summary?.currentStateId ?? null,
+            activeSnapshotId: node.summary?.activeSnapshotId ?? null,
+            lastPaidSnapshotId: node.summary?.lastPaidSnapshotId ?? null,
+            currentTipBlockHash: node.summary?.currentTipBlockHash ?? null,
+            currentTipBlockHeight: node.summary?.currentTipBlockHeight ?? null,
             lastRotationUtc: node.summary?.lastRotationUtc ?? null
         };
         state.lastGridPoolBlockByNode[node.name] = {
             hash: node.summary?.lastGridPoolBlockHash || null,
-            height: node.summary?.lastGridPoolBlockHeight || null
+            height: node.summary?.lastGridPoolBlockHeight || null,
+            utc: node.summary?.lastGridPoolBlockUtc || null,
+            miner: node.summary?.lastGridPoolBlockMinerAddress || null,
+            paidSnapshotId: node.summary?.lastPaidSnapshotId || null
         };
     }
 }
@@ -861,7 +856,7 @@ function filterAlertsForDelivery(alerts, state, config) {
     const cooldownMs = Number(config.alertCooldownMinutes || 60) * 60_000;
 
     for (const alert of alerts) {
-        const critical = alert.severity === "critical" || alert.category === "gridpool-block-found" || alert.category === "round-rotation";
+        const critical = alert.severity === "critical" || alert.category === "gridpool-block-found";
         if (muted && !critical) continue;
 
         const last = parseDate(state.alertCooldowns[alert.fingerprint]);
@@ -928,7 +923,8 @@ function buildDigest(snapshot, state) {
 
     for (const node of snapshot.gridpoolNodes || []) {
         lines.push(`GridPool ${node.name}: ${node.ok ? "ok" : "problem"}`);
-        lines.push(`Round ${node.summary?.currentRoundNumber ?? "--"}; tip ${node.summary?.currentTipBlockHeight ?? "--"}; peers ${node.summary?.peerCount ?? "--"}`);
+        lines.push(`Snapshot ${node.summary?.currentRoundNumber ?? "--"}; tip ${node.summary?.currentTipBlockHeight ?? "--"}; peers ${node.summary?.peerCount ?? "--"}`);
+        lines.push(`Last GridPool block ${node.summary?.lastGridPoolBlockHeight ?? "--"}; paid snapshot ${node.summary?.lastPaidSnapshotId || "--"}`);
         lines.push(`Team hashrate ${node.summary?.currentRoundObservedHashrateDisplay || formatHashrateThs(node.summary?.currentRoundObservedHashrateThs)}; local DATUM ${node.summary?.localDatumHashrateDisplay || formatHashrateThs(node.summary?.localDatumHashrateThs)}`);
         lines.push(`Local DATUM miners: ${(node.localMiners || []).length}; payout addresses: ${(node.payoutAddresses || []).length}; candidate addresses: ${(node.candidateAddresses || []).length}`);
         if (node.errors?.length) lines.push(`Errors: ${node.errors.join("; ")}`);
@@ -962,7 +958,7 @@ function buildDigest(snapshot, state) {
 function buildStatusMessage(snapshot) {
     const lines = [`GridPool status: ${snapshot.monitorName}`];
     for (const node of snapshot.gridpoolNodes || []) {
-        lines.push(`${node.name}: ${node.ok ? "ok" : "problem"} round=${node.summary?.currentRoundNumber ?? "--"} team=${node.summary?.currentRoundObservedHashrateDisplay || formatHashrateThs(node.summary?.currentRoundObservedHashrateThs)} peers=${node.summary?.peerCount ?? "--"}`);
+        lines.push(`${node.name}: ${node.ok ? "ok" : "problem"} snapshot=${node.summary?.currentRoundNumber ?? "--"} team=${node.summary?.currentRoundObservedHashrateDisplay || formatHashrateThs(node.summary?.currentRoundObservedHashrateThs)} peers=${node.summary?.peerCount ?? "--"} lastBlock=${node.summary?.lastGridPoolBlockHeight ?? "--"}`);
     }
     for (const hydrapool of snapshot.hydrapools || []) {
         lines.push(`${hydrapool.name}: ${hydrapool.ok ? "ok" : "problem"} workers=${(hydrapool.workers || []).length}`);

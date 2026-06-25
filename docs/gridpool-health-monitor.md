@@ -3,7 +3,7 @@
 This monitor is a small one-shot Node.js script intended to run every five
 minutes from a user-level `systemd` timer. It checks GridPool, Hydrapool,
 systemd services, miner identities, peer identities, payout-list addresses,
-hashrate trend changes, and round rotation.
+hashrate trend changes, and actual GridPool block/payment events.
 
 Runtime state and secrets live outside the repository.
 
@@ -30,12 +30,17 @@ so user-level timers do not accidentally run the old distro `node` binary.
   - `docker.service`
 - Attention-worthy changes:
   - endpoints down for two consecutive checks
-  - round rotation or GridPool block found
+  - actual GridPool block found / payment snapshot paid
   - sustained hashrate drop or spike
   - new local DATUM miner addresses
   - new Hydrapool Stratum users/workers
   - new GridPool peers
   - addresses on current/candidate payout lists that are not known through local DATUM, Hydrapool, or the configured allowlist
+
+Protocol V2 creates a new active payout snapshot on every ordinary Bitcoin
+block. Those snapshot changes are recorded for status and digest context, but
+they do not create Telegram alerts. The monitor should wake operators only when
+a real GridPool block/payment transition is observed.
 
 ## Telegram Bot Setup
 
