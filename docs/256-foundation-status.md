@@ -8,10 +8,11 @@ The project is best described as being in `late prototype / launch hardening` st
 ## What Works Today
 
 ### Core protocol behavior
-- Maintains a shared Winners List and On Deck List
-- Accepts and ranks high-difficulty GridPool shares
-- Promotes accepted shares into the next round's Winners List
-- Supports the rule that a valid Bitcoin block is also a valid GridPool share before round lock
+- Maintains an active payout snapshot and bounded unpaid Work Set reserve
+- Accepts and ranks high-difficulty GridPool shares by verified proof of work
+- Creates a fresh payout snapshot from unpaid work on every Bitcoin block
+- Pays the active snapshot only when a valid GridPool block is found
+- Removes only the proof IDs that were actually paid, leaving unpaid reserve work eligible for later snapshots
 
 ### Mining integration
 - Works with DATUM today
@@ -20,7 +21,7 @@ The project is best described as being in `late prototype / launch hardening` st
 
 ### Node-to-node behavior
 - GridPool nodes discover peers and poll each other
-- Nodes exchange current state bundles and candidate state bundles
+- Nodes exchange active snapshot bundles, candidate Work Set bundles, and retained snapshot contexts
 - Accepted shares are relayed across the GridPool network
 - Nodes now converge across multiple running instances in active testing
 
@@ -32,14 +33,14 @@ The project is best described as being in `late prototype / launch hardening` st
 
 ### Testing support
 - Local manual reset exists as a development tool
-- Deterministic test-trigger mode exists for mainnet-shadow testing based on Bitcoin block hashes
+- Deterministic test-trigger mode remains available for isolated mainnet-shadow testing, but public networks should use the production GridPool block payment path
 
 ## Current Gaps Before Public Launch
 
 ### Engineering hardening
 - Broader long-duration multi-node testing
 - More defensive logging, monitoring, and alerting for public seed-node operation
-- Additional edge-case testing around round transitions and network latency
+- Additional edge-case testing around Bitcoin-block snapshots, GridPool payment transitions, and network latency
 - Continued cleanup of nullability debt and remaining technical rough edges
 
 ### Documentation and operator readiness
@@ -55,18 +56,18 @@ The project is best described as being in `late prototype / launch hardening` st
 ## Launch Readiness Definition
 For GridPool protocol to be considered ready for public launch, the following should be true:
 
-- at least several public GridPool nodes can converge on the same Winners List and On Deck state
+- at least several public GridPool nodes can converge on the same active payout snapshot and unpaid Work Set
 - DATUM-based miners can join and submit shares reliably
-- round rotation works predictably under testing conditions
+- Bitcoin-block snapshots and GridPool-block payment transitions work predictably under testing conditions
 - Docker and standard Linux deployment are documented and repeatable
 - public seed nodes are deployed with monitoring and basic operational support
-- the Foundation can join the genesis round using a documented configuration
+- early miners can join without a special donation-only genesis payout list
 
 ## Proposed Final Pre-Launch Work
 
 ### Phase 1: stabilization
 - continue active two-node and multi-node testing
-- root out remaining round-transition and stale-share edge cases
+- root out remaining snapshot/payment-transition and stale-share edge cases
 - tighten operator logging and diagnostics
 
 ### Phase 2: deployment readiness
@@ -75,7 +76,7 @@ For GridPool protocol to be considered ready for public launch, the following sh
 - publish a public network status page
 
 ### Phase 3: launch support
-- prepare genesis Winners List configuration
+- verify V2 snapshot/reserve behavior under public beta hashrate
 - assist the 256 Foundation in joining the initial network
 - monitor launch and provide immediate post-launch bugfix support
 

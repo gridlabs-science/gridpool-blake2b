@@ -14,15 +14,15 @@ The goal is not to prove that outcome today. The goal is to identify:
 
 Protocol-level view:
 
-- The protocol has promising scaling properties because it only keeps and gossips a capped set of top shares per round.
-- Round state is bounded by `299` shared winner slots plus slot `0`.
-- State bundle size therefore grows with constant `N = 299`, not with total team size.
+- The protocol has promising scaling properties because it only keeps and gossips a bounded reserve of top unpaid share proofs.
+- Active payout snapshots are bounded by `299` post-slot-0 slots, or `1` support slot plus `298` shared proof slots when the support fee is enabled.
+- The default unpaid Work Set reserve is `3x` the shared slot count, currently `897` proofs, so state bundle size grows with a fixed protocol cap rather than total team size.
 
 Implementation-level view:
 
 - The current implementation can scale **if** peer degree stays bounded.
 - It will not scale if every node tries to connect to every other node.
-- The most important current scaling risk is peer fanout and polling topology, not the size of the On Deck set itself.
+- The most important current scaling risk is peer fanout and polling topology, not the size of the bounded Work Set itself.
 
 Conclusion:
 
@@ -35,41 +35,42 @@ So the stretch goal is only realistic with a bounded-degree peer graph and disci
 
 ### 1. Bounded shared state per round
 
-The protocol tracks only the top `299` shared winners:
+The protocol tracks only a bounded reserve of top unpaid work:
 
-- `On Deck` proofs: capped
-- `Winners List`: capped
-- locked state bundle: capped
+- unpaid Work Set proofs: capped
+- active payout snapshot: capped
+- active/paid snapshot state bundles: capped
 
 That means:
 
-- per-round state does not grow with miner count
-- per-round payout list does not grow with miner count
-- verification of a locked round remains bounded
+- per-round reserve state does not grow with miner count
+- per-block payout snapshot size does not grow with miner count
+- verification of active and paid snapshots remains bounded
 
 This is a strong scaling property.
 
 ### 2. Share selection cost is effectively constant
 
-Today, insertion into `_state.OnDeckProofs` in [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs) works on a list capped at `299`.
+Today, insertion into the unpaid Work Set in [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs) works on a list capped by `workSetReserveLimit`, default `897`.
 
 That means the cost of:
 
 - ranking
 - trimming
-- rebuilding the payout list
+- rebuilding the active payout snapshot
 
-is effectively `O(299)`, which is constant in practice.
+is effectively `O(897)`, which is constant in practice under current parameters.
 
-### 3. Locked bundle transfer size is bounded
+### 3. Snapshot bundle transfer size is bounded
 
 A node joining or rejoining does not need the entire network history to participate in the current round.
 
 It needs:
 
-- current locked state
-- current candidate state
+- active payout snapshot state
+- current candidate Work Set state
 - accepted parent context
+- retained snapshot contexts needed by unpaid proofs
 
 That bounded-state property is favorable for global scale.
 
@@ -80,12 +81,12 @@ That bounded-state property is favorable for global scale.
 Current peer behavior is effectively:
 
 - poll every configured/discovered peer
-- relay accepted On Deck shares to every peer
+- relay accepted Work Set shares to every peer
 
 If each node had peer degree `P`, then per-node peer work scales roughly like:
 
 - summary polling: `O(P)`
-- relay fanout per accepted On Deck share: `O(P)`
+- relay fanout per accepted Work Set share: `O(P)`
 
 This is fine if `P` is bounded, for example:
 
@@ -100,22 +101,23 @@ So:
 - bounded-degree gossip overlay: plausible
 - global full mesh: not plausible
 
-### 2. Startup / early-round share storms
+### 2. Low-threshold share storms
 
-At the start of a round, many shares may briefly be good enough for On Deck because the threshold is low.
+When the Work Set admission floor is low, many shares may briefly be good enough
+to enter the reserve.
 
 This creates:
 
 - more share relay traffic
 - more UI churn
-- more candidate-state churn
+- more candidate Work Set churn
 
 This is not a fatal flaw, but it is a real scaling pressure.
 
 Potential mitigations:
 
 - keep DATUM min-diff/vardiff tuned
-- consider carry-forward or backfill mechanics for very short rounds
+- tune reserve depth and admission-floor behavior with measured data
 - keep telemetry and persistence off the hot path
 
 ### 3. Seed-node centrality
@@ -144,7 +146,7 @@ Risk:
 Current status:
 - much improved after moving large history/debug persistence out of the core hot path
 
-### Share validation and On Deck mutation
+### Share validation and Work Set mutation
 
 Paths:
 - [BootShareVerifier.cs](boot_portal/Services/BootShareVerifier.cs)
@@ -179,9 +181,10 @@ Requirement:
 If that is true:
 - per-node network overhead grows roughly with `d`, not with total `N`
 
-### 2. State propagation latency stays below round-change tolerance
+### 2. State propagation latency stays below snapshot/payment tolerance
 
-The network must propagate stronger candidate states quickly enough that:
+The network must propagate stronger candidate Work Set states and active
+snapshots quickly enough that:
 
 - orphaned local branches remain rare
 - short divergence windows remain acceptable
@@ -212,18 +215,18 @@ To evaluate large-scale plausibility, measure:
 
 - peer degree
 - summary polls per minute
-- relayed On Deck shares per minute
+- relayed Work Set shares per minute
 - average and p95 coinbaser fetch latency
 - average CPU and memory at fixed miner load
 
-### Per rotation
+### Per snapshot/payment transition
 
 - relay burst size
-- time to candidate convergence
+- time to Work Set/snapshot convergence
 - reject burst duration
 - peak simultaneous peer fetches
 
-### Per accepted On Deck share
+### Per accepted Work Set share
 
 - bytes sent to peers
 - CPU time spent validating / inserting / relaying
@@ -242,7 +245,7 @@ If the system handles those with good convergence and hot-path latency, the prot
 
 These would be genuine protocol-level problems if they prove unavoidable:
 
-1. If On Deck convergence requires near-full-mesh relay
+1. If Work Set convergence requires near-full-mesh relay
 2. If short-round storms produce unbounded global chatter
 3. If state adoption requires large historical backfill to remain correct
 4. If fairness depends on all miners seeing almost exactly the same candidate immediately

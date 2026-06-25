@@ -48,7 +48,7 @@ Recent finding:
 - the dominant stall was `stateReadDurationMs`
 - root cause was large `pool_state.json` snapshot work interacting with the `_sync` lock
 
-### 2. Share validation and On Deck mutation
+### 2. Share validation and Work Set mutation
 
 Files:
 - [Program.cs](boot_portal/Program.cs)
@@ -61,8 +61,8 @@ Path:
    - parent block validity
    - GridPool payout validity
    - duplicate share rules
-3. If accepted, GridPool inserts the share into the top-`299` On Deck set.
-4. GridPool recomputes candidate state ID.
+3. If accepted, GridPool inserts the share into the bounded unpaid Work Set.
+4. GridPool recomputes candidate Work Set state ID.
 5. GridPool emits SignalR/UI updates and relays the accepted share to peers.
 
 Why it matters:
@@ -71,7 +71,7 @@ Why it matters:
 
 Current expectations:
 - validation should be in-memory and deterministic
-- On Deck insertion cost is bounded because the set is capped at `299`
+- Work Set insertion cost is bounded because the reserve is capped, default `897`
 - no disk write or large JSON serialization should happen inline on this path
 
 ### 3. Chain-tip observation and DATUM refresh
@@ -96,25 +96,25 @@ Current expectations:
 - repeated synthetic refresh storms are a bug
 - some `Wrong parent block` rejects immediately after a real tip change are normal
 
-### 4. Round rotation
+### 4. Snapshot and payment transitions
 
 Files:
 - [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs)
 
 Path:
-1. A qualifying reset trigger fires.
-2. Current candidate state is locked.
-3. Winners List rotates.
-4. Candidate state resets for the next round.
-5. DATUM templates must refresh to the new payout set quickly.
+1. A new Bitcoin tip creates an active payout snapshot from the current unpaid Work Set.
+2. DATUM templates must refresh to the new payout snapshot quickly.
+3. A valid GridPool block pays the active snapshot.
+4. GridPool removes only the proof IDs that were actually paid.
+5. Unpaid reserve proofs remain eligible for later snapshots.
 
 Why it matters:
 - This is the most synchronization-sensitive path in the protocol.
-- Most stale/fallback bursts cluster here if anything is slow.
+- Most stale/fallback bursts cluster around Bitcoin-block snapshots or GridPool payment transitions if anything is slow.
 
 Current expectations:
-- both nodes should converge on the locked current state quickly
-- a short reject burst after rotation is tolerable
+- both nodes should converge on the active payout snapshot and unpaid Work Set quickly
+- a short reject burst after snapshot/payment transition is tolerable
 - a multi-second to multi-minute fallback window is a bug
 
 ### 5. Peer sync and share relay
@@ -124,8 +124,8 @@ Files:
 
 Path:
 1. Nodes poll peer summaries and state bundles.
-2. Nodes import stronger current/candidate states when appropriate.
-3. Nodes relay accepted On Deck shares.
+2. Nodes import stronger active snapshot and candidate Work Set states when appropriate.
+3. Nodes relay accepted Work Set shares.
 
 Why it matters:
 - It affects convergence, not raw miner latency.
@@ -133,7 +133,7 @@ Why it matters:
 
 Current expectations:
 - peer timeouts should degrade peer health, not stop the process
-- candidate fetch races should be handled via cached recent candidate bundles
+- candidate Work Set fetch races should be handled via cached recent bundles
 - peer share relay limits must scale with expected per-node share rate, especially while test min difficulty is low
 - relay failures should be visible as protocol telemetry, not only as HTTP client logs
 
@@ -192,7 +192,7 @@ Pool-state save:
 - dangerous if it contaminates the coinbaser or share hot path
 
 Reject bursts:
-- a handful right after a real Bitcoin block or round rotation is normal
+- a handful right after a real Bitcoin block snapshot or GridPool payment transition is normal
 - sustained `Solo fallback template` rejects indicate delayed template/coinbaser refresh
 
 ## Next Optimization Targets
