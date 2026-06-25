@@ -636,6 +636,33 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public async Task TeamHashrateEstimateUsesWorkSetAgeAcrossBitcoinBlockSnapshotsAsync()
+    {
+        DateTime proofStartUtc = DateTime.UtcNow.AddHours(-1);
+        BootShareProof[] seedProofs =
+        [
+            CreateFakeProof("proof-a", 300_000_000, SampleSlotZeroAddress, timestampUtc: proofStartUtc),
+            CreateFakeProof("proof-b", 200_000_000, AlternateAddress, timestampUtc: proofStartUtc.AddMinutes(5)),
+            CreateFakeProof("proof-c", 100_000_000, SampleSlotZeroAddress, timestampUtc: proofStartUtc.AddMinutes(10))
+        ];
+        using var harness = TestHarness.Create(
+            sharedWinnerSlotCount: 3,
+            onDeckProofs: seedProofs);
+
+        await harness.StateService.ObserveChainTipAsync(
+            "0000000000000000000000000000000000000000000000000000000000aaa201",
+            "test-chain-tip",
+            945101);
+
+        BootNetworkStatusDto status = harness.StateService.GetNetworkStatus();
+
+        Assert.IsTrue(status.CurrentRoundElapsedSeconds is < 60,
+            "The visible snapshot age should still reflect the most recent Bitcoin-block snapshot.");
+        Assert.IsTrue(status.CurrentRoundObservedHashrateThs is > 250 and < 600,
+            $"Expected Work Set age to anchor team hashrate near hundreds of TH/s, got {status.CurrentRoundObservedHashrateDisplay}.");
+    }
+
+    [TestMethod]
     public async Task GridPoolPaymentRemovesOnlyPaidSnapshotProofsAndKeepsReserveProofsAsync()
     {
         BootShareProof[] seedProofs =
@@ -1021,7 +1048,8 @@ public sealed class ShareAttributionTests
         string shareId,
         double difficulty,
         string minerAddress = SampleSlotZeroAddress,
-        string? payoutSnapshotId = null)
+        string? payoutSnapshotId = null,
+        DateTime? timestampUtc = null)
     {
         return new BootShareProof
         {
@@ -1037,7 +1065,7 @@ public sealed class ShareAttributionTests
             Difficulty = difficulty,
             DiffString = ClientHandler.FormatDifficulty(difficulty),
             Source = "test-seed",
-            Timestamp = DateTime.UtcNow.AddSeconds(-difficulty)
+            Timestamp = timestampUtc ?? DateTime.UtcNow.AddSeconds(-difficulty)
         };
     }
 

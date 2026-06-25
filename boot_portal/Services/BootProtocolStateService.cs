@@ -4464,14 +4464,8 @@ public class BootProtocolStateService
 
     private long? ResolveCurrentRoundHashrateElapsedSecondsNoLock(DateTime nowUtc)
     {
-        DateTime? startedAtUtc = ResolveCurrentRoundStartUtcNoLock(nowUtc);
-        DateTime? activeProofStartUtc = ResolveActiveOnDeckHashrateStartUtcNoLock();
-        if (activeProofStartUtc.HasValue &&
-            (!startedAtUtc.HasValue || activeProofStartUtc.Value > startedAtUtc.Value))
-        {
-            startedAtUtc = activeProofStartUtc.Value;
-        }
-
+        DateTime? startedAtUtc = ResolveActiveOnDeckHashrateStartUtcNoLock() ??
+                                 ResolveCurrentRoundStartUtcNoLock(nowUtc);
         return GetElapsedSeconds(startedAtUtc, nowUtc);
     }
 
