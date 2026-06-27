@@ -5370,6 +5370,11 @@ public class BootProtocolStateService
             return "Payout mismatch";
         }
 
+        if (rejectionReason.StartsWith("Coinbase appears truncated by miner firmware", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Firmware coinbase truncation";
+        }
+
         if (rejectionReason.StartsWith("Coinbase appears to use a non-Boot single-recipient template", StringComparison.OrdinalIgnoreCase))
         {
             return "Solo fallback template";

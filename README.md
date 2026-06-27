@@ -8,6 +8,13 @@ GridPool is a decentralized reward-sharing protocol for sovereign Bitcoin miners
 ## Naming Note
 GridPool was originally developed under the working name "Boot Protocol." Some internal code, repository names, API headers, config keys, service names, and scripts still use `boot` for compatibility during the beta transition. Public docs, UI, and operator-facing language should use **GridPool**. When precision is needed, use **GridPool protocol** for the reward-sharing rules and **GridPool internode protocol** for peer-to-peer state synchronization and share relay.
 
+## Critic-Facing Design Notes
+GridPool is early, and several claims still need rigorous public modeling.
+
+- `docs/critic-faq.md` answers common technical objections such as pool hopping, loose consensus, sharechain comparisons, Sybil accounting, and majority-miner team splits.
+- `docs/modeling-and-simulation-roadmap.md` defines the open simulation work needed to turn those answers into reproducible evidence.
+- `docs/scaling-analysis.md` and `docs/stress-test-plan.md` cover bandwidth, latency, peer topology, and load-test targets.
+
 ## GridPool Node Quickstart
 Most miners should start by running only a GridPool node, then pointing an existing DATUM Gateway at it. This keeps Bitcoin and DATUM under your own control while adding the GridPool reward-sharing network layer.
 
@@ -31,6 +38,12 @@ After install:
 2. Copy the displayed Pool Host, Pool Port, and Pool Pubkey.
 3. Paste those into DATUM.
 4. Point ASICs at DATUM, not directly at GridPool.
+
+Firmware compatibility warning:
+- The main 300-slot GridPool beta requires miner firmware that can accept large DATUM coinbase templates.
+- Older stock Bitmain firmware and NiceHash-style clients may be fingerprinted by DATUM into small coinbase variants. Those templates omit required GridPool payout outputs, so GridPool rejects the resulting shares as consensus-invalid.
+- Prefer DATUM setups using firmware known to support larger coinbases, such as ePIC / PowerPlay-BM, VNish / xminer-class firmware, Whatsminer-class firmware, Bitaxe, or other firmware that DATUM fingerprints into larger coinbase classes.
+- If older Antminer hardware cannot run compatible alternative firmware, wait for future smaller-team GridPool compatibility tiers rather than mining on the 300-slot beta.
 
 If you need a full fresh sovereign stack, including pruned Bitcoin Core and DATUM Gateway, use the full-stack installer in `docs/raspberry-pi-one-shot-installer.md`.
 
@@ -109,11 +122,11 @@ This happened because centralized, low variance payout structures (FPPS) can out
 ## Prior Art
 The best known example is P2Pool.  *(NOTE: P2PoolV2 is in active development and aims to solve many of these early problems.)*  This used a secondary blockchain with faster blocktimes to track individual shares in a decentralized manner.  P2Pool (version 1) failed largely for two reasons.
 1. The extra overhead required to run the secondary blockchain was cumbersome
-2. The 30-second block times excacerbated the negative effects of block propagation time.  In all blockchains, when a new block is found it takes a brief amount of time before the rest of the network knows about the new block.  This means that nodes which discover the new block first have an advantage of being able to work on building on the new block before the rest of the network finds out.  If the difference between average block times and block propogation speed is great, than this effect is negligible, for example Bitcoin's ~10 minute block times (600 seconds) vs. about 6 seconds for network propogation.  However if block times are very fast (eg. 30 seconds), then physically centralizing hashrate becomes quite advantageous.  Nodes near the network center will earn significantly higher rewards.
+2. The 30-second block times exacerbated the negative effects of block propagation time.  In all blockchains, when a new block is found it takes a brief amount of time before the rest of the network knows about the new block.  This means that nodes which discover the new block first have an advantage of being able to work on building on the new block before the rest of the network finds out.  If the difference between average block times and block propagation speed is great, than this effect is negligible, for example Bitcoin's ~10 minute block times (600 seconds) vs. about 6 seconds for network propagation.  However if block times are very fast (eg. 30 seconds), then physically centralizing hashrate becomes quite advantageous.  Nodes near the network center will earn significantly higher rewards.
 
-The second (upcoming) solution is Braid Pool, an exciting new decentralized pool which solves the second problem (block propogation advantage).  Braid Pool is a much more advanced attempt using Directed Acyclic Graphs (akin to Kaspa) to eliminate the block propegation problem while still having very fast "block" times on the share-chain (about 1 second in theory).  In theory a block witholding attack would reduce miner revenue.  The pool itself could be 51% attacked, so this requires additional complexity to protect against.  
+The second (upcoming) solution is Braid Pool, an exciting new decentralized pool which solves the second problem (block propagation advantage).  Braid Pool is a much more advanced attempt using Directed Acyclic Graphs (akin to Kaspa) to eliminate the block propagation problem while still having very fast "block" times on the share-chain (about 1 second in theory).  In theory a block withholding attack would reduce miner revenue.  The pool itself could be 51% attacked, so this requires additional complexity to protect against.  
 
-The third (also upcoming) solution is Ocean Pool.  Ocean Pool of course is already operating, and allows hashers the choice of three different templates.  They are working hard on adding the ability for miners to build their own templates, which will solve the problem of centralized block template creation.  Being a centralized entity themselves (albeit with nicely decentralized block template construction), there is the black swan risk that Ocean could get shut down by regulators.  Miners on Ocean also run the risk of reduced revenue from a block witholding attack.  
+The third (also upcoming) solution is Ocean Pool.  Ocean Pool of course is already operating, and allows hashers the choice of three different templates.  They are working hard on adding the ability for miners to build their own templates, which will solve the problem of centralized block template creation.  Being a centralized entity themselves (albeit with nicely decentralized block template construction), there is the black swan risk that Ocean could get shut down by regulators.  Miners on Ocean also run the risk of reduced revenue from a block withholding attack.  
 
 GridPool attacks the variance problem from the other side. Traditional pools estimate miner effort by tracking many shares in a centralized database. P2Pool-style systems decentralize share accounting with a sharechain. GridPool never centralizes the block reward and does not maintain a separate chain. Miners build Bitcoin templates that pay the active payout snapshot, then relay high-difficulty proofs into a bounded unpaid Work Set so the next snapshot can be verified by peers. Conceptually, GridPool is much closer to solo mining, but with up to roughly 300x lower variance when the shared list is full.
 
@@ -122,8 +135,8 @@ Compared to solo mining, GridPool should have up to 300x reduced variance.
 Compared to standard pooled mining (eg. Ocean with sovereign block template construction), GridPool should offer reduced bandwidth requirements and much more resiliance to regulatory attack.
 Compared to decentralized pooled mining, GridPool should have reduced bandwidth requirements, reduced computational overhead, and a vastly simpler code base.  
 
-### Block Witholding attacks (killer feature?)
-GridPool should be far more resistant against *(and possibly immune to?) block witholding attacks*.  If proven, this would be the only known method of sharing block rewards in a decentralized permissionless manner that is not vulnerable to block witholding.  
+### Block Withholding attacks
+GridPool is designed to be more resistant to pool-layer block withholding attacks because the block finder receives slot 0 plus transaction fees directly from the coinbase. This is a core research claim, not something to hand-wave. See `docs/critic-faq.md` and `docs/modeling-and-simulation-roadmap.md` for the modeling work needed to quantify the claim.
 
 ---
 ## GridPool Pseudocode
@@ -164,8 +177,8 @@ There are edge cases due to network latency.  When a Bitcoin block is found, dif
 ### Layering 
 This concept of coinbase splitting can be used as a base layer underneath other standard payout schemes like PPLNS and FPPS.  Any pool or solo miner could use this to "join forces" and decrease their collective variance.  In fact, given the very minimal downsides, they stand to lose out long term against pools and miners that do use this mechanism.  Unfortunately, the only pool that can't benefit from this is Ocean Pool, because they also use the coinbase transaction for payout splitting.  I love Ocean Pool and hope they continue.  I think this protocol and Ocean are serving different needs.  
 
-### Block Witholding thoughts
-I suspect this protocol is highly resistant to block witholding attacks.  Given that each miner puts their own address in slot 0, they have an immediate incentive to submit a real block and collect the slot-0 reward plus transaction fees.  No value is ever promised, tallied, or accounted long term.  If an adversary consisted of 50% of a team's hashrate, they could expect to claim roughly 50% of the shared proof slots on average.  However if they chose to block withhold, then the team on average would find fewer blocks, and the attacker would forfeit every slot-0 reward and all transaction fees they could have claimed by playing honestly.  Someone who consistently earns many high-difficulty shared slots but never finds and publishes slot 0 may be worth watching.
+### Block withholding thoughts
+The protocol is intended to make block withholding less attractive than in conventional pooled mining.  Given that each miner puts their own address in slot 0, they have an immediate incentive to submit a real block and collect the slot-0 reward plus transaction fees.  No value is ever promised, tallied, or accounted long term.  If an adversary consisted of 50% of a team's hashrate, they could expect to claim roughly 50% of the shared proof slots on average.  However if they chose to block withhold, then the team on average would find fewer blocks, and the attacker would forfeit every slot-0 reward and all transaction fees they could have claimed by playing honestly.  Someone who consistently earns many high-difficulty shared slots but never finds and publishes slot 0 may be worth watching.
 
 The current beta keeps this simple: 300 conceptual payout slots, fixed slot value `subsidy / 300`, slot 0 receives the subsidy remainder and transaction fees, and the optional Grid Labs support slot uses one post-slot-0 slot.  Future protocol versions could experiment with different slot-0 weighting, but that is not part of the current consensus.
 

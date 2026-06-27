@@ -108,6 +108,84 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public void ValidateShareRejectsTruncatedGridPoolCoinbaseAsFirmwareCompatibilityIssue()
+    {
+        var verifier = new BootShareVerifier();
+        string truncatedCoinbaseHex = BuildCoinbaseWithWinnerPrefix(SampleCoinbaseHex, positiveWinnerCount: 1);
+        string updatedHeaderHex = RewriteHeaderMerkleRoot(SampleHeaderHex, truncatedCoinbaseHex);
+
+        BootShareValidationResult result = verifier.ValidateShare(
+            new RecordedShareSubmission
+            {
+                MinerAddress = SampleSlotZeroAddress,
+                Username = string.Empty,
+                HeaderHex = updatedHeaderHex,
+                CoinbaseHex = truncatedCoinbaseHex,
+                MerklePath = SampleMerklePath.ToList(),
+                PrevBlockHash = SamplePrevBlockHash,
+                Source = "http"
+            },
+            SampleExpectedWinners,
+            SamplePrevBlockHash);
+
+        Assert.IsFalse(result.IsValid);
+        StringAssert.Contains(result.RejectionReason ?? string.Empty, "Coinbase appears truncated by miner firmware/DATUM coinbase-size selection");
+        StringAssert.Contains(result.RejectionReason ?? string.Empty, "matched 1 of 2 required GridPool payout outputs");
+    }
+
+    [TestMethod]
+    public void ValidateShareRejectsMutatedWinnerScriptAsGenericMismatch()
+    {
+        var verifier = new BootShareVerifier();
+        string mutatedCoinbaseHex = BuildCoinbaseWithMutatedFirstWinnerScript(SampleCoinbaseHex);
+        string updatedHeaderHex = RewriteHeaderMerkleRoot(SampleHeaderHex, mutatedCoinbaseHex);
+
+        BootShareValidationResult result = verifier.ValidateShare(
+            new RecordedShareSubmission
+            {
+                MinerAddress = SampleSlotZeroAddress,
+                Username = string.Empty,
+                HeaderHex = updatedHeaderHex,
+                CoinbaseHex = mutatedCoinbaseHex,
+                MerklePath = SampleMerklePath.ToList(),
+                PrevBlockHash = SamplePrevBlockHash,
+                Source = "http"
+            },
+            SampleExpectedWinners,
+            SamplePrevBlockHash);
+
+        Assert.IsFalse(result.IsValid);
+        StringAssert.Contains(result.RejectionReason ?? string.Empty, "Coinbase winners payouts do not match");
+        Assert.IsFalse((result.RejectionReason ?? string.Empty).Contains("truncated", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [TestMethod]
+    public void ValidateShareRejectsSingleRecipientCoinbaseAsSoloFallback()
+    {
+        var verifier = new BootShareVerifier();
+        string fallbackCoinbaseHex = BuildCoinbaseWithOnlySlotZero(SampleCoinbaseHex);
+        string updatedHeaderHex = RewriteHeaderMerkleRoot(SampleHeaderHex, fallbackCoinbaseHex);
+
+        BootShareValidationResult result = verifier.ValidateShare(
+            new RecordedShareSubmission
+            {
+                MinerAddress = SampleSlotZeroAddress,
+                Username = string.Empty,
+                HeaderHex = updatedHeaderHex,
+                CoinbaseHex = fallbackCoinbaseHex,
+                MerklePath = SampleMerklePath.ToList(),
+                PrevBlockHash = SamplePrevBlockHash,
+                Source = "http"
+            },
+            SampleExpectedWinners,
+            SamplePrevBlockHash);
+
+        Assert.IsFalse(result.IsValid);
+        StringAssert.Contains(result.RejectionReason ?? string.Empty, "non-Boot single-recipient template");
+        Assert.IsFalse((result.RejectionReason ?? string.Empty).Contains("truncated", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [TestMethod]
     public async Task HttpShareWithForgedMinerAddressIsAcceptedAndAttributedToSlotZeroAsync()
     {
         using var harness = TestHarness.Create();
@@ -1135,6 +1213,152 @@ public sealed class ShareAttributionTests
         return Convert.ToHexString(transaction).ToLowerInvariant();
     }
 
+    private static string BuildCoinbaseWithWinnerPrefix(string coinbaseHex, int positiveWinnerCount)
+    {
+        (byte[] prefix, List<SerializedTxOutput> outputs, byte[] suffix) = ReadSerializedOutputs(coinbaseHex);
+        var selected = new List<SerializedTxOutput> { outputs[0] };
+        int copiedPositiveWinners = 0;
+
+        foreach (SerializedTxOutput output in outputs.Skip(1))
+        {
+            if (output.Value > 0)
+            {
+                if (copiedPositiveWinners < positiveWinnerCount)
+                {
+                    selected.Add(output);
+                    copiedPositiveWinners++;
+                }
+
+                continue;
+            }
+
+            selected.Add(output);
+        }
+
+        Assert.AreEqual(positiveWinnerCount, copiedPositiveWinners, "Test helper could not find enough positive winner outputs.");
+        return RebuildCoinbase(prefix, selected, suffix);
+    }
+
+    private static string BuildCoinbaseWithOnlySlotZero(string coinbaseHex)
+    {
+        (byte[] prefix, List<SerializedTxOutput> outputs, byte[] suffix) = ReadSerializedOutputs(coinbaseHex);
+        return RebuildCoinbase(prefix, [outputs[0]], suffix);
+    }
+
+    private static string BuildCoinbaseWithMutatedFirstWinnerScript(string coinbaseHex)
+    {
+        (byte[] prefix, List<SerializedTxOutput> outputs, byte[] suffix) = ReadSerializedOutputs(coinbaseHex);
+        byte[] replacementScript = BitcoinScript.AddressToScriptPubKey(AlternateAddress);
+        bool mutated = false;
+        var rewritten = outputs.Select((output, index) =>
+        {
+            if (!mutated && index > 0 && output.Value > 0)
+            {
+                mutated = true;
+                byte[] bytes = output.Bytes.ToArray();
+                int offset = 8;
+                ulong scriptLength = ReadVarInt(bytes, ref offset);
+                Assert.AreEqual((ulong)replacementScript.Length, scriptLength, "Test helper expects equal-length output scripts.");
+                Array.Copy(replacementScript, 0, bytes, offset, replacementScript.Length);
+                return new SerializedTxOutput(output.Value, bytes);
+            }
+
+            return output;
+        }).ToList();
+
+        Assert.IsTrue(mutated, "Test helper could not find a winner output to mutate.");
+        return RebuildCoinbase(prefix, rewritten, suffix);
+    }
+
+    private static (byte[] Prefix, List<SerializedTxOutput> Outputs, byte[] Suffix) ReadSerializedOutputs(string coinbaseHex)
+    {
+        byte[] transaction = Convert.FromHexString(coinbaseHex);
+        int offset = 0;
+
+        offset += 4; // version
+        bool hasWitness = transaction[offset] == 0x00 && transaction[offset + 1] != 0x00;
+        if (hasWitness)
+        {
+            offset += 2;
+        }
+
+        ulong inputCount = ReadVarInt(transaction, ref offset);
+        for (ulong index = 0; index < inputCount; index++)
+        {
+            offset += 32; // prev txid
+            offset += 4; // prev index
+            ulong scriptLength = ReadVarInt(transaction, ref offset);
+            offset += checked((int)scriptLength);
+            offset += 4; // sequence
+        }
+
+        int outputCountOffset = offset;
+        ulong outputCount = ReadVarInt(transaction, ref offset);
+        var outputs = new List<SerializedTxOutput>();
+        for (ulong index = 0; index < outputCount; index++)
+        {
+            int outputStart = offset;
+            ulong value = ReadUInt64(transaction, ref offset);
+            ulong scriptLength = ReadVarInt(transaction, ref offset);
+            offset += checked((int)scriptLength);
+            outputs.Add(new SerializedTxOutput(value, transaction[outputStart..offset].ToArray()));
+        }
+
+        return (transaction[..outputCountOffset].ToArray(), outputs, transaction[offset..].ToArray());
+    }
+
+    private static string RebuildCoinbase(byte[] prefix, IReadOnlyList<SerializedTxOutput> outputs, byte[] suffix)
+    {
+        using var stream = new MemoryStream();
+        stream.Write(prefix);
+        stream.Write(EncodeVarInt((ulong)outputs.Count));
+        foreach (SerializedTxOutput output in outputs)
+        {
+            stream.Write(output.Bytes);
+        }
+
+        stream.Write(suffix);
+        return Convert.ToHexString(stream.ToArray()).ToLowerInvariant();
+    }
+
+    private static byte[] EncodeVarInt(ulong value)
+    {
+        if (value < 0xfd)
+        {
+            return [(byte)value];
+        }
+
+        if (value <= ushort.MaxValue)
+        {
+            byte[] encoded = new byte[3];
+            encoded[0] = 0xfd;
+            BinaryPrimitives.WriteUInt16LittleEndian(encoded.AsSpan(1), (ushort)value);
+            return encoded;
+        }
+
+        if (value <= uint.MaxValue)
+        {
+            byte[] encoded = new byte[5];
+            encoded[0] = 0xfe;
+            BinaryPrimitives.WriteUInt32LittleEndian(encoded.AsSpan(1), (uint)value);
+            return encoded;
+        }
+
+        byte[] extended = new byte[9];
+        extended[0] = 0xff;
+        BinaryPrimitives.WriteUInt64LittleEndian(extended.AsSpan(1), value);
+        return extended;
+    }
+
+    private static string RewriteHeaderMerkleRoot(string headerHex, string coinbaseHex)
+    {
+        byte[] headerBytes = Convert.FromHexString(headerHex);
+        byte[] coinbaseHash = DoubleSha256(Convert.FromHexString(coinbaseHex));
+        byte[] merkleRoot = ComputeMerkleRoot(coinbaseHash, SampleMerklePath.Select(Convert.FromHexString).ToList());
+        Array.Copy(merkleRoot, 0, headerBytes, 36, 32);
+        return Convert.ToHexString(headerBytes).ToLowerInvariant();
+    }
+
     private static (string HeaderHex, string CoinbaseHex) BuildLowDifficultySlotZeroMutation(
         string headerHex,
         string coinbaseHex,
@@ -1159,6 +1383,8 @@ public sealed class ShareAttributionTests
         Assert.Fail("Failed to produce a low-difficulty mutated header.");
         return (string.Empty, string.Empty);
     }
+
+    private sealed record SerializedTxOutput(ulong Value, byte[] Bytes);
 
     private static byte[] ComputeMerkleRoot(byte[] coinbaseHash, IReadOnlyList<byte[]> merkleBranches)
     {

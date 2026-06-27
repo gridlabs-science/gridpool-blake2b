@@ -269,6 +269,13 @@ public class BootShareVerifier
                 $"Coinbase appears to use a non-Boot single-recipient template (likely stale or solo fallback work). Expected {DescribeExpectedOutputs(compressedOutputs)}; actual {DescribeActualOutputs(outputs)}.");
         }
 
+        int matchedTruncatedOutputs = CountTruncatedWinnerOutputPrefix(winnerOutputs, compressedOutputs);
+        if (matchedTruncatedOutputs > 0)
+        {
+            throw new InvalidOperationException(
+                $"Coinbase appears truncated by miner firmware/DATUM coinbase-size selection; matched {matchedTruncatedOutputs} of {compressedOutputs.Count} required GridPool payout outputs. Expected {DescribeExpectedOutputs(compressedOutputs)}; actual {DescribeActualOutputs(outputs)}.");
+        }
+
         throw new InvalidOperationException(
             $"Coinbase winners payouts do not match the required Boot outputs. Expected {DescribeExpectedOutputs(compressedOutputs)}; actual {DescribeActualOutputs(outputs)}.");
     }
@@ -386,6 +393,34 @@ public class BootShareVerifier
         }
 
         return sawSlotZeroResidual;
+    }
+
+    private static int CountTruncatedWinnerOutputPrefix(
+        IReadOnlyList<BitcoinTransactionOutput> actualWinnerOutputs,
+        IReadOnlyList<ExpectedWinnerOutput> expectedOutputs)
+    {
+        List<BitcoinTransactionOutput> positiveWinnerOutputs = actualWinnerOutputs
+            .Where(output => output.Value > 0)
+            .ToList();
+
+        if (positiveWinnerOutputs.Count == 0 ||
+            positiveWinnerOutputs.Count >= expectedOutputs.Count)
+        {
+            return 0;
+        }
+
+        for (int index = 0; index < positiveWinnerOutputs.Count; index++)
+        {
+            BitcoinTransactionOutput actual = positiveWinnerOutputs[index];
+            ExpectedWinnerOutput expected = expectedOutputs[index];
+            if (actual.Value != expected.Value ||
+                !actual.ScriptPubKey.SequenceEqual(expected.ScriptPubKey))
+            {
+                return 0;
+            }
+        }
+
+        return positiveWinnerOutputs.Count;
     }
 
     private static Dictionary<string, ulong> AggregateActualOutputs(IReadOnlyList<BitcoinTransactionOutput> outputs)
