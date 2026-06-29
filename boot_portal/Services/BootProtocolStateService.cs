@@ -257,14 +257,14 @@ public class BootProtocolStateService
                 string.Equals(x.StateId, stateId, StringComparison.OrdinalIgnoreCase));
             if (archived != null)
             {
-                return CloneBundle(archived);
+                return BuildExportableBundleNoLock(archived);
             }
 
             var recentCandidate = _recentCandidateBundles.FirstOrDefault(x =>
                 string.Equals(x.StateId, stateId, StringComparison.OrdinalIgnoreCase));
             if (recentCandidate != null)
             {
-                return CloneBundle(recentCandidate);
+                return BuildExportableBundleNoLock(recentCandidate);
             }
 
             if (string.Equals(stateId, _state.CandidateStateId, StringComparison.OrdinalIgnoreCase))
@@ -279,6 +279,15 @@ public class BootProtocolStateService
 
             return null;
         }
+    }
+
+    private BootStateBundle BuildExportableBundleNoLock(BootStateBundle bundle)
+    {
+        BootStateBundle exportable = CloneBundle(bundle);
+        exportable.SnapshotContexts = BuildSnapshotContextsForBundleNoLock(
+            exportable.ShareProofs.Concat(exportable.WorkSetProofs),
+            exportable.SnapshotContexts);
+        return exportable;
     }
 
     public List<BootRoundHistoryEntry> GetRoundHistory(int limit = 24)
@@ -2640,7 +2649,9 @@ public class BootProtocolStateService
             lockedBundle.PaidSnapshotProofIds = _state.LastPaidSnapshotProofIds.ToList();
             lockedBundle.SupportFeeEnabled = _poolConfig.GridLabsSupportFeeEnabled;
             lockedBundle.PayoutVariant = BuildPayoutVariantNoLock();
-            lockedBundle.SnapshotContexts = _state.SnapshotContexts.Select(CloneSnapshotContext).ToList();
+            lockedBundle.SnapshotContexts = BuildSnapshotContextsForBundleNoLock(
+                lockedBundle.ShareProofs.Concat(lockedBundle.WorkSetProofs),
+                lockedBundle.SnapshotContexts);
             lockedBundle.Commitment = BuildCommitmentNoLock();
             UpsertArchivedBundleNoLock(lockedBundle);
 
@@ -2878,6 +2889,7 @@ public class BootProtocolStateService
                 if (TryLoadStateFromPathNoLock(BootPortalPaths.PoolStateFilePath, "primary"))
                 {
                     LoadHistoryStateNoLock();
+                    FinalizeLoadedStateNoLock("primary");
                     return;
                 }
 
@@ -2887,6 +2899,7 @@ public class BootProtocolStateService
                     _logger.LogWarning(
                         "Recovered Boot protocol state from backup after failing to read the primary state file.");
                     LoadHistoryStateNoLock();
+                    FinalizeLoadedStateNoLock("backup");
                     SaveStateNoLock();
                     return;
                 }
@@ -2894,6 +2907,34 @@ public class BootProtocolStateService
 
             InitializeDefaultsNoLock();
             SeedSeenSharesNoLock();
+            SaveStateNoLock();
+        }
+    }
+
+    private void FinalizeLoadedStateNoLock(string label)
+    {
+        int repairedContexts = RepairMissingWorkSetSnapshotContextsNoLock(DateTime.UtcNow);
+        int removedProofs = RemoveUnrecoverableWorkSetProofsNoLock();
+        PruneSnapshotContextsNoLock();
+        CacheCurrentCandidateBundleNoLock();
+        if (repairedContexts > 0 || removedProofs > 0)
+        {
+            if (repairedContexts > 0)
+            {
+                _logger.LogWarning(
+                    "Repaired {Count} missing snapshot context(s) for unpaid Work Set proofs while loading {Label} state.",
+                    repairedContexts,
+                    label);
+            }
+
+            if (removedProofs > 0)
+            {
+                _logger.LogWarning(
+                    "Removed {Count} unpaid Work Set proof(s) with unrecoverable payout snapshot contexts while loading {Label} state.",
+                    removedProofs,
+                    label);
+            }
+
             SaveStateNoLock();
         }
     }
@@ -3555,12 +3596,140 @@ public class BootProtocolStateService
         }
 
         int maxContexts = Math.Max(_poolConfig.MaxStateBundleHistory, _poolConfig.WorkSetReserveMultiplier * 16);
-        _state.SnapshotContexts = _state.SnapshotContexts
-            .Where(context => protectedIds.Contains(context.SnapshotId) || context.ProofIds.Count > 0)
+        List<BootPayoutSnapshotContext> protectedContexts = _state.SnapshotContexts
+            .Where(context => protectedIds.Contains(context.SnapshotId))
+            .GroupBy(context => context.SnapshotId, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.OrderByDescending(context => context.CreatedAtUtc).First())
             .OrderByDescending(context => context.CreatedAtUtc)
-            .Take(maxContexts)
+            .ToList();
+        HashSet<string> retainedIds = protectedContexts
+            .Select(context => context.SnapshotId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        int unprotectedLimit = Math.Max(0, maxContexts - protectedContexts.Count);
+        List<BootPayoutSnapshotContext> unprotectedContexts = _state.SnapshotContexts
+            .Where(context => !retainedIds.Contains(context.SnapshotId) && context.ProofIds.Count > 0)
+            .GroupBy(context => context.SnapshotId, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.OrderByDescending(context => context.CreatedAtUtc).First())
+            .OrderByDescending(context => context.CreatedAtUtc)
+            .Take(unprotectedLimit)
+            .ToList();
+
+        _state.SnapshotContexts = protectedContexts
+            .Concat(unprotectedContexts)
             .Select(CloneSnapshotContext)
             .ToList();
+    }
+
+    private int RepairMissingWorkSetSnapshotContextsNoLock(DateTime nowUtc)
+    {
+        HashSet<string> existingContextIds = _state.SnapshotContexts
+            .Select(context => context.SnapshotId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        List<IGrouping<string, BootShareProof>> missingGroups = _state.OnDeckProofs
+            .Where(proof => !string.IsNullOrWhiteSpace(proof.PayoutSnapshotId) &&
+                            !existingContextIds.Contains(proof.PayoutSnapshotId))
+            .GroupBy(proof => proof.PayoutSnapshotId!, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        int repaired = 0;
+        foreach (IGrouping<string, BootShareProof> group in missingGroups)
+        {
+            BootShareProof? contextSource = group
+                .OrderByDescending(proof => proof.Difficulty)
+                .FirstOrDefault(proof => !string.IsNullOrWhiteSpace(proof.CoinbaseHex));
+            if (contextSource == null)
+            {
+                continue;
+            }
+
+            List<PayoutInfo> winners = TryBuildSnapshotWinnersFromProofCoinbaseNoLock(contextSource);
+            if (winners.Count == 0)
+            {
+                continue;
+            }
+
+            _state.SnapshotContexts.Insert(0, new BootPayoutSnapshotContext
+            {
+                SnapshotId = group.Key,
+                CurrentRoundNumber = _state.CurrentRoundNumber,
+                CreatedAtUtc = contextSource.Timestamp == default ? nowUtc : contextSource.Timestamp,
+                SupportFeeEnabled = _poolConfig.GridLabsSupportFeeEnabled,
+                PayoutVariant = "recovered-from-local-proof",
+                ProofIds = group
+                    .Select(proof => proof.ShareId)
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList(),
+                WinnersList = winners,
+                FeeFreeWinnersList = RemoveSupportFeePayoutsNoLock(winners)
+            });
+            existingContextIds.Add(group.Key);
+            repaired++;
+        }
+
+        return repaired;
+    }
+
+    private int RemoveUnrecoverableWorkSetProofsNoLock()
+    {
+        HashSet<string> existingContextIds = _state.SnapshotContexts
+            .Select(context => context.SnapshotId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        int before = _state.OnDeckProofs.Count;
+        _state.OnDeckProofs = _state.OnDeckProofs
+            .Where(proof => string.IsNullOrWhiteSpace(proof.PayoutSnapshotId) ||
+                            existingContextIds.Contains(proof.PayoutSnapshotId))
+            .ToList();
+        int removed = before - _state.OnDeckProofs.Count;
+        if (removed <= 0)
+        {
+            return 0;
+        }
+
+        RebuildOnDeckListNoLock();
+        _state.CandidateStateId = ComputeCandidateStateIdNoLock();
+        return removed;
+    }
+
+    private List<PayoutInfo> TryBuildSnapshotWinnersFromProofCoinbaseNoLock(BootShareProof proof)
+    {
+        try
+        {
+            List<BitcoinTransactionOutput> outputs = BitcoinTransactionParser.ParseOutputs(Convert.FromHexString(proof.CoinbaseHex));
+            return outputs
+                .Skip(1)
+                .Where(output => output.Value > 0)
+                .Select(output => new
+                {
+                    output.Value,
+                    Address = BitcoinScript.ScriptToAddress(output.ScriptPubKey, _poolConfig.BitcoinNetwork)
+                })
+                .Where(output => !string.IsNullOrWhiteSpace(output.Address) &&
+                                 !string.Equals(output.Address, "UNKNOWN", StringComparison.OrdinalIgnoreCase))
+                .Select(output =>
+                {
+                    string normalizedAddress = BitcoinScript.NormalizeAddress(output.Address);
+                    return new PayoutInfo
+                    {
+                        Value = output.Value,
+                        Address = normalizedAddress,
+                        Username = normalizedAddress
+                    };
+                })
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Unable to recover snapshot context {SnapshotId} from local proof {ShareId}.",
+                proof.PayoutSnapshotId,
+                proof.ShareId);
+            return [];
+        }
     }
 
     private List<PayoutInfo> RemoveSupportFeePayoutsNoLock(IEnumerable<PayoutInfo> payouts)
@@ -5567,10 +5736,9 @@ public class BootProtocolStateService
             ProofWinnersList = ClonePayouts(_state.WinnersList),
             ShareProofs = snapshotProofs.Select(CloneProof).ToList(),
             WorkSetProofs = _state.OnDeckProofs.Select(CloneProof).ToList(),
-            SnapshotContexts = _state.SnapshotContexts
-                .Append(candidateContext)
-                .Select(CloneSnapshotContext)
-                .ToList(),
+            SnapshotContexts = BuildSnapshotContextsForBundleNoLock(
+                snapshotProofs.Concat(_state.OnDeckProofs),
+                [candidateContext]),
             Commitment = BuildCommitmentNoLock()
         };
     }
@@ -5611,9 +5779,62 @@ public class BootProtocolStateService
             ProofWinnersList = [],
             ShareProofs = activeProofs,
             WorkSetProofs = _state.OnDeckProofs.Select(CloneProof).ToList(),
-            SnapshotContexts = _state.SnapshotContexts.Select(CloneSnapshotContext).ToList(),
+            SnapshotContexts = BuildSnapshotContextsForBundleNoLock(
+                activeProofs.Concat(_state.OnDeckProofs)),
             Commitment = BuildCommitmentNoLock()
         };
+    }
+
+    private List<BootPayoutSnapshotContext> BuildSnapshotContextsForBundleNoLock(
+        IEnumerable<BootShareProof> proofs,
+        IEnumerable<BootPayoutSnapshotContext>? additionalContexts = null)
+    {
+        var requiredSnapshotIds = proofs
+            .Select(proof => proof.PayoutSnapshotId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Cast<string>()
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (!string.IsNullOrWhiteSpace(_state.ActiveSnapshotId))
+        {
+            requiredSnapshotIds.Add(_state.ActiveSnapshotId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_state.LastPaidSnapshotId))
+        {
+            requiredSnapshotIds.Add(_state.LastPaidSnapshotId);
+        }
+
+        var contextsById = new Dictionary<string, BootPayoutSnapshotContext>(StringComparer.OrdinalIgnoreCase);
+        foreach (BootPayoutSnapshotContext context in _state.SnapshotContexts)
+        {
+            if (string.IsNullOrWhiteSpace(context.SnapshotId) ||
+                !requiredSnapshotIds.Contains(context.SnapshotId) ||
+                contextsById.ContainsKey(context.SnapshotId))
+            {
+                continue;
+            }
+
+            contextsById[context.SnapshotId] = CloneSnapshotContext(context);
+        }
+
+        if (additionalContexts != null)
+        {
+            foreach (BootPayoutSnapshotContext context in additionalContexts)
+            {
+                if (string.IsNullOrWhiteSpace(context.SnapshotId))
+                {
+                    continue;
+                }
+
+                contextsById[context.SnapshotId] = CloneSnapshotContext(context);
+            }
+        }
+
+        return contextsById.Values
+            .OrderByDescending(context => context.CreatedAtUtc)
+            .ThenBy(context => context.SnapshotId, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private BootShareProof CreateProofNoLock(

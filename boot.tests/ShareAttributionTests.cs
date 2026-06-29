@@ -898,17 +898,17 @@ public sealed class ShareAttributionTests
     public async Task ShareMinedAgainstRetainedOldSnapshotContextValidatesAfterLaterSnapshotsAsync()
     {
         using var harness = TestHarness.Create(
+            workSetReserveMultiplier: 1,
             onDeckProofs: [CreateFakeProof("context-anchor", 100, SampleSlotZeroAddress, "seed-current")]);
         string oldSnapshotId = harness.StateService.GetNetworkStatus().ActiveSnapshotId;
 
-        await harness.StateService.ObserveChainTipAsync(
-            "0000000000000000000000000000000000000000000000000000000000ddd101",
-            "test-chain-tip",
-            945001);
-        await harness.StateService.ObserveChainTipAsync(
-            "0000000000000000000000000000000000000000000000000000000000ddd102",
-            "test-chain-tip",
-            945002);
+        for (int index = 1; index <= 40; index++)
+        {
+            await harness.StateService.ObserveChainTipAsync(
+                $"00000000000000000000000000000000000000000000000000000000ddd{index:x4}",
+                "test-chain-tip",
+                945000 + index);
+        }
 
         ShareSubmissionDto oldSnapshotShare = CreateSampleShareDto();
         oldSnapshotShare.PayoutSnapshotId = oldSnapshotId;
@@ -918,6 +918,107 @@ public sealed class ShareAttributionTests
         Assert.AreEqual("accepted", payload["status"]?.GetValue<string>());
         BootNetworkStatusDto status = harness.StateService.GetNetworkStatus();
         Assert.AreEqual(2, status.WorkSetCount);
+    }
+
+    [TestMethod]
+    public async Task CandidateBundleIncludesSnapshotContextsForAllUnpaidWorkSetProofsAsync()
+    {
+        using var harness = TestHarness.Create(
+            workSetReserveMultiplier: 1,
+            onDeckProofs: [CreateFakeProof("context-anchor", 100, SampleSlotZeroAddress, "seed-current")]);
+
+        for (int index = 1; index <= 40; index++)
+        {
+            await harness.StateService.ObserveChainTipAsync(
+                $"00000000000000000000000000000000000000000000000000000000eee{index:x4}",
+                "test-chain-tip",
+                946000 + index);
+        }
+
+        BootNetworkStatusDto status = harness.StateService.GetNetworkStatus();
+        BootStateBundle? bundle = harness.StateService.GetStateBundle(status.CandidateStateId);
+
+        Assert.IsNotNull(bundle);
+        HashSet<string> contextIds = bundle.SnapshotContexts
+            .Select(context => context.SnapshotId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        List<string> missingContextIds = bundle.WorkSetProofs
+            .Select(proof => proof.PayoutSnapshotId ?? string.Empty)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(id => !contextIds.Contains(id))
+            .ToList();
+        Assert.AreEqual(0, missingContextIds.Count, $"Missing bundled context(s): {string.Join(", ", missingContextIds)}");
+    }
+
+    [TestMethod]
+    public void LoadDropsUnrecoverableWorkSetProofsMissingSnapshotContext()
+    {
+        BootShareProof unrecoverableProof = CreateFakeProof(
+            "solo-fallback-contextless",
+            100,
+            SampleSlotZeroAddress,
+            "missing-solo-context");
+        unrecoverableProof.CoinbaseHex = BuildCoinbaseWithOnlySlotZero(SampleCoinbaseHex);
+
+        using var harness = TestHarness.Create(
+            workSetReserveMultiplier: 1,
+            onDeckProofs: [unrecoverableProof]);
+
+        BootNetworkStatusDto status = harness.StateService.GetNetworkStatus();
+        BootStateBundle? bundle = harness.StateService.GetStateBundle(status.CandidateStateId);
+
+        Assert.AreEqual(0, status.WorkSetCount);
+        Assert.IsNotNull(bundle);
+        Assert.AreEqual(0, bundle.WorkSetProofs.Count);
+    }
+
+    [TestMethod]
+    public async Task PeerCanImportCandidateStateWithLongLivedReserveProofsAsync()
+    {
+        using var remoteHarness = TestHarness.Create(workSetReserveMultiplier: 1);
+        ShareRecordingResult seedResult = await remoteHarness.StateService.SubmitShareAsync(
+            new RecordedShareSubmission
+            {
+                MinerAddress = SampleSlotZeroAddress,
+                Username = string.Empty,
+                HeaderHex = SampleHeaderHex,
+                CoinbaseHex = SampleCoinbaseHex,
+                MerklePath = SampleMerklePath.ToList(),
+                PrevBlockHash = SamplePrevBlockHash,
+                Source = "datum"
+            },
+            "datum-block");
+        Assert.IsTrue(seedResult.Accepted, seedResult.RejectionReason);
+
+        for (int index = 1; index <= 40; index++)
+        {
+            await remoteHarness.StateService.ObserveChainTipAsync(
+                $"00000000000000000000000000000000000000000000000000000000abc{index:x4}",
+                "test-chain-tip",
+                947000 + index);
+        }
+
+        BootNetworkStatusDto remoteStatus = remoteHarness.StateService.GetNetworkStatus();
+        BootStateBundle currentBundle = remoteHarness.StateService.GetStateBundle(remoteStatus.CurrentStateId)!;
+        BootStateBundle candidateBundle = remoteHarness.StateService.GetStateBundle(remoteStatus.CandidateStateId)!;
+
+        using var localHarness = TestHarness.Create(
+            currentTipBlockHash: remoteStatus.CurrentTipBlockHash,
+            currentRoundNumber: remoteStatus.CurrentRoundNumber,
+            currentStateId: remoteStatus.CurrentStateId,
+            winnersList: currentBundle.WinnersList,
+            activeSnapshotId: currentBundle.ActiveSnapshotId,
+            activeSnapshotProofIds: currentBundle.ActiveSnapshotProofIds,
+            snapshotContexts: currentBundle.SnapshotContexts,
+            workSetReserveMultiplier: 1);
+
+        bool imported = await localHarness.StateService.TryImportCandidateStateAsync(
+            candidateBundle,
+            "https://peer.example");
+
+        Assert.IsTrue(imported);
+        Assert.AreEqual(remoteStatus.CandidateStateId, localHarness.StateService.GetNetworkStatus().CandidateStateId);
     }
 
     [TestMethod]
@@ -1509,10 +1610,15 @@ public sealed class ShareAttributionTests
         public static TestHarness Create(
             string? currentTipBlockHash = null,
             int currentRoundNumber = 1,
+            string currentStateId = "seed-current",
             int? sharedWinnerSlotCount = null,
             int? workSetReserveMultiplier = null,
             bool supportFeeEnabled = false,
+            IReadOnlyList<PayoutInfo>? winnersList = null,
             IReadOnlyList<BootShareProof>? onDeckProofs = null,
+            IReadOnlyList<BootPayoutSnapshotContext>? snapshotContexts = null,
+            string? activeSnapshotId = null,
+            IReadOnlyList<string>? activeSnapshotProofIds = null,
             int? seedMetadataProtocolVersion = null)
         {
             string? previousStatePath = Environment.GetEnvironmentVariable("BOOT_PORTAL_STATE_PATH");
@@ -1541,13 +1647,16 @@ public sealed class ShareAttributionTests
                     NetworkId = config.BootNetworkId,
                     ProtocolVersion = seedMetadataProtocolVersion ?? config.BootProtocolVersion
                 },
-                CurrentStateId = "seed-current",
+                CurrentStateId = currentStateId,
                 CandidateStateId = "seed-candidate",
                 CurrentRoundNumber = currentRoundNumber,
                 CurrentTipBlockHash = currentTipBlockHash ?? SamplePrevBlockHash,
                 CurrentTipBlockHeight = 945000,
                 AcceptedParentBlockHashes = [currentTipBlockHash ?? SamplePrevBlockHash],
-                WinnersList = SampleExpectedWinners.Select(ClonePayout).ToList(),
+                ActiveSnapshotId = activeSnapshotId ?? currentStateId,
+                ActiveSnapshotProofIds = activeSnapshotProofIds?.ToList() ?? [],
+                SnapshotContexts = snapshotContexts?.Select(CloneSnapshotContext).ToList() ?? [],
+                WinnersList = (winnersList ?? SampleExpectedWinners).Select(ClonePayout).ToList(),
                 OnDeckList = [],
                 OnDeckProofs = onDeckProofs?.Select(CloneProof).ToList() ?? []
             };
@@ -1615,6 +1724,24 @@ public sealed class ShareAttributionTests
                 DiffString = proof.DiffString,
                 Source = proof.Source,
                 Timestamp = proof.Timestamp
+            };
+        }
+
+        private static BootPayoutSnapshotContext CloneSnapshotContext(BootPayoutSnapshotContext context)
+        {
+            return new BootPayoutSnapshotContext
+            {
+                SnapshotId = context.SnapshotId,
+                PreviousSnapshotId = context.PreviousSnapshotId,
+                CurrentRoundNumber = context.CurrentRoundNumber,
+                LockedByBlockHash = context.LockedByBlockHash,
+                LockedByBlockHeight = context.LockedByBlockHeight,
+                CreatedAtUtc = context.CreatedAtUtc,
+                SupportFeeEnabled = context.SupportFeeEnabled,
+                PayoutVariant = context.PayoutVariant,
+                ProofIds = context.ProofIds.ToList(),
+                WinnersList = context.WinnersList.Select(ClonePayout).ToList(),
+                FeeFreeWinnersList = context.FeeFreeWinnersList.Select(ClonePayout).ToList()
             };
         }
     }

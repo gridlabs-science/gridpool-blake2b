@@ -254,7 +254,10 @@ public class BootShareVerifier
 
         List<ExpectedWinnerOutput> legacyOutputs = BuildLegacyWinnerOutputs(expectedWinners);
         List<ExpectedWinnerOutput> compressedOutputs = BuildCompressedWinnerOutputs(expectedWinners);
-        IReadOnlyList<BitcoinTransactionOutput> winnerOutputs = outputs.Skip(1).ToList();
+        IReadOnlyList<BitcoinTransactionOutput> winnerOutputs = outputs
+            .Skip(1)
+            .Where(IsPositivePayoutOutput)
+            .ToList();
 
         if (MatchesWinnerOutputs(winnerOutputs, legacyOutputs) ||
             MatchesWinnerOutputs(winnerOutputs, compressedOutputs) ||
@@ -426,7 +429,7 @@ public class BootShareVerifier
     private static Dictionary<string, ulong> AggregateActualOutputs(IReadOnlyList<BitcoinTransactionOutput> outputs)
     {
         var totals = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
-        foreach (BitcoinTransactionOutput output in outputs)
+        foreach (BitcoinTransactionOutput output in outputs.Where(IsPositivePayoutOutput))
         {
             string scriptHex = Convert.ToHexString(output.ScriptPubKey).ToLowerInvariant();
             if (totals.TryGetValue(scriptHex, out ulong existing))
@@ -440,6 +443,11 @@ public class BootShareVerifier
         }
 
         return totals;
+    }
+
+    private static bool IsPositivePayoutOutput(BitcoinTransactionOutput output)
+    {
+        return output.Value > 0;
     }
 
     private static Dictionary<string, ulong> AggregateExpectedOutputs(IReadOnlyList<ExpectedWinnerOutput> outputs)
