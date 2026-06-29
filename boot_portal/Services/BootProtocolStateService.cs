@@ -2915,9 +2915,13 @@ public class BootProtocolStateService
     {
         int repairedContexts = RepairMissingWorkSetSnapshotContextsNoLock(DateTime.UtcNow);
         int removedProofs = RemoveUnrecoverableWorkSetProofsNoLock();
+        (int invalidProofs, int canonicalizedProofs) = NormalizeWorkSetProofsNoLock();
         PruneSnapshotContextsNoLock();
         CacheCurrentCandidateBundleNoLock();
-        if (repairedContexts > 0 || removedProofs > 0)
+        if (repairedContexts > 0 ||
+            removedProofs > 0 ||
+            invalidProofs > 0 ||
+            canonicalizedProofs > 0)
         {
             if (repairedContexts > 0)
             {
@@ -2932,6 +2936,22 @@ public class BootProtocolStateService
                 _logger.LogWarning(
                     "Removed {Count} unpaid Work Set proof(s) with unrecoverable payout snapshot contexts while loading {Label} state.",
                     removedProofs,
+                    label);
+            }
+
+            if (invalidProofs > 0)
+            {
+                _logger.LogWarning(
+                    "Removed {Count} invalid unpaid Work Set proof(s) while loading {Label} state.",
+                    invalidProofs,
+                    label);
+            }
+
+            if (canonicalizedProofs > 0)
+            {
+                _logger.LogInformation(
+                    "Canonicalized {Count} unpaid Work Set proof(s) while loading {Label} state.",
+                    canonicalizedProofs,
                     label);
             }
 
@@ -3692,6 +3712,100 @@ public class BootProtocolStateService
         RebuildOnDeckListNoLock();
         _state.CandidateStateId = ComputeCandidateStateIdNoLock();
         return removed;
+    }
+
+    private (int InvalidProofs, int CanonicalizedProofs) NormalizeWorkSetProofsNoLock()
+    {
+        if (_state.OnDeckProofs.Count == 0)
+        {
+            return (0, 0);
+        }
+
+        HashSet<string> recoveredContextIds = _state.SnapshotContexts
+            .Where(context => string.Equals(context.PayoutVariant, "recovered-from-local-proof", StringComparison.OrdinalIgnoreCase))
+            .Select(context => context.SnapshotId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (recoveredContextIds.Count == 0)
+        {
+            return (0, 0);
+        }
+
+        List<string> validationParentBlockHashes = NormalizeAcceptedParentBlockHashes(
+            _state.AcceptedParentBlockHashes
+                .Append(_state.CurrentTipBlockHash)
+                .Concat(_state.OnDeckProofs.Select(proof => proof.PrevBlockHash)));
+        var validProofs = new List<BootShareProof>(_state.OnDeckProofs.Count);
+        int invalidProofs = 0;
+        int canonicalizedProofs = 0;
+
+        foreach (BootShareProof proof in _state.OnDeckProofs)
+        {
+            if (string.IsNullOrWhiteSpace(proof.PayoutSnapshotId) ||
+                !recoveredContextIds.Contains(proof.PayoutSnapshotId))
+            {
+                validProofs.Add(CloneProof(proof));
+                continue;
+            }
+
+            SnapshotValidationResult snapshotValidation;
+            try
+            {
+                snapshotValidation = ValidateProofAgainstKnownSnapshots(
+                    proof,
+                    _state.WinnersList,
+                    _state.SnapshotContexts,
+                    validationParentBlockHashes);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Removed malformed unpaid Work Set proof {ShareId} while loading state.",
+                    proof.ShareId);
+                invalidProofs++;
+                continue;
+            }
+
+            BootShareValidationResult validation = snapshotValidation.Validation;
+            if (!validation.IsValid)
+            {
+                invalidProofs++;
+                continue;
+            }
+
+            string source = string.IsNullOrWhiteSpace(proof.Source) ? "state-load" : proof.Source;
+            string? payoutSnapshotId = string.IsNullOrWhiteSpace(snapshotValidation.SnapshotId)
+                ? proof.PayoutSnapshotId
+                : snapshotValidation.SnapshotId;
+            BootShareProof canonicalProof = CreateProofNoLock(validation, source, proof.Timestamp, payoutSnapshotId);
+            if (!ProofConsensusFieldsMatch(proof, canonicalProof))
+            {
+                canonicalizedProofs++;
+            }
+
+            validProofs.Add(canonicalProof);
+        }
+
+        List<BootShareProof> trimmed = SortAndTrimProofs(validProofs, _poolConfig.WorkSetReserveLimit);
+        int duplicateOrOverflowProofs = validProofs.Count - trimmed.Count;
+        if (invalidProofs == 0 && canonicalizedProofs == 0 && duplicateOrOverflowProofs == 0)
+        {
+            return (0, 0);
+        }
+
+        _state.OnDeckProofs = trimmed;
+        RebuildOnDeckListNoLock();
+        _state.CandidateStateId = ComputeCandidateStateIdNoLock();
+        return (invalidProofs + duplicateOrOverflowProofs, canonicalizedProofs);
+    }
+
+    private static bool ProofConsensusFieldsMatch(BootShareProof left, BootShareProof right)
+    {
+        return string.Equals(left.ShareId, right.ShareId, StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(left.ScriptPubKeyHex, right.ScriptPubKeyHex, StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(left.PayoutSnapshotId ?? string.Empty, right.PayoutSnapshotId ?? string.Empty, StringComparison.OrdinalIgnoreCase) &&
+               Math.Abs(left.Difficulty - right.Difficulty) <= 0.0000001;
     }
 
     private List<PayoutInfo> TryBuildSnapshotWinnersFromProofCoinbaseNoLock(BootShareProof proof)

@@ -974,6 +974,43 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public void LoadDropsWorkSetProofsThatDoNotValidateAgainstRecoveredSnapshotContext()
+    {
+        const string staleSnapshotId = "stale-recovered-context";
+        string fallbackCoinbaseHex = BuildCoinbaseWithOnlySlotZero(SampleCoinbaseHex);
+        BootShareProof staleProof = CreateFakeProof(
+            "stale-proof-with-context",
+            100,
+            SampleSlotZeroAddress,
+            staleSnapshotId);
+        staleProof.CoinbaseHex = fallbackCoinbaseHex;
+        staleProof.HeaderHex = RewriteHeaderMerkleRoot(SampleHeaderHex, fallbackCoinbaseHex);
+
+        var staleContext = new BootPayoutSnapshotContext
+        {
+            SnapshotId = staleSnapshotId,
+            CurrentRoundNumber = 1,
+            CreatedAtUtc = DateTime.UtcNow.AddMinutes(-10),
+            PayoutVariant = "recovered-from-local-proof",
+            WinnersList = SampleExpectedWinners.Select(ClonePayout).ToList(),
+            FeeFreeWinnersList = SampleExpectedWinners.Select(ClonePayout).ToList(),
+            ProofIds = [staleProof.ShareId]
+        };
+
+        using var harness = TestHarness.Create(
+            workSetReserveMultiplier: 1,
+            onDeckProofs: [staleProof],
+            snapshotContexts: [staleContext]);
+
+        BootNetworkStatusDto status = harness.StateService.GetNetworkStatus();
+        BootStateBundle? bundle = harness.StateService.GetStateBundle(status.CandidateStateId);
+
+        Assert.AreEqual(0, status.WorkSetCount);
+        Assert.IsNotNull(bundle);
+        Assert.AreEqual(0, bundle.WorkSetProofs.Count);
+    }
+
+    [TestMethod]
     public async Task PeerCanImportCandidateStateWithLongLivedReserveProofsAsync()
     {
         using var remoteHarness = TestHarness.Create(workSetReserveMultiplier: 1);
