@@ -269,6 +269,38 @@ public class BootProtocolStateService
         }
     }
 
+    public double GetWorkSetAdmissionDifficulty()
+    {
+        lock (_sync)
+        {
+            return GetWorkSetAdmissionDifficultyNoLock();
+        }
+    }
+
+    public bool IsAcceptedParentBlockHash(string? blockHash)
+    {
+        lock (_sync)
+        {
+            return IsAcceptedParentBlockHashNoLock(blockHash);
+        }
+    }
+
+    private double GetWorkSetAdmissionDifficultyNoLock()
+    {
+        List<double> workSetDifficulties = _state.OnDeckProofs
+            .Select(proof => proof.Difficulty)
+            .Where(difficulty => difficulty > 0)
+            .OrderByDescending(difficulty => difficulty)
+            .ToList();
+        if (workSetDifficulties.Count < _poolConfig.WorkSetReserveLimit)
+        {
+            return 1d;
+        }
+
+        double floorDifficulty = workSetDifficulties[^1];
+        return Math.Max(1d, Math.BitIncrement(floorDifficulty));
+    }
+
     public BootStateBundle? GetStateBundle(string stateId)
     {
         if (string.IsNullOrWhiteSpace(stateId))
@@ -714,6 +746,78 @@ public class BootProtocolStateService
             session.LastActivityType = accepted ? "share-accepted" : "share-rejected";
             RequestDeferredHistorySaveNoLock();
         }
+    }
+
+    public ShareRecordingResult RecordDatumTelemetryShare(
+        string minerAddress,
+        string username,
+        double difficulty,
+        DateTime? timestampUtc = null)
+    {
+        DateTime effectiveTimestampUtc = timestampUtc ?? DateTime.UtcNow;
+        ShareRecordingResult result;
+        bool shouldNotifyNetwork = false;
+        lock (_sync)
+        {
+            string normalizedMinerAddress = BitcoinScript.NormalizeAddress(minerAddress);
+            string effectiveUsername = string.IsNullOrWhiteSpace(username) ? normalizedMinerAddress : username;
+            var proof = new BootShareProof
+            {
+                MinerAddress = normalizedMinerAddress,
+                Username = effectiveUsername,
+                Source = "datum",
+                Difficulty = difficulty,
+                Timestamp = effectiveTimestampUtc
+            };
+
+            bool newRecord = false;
+            if (difficulty > _state.BestShare.Difficulty)
+            {
+                _state.BestShare = new BestShareRecord
+                {
+                    Difficulty = difficulty,
+                    MinerAddress = effectiveUsername,
+                    Timestamp = effectiveTimestampUtc
+                };
+                newRecord = true;
+            }
+
+            RecordAcceptedShareTelemetryNoLock(proof);
+            RecordShareDiagnosticNoLock(
+                "datum",
+                normalizedMinerAddress,
+                effectiveUsername,
+                accepted: true,
+                affectedOnDeck: false,
+                rejectionReason: null,
+                difficulty: difficulty,
+                timestampUtc: effectiveTimestampUtc);
+            bool capturedHashrateSample = MaybeCaptureHashrateSampleNoLock(effectiveTimestampUtc, force: false);
+            RequestDeferredHistorySaveNoLock();
+
+            shouldNotifyNetwork = newRecord || capturedHashrateSample;
+            result = new ShareRecordingResult
+            {
+                Accepted = true,
+                AffectedOnDeck = false,
+                NewRecord = newRecord,
+                ComputedDifficulty = difficulty,
+                BestShare = newRecord ? CloneBestShare(_state.BestShare) : new BestShareRecord(),
+                NetworkStatus = shouldNotifyNetwork ? BuildNetworkStatusNoLock() : new BootNetworkStatusDto()
+            };
+        }
+
+        if (result.NewRecord)
+        {
+            QueueRealtimeSend(_hubContext.Clients.All.SendAsync("UpdateRecord", result.BestShare), "UpdateRecord");
+        }
+
+        if (shouldNotifyNetwork)
+        {
+            QueueRealtimeSend(_hubContext.Clients.All.SendAsync("UpdateNetworkState", result.NetworkStatus), "UpdateNetworkState");
+        }
+
+        return result;
     }
 
     public void CompleteDatumSession(

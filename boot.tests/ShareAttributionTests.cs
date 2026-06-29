@@ -687,6 +687,62 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public void WorkSetAdmissionDifficultyUsesReserveFloorWhenFull()
+    {
+        BootShareProof[] seedProofs =
+        [
+            CreateFakeProof("proof-a", 100, SampleSlotZeroAddress),
+            CreateFakeProof("proof-b", 50, AlternateAddress)
+        ];
+        using var harness = TestHarness.Create(
+            sharedWinnerSlotCount: 2,
+            workSetReserveMultiplier: 1,
+            onDeckProofs: seedProofs);
+
+        double admissionDifficulty = harness.StateService.GetWorkSetAdmissionDifficulty();
+
+        Assert.AreEqual(Math.BitIncrement(50d), admissionDifficulty);
+    }
+
+    [TestMethod]
+    public void DatumTelemetryShareUpdatesLocalHashrateWithoutMutatingWorkSet()
+    {
+        BootShareProof[] seedProofs =
+        [
+            CreateFakeProof("proof-a", 100, SampleSlotZeroAddress),
+            CreateFakeProof("proof-b", 50, AlternateAddress)
+        ];
+        using var harness = TestHarness.Create(
+            sharedWinnerSlotCount: 2,
+            workSetReserveMultiplier: 1,
+            onDeckProofs: seedProofs);
+        BootNetworkStatusDto before = harness.StateService.GetNetworkStatus();
+
+        ShareRecordingResult result = new();
+        DateTime startedUtc = DateTime.UtcNow;
+        for (int i = 0; i < 8; i++)
+        {
+            result = harness.StateService.RecordDatumTelemetryShare(
+                AlternateAddress,
+                $"{AlternateAddress}.worker",
+                difficulty: 10 + i,
+                timestampUtc: startedUtc.AddMilliseconds(i));
+        }
+        BootNetworkStatusDto after = harness.StateService.GetNetworkStatus();
+
+        Assert.IsTrue(result.Accepted);
+        Assert.IsFalse(result.AffectedOnDeck);
+        Assert.AreEqual(before.WorkSetCount, after.WorkSetCount);
+        Assert.AreEqual(before.CandidateStateId, after.CandidateStateId);
+        Assert.AreEqual(8, after.LocalDatumDiagnostics.TotalSubmissions);
+        Assert.AreEqual(8, after.LocalDatumDiagnostics.AcceptedCount);
+        Assert.AreEqual(0, after.LocalDatumDiagnostics.AcceptedOnDeckCount);
+        Assert.AreEqual(0, after.LocalDatumDiagnostics.RejectedCount);
+        Assert.IsTrue(after.LocalDatumMiners.Any(miner =>
+            string.Equals(miner.Address, AlternateAddress, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
     public async Task BitcoinBlockSnapshotUpdatesActiveWinnersWithoutRemovingWorkSetProofsAsync()
     {
         BootShareProof[] seedProofs =

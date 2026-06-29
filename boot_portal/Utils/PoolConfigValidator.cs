@@ -137,6 +137,8 @@ public static class PoolConfigValidator
         ValidatePositive(errors, config.ShareDiagnosticRetentionHours, "share_diagnostic_retention_hours");
         ValidatePositive(errors, config.DatumShareResponseSlowMs, "datum_share_response_slow_ms");
         ValidatePositive(errors, config.DatumShareResponseAcceptedSampleEvery, "datum_share_response_accepted_sample_every");
+        ValidatePositive(errors, config.DatumLowDiffCourtesyValidateEvery, "datum_low_diff_courtesy_validate_every");
+        ValidatePositive(errors, config.DatumLowDiffCourtesyValidateSeconds, "datum_low_diff_courtesy_validate_seconds");
         ValidatePositive(errors, config.StaleDatumPayoutMismatchThreshold, "stale_datum_payout_mismatch_threshold");
         ValidatePositive(errors, config.StaleDatumDisconnectMinSeconds, "stale_datum_disconnect_min_seconds");
         ValidatePositive(errors, config.StaleDatumDisconnectCooldownSeconds, "stale_datum_disconnect_cooldown_seconds");

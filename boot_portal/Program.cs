@@ -276,6 +276,15 @@ public class PoolConfig
     [JsonPropertyName("datum_share_response_accepted_sample_every")]
     public int DatumShareResponseAcceptedSampleEvery { get; set; } = 100;
 
+    [JsonPropertyName("datum_low_diff_fast_accept_enabled")]
+    public bool DatumLowDiffFastAcceptEnabled { get; set; } = true;
+
+    [JsonPropertyName("datum_low_diff_courtesy_validate_every")]
+    public int DatumLowDiffCourtesyValidateEvery { get; set; } = 256;
+
+    [JsonPropertyName("datum_low_diff_courtesy_validate_seconds")]
+    public int DatumLowDiffCourtesyValidateSeconds { get; set; } = 60;
+
     [JsonPropertyName("trusted_forwarded_proxy_ranges")]
     public List<string> TrustedForwardedProxyRanges { get; set; } = [];
 
@@ -896,6 +905,8 @@ public class ClientHandler
     private long _coinbaserFetchSequence = 0;
     private long _datumShareResponseSequence = 0;
     private long _datumProtocolEventSequence = 0;
+    private int _lowDiffFastAcceptedSinceCourtesy = 0;
+    private DateTime _lastLowDiffCourtesyValidationUtc = DateTime.MinValue;
     private byte _nextCoinbaserResponseId = 0;
     private readonly CancellationToken _stoppingToken;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
@@ -2754,11 +2765,77 @@ public class ClientHandler
         }
         BigInteger maxTarget = BigInteger.Pow(2, 224) - 1;
         BigInteger achievedDifficultyBig = hashInt == 0 ? 0 : maxTarget / hashInt;
+        double achievedDifficulty = achievedDifficultyBig <= 0 ? 0d : (double)achievedDifficultyBig;
         buildDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
 
         //Console.WriteLine($"   -> ✅ Received PoW submission: JobID={powSubmit.JobId}, CoinbaseID={powSubmit.CoinbaseId}, IsBlock={powSubmit.IsBlock}, SubsidyOnly={powSubmit.SubsidyOnly}, QuickDiff={powSubmit.QuickDiff}, Username={powSubmit.Username}");
 
         bool shareAccepted = false;
+        if (ShouldFastAcceptLowDifficultyDatumShare(
+                achievedDifficulty,
+                powSubmit.IsBlock,
+                powSubmit.PrevBlockHash == null ? null : BitcoinHashes.ToDisplayHashHex(powSubmit.PrevBlockHash),
+                startedUtc,
+                out string fastAcceptDetail))
+        {
+            stageStopwatch.Restart();
+            ShareRecordingResult telemetryResult = _stateService.RecordDatumTelemetryShare(
+                powSubmit.Address,
+                powSubmit.Username,
+                achievedDifficulty,
+                startedUtc);
+            double telemetryStateMutationDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+            shareAccepted = true;
+            ResetStaleTemplateTracking();
+            _stateService.RecordDatumSessionShareOutcome(_sessionId, accepted: true, affectedOnDeck: false, startedUtc);
+            RecordPowSubmitProtocolOutcome(
+                powSubmit,
+                accepted: true,
+                affectedOnDeck: false,
+                rejectionReason: null,
+                difficulty: achievedDifficulty,
+                prevBlockHash: powSubmit.PrevBlockHash == null ? null : BitcoinHashes.ToDisplayHashHex(powSubmit.PrevBlockHash),
+                nonceOnlySubmit: nonceOnlySubmit,
+                usedCachedJob: usedCachedJob,
+                cachedJobAgeMs: cachedJobAgeMs,
+                detail: fastAcceptDetail);
+
+            stageStopwatch.Restart();
+            await SendShareResponseAsync(powSubmit, accepted: true);
+            responseSendDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+            totalStopwatch.Stop();
+            RecordDatumShareResponseTelemetry(
+                powSubmit,
+                accepted: true,
+                affectedOnDeck: false,
+                rejectionReason: null,
+                difficulty: telemetryResult.ComputedDifficulty,
+                prevBlockHash: powSubmit.PrevBlockHash == null ? null : BitcoinHashes.ToDisplayHashHex(powSubmit.PrevBlockHash),
+                nonceOnlySubmit: nonceOnlySubmit,
+                usedCachedJob: usedCachedJob,
+                cachedJobAgeMs: cachedJobAgeMs,
+                payloadBytes: payload.Length,
+                coinbaseBytes: coinbaseTx.Length,
+                coinb1Bytes: Coinb1.Length,
+                coinb2Bytes: Coinb2.Length,
+                parseDurationMs: parseDurationMs,
+                buildDurationMs: buildDurationMs,
+                validationDurationMs: 0,
+                snapshotReadDurationMs: 0,
+                snapshotReadLockWaitDurationMs: 0,
+                snapshotReadLockBodyDurationMs: 0,
+                shareCoreValidationDurationMs: 0,
+                stateMutationDurationMs: telemetryStateMutationDurationMs,
+                stateMutationLockWaitDurationMs: 0,
+                stateMutationLockBodyDurationMs: 0,
+                staleHandlingDurationMs: 0,
+                responseSendDurationMs: responseSendDurationMs,
+                totalDurationMs: totalStopwatch.Elapsed.TotalMilliseconds,
+                startedUtc: startedUtc,
+                responseSequence: responseSequence);
+            return;
+        }
+
         List<string> merklePath = [];
         if (powSubmit.MerkleBranches != null && powSubmit.MerkleBranchCount.HasValue)
         {
@@ -2779,7 +2856,7 @@ public class ClientHandler
             MerklePath = merklePath,
             PayoutSnapshotId = powSubmit.PayoutSnapshotId,
             PrevBlockHash = powSubmit.PrevBlockHash == null ? null : BitcoinHashes.ToDisplayHashHex(powSubmit.PrevBlockHash),
-            Difficulty = (double)achievedDifficultyBig,
+            Difficulty = achievedDifficulty,
             Source = "datum"
         }, "datum-block");
         validationDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
@@ -2869,6 +2946,52 @@ public class ClientHandler
 
         var responsePayload = shareResponse.ToBytes();
         await SendEncryptedMessageAsync(0x05, responsePayload, isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false, messageLabel: accepted ? "share-response-accepted" : "share-response-rejected");
+    }
+
+    private bool ShouldFastAcceptLowDifficultyDatumShare(
+        double achievedDifficulty,
+        bool clientReportedBlock,
+        string? prevBlockHash,
+        DateTime nowUtc,
+        out string detail)
+    {
+        detail = string.Empty;
+        if (!_poolConfig.DatumLowDiffFastAcceptEnabled ||
+            clientReportedBlock ||
+            achievedDifficulty < 1d ||
+            double.IsNaN(achievedDifficulty) ||
+            double.IsInfinity(achievedDifficulty))
+        {
+            return false;
+        }
+
+        if (!_stateService.IsAcceptedParentBlockHash(prevBlockHash))
+        {
+            return false;
+        }
+
+        double admissionDifficulty = _stateService.GetWorkSetAdmissionDifficulty();
+        if (achievedDifficulty >= admissionDifficulty)
+        {
+            return false;
+        }
+
+        int courtesyEvery = Math.Clamp(_poolConfig.DatumLowDiffCourtesyValidateEvery, 1, 1_000_000);
+        int courtesySeconds = Math.Clamp(_poolConfig.DatumLowDiffCourtesyValidateSeconds, 1, 3600);
+        bool countDue = _lowDiffFastAcceptedSinceCourtesy >= courtesyEvery;
+        bool timeDue = _lastLowDiffCourtesyValidationUtc == DateTime.MinValue ||
+                       (nowUtc - _lastLowDiffCourtesyValidationUtc).TotalSeconds >= courtesySeconds;
+        if (countDue || timeDue)
+        {
+            _lowDiffFastAcceptedSinceCourtesy = 0;
+            _lastLowDiffCourtesyValidationUtc = nowUtc;
+            return false;
+        }
+
+        _lowDiffFastAcceptedSinceCourtesy += 1;
+        detail =
+            $"telemetryOnly=true; admissionFloor={FormatDifficulty(admissionDifficulty)}; fastAcceptedSinceCourtesy={_lowDiffFastAcceptedSinceCourtesy}";
+        return true;
     }
 
     private void RecordDatumShareResponseTelemetry(
