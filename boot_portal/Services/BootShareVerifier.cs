@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Numerics;
 using System.Security.Cryptography;
+using System.Text;
 using boot_portal.Models;
 using boot_portal.Utils;
 
@@ -26,7 +27,10 @@ public sealed class BootShareValidationResult
 public class BootShareVerifier
 {
     private static readonly BigInteger DifficultyOneTarget = DecodeCompactTarget(0x1d00ffff);
+    private const int MaxExpectedOutputPlanCacheEntries = 512;
     private readonly string _bitcoinNetwork;
+    private readonly object _expectedOutputPlanCacheLock = new();
+    private readonly Dictionary<string, ExpectedWinnerOutputPlan> _expectedOutputPlanCache = new(StringComparer.Ordinal);
 
     public BootShareVerifier()
         : this(new PoolConfig())
@@ -252,8 +256,9 @@ public class BootShareVerifier
             throw new InvalidOperationException("Coinbase payout list is too short.");
         }
 
-        List<ExpectedWinnerOutput> legacyOutputs = BuildLegacyWinnerOutputs(expectedWinners);
-        List<ExpectedWinnerOutput> compressedOutputs = BuildCompressedWinnerOutputs(expectedWinners);
+        ExpectedWinnerOutputPlan expectedOutputPlan = GetExpectedWinnerOutputPlan(expectedWinners);
+        List<ExpectedWinnerOutput> legacyOutputs = expectedOutputPlan.LegacyOutputs;
+        List<ExpectedWinnerOutput> compressedOutputs = expectedOutputPlan.CompressedOutputs;
         IReadOnlyList<BitcoinTransactionOutput> winnerOutputs = outputs
             .Skip(1)
             .Where(IsPositivePayoutOutput)
@@ -304,6 +309,52 @@ public class BootShareVerifier
     {
         byte[] hash = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{headerHex}|{coinbaseHex}|{minerAddress}"));
         return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private ExpectedWinnerOutputPlan GetExpectedWinnerOutputPlan(IReadOnlyList<PayoutInfo> expectedWinners)
+    {
+        string cacheKey = BuildExpectedWinnerOutputPlanCacheKey(expectedWinners);
+        lock (_expectedOutputPlanCacheLock)
+        {
+            if (_expectedOutputPlanCache.TryGetValue(cacheKey, out ExpectedWinnerOutputPlan? cached))
+            {
+                return cached;
+            }
+        }
+
+        var plan = new ExpectedWinnerOutputPlan
+        {
+            LegacyOutputs = BuildLegacyWinnerOutputs(expectedWinners),
+            CompressedOutputs = BuildCompressedWinnerOutputs(expectedWinners)
+        };
+
+        lock (_expectedOutputPlanCacheLock)
+        {
+            if (_expectedOutputPlanCache.Count >= MaxExpectedOutputPlanCacheEntries)
+            {
+                _expectedOutputPlanCache.Clear();
+            }
+
+            _expectedOutputPlanCache[cacheKey] = plan;
+        }
+
+        return plan;
+    }
+
+    private string BuildExpectedWinnerOutputPlanCacheKey(IReadOnlyList<PayoutInfo> expectedWinners)
+    {
+        var builder = new StringBuilder(_bitcoinNetwork.Length + expectedWinners.Count * 96);
+        builder.Append(_bitcoinNetwork);
+        foreach (PayoutInfo payout in expectedWinners)
+        {
+            builder
+                .Append('|')
+                .Append(payout.Value)
+                .Append(':')
+                .Append(BitcoinScript.NormalizeAddress(payout.Address));
+        }
+
+        return builder.ToString();
     }
 
     private List<ExpectedWinnerOutput> BuildLegacyWinnerOutputs(IReadOnlyList<PayoutInfo> expectedWinners)
@@ -557,5 +608,11 @@ public class BootShareVerifier
     {
         public ulong Value { get; set; }
         public byte[] ScriptPubKey { get; set; } = [];
+    }
+
+    private sealed class ExpectedWinnerOutputPlan
+    {
+        public List<ExpectedWinnerOutput> LegacyOutputs { get; set; } = [];
+        public List<ExpectedWinnerOutput> CompressedOutputs { get; set; } = [];
     }
 }

@@ -89,12 +89,34 @@ public class DatumServer : BackgroundService
 
     private async Task HandleWinnersListChangedAsync(string reason)
     {
+        if (IsChainTipSnapshotReason(reason))
+        {
+            _logger.LogDebug(
+                "Skipping DATUM urgent refresh for chain-tip snapshot ({Reason}); DATUM will refresh from its own Bitcoin work-update path.",
+                reason);
+            return;
+        }
+
         await RefreshActiveClientsAsync(reason);
     }
 
     private async Task HandleWorkTemplatesInvalidatedAsync(string reason)
     {
+        if (IsChainTipSnapshotReason(reason))
+        {
+            _logger.LogDebug(
+                "Skipping DATUM urgent refresh for chain-tip invalidation ({Reason}); DATUM will refresh from its own Bitcoin work-update path.",
+                reason);
+            return;
+        }
+
         await RefreshActiveClientsAsync(reason);
+    }
+
+    private static bool IsChainTipSnapshotReason(string? reason)
+    {
+        return !string.IsNullOrWhiteSpace(reason) &&
+               reason.StartsWith("chain-tip:", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task RefreshActiveClientsAsync(string reason)

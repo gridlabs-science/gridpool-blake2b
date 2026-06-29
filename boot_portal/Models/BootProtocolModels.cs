@@ -349,6 +349,8 @@ public class BootDatumShareResponseTelemetry
     public string? PrevBlockHash { get; set; }
     public byte JobId { get; set; }
     public byte CoinbaseId { get; set; }
+    public byte? CoinbaserId { get; set; }
+    public string? PayoutSnapshotId { get; set; }
     public uint Nonce { get; set; }
     public bool IsBlock { get; set; }
     public bool SubsidyOnly { get; set; }
@@ -366,6 +368,13 @@ public class BootDatumShareResponseTelemetry
     public double ParseDurationMs { get; set; }
     public double BuildDurationMs { get; set; }
     public double ValidationDurationMs { get; set; }
+    public double SnapshotReadDurationMs { get; set; }
+    public double SnapshotReadLockWaitDurationMs { get; set; }
+    public double SnapshotReadLockBodyDurationMs { get; set; }
+    public double ShareCoreValidationDurationMs { get; set; }
+    public double StateMutationDurationMs { get; set; }
+    public double StateMutationLockWaitDurationMs { get; set; }
+    public double StateMutationLockBodyDurationMs { get; set; }
     public double StaleHandlingDurationMs { get; set; }
     public double ResponseSendDurationMs { get; set; }
     public double TotalDurationMs { get; set; }
@@ -375,6 +384,13 @@ public class BootDatumShareResponseTelemetry
     public string? CurrentTipBlockHash { get; set; }
     public long? CurrentTipBlockHeight { get; set; }
     public DateTime TimestampUtc { get; set; }
+}
+
+public class DatumCoinbaseTemplate
+{
+    public List<PayoutInfo> WinnersList { get; set; } = [];
+    public List<PayoutInfo> CoinbaseOutputs { get; set; } = [];
+    public string ActiveSnapshotId { get; set; } = string.Empty;
 }
 
 public class BootDatumSessionTelemetry
@@ -674,6 +690,13 @@ public class ShareRecordingResult
     public BestShareRecord BestShare { get; set; } = new();
     public BootNetworkStatusDto NetworkStatus { get; set; } = new();
     public RoundRotationResult? Rotation { get; set; }
+    public double SnapshotReadDurationMs { get; set; }
+    public double SnapshotReadLockWaitDurationMs { get; set; }
+    public double SnapshotReadLockBodyDurationMs { get; set; }
+    public double ShareCoreValidationDurationMs { get; set; }
+    public double StateMutationDurationMs { get; set; }
+    public double StateMutationLockWaitDurationMs { get; set; }
+    public double StateMutationLockBodyDurationMs { get; set; }
 }
 
 public class RoundRotationResult

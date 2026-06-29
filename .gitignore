@@ -32,6 +32,8 @@ bld/
 *.key
 *_rsa
 *_ed25519
+__pycache__/
+*.py[cod]
 
 # Runtime state and local analysis artifacts
 boot_portal/pool_state*.json
@@ -45,6 +47,7 @@ scripts/deploy-local*.sh
 scripts/gridpool-health-monitor.local.json
 gridpool-health-monitor.local.json
 gridpool-monitor-state/
+simulations/reports/generated/
 
 # Visual Studio 2015 cache/options directory
 .vs/

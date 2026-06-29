@@ -878,6 +878,8 @@ public class ClientHandler
     private readonly PoolConfig _poolConfig;
     private readonly PowSubmitMessage?[] _jobCache = new PowSubmitMessage?[8];
     private readonly DateTime?[] _jobCacheUpdatedUtc = new DateTime?[8];
+    private readonly string?[] _jobPayoutSnapshotIds = new string?[8];
+    private readonly Dictionary<byte, string> _coinbaserSnapshotIds = new();
     private string _clientPayoutAddress = "";
     private string _clientIdentityKey = "";
     private string _clientEncryptIdentityKey = "";
@@ -894,6 +896,7 @@ public class ClientHandler
     private long _coinbaserFetchSequence = 0;
     private long _datumShareResponseSequence = 0;
     private long _datumProtocolEventSequence = 0;
+    private byte _nextCoinbaserResponseId = 0;
     private readonly CancellationToken _stoppingToken;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private CancellationTokenSource? _datumKeepaliveCts;
@@ -1484,6 +1487,48 @@ public class ClientHandler
 
         _stateService.RememberDatumPayoutAddress(_clientIdentityKey, payoutAddress);
         _stateService.RememberDatumPayoutAddress(_clientEncryptIdentityKey, payoutAddress);
+    }
+
+    private byte NextCoinbaserResponseId()
+    {
+        unchecked
+        {
+            _nextCoinbaserResponseId++;
+            if (_nextCoinbaserResponseId == 0)
+            {
+                _nextCoinbaserResponseId = 1;
+            }
+
+            return _nextCoinbaserResponseId;
+        }
+    }
+
+    private void RememberCoinbaserSnapshotId(byte coinbaserId, string? snapshotId)
+    {
+        if (coinbaserId == 0 || string.IsNullOrWhiteSpace(snapshotId))
+        {
+            return;
+        }
+
+        _coinbaserSnapshotIds[coinbaserId] = snapshotId;
+    }
+
+    private string? ResolvePayoutSnapshotId(PowSubmitMessage powSubmit)
+    {
+        if (powSubmit.CoinbaserId.HasValue &&
+            _coinbaserSnapshotIds.TryGetValue(powSubmit.CoinbaserId.Value, out string? snapshotId) &&
+            !string.IsNullOrWhiteSpace(snapshotId))
+        {
+            return snapshotId;
+        }
+
+        if (powSubmit.JobId < _jobPayoutSnapshotIds.Length &&
+            !string.IsNullOrWhiteSpace(_jobPayoutSnapshotIds[powSubmit.JobId]))
+        {
+            return _jobPayoutSnapshotIds[powSubmit.JobId];
+        }
+
+        return null;
     }
 
     public async Task<bool> RequestBlockTemplateRefreshAsync(string reason = "unspecified")
@@ -2112,6 +2157,8 @@ public class ClientHandler
         double sendDurationMs = 0;
         CoinbaserFetchMessage? fetchRequest = null;
         CoinbaserFetchResponseMessage? fetchResponse = null;
+        byte coinbaserResponseId = 0;
+        string activeSnapshotId = string.Empty;
         List<PayoutInfo> winnersList = [];
         List<PayoutInfo> coinbaseOutputs = [];
         ulong teamPayoutTotal = 0;
@@ -2125,12 +2172,17 @@ public class ClientHandler
             parseDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
 
             stageStopwatch.Restart();
-            winnersList = _stateService.GetWinnersList();
-            coinbaseOutputs = _stateService.GetCoinbaseOutputs();
+            DatumCoinbaseTemplate coinbaseTemplate = _stateService.GetDatumCoinbaseTemplate();
+            winnersList = coinbaseTemplate.WinnersList;
+            coinbaseOutputs = coinbaseTemplate.CoinbaseOutputs;
+            activeSnapshotId = coinbaseTemplate.ActiveSnapshotId;
             stateReadDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
 
             stageStopwatch.Restart();
+            coinbaserResponseId = NextCoinbaserResponseId();
+            RememberCoinbaserSnapshotId(coinbaserResponseId, activeSnapshotId);
             fetchResponse = new CoinbaserFetchResponseMessage();
+            fetchResponse.CoinbaserId = coinbaserResponseId;
             foreach (var payout in winnersList)
             {
                 teamPayoutTotal += payout.Value;
@@ -2210,7 +2262,7 @@ public class ClientHandler
                 _stateService.RecordExternalNetworkEvent(
                     "datum-coinbaser-fetch",
                     "datum",
-                    $"Responded to coinbaser fetch #{requestSequence} for session {RemoteEndpointLabel} in {stopwatch.Elapsed.TotalMilliseconds:F1} ms (parse={parseDurationMs:F1}, state={stateReadDurationMs:F1}, build={buildDurationMs:F1}, serialize={serializeDurationMs:F1}, send={sendDurationMs:F1}); reward={fetchRequest.RewardValue}; slot0={_clientPayoutAddress}; temporarySlot0={usingTemporarySlotZero}; winners={winnersList.Count}; outputs={fetchResponse.Payouts.Count}.",
+                    $"Responded to coinbaser fetch #{requestSequence} for session {RemoteEndpointLabel} in {stopwatch.Elapsed.TotalMilliseconds:F1} ms (parse={parseDurationMs:F1}, state={stateReadDurationMs:F1}, build={buildDurationMs:F1}, serialize={serializeDurationMs:F1}, send={sendDurationMs:F1}); reward={fetchRequest.RewardValue}; slot0={_clientPayoutAddress}; temporarySlot0={usingTemporarySlotZero}; winners={winnersList.Count}; outputs={fetchResponse.Payouts.Count}; coinbaserId={coinbaserResponseId}; snapshot={activeSnapshotId}.",
                     status.CurrentTipBlockHash,
                     status.CurrentTipBlockHeight,
                     startedUtc);
@@ -2427,6 +2479,13 @@ public class ClientHandler
                     parseDurationMs: parseDurationMs,
                     buildDurationMs: buildDurationMs,
                     validationDurationMs: validationDurationMs,
+                    snapshotReadDurationMs: 0,
+                    snapshotReadLockWaitDurationMs: 0,
+                    snapshotReadLockBodyDurationMs: 0,
+                    shareCoreValidationDurationMs: 0,
+                    stateMutationDurationMs: 0,
+                    stateMutationLockWaitDurationMs: 0,
+                    stateMutationLockBodyDurationMs: 0,
                     staleHandlingDurationMs: staleHandlingDurationMs,
                     responseSendDurationMs: responseSendDurationMs,
                     totalDurationMs: totalStopwatch.Elapsed.TotalMilliseconds,
@@ -2451,6 +2510,10 @@ public class ClientHandler
             _jobCache[powSubmit.JobId]!.ExtranonceSize = powSubmit.ExtranonceSize;  //Always 12, but whatever
             _jobCache[powSubmit.JobId]!.Extranonce = powSubmit.Extranonce;
             _jobCache[powSubmit.JobId]!.Username = powSubmit.Username;
+            if (!string.IsNullOrWhiteSpace(_jobPayoutSnapshotIds[powSubmit.JobId]))
+            {
+                _jobCache[powSubmit.JobId]!.PayoutSnapshotId = _jobPayoutSnapshotIds[powSubmit.JobId];
+            }
             //Now check if we got new coinbase data with this share:
             if (powSubmit.SubsidyOnlyCoinb1 != null) //This share includes subsidy only coinbase data
             {
@@ -2468,8 +2531,10 @@ public class ClientHandler
         }
         else if (powSubmit.JobId < _jobCache.Length)
         {
+            powSubmit.PayoutSnapshotId = ResolvePayoutSnapshotId(powSubmit);
             _jobCache[powSubmit.JobId] = powSubmit;  //New job, with complete header info.  
             _jobCacheUpdatedUtc[powSubmit.JobId] = startedUtc;
+            _jobPayoutSnapshotIds[powSubmit.JobId] = powSubmit.PayoutSnapshotId;
         }
         //TODO: Technically, there is the very edge case that a miner could reuse old coinbase info with a new job and merkle branches.  This case isn't handled right now.
 
@@ -2516,6 +2581,13 @@ public class ClientHandler
                 parseDurationMs: parseDurationMs,
                 buildDurationMs: buildDurationMs,
                 validationDurationMs: validationDurationMs,
+                snapshotReadDurationMs: 0,
+                snapshotReadLockWaitDurationMs: 0,
+                snapshotReadLockBodyDurationMs: 0,
+                shareCoreValidationDurationMs: 0,
+                stateMutationDurationMs: 0,
+                stateMutationLockWaitDurationMs: 0,
+                stateMutationLockBodyDurationMs: 0,
                 staleHandlingDurationMs: staleHandlingDurationMs,
                 responseSendDurationMs: responseSendDurationMs,
                 totalDurationMs: totalStopwatch.Elapsed.TotalMilliseconds,
@@ -2580,6 +2652,13 @@ public class ClientHandler
                 parseDurationMs: parseDurationMs,
                 buildDurationMs: buildDurationMs,
                 validationDurationMs: validationDurationMs,
+                snapshotReadDurationMs: 0,
+                snapshotReadLockWaitDurationMs: 0,
+                snapshotReadLockBodyDurationMs: 0,
+                shareCoreValidationDurationMs: 0,
+                stateMutationDurationMs: 0,
+                stateMutationLockWaitDurationMs: 0,
+                stateMutationLockBodyDurationMs: 0,
                 staleHandlingDurationMs: staleHandlingDurationMs,
                 responseSendDurationMs: responseSendDurationMs,
                 totalDurationMs: totalStopwatch.Elapsed.TotalMilliseconds,
@@ -2698,6 +2777,7 @@ public class ClientHandler
             HeaderHex = Convert.ToHexString(header).ToLowerInvariant(),
             CoinbaseHex = Convert.ToHexString(coinbaseTx).ToLowerInvariant(),
             MerklePath = merklePath,
+            PayoutSnapshotId = powSubmit.PayoutSnapshotId,
             PrevBlockHash = powSubmit.PrevBlockHash == null ? null : BitcoinHashes.ToDisplayHashHex(powSubmit.PrevBlockHash),
             Difficulty = (double)achievedDifficultyBig,
             Source = "datum"
@@ -2757,6 +2837,13 @@ public class ClientHandler
             parseDurationMs,
             buildDurationMs,
             validationDurationMs,
+            recordResult.SnapshotReadDurationMs,
+            recordResult.SnapshotReadLockWaitDurationMs,
+            recordResult.SnapshotReadLockBodyDurationMs,
+            recordResult.ShareCoreValidationDurationMs,
+            recordResult.StateMutationDurationMs,
+            recordResult.StateMutationLockWaitDurationMs,
+            recordResult.StateMutationLockBodyDurationMs,
             staleHandlingDurationMs,
             responseSendDurationMs,
             totalStopwatch.Elapsed.TotalMilliseconds,
@@ -2801,6 +2888,13 @@ public class ClientHandler
         double parseDurationMs,
         double buildDurationMs,
         double validationDurationMs,
+        double snapshotReadDurationMs,
+        double snapshotReadLockWaitDurationMs,
+        double snapshotReadLockBodyDurationMs,
+        double shareCoreValidationDurationMs,
+        double stateMutationDurationMs,
+        double stateMutationLockWaitDurationMs,
+        double stateMutationLockBodyDurationMs,
         double staleHandlingDurationMs,
         double responseSendDurationMs,
         double totalDurationMs,
@@ -2834,6 +2928,8 @@ public class ClientHandler
             PrevBlockHash = prevBlockHash,
             JobId = powSubmit.JobId,
             CoinbaseId = powSubmit.CoinbaseId,
+            CoinbaserId = powSubmit.CoinbaserId,
+            PayoutSnapshotId = powSubmit.PayoutSnapshotId,
             Nonce = powSubmit.Nonce,
             IsBlock = powSubmit.IsBlock,
             SubsidyOnly = powSubmit.SubsidyOnly,
@@ -2851,6 +2947,13 @@ public class ClientHandler
             ParseDurationMs = parseDurationMs,
             BuildDurationMs = buildDurationMs,
             ValidationDurationMs = validationDurationMs,
+            SnapshotReadDurationMs = snapshotReadDurationMs,
+            SnapshotReadLockWaitDurationMs = snapshotReadLockWaitDurationMs,
+            SnapshotReadLockBodyDurationMs = snapshotReadLockBodyDurationMs,
+            ShareCoreValidationDurationMs = shareCoreValidationDurationMs,
+            StateMutationDurationMs = stateMutationDurationMs,
+            StateMutationLockWaitDurationMs = stateMutationLockWaitDurationMs,
+            StateMutationLockBodyDurationMs = stateMutationLockBodyDurationMs,
             StaleHandlingDurationMs = staleHandlingDurationMs,
             ResponseSendDurationMs = responseSendDurationMs,
             TotalDurationMs = totalDurationMs,
@@ -3528,6 +3631,7 @@ public class CoinbaserFetchMessage
 // SERVER: Coinbaser Fetch Response (0x05, 0x11)
 public class CoinbaserFetchResponseMessage
 {
+    public byte CoinbaserId { get; set; }
     public List<PayoutInfo> Payouts { get; set; } = new();
     public string BitcoinNetwork { get; set; } = BitcoinScript.Mainnet;
 
@@ -3536,8 +3640,9 @@ public class CoinbaserFetchResponseMessage
         using var stream = new MemoryStream();
         using var writer = new BinaryWriter(stream);
         
-        // Write the count of payouts (1 byte)
-        writer.Write((byte)Payouts.Count); 
+        // DATUM echoes this ID back in PoW submissions, which lets the server
+        // validate old jobs against the exact payout snapshot they were built on.
+        writer.Write(CoinbaserId);
         
         foreach (var payout in Payouts)
         {
@@ -3585,6 +3690,7 @@ public class PowSubmitMessage
     public ushort? TargetByteIndex { get; set; }
     public byte[]? NBits { get; set; }
     public byte? CoinbaserId { get; set; }
+    public string? PayoutSnapshotId { get; set; }
     public uint? Height { get; set; }
     public ulong? CoinbaseValue { get; set; }
     public uint? TransactionCount { get; set; }

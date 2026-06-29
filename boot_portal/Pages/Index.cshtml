@@ -1858,6 +1858,7 @@
     let selectedLocalMinerSummary = null;
     let selectedLocalMinerSeries = { points: [] };
     let selectedLocalMinerLookupInFlight = false;
+    const MIN_LIVE_HASHRATE_ESTIMATE_SECONDS = 60;
     let lastSelectedLocalMinerLookupMs = 0;
     let userTouchedSearch = false;
 
@@ -2230,12 +2231,15 @@
     }
 
     function getCurrentRoundEstimatedHashrateThs() {
-        if (Number(latestNetworkState?.currentRoundNumber) === 0 &&
-            Number(latestNetworkState?.currentRoundObservedHashrateThs) > 0) {
+        if (Number(latestNetworkState?.currentRoundObservedHashrateThs) > 0) {
             return latestNetworkState.currentRoundObservedHashrateThs;
         }
 
         const elapsedSeconds = getCurrentRoundElapsedSeconds();
+        if (elapsedSeconds == null || elapsedSeconds < MIN_LIVE_HASHRATE_ESTIMATE_SECONDS) {
+            return null;
+        }
+
         const difficulties = (globalOnDeckList || [])
             .map(item => Number(item.difficulty) || 0)
             .filter(value => value > 0);

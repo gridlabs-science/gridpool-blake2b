@@ -3,7 +3,7 @@ GridPool is a decentralized reward-sharing protocol for sovereign Bitcoin miners
 
 - It is like P2Pool in spirit, but much simpler: miners coordinate on coinbase payout lists instead of maintaining a secondary blockchain.
 - It is not a traditional pool. It is closer to shared lottery mining: smaller payouts, better odds, and local block-template control.
-- This reference implementation works with DATUM today. Hydrapool and other HTTP share submitters are planned.
+- This reference implementation works with DATUM today. Hydrapool and other HTTP share submitters can integrate through the documented HTTP API.
 
 ## Naming Note
 GridPool was originally developed under the working name "Boot Protocol." Some internal code, repository names, API headers, config keys, service names, and scripts still use `boot` for compatibility during the beta transition. Public docs, UI, and operator-facing language should use **GridPool**. When precision is needed, use **GridPool protocol** for the reward-sharing rules and **GridPool internode protocol** for peer-to-peer state synchronization and share relay.
@@ -35,9 +35,16 @@ The installer:
 After install:
 
 1. Open the local WebUI printed by the script, usually `http://LAN_IP:5000`.
-2. Copy the displayed Pool Host, Pool Port, and Pool Pubkey.
+2. Copy the displayed Pool Host, Pool Port, and Pool Pubkey. Scripts can fetch the same live values from `http://LAN_IP:5000/api/mining/connect-info`.
 3. Paste those into DATUM.
-4. Point ASICs at DATUM, not directly at GridPool.
+4. Point ASICs at DATUM's local Stratum V1 listener, not directly at GridPool.
+
+GridPool node ports are intentionally split by role:
+- `5000` is the WebUI and HTTP API.
+- `3008` is the DATUM Gateway upstream connection to GridPool.
+- `23334` is the conventional DATUM Gateway Stratum V1 listener used by ASICs when DATUM is installed locally.
+
+`boot-portal` itself is not a native Stratum V1 pool server. If you want to connect ASIC firmware directly without running DATUM, use a compatible gateway such as Hydrapool or the public beta Stratum endpoint when available.
 
 Firmware compatibility warning:
 - The main 300-slot GridPool beta requires miner firmware that can accept large DATUM coinbase templates.
@@ -74,6 +81,7 @@ Notes:
 - The default DATUM primary coinbase tag is `Grid Pool`; set `coinbase_tag` to another string, or `""` for unbranded blocks.
 - Back up the Docker `./data` directory before machine moves, package upgrades, or host rebuilds. It contains live config, server identity keys, pool state, and history.
 - Hydrapool and other direct HTTP submitters should follow `docs/hydrapool-http-submission.md`.
+- DATUM-server implementers should review `docs/datum-server-compatibility-notes.md` for coinbaser ID, payout snapshot, and share hot-path requirements.
 
 ## Raspberry Pi Full-Stack Sovereign Install
 For a one-shot Raspberry Pi / Ubuntu install that sets up a pruned Bitcoin Core node, DATUM Gateway, and GridPool together, see `docs/raspberry-pi-one-shot-installer.md`.

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using boot_portal.HostedServices;
 using boot_portal.Models;
 using boot_portal.Services;
 using boot_portal.Utils;
@@ -37,6 +38,36 @@ public class MiningApiController : ControllerBase
     public IActionResult GetShareAdvice()
     {
         return Ok(_stateService.GetShareAdviceResponse());
+    }
+
+    // GET: api/mining/connect-info
+    // Returns the live DATUM endpoint details miners need to configure DATUM Gateway.
+    [EnableRateLimiting("network-read")]
+    [HttpGet("connect-info")]
+    public IActionResult GetConnectInfo()
+    {
+        BootNetworkStatusDto network = _stateService.GetNetworkStatus();
+        string datumHost = ResolveDatumHost();
+        int datumPort = ResolveDatumPort();
+
+        return Ok(new
+        {
+            network = network.NetworkId,
+            bitcoinNetwork = network.BitcoinNetwork,
+            protocolVersion = network.ProtocolVersion,
+            datum = new
+            {
+                host = datumHost,
+                port = datumPort,
+                endpoint = $"{datumHost}:{datumPort}",
+                publicKey = DatumServer.ServerPubKeyHex
+            },
+            stratumV1 = new
+            {
+                nativeListenerAvailable = false,
+                note = "boot-portal is not a native Stratum V1 server. Point ASICs at DATUM Gateway or a compatible gateway such as Hydrapool, then point that gateway at GridPool."
+            }
+        });
     }
 
     // POST: api/mining/share
@@ -101,5 +132,33 @@ public class MiningApiController : ControllerBase
             _logger.LogError(ex, "Error processing API share");
             return StatusCode(500, "Internal Server Error");
         }
+    }
+
+    private string ResolveDatumHost()
+    {
+        if (!string.IsNullOrWhiteSpace(_poolConfig.DatumPublicHost))
+        {
+            string configured = _poolConfig.DatumPublicHost.Trim().TrimEnd('/');
+            if (Uri.TryCreate(configured, UriKind.Absolute, out Uri? hostUri))
+            {
+                return hostUri.IsDefaultPort ? hostUri.Host : hostUri.Authority;
+            }
+
+            return configured;
+        }
+
+        if (Uri.TryCreate(_poolConfig.PublicBaseUrl, UriKind.Absolute, out Uri? publicUri))
+        {
+            return publicUri.IsDefaultPort ? publicUri.Host : publicUri.Authority;
+        }
+
+        return "--";
+    }
+
+    private int ResolveDatumPort()
+    {
+        return _poolConfig.DatumPublicPort > 0
+            ? _poolConfig.DatumPublicPort
+            : DatumServer.PoolPort;
     }
 }

@@ -145,6 +145,31 @@ public class BootProtocolStateService
         }
     }
 
+    public DatumCoinbaseTemplate GetDatumCoinbaseTemplate()
+    {
+        var waitStopwatch = Stopwatch.StartNew();
+        lock (_sync)
+        {
+            double waitMs = waitStopwatch.Elapsed.TotalMilliseconds;
+            if (waitMs >= SlowStateLockWaitWarningMs)
+            {
+                _logger.LogWarning(
+                    "Slow state lock wait in GetDatumCoinbaseTemplate: {WaitMs:F1} ms (round={Round}, candidate={CandidateStateId}, onDeck={OnDeckCount}).",
+                    waitMs,
+                    _state.CurrentRoundNumber,
+                    _state.CandidateStateId,
+                    _state.OnDeckList.Count);
+            }
+
+            return new DatumCoinbaseTemplate
+            {
+                WinnersList = ClonePayouts(_state.WinnersList),
+                CoinbaseOutputs = BuildCoinbaseOutputsNoLock(_state.WinnersList),
+                ActiveSnapshotId = _state.ActiveSnapshotId
+            };
+        }
+    }
+
     public List<PayoutInfo> GetOnDeckList()
     {
         lock (_sync)
@@ -814,16 +839,21 @@ public class BootProtocolStateService
         if (telemetry.TotalDurationMs >= slowThresholdMs)
         {
             _logger.LogWarning(
-                "Slow DATUM share response to {RemoteEndpoint}: {TotalMs:F1} ms (accepted={Accepted}, reason={Reason}, job={JobId}, coinbase={CoinbaseId}, nonceOnly={NonceOnly}, cached={Cached}, difficulty={Difficulty}).",
+                "Slow DATUM share response to {RemoteEndpoint}: {TotalMs:F1} ms (accepted={Accepted}, reason={Reason}, job={JobId}, coinbase={CoinbaseId}, coinbaser={CoinbaserId}, snapshot={SnapshotId}, nonceOnly={NonceOnly}, cached={Cached}, difficulty={Difficulty}, snapshotRead={SnapshotReadMs:F1} ms, coreValidate={CoreValidateMs:F1} ms, stateMutation={StateMutationMs:F1} ms).",
                 telemetry.RemoteEndpoint,
                 telemetry.TotalDurationMs,
                 telemetry.Accepted,
                 telemetry.RejectionReason ?? "none",
                 telemetry.JobId,
                 telemetry.CoinbaseId,
+                telemetry.CoinbaserId,
+                telemetry.PayoutSnapshotId,
                 telemetry.NonceOnlySubmit,
                 telemetry.UsedCachedJob,
-                telemetry.Difficulty);
+                telemetry.Difficulty,
+                telemetry.SnapshotReadDurationMs,
+                telemetry.ShareCoreValidationDurationMs,
+                telemetry.StateMutationDurationMs);
         }
     }
 
@@ -1415,27 +1445,66 @@ public class BootProtocolStateService
     {
         DateTime arrivalUtc = DateTime.UtcNow;
         var validationStopwatch = Stopwatch.StartNew();
+        var stageStopwatch = Stopwatch.StartNew();
+        double snapshotReadDurationMs;
+        double shareCoreValidationDurationMs;
+        double stateMutationDurationMs = 0;
+        double snapshotReadLockWaitDurationMs = 0;
+        double snapshotReadLockBodyDurationMs = 0;
+        double stateMutationLockWaitDurationMs = 0;
+        double stateMutationLockBodyDurationMs = 0;
         List<PayoutInfo> winnersSnapshot;
         string currentStateSnapshot;
         List<BootPayoutSnapshotContext> snapshotContextsSnapshot;
         List<string> acceptedParentBlockHashesSnapshot;
+        var snapshotLockWaitStopwatch = Stopwatch.StartNew();
         lock (_sync)
         {
+            snapshotLockWaitStopwatch.Stop();
+            snapshotReadLockWaitDurationMs = snapshotLockWaitStopwatch.Elapsed.TotalMilliseconds;
+            var snapshotLockBodyStopwatch = Stopwatch.StartNew();
             winnersSnapshot = ClonePayouts(_state.WinnersList);
             currentStateSnapshot = _state.CurrentStateId;
-            snapshotContextsSnapshot = _state.SnapshotContexts.Select(CloneSnapshotContext).ToList();
+            snapshotContextsSnapshot = ClonePreferredSnapshotContextsNoLock(share.PayoutSnapshotId);
             acceptedParentBlockHashesSnapshot = GetAcceptedParentBlockHashesNoLock();
+            snapshotLockBodyStopwatch.Stop();
+            snapshotReadLockBodyDurationMs = snapshotLockBodyStopwatch.Elapsed.TotalMilliseconds;
         }
+        snapshotReadDurationMs = snapshotReadLockWaitDurationMs + snapshotReadLockBodyDurationMs;
 
+        stageStopwatch.Restart();
         SnapshotValidationResult snapshotValidation = ValidateShareAgainstKnownSnapshots(
             share,
             winnersSnapshot,
             snapshotContextsSnapshot,
             acceptedParentBlockHashesSnapshot);
+        if (!snapshotValidation.Validation.IsValid &&
+            ShouldRetryShareValidationWithAllSnapshotContexts(share.PayoutSnapshotId, snapshotValidation.Validation.RejectionReason))
+        {
+            lock (_sync)
+            {
+                snapshotContextsSnapshot = _state.SnapshotContexts.Select(CloneSnapshotContext).ToList();
+            }
+
+            snapshotValidation = ValidateShareAgainstKnownSnapshots(
+                share,
+                winnersSnapshot,
+                snapshotContextsSnapshot,
+                acceptedParentBlockHashesSnapshot);
+        }
+
         BootShareValidationResult validation = snapshotValidation.Validation;
         string matchedSnapshotId = snapshotValidation.SnapshotId;
         if (!validation.IsValid && IsWrongParentRejection(validation.RejectionReason))
         {
+            if (ShouldRetryShareValidationWithAllSnapshotContexts(share.PayoutSnapshotId, validation.RejectionReason))
+            {
+                lock (_sync)
+                {
+                    snapshotContextsSnapshot = _state.SnapshotContexts.Select(CloneSnapshotContext).ToList();
+                }
+            }
+
             SnapshotValidationResult freshParentSnapshotValidation = ValidateShareAgainstKnownSnapshotsIgnoringParent(
                 share,
                 winnersSnapshot,
@@ -1476,16 +1545,34 @@ public class BootProtocolStateService
                 }
             }
         }
+        shareCoreValidationDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
 
         validationStopwatch.Stop();
         double validationDurationMs = validationStopwatch.Elapsed.TotalMilliseconds;
+
+        ShareRecordingResult AttachTimings(ShareRecordingResult result)
+        {
+            result.SnapshotReadDurationMs = snapshotReadDurationMs;
+            result.SnapshotReadLockWaitDurationMs = snapshotReadLockWaitDurationMs;
+            result.SnapshotReadLockBodyDurationMs = snapshotReadLockBodyDurationMs;
+            result.ShareCoreValidationDurationMs = shareCoreValidationDurationMs;
+            result.StateMutationDurationMs = stateMutationDurationMs;
+            result.StateMutationLockWaitDurationMs = stateMutationLockWaitDurationMs;
+            result.StateMutationLockBodyDurationMs = stateMutationLockBodyDurationMs;
+            return result;
+        }
 
         if (!validation.IsValid)
         {
             BootNetworkStatusDto networkStatus;
             DateTime nowUtc = DateTime.UtcNow;
+            stageStopwatch.Restart();
+            var mutationLockWaitStopwatch = Stopwatch.StartNew();
             lock (_sync)
             {
+                mutationLockWaitStopwatch.Stop();
+                stateMutationLockWaitDurationMs += mutationLockWaitStopwatch.Elapsed.TotalMilliseconds;
+                var mutationLockBodyStopwatch = Stopwatch.StartNew();
                 RecordShareDiagnosticNoLock(
                     share.Source,
                     share.MinerAddress,
@@ -1509,29 +1596,37 @@ public class BootProtocolStateService
                     timestampUtc: arrivalUtc);
                 RequestDeferredHistorySaveNoLock();
                 networkStatus = BuildNetworkStatusNoLock();
+                mutationLockBodyStopwatch.Stop();
+                stateMutationLockBodyDurationMs += mutationLockBodyStopwatch.Elapsed.TotalMilliseconds;
             }
+            stateMutationDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
 
             _logger.LogInformation(
                 "Rejected {Source} share from {MinerAddress}: {Reason}",
                 string.IsNullOrWhiteSpace(share.Source) ? "unknown" : share.Source,
                 share.MinerAddress,
                 validation.RejectionReason ?? "Invalid share");
-            return new ShareRecordingResult
+            return AttachTimings(new ShareRecordingResult
             {
                 Accepted = false,
                 RejectionReason = validation.RejectionReason ?? "Invalid share",
                 BestShare = GetBestShare(),
                 OnDeckList = GetOnDeckList(),
                 NetworkStatus = networkStatus
-            };
+            });
         }
 
         if (validation.Difficulty < 1)
         {
             BootNetworkStatusDto networkStatus;
             DateTime nowUtc = DateTime.UtcNow;
+            stageStopwatch.Restart();
+            var mutationLockWaitStopwatch = Stopwatch.StartNew();
             lock (_sync)
             {
+                mutationLockWaitStopwatch.Stop();
+                stateMutationLockWaitDurationMs += mutationLockWaitStopwatch.Elapsed.TotalMilliseconds;
+                var mutationLockBodyStopwatch = Stopwatch.StartNew();
                 RecordShareDiagnosticNoLock(
                     share.Source,
                     validation.MinerAddress,
@@ -1555,14 +1650,17 @@ public class BootProtocolStateService
                     timestampUtc: arrivalUtc);
                 RequestDeferredHistorySaveNoLock();
                 networkStatus = BuildNetworkStatusNoLock();
+                mutationLockBodyStopwatch.Stop();
+                stateMutationLockBodyDurationMs += mutationLockBodyStopwatch.Elapsed.TotalMilliseconds;
             }
+            stateMutationDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
 
             _logger.LogInformation(
                 "Rejected {Source} share from {MinerAddress}: low difficulty ({Difficulty})",
                 string.IsNullOrWhiteSpace(share.Source) ? "unknown" : share.Source,
                 share.MinerAddress,
                 validation.Difficulty);
-            return new ShareRecordingResult
+            return AttachTimings(new ShareRecordingResult
             {
                 Accepted = false,
                 RejectionReason = "Low difficulty",
@@ -1570,7 +1668,7 @@ public class BootProtocolStateService
                 BestShare = GetBestShare(),
                 OnDeckList = GetOnDeckList(),
                 NetworkStatus = networkStatus
-            };
+            });
         }
 
         if (IsTrustedFreshParentSource(share.Source))
@@ -1581,8 +1679,13 @@ public class BootProtocolStateService
         ShareRecordingResult result;
         bool shouldRelay = false;
         bool shouldNotifyNetwork = false;
+        stageStopwatch.Restart();
+        var acceptedMutationLockWaitStopwatch = Stopwatch.StartNew();
         lock (_sync)
         {
+            acceptedMutationLockWaitStopwatch.Stop();
+            stateMutationLockWaitDurationMs += acceptedMutationLockWaitStopwatch.Elapsed.TotalMilliseconds;
+            var acceptedMutationLockBodyStopwatch = Stopwatch.StartNew();
             if (!string.Equals(currentStateSnapshot, _state.CurrentStateId, StringComparison.OrdinalIgnoreCase) &&
                 !HasSnapshotContextNoLock(matchedSnapshotId))
             {
@@ -1608,7 +1711,8 @@ public class BootProtocolStateService
                     validationDurationMs: validationDurationMs,
                     timestampUtc: arrivalUtc);
                 RequestDeferredHistorySaveNoLock();
-                return new ShareRecordingResult
+                stateMutationDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+                return AttachTimings(new ShareRecordingResult
                 {
                     Accepted = false,
                     RejectionReason = "Round changed during validation",
@@ -1616,7 +1720,7 @@ public class BootProtocolStateService
                     BestShare = CloneBestShare(_state.BestShare),
                     OnDeckList = ClonePayouts(_state.OnDeckList),
                     NetworkStatus = BuildNetworkStatusNoLock()
-                };
+                });
             }
 
             if (!IsAcceptedParentBlockHashNoLock(validation.PrevBlockHash))
@@ -1643,7 +1747,8 @@ public class BootProtocolStateService
                     validationDurationMs: validationDurationMs,
                     timestampUtc: arrivalUtc);
                 RequestDeferredHistorySaveNoLock();
-                return new ShareRecordingResult
+                stateMutationDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+                return AttachTimings(new ShareRecordingResult
                 {
                     Accepted = false,
                     RejectionReason = "Accepted parent set changed during validation",
@@ -1651,7 +1756,7 @@ public class BootProtocolStateService
                     BestShare = CloneBestShare(_state.BestShare),
                     OnDeckList = ClonePayouts(_state.OnDeckList),
                     NetworkStatus = BuildNetworkStatusNoLock()
-                };
+                });
             }
 
             BootShareProof proof = CreateProofNoLock(validation, share.Source);
@@ -1682,7 +1787,8 @@ public class BootProtocolStateService
                     validationDurationMs: validationDurationMs,
                     timestampUtc: arrivalUtc);
                 RequestDeferredHistorySaveNoLock();
-                return new ShareRecordingResult
+                stateMutationDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+                return AttachTimings(new ShareRecordingResult
                 {
                     Accepted = false,
                     RejectionReason = "Duplicate share",
@@ -1692,7 +1798,7 @@ public class BootProtocolStateService
                     BestShare = CloneBestShare(_state.BestShare),
                     OnDeckList = ClonePayouts(_state.OnDeckList),
                     NetworkStatus = BuildNetworkStatusNoLock()
-                };
+                });
             }
 
             int insertIndex = 0;
@@ -1707,19 +1813,19 @@ public class BootProtocolStateService
             if (affectedOnDeck)
             {
                 _state.OnDeckProofs.Insert(insertIndex, proof);
+
+                _state.OnDeckProofs = _state.OnDeckProofs
+                    .OrderByDescending(x => x.Difficulty)
+                    .ThenBy(x => x.ShareId, StringComparer.Ordinal)
+                    .ToList();
+
+                while (_state.OnDeckProofs.Count > _poolConfig.WorkSetReserveLimit)
+                {
+                    _state.OnDeckProofs.RemoveAt(_state.OnDeckProofs.Count - 1);
+                }
+
+                RebuildOnDeckListNoLock();
             }
-
-            _state.OnDeckProofs = _state.OnDeckProofs
-                .OrderByDescending(x => x.Difficulty)
-                .ThenBy(x => x.ShareId, StringComparer.Ordinal)
-                .ToList();
-
-            while (_state.OnDeckProofs.Count > _poolConfig.WorkSetReserveLimit)
-            {
-                _state.OnDeckProofs.RemoveAt(_state.OnDeckProofs.Count - 1);
-            }
-
-            RebuildOnDeckListNoLock();
 
             bool newRecord = false;
             if (proof.Difficulty > _state.BestShare.Difficulty)
@@ -1756,10 +1862,15 @@ public class BootProtocolStateService
                 validationDurationMs: validationDurationMs,
                 timestampUtc: arrivalUtc);
             bool capturedHashrateSample = MaybeCaptureHashrateSampleNoLock(proof.Timestamp, force: false);
-            _state.CandidateStateId = ComputeCandidateStateIdNoLock();
-            CacheCurrentCandidateBundleNoLock();
-            RequestDeferredSaveNoLock();
+            if (affectedOnDeck)
+            {
+                _state.CandidateStateId = ComputeCandidateStateIdNoLock();
+                CacheCurrentCandidateBundleNoLock();
+                RequestDeferredSaveNoLock();
+            }
+
             RequestDeferredHistorySaveNoLock();
+            bool notifyNetwork = newRecord || affectedOnDeck || capturedHashrateSample;
 
             result = new ShareRecordingResult
             {
@@ -1769,15 +1880,19 @@ public class BootProtocolStateService
                 ComputedDifficulty = validation.Difficulty,
                 IsBlock = validation.IsBlock,
                 BlockHash = validation.BlockHash,
-                BestShare = CloneBestShare(_state.BestShare),
-                OnDeckList = ClonePayouts(_state.OnDeckList),
-                NetworkStatus = BuildNetworkStatusNoLock(),
+                BestShare = newRecord ? CloneBestShare(_state.BestShare) : new BestShareRecord(),
+                OnDeckList = affectedOnDeck ? ClonePayouts(_state.OnDeckList) : [],
+                NetworkStatus = notifyNetwork ? BuildNetworkStatusNoLock() : new BootNetworkStatusDto(),
                 AcceptedProof = CloneProof(proof)
             };
 
             shouldRelay = affectedOnDeck;
-            shouldNotifyNetwork = newRecord || affectedOnDeck || capturedHashrateSample;
+            shouldNotifyNetwork = notifyNetwork;
+            acceptedMutationLockBodyStopwatch.Stop();
+            stateMutationLockBodyDurationMs += acceptedMutationLockBodyStopwatch.Elapsed.TotalMilliseconds;
         }
+        stateMutationDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+        result = AttachTimings(result);
 
         if (result.NewRecord)
         {
@@ -1811,21 +1926,48 @@ public class BootProtocolStateService
             .OrderByDescending(context => context.CreatedAtUtc)
             .ToList();
 
-        IEnumerable<BootPayoutSnapshotContext> preferredContexts = string.IsNullOrWhiteSpace(share.PayoutSnapshotId)
+        bool hasPreferredSnapshot = !string.IsNullOrWhiteSpace(share.PayoutSnapshotId);
+        List<BootPayoutSnapshotContext> exactContexts = hasPreferredSnapshot
             ? orderedContexts
-            : orderedContexts
                 .Where(context => string.Equals(context.SnapshotId, share.PayoutSnapshotId, StringComparison.OrdinalIgnoreCase))
-                .Concat(orderedContexts.Where(context => !string.Equals(context.SnapshotId, share.PayoutSnapshotId, StringComparison.OrdinalIgnoreCase)));
+                .ToList()
+            : [];
 
-        BootShareValidationResult firstFailure = _shareVerifier.ValidateShare(share, currentWinners, expectedPrevBlockHashes);
-        if (firstFailure.IsValid)
+        BootShareValidationResult firstFailure = InvalidValidationResult();
+        if (hasPreferredSnapshot)
+        {
+            foreach (BootPayoutSnapshotContext context in exactContexts)
+            {
+                foreach (List<PayoutInfo> payoutVariant in GetSnapshotPayoutVariants(context))
+                {
+                    BootShareValidationResult validation = _shareVerifier.ValidateShare(share, payoutVariant, expectedPrevBlockHashes);
+                    if (validation.IsValid)
+                    {
+                        return new SnapshotValidationResult(validation, context.SnapshotId);
+                    }
+
+                    firstFailure = PreferInformativeFailure(firstFailure, validation);
+                }
+            }
+        }
+
+        BootShareValidationResult currentValidation = _shareVerifier.ValidateShare(share, currentWinners, expectedPrevBlockHashes);
+        if (currentValidation.IsValid)
         {
             string snapshotId = orderedContexts.FirstOrDefault(context => WinnersMatch(context.WinnersList, currentWinners))?.SnapshotId
                 ?? string.Empty;
-            return new SnapshotValidationResult(firstFailure, snapshotId);
+            return new SnapshotValidationResult(currentValidation, snapshotId);
         }
 
-        foreach (BootPayoutSnapshotContext context in preferredContexts)
+        firstFailure = PreferInformativeFailure(firstFailure, currentValidation);
+        if (IsSingleRecipientFallbackRejection(currentValidation.RejectionReason))
+        {
+            return new SnapshotValidationResult(currentValidation, string.Empty);
+        }
+
+        foreach (BootPayoutSnapshotContext context in orderedContexts.Where(context =>
+                     !hasPreferredSnapshot ||
+                     !string.Equals(context.SnapshotId, share.PayoutSnapshotId, StringComparison.OrdinalIgnoreCase)))
         {
             foreach (List<PayoutInfo> payoutVariant in GetSnapshotPayoutVariants(context))
             {
@@ -1840,6 +1982,29 @@ public class BootProtocolStateService
         }
 
         return new SnapshotValidationResult(firstFailure, string.Empty);
+    }
+
+    private List<BootPayoutSnapshotContext> ClonePreferredSnapshotContextsNoLock(string? payoutSnapshotId)
+    {
+        if (string.IsNullOrWhiteSpace(payoutSnapshotId))
+        {
+            return [];
+        }
+
+        return _state.SnapshotContexts
+            .Where(context => string.Equals(context.SnapshotId, payoutSnapshotId, StringComparison.OrdinalIgnoreCase))
+            .Select(CloneSnapshotContext)
+            .ToList();
+    }
+
+    private static bool ShouldRetryShareValidationWithAllSnapshotContexts(string? payoutSnapshotId, string? rejectionReason)
+    {
+        if (!string.IsNullOrWhiteSpace(payoutSnapshotId))
+        {
+            return false;
+        }
+
+        return !IsSingleRecipientFallbackRejection(rejectionReason);
     }
 
     private SnapshotValidationResult ValidateShareAgainstKnownSnapshotsIgnoringParent(
@@ -1861,22 +2026,45 @@ public class BootProtocolStateService
             .OrderByDescending(context => context.CreatedAtUtc)
             .ToList();
 
-        IEnumerable<BootPayoutSnapshotContext> preferredContexts = string.IsNullOrWhiteSpace(proof.PayoutSnapshotId)
+        bool hasPreferredSnapshot = !string.IsNullOrWhiteSpace(proof.PayoutSnapshotId);
+        List<BootPayoutSnapshotContext> exactContexts = hasPreferredSnapshot
             ? orderedContexts
-            : orderedContexts
                 .Where(context => string.Equals(context.SnapshotId, proof.PayoutSnapshotId, StringComparison.OrdinalIgnoreCase))
-                .Concat(orderedContexts.Where(context => !string.Equals(context.SnapshotId, proof.PayoutSnapshotId, StringComparison.OrdinalIgnoreCase)));
+                .ToList()
+            : [];
 
-        BootShareValidationResult firstFailure = _shareVerifier.ValidateShare(proof, currentWinners, expectedPrevBlockHashes);
-        if (firstFailure.IsValid)
+        BootShareValidationResult firstFailure = InvalidValidationResult();
+        if (hasPreferredSnapshot)
+        {
+            foreach (BootPayoutSnapshotContext context in exactContexts)
+            {
+                foreach (List<PayoutInfo> payoutVariant in GetSnapshotPayoutVariants(context))
+                {
+                    BootShareValidationResult validation = _shareVerifier.ValidateShare(proof, payoutVariant, expectedPrevBlockHashes);
+                    if (validation.IsValid)
+                    {
+                        return new SnapshotValidationResult(validation, context.SnapshotId);
+                    }
+
+                    firstFailure = PreferInformativeFailure(firstFailure, validation);
+                }
+            }
+        }
+
+        BootShareValidationResult currentValidation = _shareVerifier.ValidateShare(proof, currentWinners, expectedPrevBlockHashes);
+        if (currentValidation.IsValid)
         {
             string snapshotId = orderedContexts.FirstOrDefault(context => WinnersMatch(context.WinnersList, currentWinners))?.SnapshotId
                 ?? proof.PayoutSnapshotId
                 ?? string.Empty;
-            return new SnapshotValidationResult(firstFailure, snapshotId);
+            return new SnapshotValidationResult(currentValidation, snapshotId);
         }
 
-        foreach (BootPayoutSnapshotContext context in preferredContexts)
+        firstFailure = PreferInformativeFailure(firstFailure, currentValidation);
+
+        foreach (BootPayoutSnapshotContext context in orderedContexts.Where(context =>
+                     !hasPreferredSnapshot ||
+                     !string.Equals(context.SnapshotId, proof.PayoutSnapshotId, StringComparison.OrdinalIgnoreCase)))
         {
             foreach (List<PayoutInfo> payoutVariant in GetSnapshotPayoutVariants(context))
             {
@@ -1892,6 +2080,17 @@ public class BootProtocolStateService
 
         return new SnapshotValidationResult(firstFailure, proof.PayoutSnapshotId ?? string.Empty);
     }
+
+    private static bool IsSingleRecipientFallbackRejection(string? reason)
+    {
+        return !string.IsNullOrWhiteSpace(reason) &&
+               reason.StartsWith("Coinbase appears to use a non-Boot single-recipient template", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static BootShareValidationResult InvalidValidationResult() => new()
+    {
+        IsValid = false
+    };
 
     private static BootShareValidationResult PreferInformativeFailure(
         BootShareValidationResult current,
@@ -2270,7 +2469,11 @@ public class BootProtocolStateService
         }
 
         await _hubContext.Clients.All.SendAsync("UpdateNetworkState", status);
-        await NotifyWorkTemplatesInvalidatedAsync($"chain-tip:{source}");
+        if (!snapshotChanged)
+        {
+            await NotifyWorkTemplatesInvalidatedAsync($"chain-tip:{source}");
+        }
+
         return status;
     }
 
@@ -3965,7 +4168,10 @@ public class BootProtocolStateService
             .ToList();
         double currentStateTotalDifficulty = _state.WinnersList.Sum(x => x.Difficulty);
         double onDeckTotalDifficulty = onDeckDifficulties.Sum();
-        double? currentRoundObservedHashrateThs = EstimateRankAdjustedHashrateThs(onDeckDifficulties, currentRoundHashrateElapsedSeconds);
+        double? currentRoundObservedHashrateThs =
+            currentRoundHashrateElapsedSeconds.HasValue && currentRoundHashrateElapsedSeconds.Value >= 60
+                ? EstimateRankAdjustedHashrateThs(onDeckDifficulties, currentRoundHashrateElapsedSeconds)
+                : null;
         BootDatumDiagnosticsDto localDatumDiagnostics = BuildLocalDatumDiagnosticsNoLock(nowUtc);
         List<BootLocalDatumMinerSummaryDto> allLocalDatumMiners = BuildLocalDatumMinerSummariesNoLock(nowUtc, GetLocalDatumMaxTrackedAddresses());
         List<BootLocalDatumMinerSummaryDto> activeLocalDatumMiners = allLocalDatumMiners
@@ -5012,7 +5218,6 @@ public class BootProtocolStateService
         });
 
         TrimLocalDatumAddressTrackerNoLock(tracker, share.TimestampUtc);
-        TrimLocalDatumAddressHashrateNoLock(share.TimestampUtc);
     }
 
     private void NormalizeLocalDatumTrackerRoundNoLock(LocalDatumAddressHashrateTracker tracker)
@@ -5054,15 +5259,15 @@ public class BootProtocolStateService
 
     private bool MaybeCaptureHashrateSampleNoLock(DateTime nowUtc, bool force)
     {
-        TrimAcceptedShareTelemetryNoLock(nowUtc);
-        TrimHashrateSamplesNoLock(nowUtc);
-
         int intervalSeconds = GetHashrateSampleIntervalSeconds();
         BootHashratePoint? lastSample = _state.HashrateSamples.Count > 0 ? _state.HashrateSamples[^1] : null;
         if (!force && lastSample != null && (nowUtc - lastSample.TimestampUtc).TotalSeconds < intervalSeconds)
         {
             return false;
         }
+
+        TrimAcceptedShareTelemetryNoLock(nowUtc);
+        TrimHashrateSamplesNoLock(nowUtc);
 
         long? currentRoundElapsedSeconds = ResolveCurrentRoundHashrateElapsedSecondsNoLock(nowUtc);
         List<double> onDeckDifficulties = _state.OnDeckProofs
@@ -5352,11 +5557,12 @@ public class BootProtocolStateService
         {
             _recentShareDiagnostics.RemoveAt(0);
         }
-        _state.RecentRejectedShareDiagnostics = _state.RecentRejectedShareDiagnostics
-            .Where(item => item.TimestampUtc >= cutoffUtc && !item.Accepted)
-            .OrderBy(item => item.TimestampUtc)
-            .TakeLast(MaxRecentRejectedShareDiagnostics)
-            .ToList();
+        _state.RecentRejectedShareDiagnostics.RemoveAll(item => item.TimestampUtc < cutoffUtc || item.Accepted);
+        int rejectedOverflow = _state.RecentRejectedShareDiagnostics.Count - MaxRecentRejectedShareDiagnostics;
+        if (rejectedOverflow > 0)
+        {
+            _state.RecentRejectedShareDiagnostics.RemoveRange(0, rejectedOverflow);
+        }
     }
 
     private void TrimCoinbaserDiagnosticsNoLock(DateTime nowUtc)
@@ -5372,11 +5578,12 @@ public class BootProtocolStateService
     private void TrimDatumShareResponsesNoLock(DateTime nowUtc)
     {
         DateTime cutoffUtc = nowUtc.AddHours(-GetShareDiagnosticRetentionHours());
-        _state.RecentDatumShareResponses = _state.RecentDatumShareResponses
-            .Where(item => item.TimestampUtc >= cutoffUtc)
-            .OrderBy(item => item.TimestampUtc)
-            .TakeLast(MaxRecentDatumShareResponses)
-            .ToList();
+        _state.RecentDatumShareResponses.RemoveAll(item => item.TimestampUtc < cutoffUtc);
+        int overflow = _state.RecentDatumShareResponses.Count - MaxRecentDatumShareResponses;
+        if (overflow > 0)
+        {
+            _state.RecentDatumShareResponses.RemoveRange(0, overflow);
+        }
     }
 
     private void TrimDatumSessionsNoLock(DateTime nowUtc)
@@ -5446,11 +5653,12 @@ public class BootProtocolStateService
     private void TrimAcceptedShareTelemetryNoLock(DateTime nowUtc)
     {
         DateTime cutoffUtc = nowUtc.AddHours(-GetAcceptedShareTelemetryRetentionHours());
-        _state.RecentAcceptedShares = _state.RecentAcceptedShares
-            .Where(share => share.TimestampUtc >= cutoffUtc)
-            .OrderBy(share => share.TimestampUtc)
-            .TakeLast(GetMaxAcceptedShareTelemetryEntries())
-            .ToList();
+        _state.RecentAcceptedShares.RemoveAll(share => share.TimestampUtc < cutoffUtc);
+        int overflow = _state.RecentAcceptedShares.Count - GetMaxAcceptedShareTelemetryEntries();
+        if (overflow > 0)
+        {
+            _state.RecentAcceptedShares.RemoveRange(0, overflow);
+        }
     }
 
     private void TrimLocalDatumAddressHashrateNoLock(DateTime nowUtc)
@@ -5491,11 +5699,12 @@ public class BootProtocolStateService
     {
         DateTime cutoffUtc = nowUtc.AddSeconds(-GetHashrateLocalWindowSeconds());
         int maxSamples = GetLocalDatumHashratePerAddressMaxSamples();
-        tracker.Samples = tracker.Samples
-            .Where(sample => sample.TimestampUtc >= cutoffUtc)
-            .OrderBy(sample => sample.TimestampUtc)
-            .TakeLast(maxSamples)
-            .ToList();
+        tracker.Samples.RemoveAll(sample => sample.TimestampUtc < cutoffUtc);
+        int overflow = tracker.Samples.Count - maxSamples;
+        if (overflow > 0)
+        {
+            tracker.Samples.RemoveRange(0, overflow);
+        }
     }
 
     private void TrimHashrateSamplesNoLock(DateTime nowUtc)
@@ -6074,12 +6283,12 @@ public class BootProtocolStateService
     private List<string> GetAcceptedParentBlockHashesNoLock()
     {
         var normalized = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         void addHash(string? hash)
         {
             string? canonical = NormalizeCanonicalBlockHash(hash);
-            if (string.IsNullOrWhiteSpace(canonical) ||
-                normalized.Any(existing => BitcoinHashes.AreEquivalent(existing, canonical)))
+            if (string.IsNullOrWhiteSpace(canonical) || !seen.Add(canonical))
             {
                 return;
             }
@@ -6090,18 +6299,24 @@ public class BootProtocolStateService
         foreach (string hash in _state.AcceptedParentBlockHashes)
         {
             addHash(hash);
+            if (normalized.Count >= MaxAcceptedParentBlockHashes)
+            {
+                return normalized;
+            }
         }
 
         foreach (BootShareProof proof in _state.OnDeckProofs)
         {
             addHash(proof.PrevBlockHash);
+            if (normalized.Count >= MaxAcceptedParentBlockHashes)
+            {
+                return normalized;
+            }
         }
 
         addHash(_state.CurrentTipBlockHash);
 
-        return normalized
-            .Take(MaxAcceptedParentBlockHashes)
-            .ToList();
+        return normalized;
     }
 
     private void ResetAcceptedParentBlockHashesNoLock(string? primaryHash)
@@ -6186,8 +6401,28 @@ public class BootProtocolStateService
             return false;
         }
 
-        return GetAcceptedParentBlockHashesNoLock()
-            .Any(existing => BitcoinHashes.AreEquivalent(existing, normalized));
+        if (BitcoinHashes.AreEquivalent(_state.CurrentTipBlockHash, normalized))
+        {
+            return true;
+        }
+
+        foreach (string existing in _state.AcceptedParentBlockHashes)
+        {
+            if (BitcoinHashes.AreEquivalent(existing, normalized))
+            {
+                return true;
+            }
+        }
+
+        foreach (BootShareProof proof in _state.OnDeckProofs)
+        {
+            if (BitcoinHashes.AreEquivalent(proof.PrevBlockHash, normalized))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private List<BootShareProof> ValidateImportedProofs(
@@ -7563,6 +7798,8 @@ public class BootProtocolStateService
             PrevBlockHash = telemetry.PrevBlockHash,
             JobId = telemetry.JobId,
             CoinbaseId = telemetry.CoinbaseId,
+            CoinbaserId = telemetry.CoinbaserId,
+            PayoutSnapshotId = telemetry.PayoutSnapshotId,
             Nonce = telemetry.Nonce,
             IsBlock = telemetry.IsBlock,
             SubsidyOnly = telemetry.SubsidyOnly,
@@ -7580,6 +7817,13 @@ public class BootProtocolStateService
             ParseDurationMs = telemetry.ParseDurationMs,
             BuildDurationMs = telemetry.BuildDurationMs,
             ValidationDurationMs = telemetry.ValidationDurationMs,
+            SnapshotReadDurationMs = telemetry.SnapshotReadDurationMs,
+            SnapshotReadLockWaitDurationMs = telemetry.SnapshotReadLockWaitDurationMs,
+            SnapshotReadLockBodyDurationMs = telemetry.SnapshotReadLockBodyDurationMs,
+            ShareCoreValidationDurationMs = telemetry.ShareCoreValidationDurationMs,
+            StateMutationDurationMs = telemetry.StateMutationDurationMs,
+            StateMutationLockWaitDurationMs = telemetry.StateMutationLockWaitDurationMs,
+            StateMutationLockBodyDurationMs = telemetry.StateMutationLockBodyDurationMs,
             StaleHandlingDurationMs = telemetry.StaleHandlingDurationMs,
             ResponseSendDurationMs = telemetry.ResponseSendDurationMs,
             TotalDurationMs = telemetry.TotalDurationMs,
