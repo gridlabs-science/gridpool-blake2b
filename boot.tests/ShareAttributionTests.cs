@@ -471,6 +471,33 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public async Task AcceptedShareRelayPayloadIncludesFullProofAsync()
+    {
+        using var harness = TestHarness.Create(currentTipBlockHash: SamplePrevBlockHash);
+
+        ShareRecordingResult result = await harness.StateService.SubmitShareAsync(new RecordedShareSubmission
+        {
+            MinerAddress = AlternateAddress,
+            Username = string.Empty,
+            HeaderHex = SampleHeaderHex,
+            CoinbaseHex = SampleCoinbaseHex,
+            MerklePath = SampleMerklePath.ToList(),
+            PrevBlockHash = SamplePrevBlockHash,
+            Source = "datum"
+        }, "datum-block");
+
+        Assert.IsTrue(result.Accepted, result.RejectionReason);
+        Assert.IsTrue(result.AffectedOnDeck);
+        Assert.IsTrue(harness.StateService.AcceptedShares.TryRead(out BootShareProof? relayProof));
+        Assert.AreEqual(SampleHeaderHex, relayProof!.HeaderHex);
+        Assert.AreEqual(160, relayProof.HeaderHex.Length);
+        Assert.AreEqual(SampleCoinbaseHex, relayProof.CoinbaseHex);
+        CollectionAssert.AreEqual(SampleMerklePath.ToList(), relayProof.MerklePath);
+        Assert.AreEqual(SamplePrevBlockHash, relayProof.PrevBlockHash);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(relayProof.ShareId));
+    }
+
+    [TestMethod]
     public async Task DatumShareOnFreshParentWithInvalidCoinbaseReportsRetryFailureAsync()
     {
         using var harness = TestHarness.Create(currentTipBlockHash: OlderTipBlockHash);

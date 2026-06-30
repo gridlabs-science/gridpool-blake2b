@@ -1267,7 +1267,7 @@ public class BootProtocolStateService
         }
     }
 
-    public void UpdatePeerSessionHeartbeat(string endpoint, string nodeId, string status, DateTime lastSeenUtc)
+    public void UpdatePeerSessionHeartbeat(string endpoint, string nodeId, string status, DateTime lastSeenUtc, double? latencyMs = null)
     {
         lock (_sync)
         {
@@ -1276,7 +1276,8 @@ public class BootProtocolStateService
                 nodeId,
                 status,
                 lastSeenUtc,
-                sessionConnected: true);
+                sessionConnected: true,
+                latencyMs: latencyMs);
             BootPeerStatus? peer = FindPeerByEndpointOrNodeNoLock(endpoint, nodeId);
             if (peer != null)
             {
@@ -7120,6 +7121,7 @@ public class BootProtocolStateService
         string status,
         DateTime? lastSeenUtc,
         bool sessionConnected,
+        double? latencyMs = null,
         bool allowSuppressed = true)
     {
         string normalizedEndpoint = string.Empty;
@@ -7163,6 +7165,7 @@ public class BootProtocolStateService
                 LastSeenUtc = lastSeenUtc,
                 LastSessionUtc = lastSeenUtc,
                 LastSuccessUtc = sessionConnected ? lastSeenUtc : null,
+                LatencyMs = latencyMs,
                 ConnectionMode = hasEndpoint ? "public" : "outbound-only",
                 SessionConnected = sessionConnected,
                 Capabilities = BuildPeerSessionCapabilitiesNoLock(hasEndpoint)
@@ -7211,6 +7214,12 @@ public class BootProtocolStateService
         if (lastSeenUtc.HasValue && existing.LastSeenUtc != lastSeenUtc)
         {
             existing.LastSeenUtc = lastSeenUtc;
+            changed = true;
+        }
+
+        if (latencyMs.HasValue && existing.LatencyMs != latencyMs)
+        {
+            existing.LatencyMs = latencyMs;
             changed = true;
         }
 

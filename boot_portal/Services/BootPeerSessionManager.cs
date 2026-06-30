@@ -355,6 +355,8 @@ public sealed class BootPeerSessionManager : BackgroundService
                 },
                 cancellationToken);
 
+            await SendPingAsync(session, cancellationToken);
+
             await ReceiveEncryptedLoopAsync(session, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -399,14 +401,7 @@ public sealed class BootPeerSessionManager : BackgroundService
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                await TrySendPayloadAsync(
-                    session,
-                    new BootPeerSessionPayload
-                    {
-                        Type = "ping",
-                        Text = DateTime.UtcNow.ToString("O")
-                    },
-                    cancellationToken);
+                await SendPingAsync(session, cancellationToken);
                 continue;
             }
 
@@ -459,14 +454,50 @@ public sealed class BootPeerSessionManager : BackgroundService
                     new BootPeerSessionPayload
                     {
                         Type = "pong",
-                        Text = payload.MessageId
+                        MessageId = payload.MessageId,
+                        SentUtc = payload.SentUtc,
+                        Text = payload.Text
                     },
                     cancellationToken);
                 break;
             case "pong":
-                _stateService.UpdatePeerSessionHeartbeat(session.RemoteEndpoint, session.RemoteNodeId, "session-connected", DateTime.UtcNow);
+                double? latencyMs = CalculateRoundTripLatencyMs(payload.SentUtc);
+                _stateService.UpdatePeerSessionHeartbeat(
+                    session.RemoteEndpoint,
+                    session.RemoteNodeId,
+                    "session-connected",
+                    DateTime.UtcNow,
+                    latencyMs);
                 break;
         }
+    }
+
+    private Task<bool> SendPingAsync(PeerSession session, CancellationToken cancellationToken)
+    {
+        DateTime sentUtc = DateTime.UtcNow;
+        return TrySendPayloadAsync(
+            session,
+            new BootPeerSessionPayload
+            {
+                Type = "ping",
+                SentUtc = sentUtc,
+                Text = sentUtc.ToString("O")
+            },
+            cancellationToken);
+    }
+
+    private static double? CalculateRoundTripLatencyMs(DateTime sentUtc)
+    {
+        if (sentUtc == default)
+        {
+            return null;
+        }
+
+        DateTime normalizedSentUtc = sentUtc.Kind == DateTimeKind.Utc
+            ? sentUtc
+            : DateTime.SpecifyKind(sentUtc, DateTimeKind.Utc);
+        double latencyMs = (DateTime.UtcNow - normalizedSentUtc).TotalMilliseconds;
+        return latencyMs is >= 0 and <= 300000 ? latencyMs : null;
     }
 
     private async Task HandleSharePayloadAsync(
