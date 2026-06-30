@@ -2,9 +2,20 @@
 
 ## Summary
 
-GridPool needs peer networking that is easy for home miners to join, but robust enough for a mining network where low-latency share propagation reduces payout-list splits at round rotation. The network should borrow Bitcoin's peer discovery pattern: seed nodes are bootstrap hints, not authorities; nodes maintain a persistent address book, gossip reachable peers, score peers by usefulness, and connect to a bounded but diverse active set.
+GridPool needs peer networking that is easy for home miners to join, but robust enough for a mining network where low-latency share propagation reduces payout-list splits at round rotation. The network should borrow Bitcoin's peer discovery pattern where possible: seed nodes are bootstrap hints, not authorities; nodes maintain a persistent address book, gossip reachable peers, score peers by usefulness, and connect to a bounded but diverse active set.
 
-V1 keeps the existing HTTP control/data path and hardens peer discovery. Later phases add encrypted persistent sessions and a FIBRE-inspired UDP fast-relay overlay for single-packet share propagation.
+The original V1-V3 plan focused on reachable public peer endpoints. Public beta testing showed the missing pleb-miner requirement: most home nodes will not have public IPs or router ports configured. The next phase is therefore **V2.1 Hidden Peer Mode**, which treats outbound-only WebSocket sessions as first-class peers and uses public seeds as rendezvous/relay fallback without changing trust assumptions.
+
+## Implementation Status At A Glance
+
+| Phase | Status | Notes |
+| --- | --- | --- |
+| V1 HTTP address manager | Complete | Bounded peer selection, persistent address book, endpoint validation, backoff, and address gossip are implemented. |
+| V2 encrypted persistent sessions | Initial implementation complete | WebSocket sessions, signed hello, AES-GCM encrypted frames, share relay, address gossip, and ping/pong are implemented. |
+| V2.1 hidden peer sessions and seed relay | Planned next | Needed so outbound-only home nodes are visible, bidirectional, and relay-capable without a public endpoint. |
+| V3 UDP fast relay | Initial implementation complete | Authenticated UDP relay exists after a V2 session, with V2/HTTP fallback when packets do not fit. |
+| V3.1 compact slot-0 reconstruction | Planned | Needed for production-scale 300-output coinbases to fit fast UDP reliably. |
+| V4 Bitcoin header / compact block relay | Research only | Not started. |
 
 ## V1: HTTP Address Manager
 
@@ -24,6 +35,18 @@ V1 keeps the existing HTTP control/data path and hardens peer discovery. Later p
   - failure backoff: 30 seconds minimum, 30 minutes maximum.
 - Make `public_base_url` optional. Nodes without a public endpoint can validate and sync outbound, but do not advertise themselves.
 - Preserve all existing share/state validation. Peer networking remains transport, not trust.
+
+### V1 Implementation Status
+
+V1 is implemented and should be treated as the current baseline:
+
+- `bootstrap_peers` seeds the persistent peer address book.
+- `/api/network/peer-addresses` exposes bounded address gossip.
+- `/api/network/summary` still works as the backward-compatible state and discovery endpoint.
+- Peer selection is bounded by outbound, relay, and session targets instead of polling every known peer.
+- Endpoint validation rejects malformed, placeholder, and non-public gossip unless private advertisements are explicitly allowed.
+- Peer failures back off and stale failed peers can be pruned.
+- Nodes without `public_base_url` run in outbound-only mode and do not advertise themselves as reachable endpoints.
 
 ## V2: Encrypted Persistent Sessions
 
@@ -54,6 +77,62 @@ Current V2 limits:
 - No explicit peer allowlist or reputation identity policy yet; self-signed node identities are useful for continuity, not Sybil prevention.
 - Session transport currently carries share relay, address gossip, and ping/pong only. State-bundle sync still uses HTTP.
 - WebSocket sessions are still TCP-based. The UDP fast-relay path remains V3.
+- Endpoint-less sessions are not yet first-class UI/address-book peers. This is the main V2.1 gap.
+
+## V2.1: Hidden Peer Sessions And Seed Relay
+
+Public beta testing showed that the "optional `public_base_url`" model is not enough by itself. A home node behind NAT can open an outbound WebSocket to a public seed, and that connection is bidirectional while it remains open, but the current peer table is still centered on dialable HTTP(S) endpoints. That makes outbound-only nodes hard to see, hard to reason about, and dependent on public seeds as implicit hubs.
+
+V2.1 makes outbound-only nodes explicit first-class participants without requiring port forwarding.
+
+### Desired Behavior
+
+- A node with no `public_base_url` connects outbound to one or more public seeds and appears as a live `outbound-only` peer keyed by node ID.
+- Public nodes relay accepted shares to live hidden sessions over the encrypted WebSocket path.
+- Hidden nodes are not advertised as dialable HTTP peers unless they prove a reachable endpoint.
+- Nerd Mode and health tooling distinguish:
+  - reachable public peers;
+  - live outbound-only sessions;
+  - relay/rendezvous seed dependencies.
+- Public seeds can relay between two hidden nodes connected to the same seed.
+- Direct NAT traversal is attempted later, but relay fallback is sufficient for correctness.
+
+### V2.1 Implementation Plan
+
+1. Hidden session peer accounting
+   - Track live sessions by stable `nodeId` even when `RemoteEndpoint` is empty.
+   - Extend network status DTOs with `nodeId`, `connectionMode`, `sessionConnected`, `lastSessionUtc`, and `capabilities`.
+   - Show endpoint-less sessions in Nerd Mode and monitor output as `outbound-only`.
+
+2. Hidden session share relay
+   - Relay accepted shares over every live encrypted session first, including sessions without endpoints.
+   - Keep HTTP relay only for endpoint peers not already reached by session relay.
+   - Prevent loops with share IDs, source node IDs, and existing duplicate suppression.
+
+3. Seed relay fallback
+   - Let public seeds relay encrypted share payloads between hidden sessions that cannot dial each other.
+   - Rate-limit relay by node ID and keep all proof validation unchanged.
+   - Treat seed relay as transport only: seeds never become trusted state authorities.
+
+4. Public reachability assistance
+   - Add optional UPnP/NAT-PMP/PCP port mapping to automatically set `public_base_url` when routers support it.
+   - Leave this disabled by default until common-router testing is complete.
+
+5. NAT traversal
+   - Add UDP rendezvous through public seeds: hidden nodes exchange observed UDP addresses, punch, then use authenticated V3 UDP directly if it succeeds.
+   - Fall back to WebSocket seed relay when direct UDP fails.
+
+6. Optional Tor mode
+   - Add onion-service documentation and config later for users who prefer privacy/reachability over lowest latency.
+
+### V2.1 Acceptance Criteria
+
+- A node with no `public_base_url` appears in `/api/network/summary` and Nerd Mode as `outbound-only` within 30 seconds of opening a persistent session.
+- Accepted shares relay to live outbound-only sessions over WebSocket.
+- Hidden peers are not returned by `/api/network/peer-addresses` as dialable endpoints.
+- Two hidden nodes connected to the same public seed can receive each other's accepted shares through seed relay.
+- Public endpoint peers continue to use V1/V2/V3 behavior unchanged.
+- Relay failures are visible as peer/session health, not as mining failures.
 
 ## V3: FIBRE-Inspired UDP Share Fast Relay
 
@@ -73,7 +152,7 @@ Current V2 limits:
 
 ### V3 Implementation Status
 
-The first V3 implementation is now an authenticated UDP fast-relay overlay:
+The first V3 implementation is complete as an authenticated UDP fast-relay overlay:
 
 - UDP is enabled by `enable_peer_udp_fast_relay`.
 - Default bind/advertised UDP port is `5001`.
@@ -118,12 +197,20 @@ Recommended V3.1 design direction:
 - Receiver reconstructs the full coinbase from its local Winners List and validates the merkle root and share difficulty.
 - If reconstruction fails because state differs, receiver requests or waits for the full V2/HTTP proof and records the event as a possible team-split/convergence signal.
 
+### V3.1 Implementation Status
+
+V3.1 is not implemented. It should wait until V2.1 hidden session relay is stable, because hidden peers need reliable encrypted session fallback before compact UDP reconstruction becomes operationally important.
+
 ## V4: Bitcoin Header / Compact Block Relay
 
 - Explore relaying fresh Bitcoin headers and compact block sketches between GridPool nodes to reduce chain-tip asymmetry.
 - Treat this as separate from V1-V3. FIBRE-style block relay is harder than GridPool share relay because it depends on mempool overlap, compact block reconstruction, missing transaction recovery, and larger payloads that may require FEC.
 
-## Acceptance Criteria For V1
+### V4 Implementation Status
+
+V4 is research only. No implementation has started.
+
+## Completed V1 Acceptance Criteria
 
 - A node with no `public_base_url` can run outbound-only, sync state, and relay shares to reachable peers.
 - `boot.example.com` and other placeholder endpoints cannot be persisted or reintroduced through peer gossip.
@@ -132,3 +219,7 @@ Recommended V3.1 design direction:
 - Peer polling and share relay are bounded by configured active-peer targets, not by total known peer count.
 - Repeated failures back off instead of being retried every sync tick.
 - Address gossip survives restart through the existing pool state file.
+
+## Current Priority
+
+Implement V2.1 before adding more UDP sophistication. The current network can move shares between public nodes well enough, but the beta usability bottleneck is that normal home miners are likely to be outbound-only. Making those nodes visible, bidirectional, and relay-capable is the fastest route toward a less centralized practical topology.
