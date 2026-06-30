@@ -2703,7 +2703,9 @@ public class ClientHandler
 
             // ----- quickdiff target byte -----
             // The client uses the *quick* difficulty that the miner was asked for
-            byte quickPot = FloorPoT(powSubmit.TargetByte);   // you already have this helper
+            // DATUM sends the already-encoded PoT byte from the quickdiff coinbase.
+            // Applying FloorPoT again reconstructs a different coinbase than the miner hashed.
+            byte quickPot = powSubmit.TargetByte;
             if (powSubmit.TargetByteIndex.HasValue)
             {
                 int idx = powSubmit.TargetByteIndex.Value;
