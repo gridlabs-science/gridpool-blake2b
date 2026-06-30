@@ -1498,7 +1498,7 @@
                     <div><span>Raw Stratum V1 directly from an ASIC is not supported here. This protocol is for miners who can build their own block templates.</span></div>
                 </div>
                 <div class="connect-warning">
-                    Sovereign-miner assumption: your DATUM or compatible server builds the template, owns slot 0, and submits verified shares to GridPool.
+                    Sovereign-miner assumption: your DATUM or compatible server builds the template, owns slot 0, submits found blocks to your Bitcoin node, and submits share proofs to GridPool.
                 </div>
             </div>
             <div class="connect-card">
@@ -1627,7 +1627,7 @@
             <div>Acceptance: <span class="accent-value" id="datum-acceptance-rate">--</span></div>
             <div>Test Trigger: <span class="accent-value" id="testing-trigger-status">Loading...</span></div>
             <div>Last Test Block: <span class="accent-value" id="last-testing-trigger-block">--</span></div>
-            <div>Launch Ready: <span class="accent-value" id="launch-ready-status">Loading...</span></div>
+            <div>Round Mode: <span class="accent-value" id="launch-ready-status">Loading...</span></div>
             <h3 style="margin-top: 10px;">Commitment Preview</h3>
             <div class="info-value" id="commitment-preview">Loading...</div>
             <div class="search-results" id="commitment-note"></div>
@@ -1809,9 +1809,10 @@
         <p>2. Configure DATUM with this page's host, port, and pool public key.</p>
         <p>3. Point your ASICs at DATUM, not directly at GridPool. Raw Stratum V1 miner connections are not supported.</p>
         <p>4. Search your payout address on this page to switch into your personal dashboard.</p>
+        <p>If your ASIC finds a Bitcoin block, DATUM submits the assembled block directly to your configured Bitcoin node with RPC submitblock. GridPool receives the proof for payout-state tracking; it is not the sole block broadcaster.</p>
         <h3>Integrate another server</h3>
         <p>CK Pool, Public Pool, Stratum V2, FutureBit, and other template-building servers can integrate through the <a href="https://github.com/gridlabs-science/boot-protocol/blob/main/docs/hydrapool-http-submission.md" target="_blank" rel="noopener noreferrer">HTTP API spec</a> in the repository.</p>
-        <p>The trust model is simple: your server owns slot 0, builds the block template, verifies shares, and submits them to GridPool.</p>
+        <p>The trust model is simple: your server owns slot 0, builds the block template, verifies shares, submits valid blocks to Bitcoin, and submits share proofs to GridPool.</p>
     </div>
 </div>
 
@@ -4392,14 +4393,18 @@
             return;
         }
 
-        status.innerText = readiness.readyForProductionRoundMode ? "YES" : "NO";
+        status.innerText = readiness.productionRoundModeActive ? "GRIDPOOL BLOCK" : "TEST TRIGGER";
         const warnings = readiness.warnings || [];
         const info = readiness.info || [];
-        if (warnings.length > 0) {
-            note.innerText = `Launch blockers: ${warnings.join(" ")}`;
-        } else {
-            note.innerText = info.join(" ");
-        }
+        const summary = readiness.statusSummary ? `${readiness.statusSummary} ` : "";
+        const hardening = readiness.operatorProductionHardeningReady
+            ? "Operator hardening: production-ready."
+            : "Operator hardening: beta/dev settings remain.";
+        const payout = readiness.mainnetPayoutsReal
+            ? "Mainnet coinbase outputs are real BTC; verify your template before mining."
+            : "Test network only; no mainnet BTC.";
+        const warningText = warnings.length > 0 ? ` Warnings: ${warnings.join(" ")}` : "";
+        note.innerText = `${summary}${payout} ${hardening}${warningText} ${info.join(" ")}`.trim();
     }
 
     async function triggerManualReset() {

@@ -7504,11 +7504,25 @@ public class BootProtocolStateService
     private BootLaunchReadinessDto BuildLaunchReadinessNoLock(IReadOnlyCollection<BootPeerStatus> peers)
     {
         string roundTriggerMode = BuildRoundTriggerModeNoLock();
+        bool productionRoundModeActive = !_poolConfig.TestingRoundResetEnabled;
+        bool operatorProductionHardeningReady =
+            string.Equals(_poolConfig.NodeMode, "production", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(_poolConfig.PublicBaseUrl) &&
+            !string.IsNullOrWhiteSpace(_poolConfig.DatumPublicHost) &&
+            !_poolConfig.EnableAdminApi;
+        bool mainnetPayoutsReal = string.Equals(_poolConfig.BitcoinNetwork, BitcoinScript.Mainnet, StringComparison.OrdinalIgnoreCase);
         var dto = new BootLaunchReadinessDto
         {
+            ReadyForProductionRoundMode = productionRoundModeActive,
+            ProductionRoundModeActive = productionRoundModeActive,
+            OperatorProductionHardeningReady = operatorProductionHardeningReady,
+            MainnetPayoutsReal = mainnetPayoutsReal,
             RoundTriggerMode = roundTriggerMode,
             TestingRoundResetEnabled = _poolConfig.TestingRoundResetEnabled,
-            NodeMode = _poolConfig.NodeMode
+            NodeMode = _poolConfig.NodeMode,
+            StatusSummary = productionRoundModeActive
+                ? "Production round mode is active: deterministic test resets are disabled and GridPool payout transitions require a validated GridPool block proof."
+                : "Testing round reset mode is active: this node is rotating snapshots with a deterministic test trigger."
         };
 
         if (_poolConfig.TestingRoundResetEnabled)
@@ -7518,7 +7532,7 @@ public class BootProtocolStateService
 
         if (!string.Equals(_poolConfig.NodeMode, "production", StringComparison.OrdinalIgnoreCase))
         {
-            dto.Warnings.Add($"node_mode is '{_poolConfig.NodeMode}', not production.");
+            dto.Info.Add($"node_mode is '{_poolConfig.NodeMode}', not production. This is an operator hardening label, not a payout lock.");
         }
 
         if (_poolConfig.EnableAdminApi)
@@ -7545,12 +7559,10 @@ public class BootProtocolStateService
         dto.Info.Add(_poolConfig.TestingRoundResetEnabled
             ? BuildTestingRoundResetDescriptionNoLock()
             : "Production round mode: rounds rotate only when this node accepts a valid Grid Pool block share.");
+        dto.Info.Add(mainnetPayoutsReal
+            ? "Bitcoin network is mainnet; accepted block templates pay real BTC according to their coinbase outputs."
+            : $"Bitcoin network is '{_poolConfig.BitcoinNetwork}'; payouts are not mainnet BTC.");
         dto.Info.Add($"Healthy visible peers: {healthyPeers}/{peers.Count}.");
-
-        dto.ReadyForProductionRoundMode =
-            !_poolConfig.TestingRoundResetEnabled &&
-            string.Equals(_poolConfig.NodeMode, "production", StringComparison.OrdinalIgnoreCase) &&
-            !string.IsNullOrWhiteSpace(_poolConfig.DatumPublicHost);
 
         return dto;
     }

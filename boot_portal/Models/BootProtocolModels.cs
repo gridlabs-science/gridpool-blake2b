@@ -95,9 +95,13 @@ public class BootPeerTombstoneRequest
 public class BootLaunchReadinessDto
 {
     public bool ReadyForProductionRoundMode { get; set; }
+    public bool ProductionRoundModeActive { get; set; }
+    public bool OperatorProductionHardeningReady { get; set; }
+    public bool MainnetPayoutsReal { get; set; }
     public string RoundTriggerMode { get; set; } = string.Empty;
     public bool TestingRoundResetEnabled { get; set; }
     public string NodeMode { get; set; } = string.Empty;
+    public string StatusSummary { get; set; } = string.Empty;
     public int WarningCount => Warnings.Count;
     public int InfoCount => Info.Count;
     public List<string> Warnings { get; set; } = [];

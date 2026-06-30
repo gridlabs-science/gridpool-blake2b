@@ -39,6 +39,8 @@ After install:
 3. Paste those into DATUM.
 4. Point ASICs at DATUM's local Stratum V1 listener, not directly at GridPool.
 
+Block-submission safety note: with DATUM, your gateway builds the Bitcoin block template from your Bitcoin node and submits any network-valid block directly to that node with Bitcoin RPC `submitblock`. GridPool receives the share proof for reward-sharing/accounting, but it is not the only broadcast path for a found block.
+
 GridPool node ports are intentionally split by role:
 - `5000` is the WebUI and HTTP API.
 - `3008` is the DATUM Gateway upstream connection to GridPool.
