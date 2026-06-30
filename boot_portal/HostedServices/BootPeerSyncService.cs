@@ -113,13 +113,19 @@ public class BootPeerSyncService : BackgroundService
     {
         await foreach (var proof in _stateService.AcceptedShares.ReadAllAsync(stoppingToken))
         {
-            string? sourceEndpoint = BootPeerSource.TryParsePeerSource(proof.Source, out _, out string parsedSourceEndpoint)
+            bool hasPeerSource = BootPeerSource.TryParsePeerSource(
+                proof.Source,
+                out _,
+                out string parsedSourceEndpoint,
+                out string parsedSourceNodeId);
+            string? sourceEndpoint = hasPeerSource
                 ? parsedSourceEndpoint
                 : null;
             await _udpRelayService.RelayShareAsync(proof, sourceEndpoint, stoppingToken);
             HashSet<string> sessionRelayedEndpoints = await _sessionManager.RelayToConnectedSessionsAsync(
                 proof,
                 sourceEndpoint,
+                parsedSourceNodeId,
                 stoppingToken);
             List<string> peers = _stateService.GetPeerEndpointsForShareRelay(sourceEndpoint);
             if (sessionRelayedEndpoints.Count > 0 && !_poolConfig.PeerRelayLatencyProbeAllTransports)

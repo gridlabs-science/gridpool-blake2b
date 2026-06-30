@@ -97,6 +97,7 @@ public sealed class BootPeerSessionManager : BackgroundService
     public async Task<HashSet<string>> RelayToConnectedSessionsAsync(
         BootShareProof proof,
         string? sourceEndpoint,
+        string? sourceNodeId,
         CancellationToken cancellationToken)
     {
         var relayedEndpoints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -106,10 +107,14 @@ public sealed class BootPeerSessionManager : BackgroundService
         }
 
         string normalizedSource = NormalizeEndpoint(sourceEndpoint ?? string.Empty);
+        string normalizedSourceNodeId = NormalizeNodeId(sourceNodeId);
         List<PeerSession> sessions = _sessions.Values
             .Where(session =>
                 session.IsOpen &&
-                !string.Equals(session.RemoteEndpoint, normalizedSource, StringComparison.OrdinalIgnoreCase))
+                (string.IsNullOrWhiteSpace(normalizedSource) ||
+                 !string.Equals(session.RemoteEndpoint, normalizedSource, StringComparison.OrdinalIgnoreCase)) &&
+                (string.IsNullOrWhiteSpace(normalizedSourceNodeId) ||
+                 !string.Equals(NormalizeNodeId(session.RemoteNodeId), normalizedSourceNodeId, StringComparison.Ordinal)))
             .ToList();
         if (sessions.Count == 0)
         {
@@ -305,7 +310,7 @@ public sealed class BootPeerSessionManager : BackgroundService
                 _logger.LogDebug("Rejected V2 peer session hello from {Peer}: {Reason}", remoteEndpoint, rejectionReason);
                 if (!string.IsNullOrWhiteSpace(remoteEndpoint))
                 {
-                    _stateService.MarkPeerSessionFailure(remoteEndpoint, "session-handshake-failed");
+                    _stateService.MarkPeerSessionFailure(remoteEndpoint, remoteHello?.NodeId ?? string.Empty, "session-handshake-failed");
                 }
 
                 await CloseSocketAsync(socket, WebSocketCloseStatus.PolicyViolation, rejectionReason, cancellationToken);
@@ -333,10 +338,7 @@ public sealed class BootPeerSessionManager : BackgroundService
                 return;
             }
 
-            if (!string.IsNullOrWhiteSpace(remoteEndpoint))
-            {
-                _stateService.UpdatePeerSessionHeartbeat(remoteEndpoint, remoteHello.NodeId, "session-connected", DateTime.UtcNow);
-            }
+            _stateService.UpdatePeerSessionHeartbeat(remoteEndpoint, remoteHello.NodeId, "session-connected", DateTime.UtcNow);
 
             _logger.LogInformation(
                 "V2 peer session connected: {Endpoint} node={NodeId} initiator={Initiator}",
@@ -364,13 +366,18 @@ public sealed class BootPeerSessionManager : BackgroundService
             _logger.LogDebug(ex, "V2 peer session failed for {Peer}.", remoteEndpoint);
             if (!string.IsNullOrWhiteSpace(remoteEndpoint))
             {
-                _stateService.MarkPeerSessionFailure(remoteEndpoint, "session-error");
+                _stateService.MarkPeerSessionFailure(remoteEndpoint, session?.RemoteNodeId ?? string.Empty, "session-error");
             }
         }
         finally
         {
             if (session != null)
             {
+                _stateService.UpdatePeerSessionClosed(
+                    session.RemoteEndpoint,
+                    session.RemoteNodeId,
+                    "session-closed",
+                    DateTime.UtcNow);
                 RemoveSession(session);
             }
 
@@ -475,7 +482,7 @@ public sealed class BootPeerSessionManager : BackgroundService
 
         if (!_stateService.IsCompatiblePeerNetwork(announcement.ProtocolVersion, announcement.NetworkId))
         {
-            _stateService.MarkPeerSessionFailure(session.RemoteEndpoint, "session-rejected");
+            _stateService.MarkPeerSessionFailure(session.RemoteEndpoint, session.RemoteNodeId, "session-rejected");
             return;
         }
 
@@ -487,7 +494,7 @@ public sealed class BootPeerSessionManager : BackgroundService
             announcement.Share.MerklePath);
         if (requestValidation.HasValue)
         {
-            _stateService.MarkPeerSessionFailure(session.RemoteEndpoint, "session-rejected");
+            _stateService.MarkPeerSessionFailure(session.RemoteEndpoint, session.RemoteNodeId, "session-rejected");
             return;
         }
 
@@ -498,8 +505,8 @@ public sealed class BootPeerSessionManager : BackgroundService
         if (!string.IsNullOrWhiteSpace(senderEndpoint))
         {
             _stateService.MergeDiscoveredPeers([senderEndpoint]);
-            _stateService.UpdatePeerSessionHeartbeat(senderEndpoint, session.RemoteNodeId, "session-share", DateTime.UtcNow);
         }
+        _stateService.UpdatePeerSessionHeartbeat(senderEndpoint, session.RemoteNodeId, "session-share", DateTime.UtcNow);
 
         var result = await _stateService.SubmitShareAsync(new RecordedShareSubmission
         {
@@ -512,7 +519,7 @@ public sealed class BootPeerSessionManager : BackgroundService
             Difficulty = announcement.Share.Difficulty,
             PayloadBytes = Math.Max(0, frameBytes),
             Source = string.IsNullOrWhiteSpace(senderEndpoint)
-                ? $"peer-session:{ShortNodeId(session.RemoteNodeId)}"
+                ? $"peer-session-node:{session.RemoteNodeId}"
                 : $"peer-session:{senderEndpoint}"
         }, "peer-block");
 
@@ -551,7 +558,7 @@ public sealed class BootPeerSessionManager : BackgroundService
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogDebug(ex, "Failed to send V2 peer-session payload to {Peer}.", session.RemoteEndpoint);
-            _stateService.MarkPeerSessionFailure(session.RemoteEndpoint, "session-error");
+            _stateService.MarkPeerSessionFailure(session.RemoteEndpoint, session.RemoteNodeId, "session-error");
             RemoveSession(session);
             return false;
         }
@@ -727,6 +734,11 @@ public sealed class BootPeerSessionManager : BackgroundService
     private static string NormalizeEndpoint(string? endpoint)
     {
         return string.IsNullOrWhiteSpace(endpoint) ? string.Empty : endpoint.Trim().TrimEnd('/');
+    }
+
+    private static string NormalizeNodeId(string? nodeId)
+    {
+        return string.IsNullOrWhiteSpace(nodeId) ? string.Empty : nodeId.Trim();
     }
 
     private static string ShortNodeId(string? nodeId)

@@ -1271,29 +1271,44 @@ public class BootProtocolStateService
     {
         lock (_sync)
         {
-            bool changed = UpsertPeerNoLock(
+            bool changed = UpsertPeerSessionNoLock(
                 endpoint,
+                nodeId,
                 status,
-                null,
                 lastSeenUtc,
-                persistStatusOnly: true,
-                allowSuppressed: true,
-                source: "session",
-                allowPrivate: true);
-            BootPeerStatus? peer = FindPeerNoLock(endpoint);
+                sessionConnected: true);
+            BootPeerStatus? peer = FindPeerByEndpointOrNodeNoLock(endpoint, nodeId);
             if (peer != null)
             {
-                if (!string.IsNullOrWhiteSpace(nodeId) && !string.Equals(peer.NodeId, nodeId, StringComparison.Ordinal))
-                {
-                    peer.NodeId = nodeId;
-                    changed = true;
-                }
-
                 peer.LastSessionUtc = lastSeenUtc;
                 peer.LastSuccessUtc = lastSeenUtc;
                 peer.FailureCount = 0;
                 peer.LastFailureUtc = null;
                 peer.SessionSuccessCount++;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                RequestDeferredSaveNoLock();
+            }
+        }
+    }
+
+    public void UpdatePeerSessionClosed(string endpoint, string nodeId, string status, DateTime closedUtc)
+    {
+        lock (_sync)
+        {
+            bool changed = UpsertPeerSessionNoLock(
+                endpoint,
+                nodeId,
+                status,
+                closedUtc,
+                sessionConnected: false);
+            BootPeerStatus? peer = FindPeerByEndpointOrNodeNoLock(endpoint, nodeId);
+            if (peer != null)
+            {
+                peer.LastSessionUtc = closedUtc;
                 changed = true;
             }
 
@@ -1352,18 +1367,21 @@ public class BootProtocolStateService
 
     public void MarkPeerSessionFailure(string endpoint, string status)
     {
+        MarkPeerSessionFailure(endpoint, string.Empty, status);
+    }
+
+    public void MarkPeerSessionFailure(string endpoint, string nodeId, string status)
+    {
         lock (_sync)
         {
-            bool changed = UpsertPeerNoLock(
+            bool changed = UpsertPeerSessionNoLock(
                 endpoint,
+                nodeId,
                 status,
-                null,
-                null,
-                persistStatusOnly: true,
-                allowSuppressed: false,
-                source: "session",
-                allowPrivate: true);
-            BootPeerStatus? peer = FindPeerNoLock(endpoint);
+                DateTime.UtcNow,
+                sessionConnected: false,
+                allowSuppressed: false);
+            BootPeerStatus? peer = FindPeerByEndpointOrNodeNoLock(endpoint, nodeId);
             if (peer != null)
             {
                 peer.SessionFailureCount++;
@@ -6358,12 +6376,13 @@ public class BootProtocolStateService
         string selfEndpoint = GetSelfEndpoint();
         return _state.Peers
             .Where(peer =>
-                !string.IsNullOrWhiteSpace(peer.Endpoint) &&
                 !IsPeerTombstonedNoLock(peer, nowUtc) &&
+                (!string.IsNullOrWhiteSpace(peer.Endpoint) ||
+                 IsOutboundOnlySessionPeerNoLock(peer, nowUtc)) &&
                 (string.IsNullOrWhiteSpace(selfEndpoint) ||
                  !string.Equals(NormalizePeerEndpoint(peer.Endpoint), selfEndpoint, StringComparison.OrdinalIgnoreCase)))
             .OrderByDescending(peer => peer.Score)
-            .ThenBy(peer => peer.Endpoint, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(peer => string.IsNullOrWhiteSpace(peer.Endpoint) ? peer.NodeId : peer.Endpoint, StringComparer.OrdinalIgnoreCase)
             .Select(ClonePeer)
             .ToList();
     }
@@ -7095,12 +7114,151 @@ public class BootProtocolStateService
         return changed && !persistStatusOnly ? true : changed;
     }
 
+    private bool UpsertPeerSessionNoLock(
+        string endpoint,
+        string nodeId,
+        string status,
+        DateTime? lastSeenUtc,
+        bool sessionConnected,
+        bool allowSuppressed = true)
+    {
+        string normalizedEndpoint = string.Empty;
+        bool hasEndpoint = TryNormalizePeerEndpoint(endpoint, allowPrivate: true, out normalizedEndpoint, out _);
+        string normalizedNodeId = NormalizePeerNodeId(nodeId);
+        if (!hasEndpoint && string.IsNullOrWhiteSpace(normalizedNodeId))
+        {
+            return false;
+        }
+
+        if (hasEndpoint &&
+            !string.IsNullOrWhiteSpace(GetSelfEndpoint()) &&
+            string.Equals(normalizedEndpoint, GetSelfEndpoint(), StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        DateTime nowUtc = DateTime.UtcNow;
+        if (hasEndpoint)
+        {
+            if (allowSuppressed)
+            {
+                _suppressedPeerEndpoints.Remove(normalizedEndpoint);
+            }
+            else if (IsPeerSuppressedNoLock(normalizedEndpoint, nowUtc))
+            {
+                return false;
+            }
+        }
+
+        BootPeerStatus? existing = FindPeerByEndpointOrNodeNoLock(hasEndpoint ? normalizedEndpoint : string.Empty, normalizedNodeId);
+        if (existing == null)
+        {
+            existing = new BootPeerStatus
+            {
+                Endpoint = hasEndpoint ? normalizedEndpoint : string.Empty,
+                NodeId = normalizedNodeId,
+                Status = status,
+                Source = "session",
+                DiscoveredUtc = nowUtc,
+                LastSeenUtc = lastSeenUtc,
+                LastSessionUtc = lastSeenUtc,
+                LastSuccessUtc = sessionConnected ? lastSeenUtc : null,
+                ConnectionMode = hasEndpoint ? "public" : "outbound-only",
+                SessionConnected = sessionConnected,
+                Capabilities = BuildPeerSessionCapabilitiesNoLock(hasEndpoint)
+            };
+            _state.Peers.Add(existing);
+            TrimPeerAddressBookNoLock(nowUtc);
+            return true;
+        }
+
+        if (IsPeerTombstonedNoLock(existing, nowUtc))
+        {
+            return false;
+        }
+
+        bool changed = false;
+        if (hasEndpoint && !string.Equals(existing.Endpoint, normalizedEndpoint, StringComparison.OrdinalIgnoreCase))
+        {
+            existing.Endpoint = normalizedEndpoint;
+            changed = true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(normalizedNodeId) && !string.Equals(existing.NodeId, normalizedNodeId, StringComparison.Ordinal))
+        {
+            existing.NodeId = normalizedNodeId;
+            changed = true;
+        }
+
+        if (!string.Equals(existing.Status, status, StringComparison.Ordinal))
+        {
+            existing.Status = status;
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(existing.Source))
+        {
+            existing.Source = "session";
+            changed = true;
+        }
+
+        if (!existing.DiscoveredUtc.HasValue)
+        {
+            existing.DiscoveredUtc = nowUtc;
+            changed = true;
+        }
+
+        if (lastSeenUtc.HasValue && existing.LastSeenUtc != lastSeenUtc)
+        {
+            existing.LastSeenUtc = lastSeenUtc;
+            changed = true;
+        }
+
+        string connectionMode = hasEndpoint ? "public" : "outbound-only";
+        if (!string.Equals(existing.ConnectionMode, connectionMode, StringComparison.Ordinal))
+        {
+            existing.ConnectionMode = connectionMode;
+            changed = true;
+        }
+
+        if (existing.SessionConnected != sessionConnected)
+        {
+            existing.SessionConnected = sessionConnected;
+            changed = true;
+        }
+
+        List<string> capabilities = BuildPeerSessionCapabilitiesNoLock(hasEndpoint);
+        if (!existing.Capabilities.SequenceEqual(capabilities, StringComparer.Ordinal))
+        {
+            existing.Capabilities = capabilities;
+            changed = true;
+        }
+
+        return changed;
+    }
+
     private void NormalizePeerAddressBookNoLock(DateTime nowUtc)
     {
         string selfEndpoint = GetSelfEndpoint();
         _state.Peers = _state.Peers
             .Select(peer =>
             {
+                if (string.IsNullOrWhiteSpace(peer.Endpoint) && !string.IsNullOrWhiteSpace(peer.NodeId))
+                {
+                    peer.NodeId = NormalizePeerNodeId(peer.NodeId);
+                    peer.DiscoveredUtc ??= peer.LastSeenUtc ?? peer.LastFailureUtc ?? nowUtc;
+                    peer.Source = string.IsNullOrWhiteSpace(peer.Source) ? "session" : peer.Source;
+                    peer.ConnectionMode = string.IsNullOrWhiteSpace(peer.ConnectionMode) || string.Equals(peer.ConnectionMode, "unknown", StringComparison.OrdinalIgnoreCase)
+                        ? "outbound-only"
+                        : peer.ConnectionMode;
+                    if (peer.Capabilities.Count == 0)
+                    {
+                        peer.Capabilities = BuildPeerSessionCapabilitiesNoLock(hasEndpoint: false);
+                    }
+
+                    return peer;
+                }
+
                 if (!TryNormalizePeerEndpoint(peer.Endpoint, allowPrivate: true, out string normalized, out _))
                 {
                     return null;
@@ -7109,6 +7267,13 @@ public class BootProtocolStateService
                 peer.Endpoint = normalized;
                 peer.DiscoveredUtc ??= peer.LastSeenUtc ?? peer.LastFailureUtc ?? nowUtc;
                 peer.Source = string.IsNullOrWhiteSpace(peer.Source) ? "legacy" : peer.Source;
+                peer.ConnectionMode = string.IsNullOrWhiteSpace(peer.ConnectionMode) || string.Equals(peer.ConnectionMode, "unknown", StringComparison.OrdinalIgnoreCase)
+                    ? "public"
+                    : peer.ConnectionMode;
+                if (peer.Capabilities.Count == 0 && peer.LastSessionUtc.HasValue)
+                {
+                    peer.Capabilities = BuildPeerSessionCapabilitiesNoLock(hasEndpoint: true);
+                }
                 if (peer.TombstonedUntilUtc.HasValue && peer.TombstonedUntilUtc.Value <= nowUtc)
                 {
                     peer.TombstonedUntilUtc = null;
@@ -7132,7 +7297,7 @@ public class BootProtocolStateService
                 return peer;
             })
             .OfType<BootPeerStatus>()
-            .GroupBy(peer => peer.Endpoint, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(GetPeerIdentityKeyNoLock, StringComparer.OrdinalIgnoreCase)
             .Select(group => group
                 .OrderByDescending(peer => peer.IsConfiguredSeed)
                 .ThenByDescending(peer => peer.LastSuccessUtc ?? peer.LastSeenUtc ?? peer.DiscoveredUtc ?? DateTime.MinValue)
@@ -7152,21 +7317,21 @@ public class BootProtocolStateService
         }
 
         int removeCount = _state.Peers.Count - maxEntries;
-        HashSet<string> removeEndpoints = _state.Peers
+        HashSet<string> removePeerKeys = _state.Peers
             .Where(peer => !peer.IsConfiguredSeed && !IsPeerTombstonedNoLock(peer, nowUtc))
             .OrderBy(peer => peer.Score)
             .ThenBy(peer => peer.LastSuccessUtc ?? peer.LastSeenUtc ?? peer.DiscoveredUtc ?? DateTime.MinValue)
             .Take(removeCount)
-            .Select(peer => peer.Endpoint)
+            .Select(GetPeerIdentityKeyNoLock)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        if (removeEndpoints.Count == 0)
+        if (removePeerKeys.Count == 0)
         {
             return;
         }
 
         _state.Peers = _state.Peers
-            .Where(peer => !removeEndpoints.Contains(peer.Endpoint))
+            .Where(peer => !removePeerKeys.Contains(GetPeerIdentityKeyNoLock(peer)))
             .ToList();
     }
 
@@ -7275,6 +7440,15 @@ public class BootProtocolStateService
         }
 
         return !IsPeerFailureStatus(peer.Status) || peer.LastSuccessUtc.HasValue;
+    }
+
+    private static bool IsOutboundOnlySessionPeerNoLock(BootPeerStatus peer, DateTime nowUtc)
+    {
+        return string.IsNullOrWhiteSpace(peer.Endpoint) &&
+               !string.IsNullOrWhiteSpace(peer.NodeId) &&
+               (peer.SessionConnected ||
+                peer.LastSessionUtc.HasValue && (nowUtc - peer.LastSessionUtc.Value) <= TimeSpan.FromMinutes(30) ||
+                peer.LastSeenUtc.HasValue && (nowUtc - peer.LastSeenUtc.Value) <= TimeSpan.FromMinutes(30));
     }
 
     private bool IsPeerInFailureBackoffNoLock(BootPeerStatus peer, DateTime nowUtc)
@@ -7457,6 +7631,58 @@ public class BootProtocolStateService
 
         return _state.Peers.FirstOrDefault(peer =>
             string.Equals(NormalizePeerEndpoint(peer.Endpoint), normalized, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private BootPeerStatus? FindPeerByEndpointOrNodeNoLock(string endpoint, string nodeId)
+    {
+        BootPeerStatus? byEndpoint = FindPeerNoLock(endpoint);
+        if (byEndpoint != null)
+        {
+            return byEndpoint;
+        }
+
+        string normalizedNodeId = NormalizePeerNodeId(nodeId);
+        return string.IsNullOrWhiteSpace(normalizedNodeId)
+            ? null
+            : FindPeerByNodeIdNoLock(normalizedNodeId);
+    }
+
+    private BootPeerStatus? FindPeerByNodeIdNoLock(string nodeId)
+    {
+        string normalizedNodeId = NormalizePeerNodeId(nodeId);
+        if (string.IsNullOrWhiteSpace(normalizedNodeId))
+        {
+            return null;
+        }
+
+        return _state.Peers.FirstOrDefault(peer =>
+            string.Equals(NormalizePeerNodeId(peer.NodeId), normalizedNodeId, StringComparison.Ordinal));
+    }
+
+    private static string GetPeerIdentityKeyNoLock(BootPeerStatus peer)
+    {
+        string endpoint = NormalizePeerEndpoint(peer.Endpoint);
+        if (!string.IsNullOrWhiteSpace(endpoint))
+        {
+            return $"endpoint:{endpoint}";
+        }
+
+        string nodeId = NormalizePeerNodeId(peer.NodeId);
+        return string.IsNullOrWhiteSpace(nodeId)
+            ? "unknown:"
+            : $"node:{nodeId}";
+    }
+
+    private static string NormalizePeerNodeId(string? nodeId)
+    {
+        return string.IsNullOrWhiteSpace(nodeId) ? string.Empty : nodeId.Trim();
+    }
+
+    private static List<string> BuildPeerSessionCapabilitiesNoLock(bool hasEndpoint)
+    {
+        return hasEndpoint
+            ? ["v2-session", "share-relay", "address-gossip", "ping-pong", "dialable"]
+            : ["v2-session", "share-relay", "ping-pong", "outbound-only"];
     }
 
     private static bool ShouldPrunePeerNoLock(
@@ -7784,6 +8010,9 @@ public class BootProtocolStateService
             Status = peer.Status,
             Source = peer.Source,
             NodeId = peer.NodeId,
+            ConnectionMode = peer.ConnectionMode,
+            SessionConnected = peer.SessionConnected,
+            Capabilities = peer.Capabilities.ToList(),
             IsConfiguredSeed = peer.IsConfiguredSeed,
             DiscoveredUtc = peer.DiscoveredUtc,
             LastAttemptUtc = peer.LastAttemptUtc,

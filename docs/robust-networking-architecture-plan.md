@@ -12,7 +12,7 @@ The original V1-V3 plan focused on reachable public peer endpoints. Public beta 
 | --- | --- | --- |
 | V1 HTTP address manager | Complete | Bounded peer selection, persistent address book, endpoint validation, backoff, and address gossip are implemented. |
 | V2 encrypted persistent sessions | Initial implementation complete | WebSocket sessions, signed hello, AES-GCM encrypted frames, share relay, address gossip, and ping/pong are implemented. |
-| V2.1 hidden peer sessions and seed relay | Planned next | Needed so outbound-only home nodes are visible, bidirectional, and relay-capable without a public endpoint. |
+| V2.1 hidden peer sessions and seed relay | In progress | Hidden session accounting and direct WebSocket share relay are implemented; seed relay between hidden peers is still pending. |
 | V3 UDP fast relay | Initial implementation complete | Authenticated UDP relay exists after a V2 session, with V2/HTTP fallback when packets do not fit. |
 | V3.1 compact slot-0 reconstruction | Planned | Needed for production-scale 300-output coinbases to fit fast UDP reliably. |
 | V4 Bitcoin header / compact block relay | Research only | Not started. |
@@ -103,16 +103,19 @@ V2.1 makes outbound-only nodes explicit first-class participants without requiri
    - Track live sessions by stable `nodeId` even when `RemoteEndpoint` is empty.
    - Extend network status DTOs with `nodeId`, `connectionMode`, `sessionConnected`, `lastSessionUtc`, and `capabilities`.
    - Show endpoint-less sessions in Nerd Mode and monitor output as `outbound-only`.
+   - Status: implemented.
 
 2. Hidden session share relay
    - Relay accepted shares over every live encrypted session first, including sessions without endpoints.
    - Keep HTTP relay only for endpoint peers not already reached by session relay.
    - Prevent loops with share IDs, source node IDs, and existing duplicate suppression.
+   - Status: implemented for direct live WebSocket sessions. Seed-mediated hidden-to-hidden relay remains pending.
 
 3. Seed relay fallback
    - Let public seeds relay encrypted share payloads between hidden sessions that cannot dial each other.
    - Rate-limit relay by node ID and keep all proof validation unchanged.
    - Treat seed relay as transport only: seeds never become trusted state authorities.
+   - Status: pending.
 
 4. Public reachability assistance
    - Add optional UPnP/NAT-PMP/PCP port mapping to automatically set `public_base_url` when routers support it.
@@ -127,9 +130,9 @@ V2.1 makes outbound-only nodes explicit first-class participants without requiri
 
 ### V2.1 Acceptance Criteria
 
-- A node with no `public_base_url` appears in `/api/network/summary` and Nerd Mode as `outbound-only` within 30 seconds of opening a persistent session.
-- Accepted shares relay to live outbound-only sessions over WebSocket.
-- Hidden peers are not returned by `/api/network/peer-addresses` as dialable endpoints.
+- A node with no `public_base_url` appears in `/api/network/summary` and Nerd Mode as `outbound-only` within 30 seconds of opening a persistent session. Implemented.
+- Accepted shares relay to live outbound-only sessions over WebSocket. Implemented for direct sessions.
+- Hidden peers are not returned by `/api/network/peer-addresses` as dialable endpoints. Implemented.
 - Two hidden nodes connected to the same public seed can receive each other's accepted shares through seed relay.
 - Public endpoint peers continue to use V1/V2/V3 behavior unchanged.
 - Relay failures are visible as peer/session health, not as mining failures.

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using boot_portal;
+using boot_portal.Models;
 using boot_portal.Services;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -90,6 +91,29 @@ public sealed class PeerPruningTests
         Assert.IsTrue(service.TombstonePeer("http://old.example:5000"));
         Assert.IsFalse(service.GetNetworkStatus().Peers.Any(peer => peer.Endpoint == "http://old.example:5000"));
         Assert.IsFalse(service.TombstonePeer(SelfEndpoint));
+    }
+
+    [TestMethod]
+    public void EndpointlessPeerSessionIsVisibleButNotAdvertised()
+    {
+        var service = CreateService();
+        const string nodeId = "9d55ff8d7dce6a8be4116ef1db98434c775ee4f2c9f047fd0376b65e7a0b33fb";
+        DateTime now = DateTime.UtcNow;
+
+        service.UpdatePeerSessionHeartbeat(string.Empty, nodeId, "session-connected", now);
+
+        BootPeerStatus peer = service.GetNetworkStatus().Peers.Single(candidate => candidate.NodeId == nodeId);
+        Assert.AreEqual(string.Empty, peer.Endpoint);
+        Assert.AreEqual("outbound-only", peer.ConnectionMode);
+        Assert.IsTrue(peer.SessionConnected);
+        CollectionAssert.Contains(peer.Capabilities, "share-relay");
+        Assert.IsFalse(service.GetPeerAddressBook().Peers.Any(candidate => candidate.Endpoint == string.Empty || candidate.Status == "session-connected"));
+
+        service.UpdatePeerSessionClosed(string.Empty, nodeId, "session-closed", now.AddSeconds(5));
+
+        peer = service.GetNetworkStatus().Peers.Single(candidate => candidate.NodeId == nodeId);
+        Assert.AreEqual("session-closed", peer.Status);
+        Assert.IsFalse(peer.SessionConnected);
     }
 
     private static BootProtocolStateService CreateService()

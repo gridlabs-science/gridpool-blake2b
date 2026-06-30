@@ -4,8 +4,14 @@ public static class BootPeerSource
 {
     public static bool TryParsePeerSource(string? source, out string transport, out string endpoint)
     {
+        return TryParsePeerSource(source, out transport, out endpoint, out _);
+    }
+
+    public static bool TryParsePeerSource(string? source, out string transport, out string endpoint, out string nodeId)
+    {
         transport = string.Empty;
         endpoint = string.Empty;
+        nodeId = string.Empty;
         string value = source?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -16,6 +22,13 @@ public static class BootPeerSource
         {
             transport = "udp";
             endpoint = value["peer-udp:".Length..].Trim();
+            return true;
+        }
+
+        if (value.StartsWith("peer-session-node:", StringComparison.OrdinalIgnoreCase))
+        {
+            transport = "websocket";
+            nodeId = value["peer-session-node:".Length..].Trim();
             return true;
         }
 

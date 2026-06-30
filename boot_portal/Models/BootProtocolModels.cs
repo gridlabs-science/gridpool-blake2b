@@ -47,6 +47,9 @@ public class BootPeerStatus
     public string Status { get; set; } = "unimplemented";
     public string Source { get; set; } = string.Empty;
     public string NodeId { get; set; } = string.Empty;
+    public string ConnectionMode { get; set; } = "unknown";
+    public bool SessionConnected { get; set; }
+    public List<string> Capabilities { get; set; } = [];
     public bool IsConfiguredSeed { get; set; }
     public DateTime? DiscoveredUtc { get; set; }
     public DateTime? LastAttemptUtc { get; set; }
