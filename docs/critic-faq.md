@@ -142,6 +142,46 @@ The tradeoff is that GridPool must prove that bounded-state gossip converges
 well enough in practice. It replaces sharechain-finality analysis with
 network-convergence and mechanism-design analysis.
 
+## Does GridPool Recreate P2Pool's Latency Centralization Problem?
+
+GridPool does not eliminate latency incentives completely, and should not be
+described as if it does. It changes their shape.
+
+In P2Pool, latency mattered continuously because the sharechain was
+winner-take-all at each short share interval. If a valid share arrived after a
+competing share had already extended the sharechain tip, it could become stale.
+With roughly 30-second share intervals, low-latency clusters could gain a
+persistent advantage, which pushed hashrate toward mini-pools and other
+low-latency aggregation points.
+
+GridPool's latency exposure is narrower:
+
+- compatible shares are normally mergeable into the unpaid Work Set;
+- shares are ranked by proof difficulty, not by being first to extend a
+  sharechain tip;
+- snapshot boundaries occur on Bitcoin block cadence, not a separate 30-second
+  sharechain cadence;
+- latency mainly matters for high-difficulty shares found very close to a
+  Bitcoin block boundary;
+- a last-millisecond share that fails to propagate before enough nodes cross the
+  snapshot boundary may not count for that snapshot, but it does not orphan an
+  entire chain of recent work.
+
+This is still a real tradeoff. GridPool intentionally prefers local
+snapshot-boundary finality over trusting peer-provided timestamps or letting a
+large miner retroactively pull the network onto a favorable branch. That means
+miners should propagate important shares quickly, and very-late shares carry
+some boundary risk.
+
+The expected centralization pressure should be much smaller than P2Pool's
+sharechain race, because most valid shares have many minutes to propagate before
+they affect a payout snapshot. But this is a hypothesis to measure, not a claim
+to hand-wave. Compact relay, dense peering, regional public seeds, and
+eventually UDP fast relay are practical mitigations. The correct public claim is:
+
+> GridPool reduces latency from a constant sharechain-orphan race into a narrow
+> Bitcoin-block-boundary race. It does not make latency irrelevant.
+
 ## Is GridPool Vulnerable To A 51 Percent Sharechain Attack?
 
 Not in the same way, because GridPool has no sharechain.
@@ -262,4 +302,3 @@ GridPool's claims should become progressively more mathematical and empirical.
 The right standard is not "sounds plausible." The right standard is "here is the
 model, here are the assumptions, here is the code, here are the results, and
 here is where the design still fails or needs work."
-
