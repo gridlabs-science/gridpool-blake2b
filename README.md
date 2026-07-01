@@ -11,6 +11,9 @@ GridPool was originally developed under the working name "Boot Protocol." Some i
 ## Critic-Facing Design Notes
 GridPool is early, and several claims still need rigorous public modeling.
 
+- `docs/umbrel-start9-launch-checklist.md` is the primary launch-gating checklist before broad Umbrel / Start9 packaging.
+- `docs/consensus-selection-audit.md` documents the current "heaviest valid state" rule and the open scoring questions.
+- `docs/simulation-findings-2026-06.md` summarizes which current simulation findings look publishable and which are still too early.
 - `docs/critic-faq.md` answers common technical objections such as pool hopping, loose consensus, sharechain comparisons, Sybil accounting, and majority-miner team splits.
 - `docs/modeling-and-simulation-roadmap.md` defines the open simulation work needed to turn those answers into reproducible evidence.
 - `docs/scaling-analysis.md` and `docs/stress-test-plan.md` cover bandwidth, latency, peer topology, and load-test targets.
