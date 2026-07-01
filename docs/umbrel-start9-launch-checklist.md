@@ -6,120 +6,64 @@ This checklist is intentionally stricter than "public beta works on my machine."
 
 ## Launch Gate Summary
 
-- [ ] Consensus selection rule audited and frozen for the first packaged beta.
-- [ ] Protocol and API versioning policy documented and enforced.
-- [ ] External multi-node beta runs stably for at least 7 consecutive days.
+- [ ] Consensus selection rule audited and frozen for the first packaged beta. Current V2 rule is documented; final freeze still needs external beta evidence.
+- [x] Protocol/API/state/peer version fields and compatibility checks are implemented.
+- [ ] External multi-node beta runs stably for at least 7 consecutive days. Monitoring is implemented; the clock still needs to run.
 - [ ] Hidden/outbound-only node behavior is clear, observable, and safe.
 - [ ] Install and upgrade paths are repeatable on clean machines.
 - [ ] Public docs and UI match V2 snapshot/reserve consensus.
-- [ ] Monitoring catches the failures we have already seen in the wild.
+- [x] Monitoring catches the failure classes already seen in public beta.
 - [ ] Repo is clean enough that outside contributors can orient quickly.
 
 ## G1: Consensus Selection And State Convergence
 
-Goal: prove or revise the "heaviest valid state" rule before nontechnical users install nodes.
+Goal: keep V2 snapshot/reserve consensus predictable and safe enough for a short-term packaged beta. This gate is not trying to solve the full V3 branch-market / adversarial fork-choice research problem.
 
-- [ ] Document the current state-selection rule in code-level detail.
-- [ ] Decide whether current total-difficulty scoring remains the packaged beta rule.
-- [ ] Coordinate and implement the proposed snapshot-boundary consensus revision:
-  fixed-size Work Set scoring by 897th-proof difficulty, local snapshot-boundary finality, and merge-only compatible Work Sets.
-- [ ] Compare candidate scoring methods in simulation:
-  `sum difficulty`, `trimmed sum`, `winsorized sum`, `median rank-adjusted hashrate`, and a likelihood-style score.
-- [ ] Model score behavior under honest latency splits.
-- [ ] Model score behavior under one huge lucky share.
-- [ ] Model score behavior under selective relay / censorship attempts.
-- [ ] Define deterministic tie-breakers for equal-score states.
-- [ ] Add consensus tests for every adopted scoring rule.
-- [ ] Add a state-bundle fixture with two competing valid states where the expected winner is explicit.
+Current V2 posture:
+
+- V2 keeps the existing "heaviest valid state" adoption rule for now.
+- Work Set and active snapshot proofs must remain fully validated before import.
+- Incompatible consensus or state-bundle schema versions must fail visibly and safely.
+- Same-snapshot Work Sets should converge through valid proof import and duplicate suppression.
+- Any deeper change to fork choice, boundary finality, or multi-branch markets must be a coordinated future consensus-version bump.
+
+Deferred research is already tracked in:
+
+- [consensus-selection-audit.md](consensus-selection-audit.md)
+- [v3-branch-market-examples.md](v3-branch-market-examples.md)
+- [simulation-findings-2026-06.md](simulation-findings-2026-06.md)
+
+Short-term V2 checklist:
+
+- [x] Document the current state-selection rule in code-level detail.
+- [x] Implement explicit consensus, state-bundle schema, HTTP API, peer transport, UDP relay, and release version fields.
+- [x] Reject incompatible consensus/state-bundle schema versions before import.
+- [x] Preserve HTTP fallback when only peer transport version differs.
+- [x] Add visible UI/API/monitor visibility for version mismatch.
+- [ ] Add a compact state-selection regression fixture with two competing valid states where the expected V2 winner is explicit.
+- [ ] Run a multi-node public beta soak and confirm current/candidate state IDs converge without manual state wipes.
+- [ ] Decide whether V2 summed-difficulty state selection is "good enough for beta" or whether package launch waits for a coordinated V3 rule.
 
 Completion criteria:
 
-- Current consensus scoring has a written rationale.
-- At least 3 scoring alternatives have reproducible simulation output.
-- A packaged node rejects incompatible consensus versions instead of silently importing them.
-- Two live nodes converge after temporary divergence without manual state wipes.
-
-### Proposed Snapshot-Boundary Consensus Revision
-
-Status: design note only. Do not implement until coordinated with active beta
-operators, because this is a consensus-breaking change.
-
-Core idea:
-
-- Treat the unpaid Work Set as a fixed-size top-`897` reserve.
-- If a node has fewer than `897` proofs, missing slots score as difficulty `0`.
-- Score reserve strength by the 897th-best proof difficulty, not summed
-  difficulty. This turns the Work Set floor itself into the state-selection
-  score and avoids monster-share and proof-count artifacts.
-- Require that a claimed Work Set score be backed by the full ordered reserve:
-  one 897th proof plus 896 proofs with equal or greater difficulty.
-
-Snapshot and Work Set objects must be treated differently:
-
-- Active payout snapshot: the frozen coinbase payout list miners are currently
-  hashing against. It is created when a node observes the Bitcoin trigger block.
-- Unpaid Work Set: the bounded reserve of valid unpaid proofs. It continues to
-  evolve, but it must not retroactively change which active snapshot was valid
-  at an earlier Bitcoin trigger boundary.
-
-Consensus invariants to preserve:
-
-- Each node's Bitcoin-block snapshot boundary is local and final.
-- Peer timestamps are not trusted for deciding whether a share arrived before a
-  Bitcoin trigger block.
-- Shares first learned after a node has crossed its local trigger boundary must
-  not strengthen that node's already-created snapshot for that trigger.
-- A proposed stronger snapshot may only be evaluated using frozen
-  snapshot-boundary evidence, not work accumulated later on that branch.
-- Post-split work must never be allowed to decide canonicality of the
-  pre-split snapshot. Otherwise a large miner could keep mining a favorable
-  branch and turn snapshot convergence into a 51%-style branch-coercion attack.
-- Work Sets are mergeable only when their active payout snapshot lineage is
-  compatible.
-- If two peers share the same active snapshot, Work Set sync should be union and
-  trim: validate all proofs, deduplicate, sort by difficulty descending with a
-  deterministic share-ID tie-break, keep top `897`, and recompute candidate
-  preview.
-- If two peers have different active snapshots, do not merge live Work Sets as
-  one list. Resolve the active snapshot conflict using frozen snapshot-boundary
-  reserve evidence only.
-- If a node receives a last-millisecond share that most peers did not see before
-  the trigger boundary, that node may temporarily fork onto a minority snapshot.
-  Its economically rational behavior is to abandon the minority branch and
-  rejoin the common active snapshot, but it must not bring fork-only work back as
-  evidence for the older boundary.
-
-Implementation checklist for the revision:
-
-- [ ] Add explicit consensus version bump before deploying.
-- [ ] Add snapshot context fields for the frozen reserve evidence required to
-  score active snapshot conflicts, not just paid proof IDs.
-- [ ] Replace active snapshot conflict scoring from summed difficulty to
-  frozen 897th-proof reserve floor.
-- [ ] Replace same-snapshot candidate Work Set import from either-or adoption to
-  deterministic union/merge/trim.
-- [ ] Reject or quarantine incompatible-lineage Work Set proofs rather than
-  merging them into the canonical reserve.
-- [ ] Keep late old-parent proofs out of snapshot fork-choice scoring after the
-  local Bitcoin trigger boundary.
-- [ ] Add diagnostics for ignored late-boundary proofs and minority-branch
-  abandonment so operators can see boundary losses.
-- [ ] Add tests for local-boundary finality, same-snapshot Work Set merge,
-  incompatible-lineage non-merge, delayed old-parent share rejection for fork
-  choice, and fixed-size `897` scoring with missing slots as zero.
+- A packaged node rejects incompatible consensus/schema versions instead of silently importing them.
+- Two live V2 nodes converge after temporary divergence without manual state wipes.
+- No V3 or experimental fork-choice rule is required for the short-term development-mode beta.
+- Any later fork-choice redesign is documented as a future consensus-version bump, not as an implicit beta behavior change.
 
 ## G2: Protocol And Release Versioning
 
 Goal: stop relying on "everyone pull latest" before packaged installs exist.
 
-- [ ] Define separate versions for consensus rules, state bundle schema, peer transport, HTTP API, and node release.
-- [ ] Add those version fields to `/api/network/summary`.
-- [ ] Add those version fields to state bundles and peer session hellos.
-- [ ] Define compatibility behavior for each version class.
-- [ ] Define hard-fork style behavior for consensus version changes.
-- [ ] Define capability negotiation for transport features such as WebSocket and UDP relay.
-- [ ] Add a visible UI warning when peers are unreachable because of version mismatch.
-- [ ] Add health-monitor alerts for version mismatch.
+- [x] Define separate versions for consensus rules, state bundle schema, peer transport, HTTP API, UDP relay, and node release.
+- [x] Add those version fields to `/api/network/summary`.
+- [x] Add those version fields to state bundles, peer share announcements, and peer session hellos.
+- [x] Define compatibility behavior for each version class.
+- [x] Define hard-fork style behavior for consensus/schema version changes.
+- [x] Define transport fallback behavior when WebSocket/UDP versions differ but HTTP/state consensus remains compatible.
+- [x] Add a visible UI warning when peers are unreachable because of version mismatch.
+- [x] Add health-monitor alerts for version mismatch or missing version visibility.
+- [ ] Add a release-note template that explicitly labels coordinated-upgrade releases.
 
 Completion criteria:
 
@@ -127,18 +71,27 @@ Completion criteria:
 - A node on older transport version can still use canonical HTTP fallback when consensus-compatible.
 - Release notes have an explicit "requires coordinated upgrade" marker when needed.
 
+Current evidence:
+
+- Version DTOs and compatibility evaluation live in `boot_portal/Models/BootProtocolVersions.cs` and `BootProtocolStateService`.
+- `/api/network/summary`, state bundles, peer share announcements, and peer session hellos carry version fields.
+- Node UI surfaces consensus/schema/API/transport/release metadata and peer compatibility.
+- Health monitor flags version mismatch or missing version visibility.
+
 ## G3: External Beta Stability
 
 Goal: make the current beta boring before inviting one-click installers.
 
-- [ ] Maintain at least 2 independently operated mainnet beta nodes for 7 consecutive days.
-- [ ] Maintain at least 1 testnet4 node for real GridPool-block trigger testing.
-- [ ] Track DATUM acceptance rate by node and by rejection reason.
-- [ ] Track peer relay success/failure by transport.
-- [ ] Track state ID convergence across nodes.
-- [ ] Track Work Set count, active snapshot ID, and candidate state ID drift.
-- [ ] Track DATUM session churn.
-- [ ] Track real quickdiff submissions after the quickdiff reconstruction fix.
+- [x] Monitor at least 2 independently operated mainnet beta nodes.
+- [ ] Complete 7 consecutive days of stable external multi-node beta runtime.
+- [x] Monitor at least 1 testnet4 node for real GridPool-block trigger testing.
+- [x] Track DATUM acceptance rate by node and by rejection reason.
+- [x] Track peer relay success/failure by transport where exposed by node summaries.
+- [x] Track state ID convergence across consensus groups.
+- [x] Track Work Set count, active snapshot ID, and candidate state ID drift.
+- [x] Track DATUM session churn through existing diagnostics and rejection-rate alerts.
+- [x] Track real quickdiff submissions after the quickdiff reconstruction fix through local DATUM diagnostics.
+- [x] Write compact monitor logs for later Codex/human review.
 
 Completion criteria:
 
@@ -148,18 +101,26 @@ Completion criteria:
 - Any lower acceptance rate has a documented root cause and mitigation.
 - External tester can upgrade from a previous beta release without wiping state.
 
+Current evidence:
+
+- `scripts/gridpool-health-monitor.mjs` compares `mainnet-beta` nodes separately from `testnet4-beta`.
+- Live config currently monitors `main.gridpool.net`, `test.gridpool.net`, and `evomining.farted.net`.
+- Monitor logs are written to `~/.local/state/gridpool-monitor/latest-summary.json`, `latest-consensus.json`, and dated `snapshots/`, `consensus/`, and `alerts/` JSONL files.
+- As of the first dry run after this change, `main` and `evomining` were aligned on mainnet current/candidate/active snapshot IDs.
+
 ## G4: Networking And NAT Readiness
 
 Goal: home miners should not need to understand router internals to participate safely.
 
-- [ ] Make outbound-only peers first-class in UI and API.
-- [ ] Finish seed-mediated relay between hidden peers.
+- [x] Make outbound-only peers visible in UI/API as live sessions instead of fake dialable endpoints.
+- [x] Relay accepted shares to live outbound-only WebSocket sessions directly connected to a public node.
+- [ ] Finish seed-mediated relay between two hidden peers connected through the same public seed.
 - [ ] Decide whether seed relay is acceptable for the first packaged beta.
 - [ ] Add reachability self-test for public endpoint, peer WebSocket, and UDP relay.
 - [ ] Research and prototype UPnP, NAT-PMP, and PCP port mapping.
 - [ ] Research UDP hole punching with public seeds as rendezvous.
 - [ ] Add clear docs for direct public peer, outbound-only peer, and relay-fallback peer modes.
-- [ ] Ensure hidden peers are never advertised as dialable endpoints.
+- [x] Ensure hidden peers are never advertised as dialable endpoints.
 - [ ] Add metrics for relay dependency: number of peers reached directly vs through seed relay.
 
 Completion criteria:
@@ -169,6 +130,12 @@ Completion criteria:
 - If automatic port mapping succeeds, the node verifies its own public reachability.
 - If automatic port mapping fails, the UI says the node is still participating outbound-only.
 
+Current evidence:
+
+- Implementation status is tracked in [robust-networking-architecture-plan.md](robust-networking-architecture-plan.md).
+- V2.1 hidden session accounting and direct live WebSocket share relay are implemented.
+- Seed-mediated hidden-to-hidden relay, NAT traversal, and automated port mapping remain open.
+
 ## G5: Packaging And Installer Readiness
 
 Goal: make installation boring and reversible.
@@ -177,8 +144,9 @@ Goal: make installation boring and reversible.
 - [ ] Decide package architecture for Start9.
 - [ ] Confirm whether Start9 package should live in this repo or a separate wrapper repo.
 - [ ] Provide Docker image tags for stable beta releases.
-- [ ] Provide sample configs for mainnet and testnet4.
-- [ ] Provide safe default ports for UI, DATUM, peer HTTP, peer WebSocket, and UDP relay.
+- [x] Provide sample config for mainnet beta Docker/manual installs.
+- [ ] Provide separate sample config for testnet4 beta installs.
+- [x] Provide safe default ports for UI, DATUM, peer HTTP/WebSocket, and UDP relay.
 - [ ] Provide migration scripts for state files.
 - [ ] Provide backup and restore docs for node identity keys and pool state.
 - [ ] Test fresh install on a clean Linux VM.
@@ -193,13 +161,19 @@ Completion criteria:
 - Upgrade preserves node identity and state.
 - Package logs are visible in the platform UI or documented shell path.
 
+Current evidence:
+
+- Docker sample config exists at `docker/boot_portal_config.sample.json`.
+- Main documented defaults are `5000` WebUI/API, `3008` DATUM, and `5001/udp` peer fast relay.
+- Raspberry Pi/full-stack installer docs exist, but appliance packaging is not yet complete enough for Umbrel/Start9 users.
+
 ## G6: Repo And Project Architecture
 
 Goal: avoid turning the reference node into a junk drawer for every future adapter.
 
 - [ ] Write a target repo map for the GridPool ecosystem.
-- [ ] Keep `gridpool-web` separate from node code.
-- [ ] Keep `gridpool-simulations` separate from node code.
+- [x] Keep `gridpool-web` separate from node code.
+- [x] Keep `gridpool-simulations` separate from node code.
 - [ ] Decide whether to create `gridpool-spec` for protocol docs and test vectors.
 - [ ] Decide whether adapters belong in this repo or separate repos.
 - [ ] Move old soak logs and historical test artifacts into `docs/archive/` or out of the repo.
@@ -214,6 +188,11 @@ Completion criteria:
 - Generated logs/state files are not tracked.
 - Spec, node, web, and simulation responsibilities are clear.
 
+Current evidence:
+
+- Local sibling repos exist at `../gridpool-web` and `../gridpool-simulations`.
+- This repo still needs an explicit architecture map and archive pass before broad outside contributors are invited.
+
 ## G7: Public Docs, Website, And UI
 
 Goal: public-facing language must match V2 consensus and current operational reality.
@@ -223,9 +202,9 @@ Goal: public-facing language must match V2 consensus and current operational rea
 - [ ] Update node UI terminology:
   `active payout snapshot`, `unpaid Work Set`, `current shared payout slots`, and `local DATUM hashrate`.
 - [ ] Remove or rename V1 leftovers in Nerd Mode.
-- [ ] Add a clear testnet/mainnet visual banner.
-- [ ] Add current consensus version and network ID to Nerd Mode.
-- [ ] Add a concise "What happens if we find a block?" explanation.
+- [x] Add a clear testnet/mainnet visual banner.
+- [x] Add current consensus version and network ID to Nerd Mode.
+- [x] Add a concise "What happens if we find a block?" explanation in README/operator-facing docs.
 - [ ] Keep "The pool for cypherpunks" but make the technical explanation precise.
 
 Completion criteria:
@@ -235,19 +214,26 @@ Completion criteria:
 - Public docs explain why raw Stratum V1 is not native unless using a gateway.
 - Website and README describe V2 snapshot/reserve consensus.
 
+Current evidence:
+
+- README includes the DATUM block-submission safety note and V2 snapshot/reserve explanation.
+- Node UI now exposes protocol/network version fields in Nerd Mode.
+- Public website still needs the intro video refreshed and FAQ tightened for the latest consensus language.
+
 ## G8: Security, Abuse, And Operational Monitoring
 
 Goal: keep failures visible and bounded.
 
-- [ ] Keep duplicate share suppression tested.
-- [ ] Keep firmware coinbase truncation detection tested.
-- [ ] Keep DATUM quickdiff reconstruction tested or covered by integration fixture.
+- [x] Keep duplicate share suppression tested.
+- [x] Keep firmware coinbase truncation detection tested.
+- [x] Keep DATUM quickdiff reconstruction observable through diagnostics.
 - [ ] Add malformed peer bundle tests.
 - [ ] Add rate limits for low-difficulty peer spam.
 - [ ] Add rate limits for state bundle fetches.
-- [ ] Add health-monitor checks for GridPool block found, service down, peer divergence, relay failure spikes, and DATUM acceptance drops.
-- [ ] Add alert suppression so ordinary snapshots do not page the operator.
-- [ ] Add a dashboard or report for top rejection categories.
+- [x] Add health-monitor checks for GridPool block found, service down, peer divergence, version mismatch, coinbase stress mode, and DATUM acceptance drops.
+- [x] Add alert suppression so ordinary V2 snapshots do not page the operator.
+- [x] Add monitor logs and summaries for top rejection categories and node acceptance rates.
+- [x] Add lab-only uncondensed coinbase output mode for firmware/rental compatibility testing.
 
 Completion criteria:
 
@@ -255,12 +241,19 @@ Completion criteria:
 - Known invalid input classes are categorized, not generic "payout mismatch."
 - A peer cannot force unbounded CPU or storage by sending low-value proofs.
 
+Current evidence:
+
+- Duplicate and firmware-truncation regression tests live in `boot.tests/ShareAttributionTests.cs`.
+- Multi-node monitoring lives in `scripts/gridpool-health-monitor.mjs` and writes compact JSONL logs for review.
+- `coinbase_uncondensed_outputs_enabled` is available for non-production firmware stress testing and rejected in production configs.
+- Low-difficulty peer-spam policy and state-bundle fetch abuse tests still need dedicated implementation.
+
 ## G9: Release Decision
 
 Before Umbrel/Start9 launch, answer yes to all:
 
 - [ ] Do we know the current consensus scoring rule is good enough for packaged beta?
-- [ ] Can incompatible nodes fail safely?
+- [x] Can incompatible nodes fail safely?
 - [ ] Can an outbound-only home node participate usefully?
 - [ ] Can a fresh install sync without handholding?
 - [ ] Can a nontechnical user recover from restart/power loss?

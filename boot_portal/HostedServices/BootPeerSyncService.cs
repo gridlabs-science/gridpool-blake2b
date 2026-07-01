@@ -194,9 +194,18 @@ public class BootPeerSyncService : BackgroundService
         _stateService.UpdatePeerHeartbeat(remoteEndpoint, "connected", stopwatch.Elapsed.TotalMilliseconds, DateTime.UtcNow);
         _stateService.MergeDiscoveredPeers(remote.Peers.Select(x => x.Endpoint).Append(remoteEndpoint));
 
-        if (!_stateService.IsCompatiblePeerNetwork(remote.ProtocolVersion, remote.NetworkId))
+        BootVersionCompatibilityDto compatibility = _stateService.EvaluatePeerCompatibility(remote);
+        _stateService.UpdatePeerCompatibility(remoteEndpoint, compatibility, DateTime.UtcNow);
+        if (!compatibility.CanSyncState)
         {
-            _stateService.MarkPeerFailure(remoteEndpoint, "foreign-network");
+            _logger.LogWarning("Peer {Peer} is incompatible: {Reason}", remoteEndpoint, compatibility.Reason);
+            _stateService.MarkPeerFailure(remoteEndpoint, "version-mismatch");
+            _stateService.RecordExternalNetworkEvent(
+                "peer-version-mismatch",
+                remoteEndpoint,
+                compatibility.Reason,
+                remote.CurrentTipBlockHash,
+                remote.CurrentTipBlockHeight);
             return;
         }
 
@@ -337,6 +346,18 @@ public class BootPeerSyncService : BackgroundService
             BootNetworkController.PeerProtocolVersionHeader,
             _poolConfig.BootProtocolVersion.ToString(CultureInfo.InvariantCulture));
         request.Headers.TryAddWithoutValidation(BootNetworkController.PeerNetworkIdHeader, _poolConfig.BootNetworkId);
+        request.Headers.TryAddWithoutValidation(
+            BootNetworkController.PeerStateBundleSchemaVersionHeader,
+            BootProtocolVersions.StateBundleSchemaVersion.ToString(CultureInfo.InvariantCulture));
+        request.Headers.TryAddWithoutValidation(
+            BootNetworkController.PeerHttpApiVersionHeader,
+            BootProtocolVersions.HttpApiVersion.ToString(CultureInfo.InvariantCulture));
+        request.Headers.TryAddWithoutValidation(
+            BootNetworkController.PeerTransportVersionHeader,
+            BootProtocolVersions.PeerTransportVersion.ToString(CultureInfo.InvariantCulture));
+        request.Headers.TryAddWithoutValidation(
+            BootNetworkController.PeerReleaseVersionHeader,
+            BootProtocolVersions.Local(_poolConfig).ReleaseVersion);
     }
 
     private async Task RelayShareAsync(string peer, BootShareProof proof, CancellationToken stoppingToken)
@@ -346,6 +367,12 @@ public class BootPeerSyncService : BackgroundService
         {
             SenderEndpoint = _stateService.GetSelfEndpoint(),
             ProtocolVersion = _poolConfig.BootProtocolVersion,
+            ConsensusVersion = _poolConfig.BootProtocolVersion,
+            StateBundleSchemaVersion = BootProtocolVersions.StateBundleSchemaVersion,
+            HttpApiVersion = BootProtocolVersions.HttpApiVersion,
+            PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
+            UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
+            ReleaseVersion = BootProtocolVersions.Local(_poolConfig).ReleaseVersion,
             NetworkId = _poolConfig.BootNetworkId,
             Share = proof
         };

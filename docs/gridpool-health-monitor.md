@@ -3,7 +3,8 @@
 This monitor is a small one-shot Node.js script intended to run every five
 minutes from a user-level `systemd` timer. It checks GridPool, Hydrapool,
 systemd services, miner identities, peer identities, payout-list addresses,
-hashrate trend changes, and actual GridPool block/payment events.
+hashrate trend changes, multi-node consensus status, and actual GridPool
+block/payment events.
 
 Runtime state and secrets live outside the repository.
 
@@ -31,7 +32,10 @@ so user-level timers do not accidentally run the old distro `node` binary.
 - Attention-worthy changes:
   - endpoints down for two consecutive checks
   - actual GridPool block found / payment snapshot paid
+  - public nodes in the same consensus group disagreeing on protocol version,
+    active snapshot, current state, or candidate state for multiple checks
   - sustained hashrate drop or spike
+  - high DATUM reject rate on any monitored node
   - new local DATUM miner addresses
   - new Hydrapool Stratum users/workers
   - new GridPool peers
@@ -203,12 +207,43 @@ The local live config is copied to:
 Tune these fields first:
 
 - `nodes`: GridPool UI/API endpoints.
+  - Use `consensusGroup` to compare only nodes that should agree. Example:
+    `mainnet-beta` for `main.gridpool.net` and `evomining.farted.net`, and
+    `testnet4-beta` for `test.gridpool.net`.
+  - `minimumPeerCount` is checked per node, but hidden/NATed peers may still
+    be visible only through another public node.
 - `hydrapools`: Hydrapool API endpoints.
 - `services`: local systemd services to check.
 - `knownAddresses`: addresses that should not trigger unknown-address alerts.
+- `thresholds.consensusDivergenceConsecutive`: default `2`.
+- `thresholds.candidateDivergenceConsecutive`: default `3`, because candidate
+  state can drift briefly while shares propagate.
+- `thresholds.datumRejectRateMax`: default `0.10`.
 - `thresholds.hashrateDropFraction`: default `0.35`.
 - `thresholds.hashrateSpikeMultiplier`: default `2.0`.
 - `alertCooldownMinutes`: default `60`.
+
+The installer does not overwrite an existing
+`~/.config/gridpool-health-monitor/config.json`. To adopt new public-node
+checks on an existing install, copy the `nodes` and `thresholds` sections from
+`config/gridpool-health-monitor.example.json` into the live config.
+
+## Review Logs
+
+The monitor writes compact logs intended for quick review by a human or Codex:
+
+```bash
+~/.local/state/gridpool-monitor/latest-summary.json
+~/.local/state/gridpool-monitor/latest-consensus.json
+~/.local/state/gridpool-monitor/snapshots/YYYY-MM-DD.jsonl
+~/.local/state/gridpool-monitor/consensus/YYYY-MM-DD.jsonl
+~/.local/state/gridpool-monitor/alerts/YYYY-MM-DD.jsonl
+```
+
+The JSONL files intentionally omit full state bundles. They preserve the
+important operational facts: endpoint status, version numbers, state IDs,
+snapshot IDs, Work Set counts, hashrate, local DATUM reject rate, peer counts,
+and consensus-group divergence.
 
 ## Files
 

@@ -1611,6 +1611,10 @@
             <h3>🕸 Network State</h3>
             <div>Self: <span class="accent-value" id="self-endpoint">--</span></div>
             <div>Network: <span class="accent-value" id="network-id">Loading...</span></div>
+            <div>Consensus: <span class="accent-value" id="consensus-version">--</span></div>
+            <div>State Schema: <span class="accent-value" id="state-schema-version">--</span></div>
+            <div>Transport/API: <span class="accent-value" id="transport-api-version">--</span></div>
+            <div>Release: <span class="accent-value" id="release-version">--</span></div>
             <div>Current Round: <span class="accent-value" id="current-round-number">--</span></div>
             <div>Template Slots: <span class="accent-value" id="template-slot-count">Loading...</span></div>
             <div>Peers: <span class="accent-value" id="peer-count">0</span></div>
@@ -1669,6 +1673,7 @@
                     <th>Endpoint</th>
                     <th>Mode</th>
                     <th>Status</th>
+                    <th>Compat</th>
                     <th>Latency</th>
                     <th>Last Seen</th>
                 </tr>
@@ -4362,7 +4367,7 @@
         tableBody.innerHTML = '';
 
         if (!peers || peers.length === 0) {
-            tableBody.innerHTML = '<tr><td colspan="5">No peers connected yet.</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="6">No peers connected yet.</td></tr>';
             return;
         }
 
@@ -4375,10 +4380,26 @@
             const capabilities = Array.isArray(peer.capabilities) && peer.capabilities.length > 0
                 ? ` · ${peer.capabilities.join(", ")}`
                 : "";
+            const compatStatus = peer.compatibilityStatus || "unknown";
+            const remoteVersion = peer.remoteVersion || {};
+            const compatReason = peer.compatibilityReason || "";
+            const compatWarnings = Array.isArray(peer.compatibilityWarnings) && peer.compatibilityWarnings.length > 0
+                ? ` Warnings: ${peer.compatibilityWarnings.join(" ")}`
+                : "";
+            const compatTitle = [
+                compatReason,
+                `remote consensus=${remoteVersion.consensusVersion || remoteVersion.protocolVersion || "--"}`,
+                `state schema=${remoteVersion.stateBundleSchemaVersion || "--"}`,
+                `transport=${remoteVersion.peerTransportVersion || "--"}`,
+                `api=${remoteVersion.httpApiVersion || "--"}`,
+                `release=${remoteVersion.releaseVersion || "--"}`,
+                compatWarnings
+            ].filter(Boolean).join(" · ");
             const row = `<tr>
                     <td title="${escapeHtml(peer.endpoint || peer.nodeId || "")}">${escapeHtml(endpointLabel)}</td>
                     <td title="${escapeHtml(`session=${peer.sessionConnected ? "connected" : "disconnected"}${capabilities}`)}">${escapeHtml(mode)}</td>
                     <td>${escapeHtml(peer.status || '--')}</td>
+                    <td title="${escapeHtml(compatTitle)}">${escapeHtml(compatStatus)}</td>
                     <td>${escapeHtml(latency)}</td>
                     <td>${escapeHtml(lastSeen)}</td>
                 </tr>`;
@@ -4704,6 +4725,10 @@
         updateEnvironmentChrome(state);
         document.getElementById("self-endpoint").innerText = state.selfEndpoint || "--";
         document.getElementById("network-id").innerText = state.networkId || "--";
+        document.getElementById("consensus-version").innerText = state.consensusVersion || state.protocolVersion || "--";
+        document.getElementById("state-schema-version").innerText = state.stateBundleSchemaVersion || "--";
+        document.getElementById("transport-api-version").innerText = `P2P ${state.peerTransportVersion || "--"} / API ${state.httpApiVersion || "--"}`;
+        document.getElementById("release-version").innerText = state.releaseVersion || "--";
         document.getElementById("current-round-number").innerText = state.currentRoundNumber ?? "--";
         document.getElementById("template-slot-count").innerText = `${state.totalPayoutSlotCount ?? '--'} total (${state.sharedWinnerSlotCount ?? '--'} shared + slot 0)`;
         document.getElementById("peer-count").innerText = state.peerCount ?? 0;

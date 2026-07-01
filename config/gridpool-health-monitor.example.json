@@ -1,5 +1,5 @@
 {
-  "monitorName": "gridpool-mainnet-beta",
+  "monitorName": "gridpool-public-beta",
   "timezone": "America/New_York",
   "requestTimeoutMs": 8000,
   "alertCooldownMinutes": 60,
@@ -32,6 +32,10 @@
   },
   "thresholds": {
     "endpointFailureConsecutive": 2,
+    "consensusDivergenceConsecutive": 2,
+    "candidateDivergenceConsecutive": 3,
+    "datumRejectRateMax": 0.1,
+    "datumRejectRateMinSubmissions": 25,
     "hashrateDropFraction": 0.35,
     "hashrateSpikeMultiplier": 2.0,
     "hashrateSamplesForTrend": 3,
@@ -41,9 +45,24 @@
   "nodes": [
     {
       "name": "main",
-      "baseUrl": "http://127.0.0.1:5000",
+      "baseUrl": "https://main.gridpool.net",
       "critical": true,
+      "consensusGroup": "mainnet-beta",
+      "minimumPeerCount": 1
+    },
+    {
+      "name": "testnet4",
+      "baseUrl": "https://test.gridpool.net",
+      "critical": false,
+      "consensusGroup": "testnet4-beta",
       "minimumPeerCount": 0
+    },
+    {
+      "name": "evomining",
+      "baseUrl": "http://evomining.farted.net:5000",
+      "critical": false,
+      "consensusGroup": "mainnet-beta",
+      "minimumPeerCount": 1
     }
   ],
   "hydrapools": [

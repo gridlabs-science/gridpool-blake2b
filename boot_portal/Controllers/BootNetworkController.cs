@@ -12,6 +12,10 @@ public class BootNetworkController : ControllerBase
     public const string PeerEndpointHeader = "X-Boot-Peer-Endpoint";
     public const string PeerProtocolVersionHeader = "X-Boot-Protocol-Version";
     public const string PeerNetworkIdHeader = "X-Boot-Network-Id";
+    public const string PeerStateBundleSchemaVersionHeader = "X-GridPool-State-Bundle-Schema-Version";
+    public const string PeerHttpApiVersionHeader = "X-GridPool-Http-Api-Version";
+    public const string PeerTransportVersionHeader = "X-GridPool-Peer-Transport-Version";
+    public const string PeerReleaseVersionHeader = "X-GridPool-Release-Version";
 
     private readonly BootProtocolStateService _stateService;
     private readonly PoolConfig _poolConfig;

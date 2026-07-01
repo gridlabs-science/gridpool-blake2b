@@ -286,6 +286,12 @@ For the current beta, shortened payout lists are consensus-invalid. Future
 protocol versions may add deterministic smaller-coinbase compatibility tiers or
 coverage-weighted payout variants, but that is not part of current consensus.
 
+For lab testing, operators can enable
+`coinbase_uncondensed_outputs_enabled: true` on non-production nodes. This
+forces DATUM to receive uncondensed payout outputs, which is useful for testing
+whether firmware or rental providers can handle the large coinbase shape before
+pointing serious hashrate at the 300-slot beta.
+
 ## What Evidence Would Make GridPool More Convincing?
 
 The strongest evidence would be:

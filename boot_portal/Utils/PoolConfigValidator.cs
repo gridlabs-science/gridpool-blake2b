@@ -54,6 +54,11 @@ public static class PoolConfigValidator
             errors.Add($"coinbase_tag is {coinbaseTagBytes} UTF-8 bytes, maximum is {MaxDatumCoinbaseTagBytes}");
         }
 
+        if (config.CoinbaseUncondensedOutputsEnabled && IsProduction(config))
+        {
+            errors.Add("coinbase_uncondensed_outputs_enabled is a firmware stress-test mode and must be false in production");
+        }
+
         if (config.WinnersListSize <= 0)
         {
             errors.Add("winners_list_size must be greater than 0");

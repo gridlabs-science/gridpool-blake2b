@@ -26,9 +26,16 @@ public sealed class BootPeerIdentity
 
     public BootPeerSessionHello CreateHello(PoolConfig config, string endpoint)
     {
+        BootNodeVersionInfo localVersion = BootProtocolVersions.Local(config);
         var hello = new BootPeerSessionHello
         {
             ProtocolVersion = config.BootProtocolVersion,
+            ConsensusVersion = localVersion.ConsensusVersion,
+            StateBundleSchemaVersion = localVersion.StateBundleSchemaVersion,
+            HttpApiVersion = localVersion.HttpApiVersion,
+            PeerTransportVersion = localVersion.PeerTransportVersion,
+            UdpRelayVersion = localVersion.UdpRelayVersion,
+            ReleaseVersion = localVersion.ReleaseVersion,
             NetworkId = config.BootNetworkId,
             Endpoint = endpoint ?? string.Empty,
             NodeId = NodeId,
@@ -55,10 +62,21 @@ public sealed class BootPeerIdentity
             return false;
         }
 
-        if (hello.ProtocolVersion != config.BootProtocolVersion ||
-            !string.Equals(hello.NetworkId, config.BootNetworkId, StringComparison.OrdinalIgnoreCase))
+        BootVersionCompatibilityDto compatibility = BootProtocolVersions.Evaluate(
+            BootProtocolVersions.Local(config),
+            BootProtocolVersions.FromPeerHello(hello),
+            config.BootNetworkId,
+            hello.NetworkId,
+            requireStateBundleSchema: true);
+        if (!compatibility.CanSyncState)
         {
-            rejectionReason = "network-mismatch";
+            rejectionReason = compatibility.Reason;
+            return false;
+        }
+
+        if (!compatibility.PeerTransportCompatible)
+        {
+            rejectionReason = compatibility.Reason;
             return false;
         }
 
@@ -127,6 +145,12 @@ public sealed class BootPeerIdentity
         return string.Join('\n',
             HelloDomain,
             hello.ProtocolVersion.ToString(CultureInfo.InvariantCulture),
+            hello.ConsensusVersion.ToString(CultureInfo.InvariantCulture),
+            hello.StateBundleSchemaVersion.ToString(CultureInfo.InvariantCulture),
+            hello.HttpApiVersion.ToString(CultureInfo.InvariantCulture),
+            hello.PeerTransportVersion.ToString(CultureInfo.InvariantCulture),
+            hello.UdpRelayVersion.ToString(CultureInfo.InvariantCulture),
+            hello.ReleaseVersion ?? string.Empty,
             hello.NetworkId ?? string.Empty,
             hello.Endpoint ?? string.Empty,
             hello.NodeId ?? string.Empty,

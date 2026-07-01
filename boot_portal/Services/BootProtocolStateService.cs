@@ -341,10 +341,27 @@ public class BootProtocolStateService
     private BootStateBundle BuildExportableBundleNoLock(BootStateBundle bundle)
     {
         BootStateBundle exportable = CloneBundle(bundle);
+        StampBundleVersionNoLock(exportable);
         exportable.SnapshotContexts = BuildSnapshotContextsForBundleNoLock(
             exportable.ShareProofs.Concat(exportable.WorkSetProofs),
             exportable.SnapshotContexts);
         return exportable;
+    }
+
+    private void StampBundleVersionNoLock(BootStateBundle bundle)
+    {
+        BootNodeVersionInfo localVersion = BootProtocolVersions.Local(_poolConfig);
+        bundle.ProtocolVersion = _poolConfig.BootProtocolVersion;
+        bundle.ConsensusVersion = _poolConfig.BootProtocolVersion;
+        bundle.StateBundleSchemaVersion = localVersion.StateBundleSchemaVersion;
+        bundle.HttpApiVersion = localVersion.HttpApiVersion;
+        bundle.PeerTransportVersion = localVersion.PeerTransportVersion;
+        bundle.UdpRelayVersion = localVersion.UdpRelayVersion;
+        bundle.ReleaseVersion = localVersion.ReleaseVersion;
+        bundle.VersionInfo = localVersion;
+        bundle.NetworkId = string.IsNullOrWhiteSpace(bundle.NetworkId)
+            ? _poolConfig.BootNetworkId
+            : bundle.NetworkId;
     }
 
     public List<BootRoundHistoryEntry> GetRoundHistory(int limit = 24)
@@ -1139,6 +1156,48 @@ public class BootProtocolStateService
                string.Equals(networkId, _poolConfig.BootNetworkId, StringComparison.OrdinalIgnoreCase);
     }
 
+    public BootNodeVersionInfo GetLocalVersionInfo()
+    {
+        return BootProtocolVersions.Local(_poolConfig);
+    }
+
+    public BootVersionCompatibilityDto EvaluatePeerCompatibility(BootNetworkStatusDto remote, bool requireStateBundleSchema = true)
+    {
+        return EvaluateVersionCompatibility(
+            BootProtocolVersions.FromNetworkStatus(remote),
+            remote.NetworkId,
+            requireStateBundleSchema);
+    }
+
+    public BootVersionCompatibilityDto EvaluateStateBundleCompatibility(BootStateBundle bundle)
+    {
+        return EvaluateVersionCompatibility(
+            BootProtocolVersions.FromStateBundle(bundle),
+            bundle.NetworkId,
+            requireStateBundleSchema: true);
+    }
+
+    public BootVersionCompatibilityDto EvaluatePeerShareCompatibility(PeerShareAnnouncement announcement)
+    {
+        return EvaluateVersionCompatibility(
+            BootProtocolVersions.FromPeerShare(announcement),
+            announcement.NetworkId,
+            requireStateBundleSchema: false);
+    }
+
+    private BootVersionCompatibilityDto EvaluateVersionCompatibility(
+        BootNodeVersionInfo remoteVersion,
+        string? remoteNetworkId,
+        bool requireStateBundleSchema)
+    {
+        return BootProtocolVersions.Evaluate(
+            BootProtocolVersions.Local(_poolConfig),
+            remoteVersion,
+            _poolConfig.BootNetworkId,
+            remoteNetworkId,
+            requireStateBundleSchema);
+    }
+
     public void SeedPeers(IEnumerable<string> endpoints)
     {
         bool changed = false;
@@ -1455,6 +1514,25 @@ public class BootProtocolStateService
             {
                 RequestDeferredSaveNoLock();
             }
+        }
+    }
+
+    public void UpdatePeerCompatibility(string endpoint, BootVersionCompatibilityDto compatibility, DateTime observedUtc)
+    {
+        lock (_sync)
+        {
+            BootPeerStatus? peer = FindPeerNoLock(endpoint);
+            if (peer == null)
+            {
+                return;
+            }
+
+            peer.RemoteVersion = CloneVersionInfo(compatibility.RemoteVersion);
+            peer.CompatibilityStatus = compatibility.Status;
+            peer.CompatibilityReason = compatibility.Reason;
+            peer.CompatibilityWarnings = compatibility.Warnings.ToList();
+            peer.LastSeenUtc = observedUtc;
+            RequestDeferredSaveNoLock();
         }
     }
 
@@ -2602,8 +2680,19 @@ public class BootProtocolStateService
 
     public async Task<bool> TryImportCandidateStateAsync(BootStateBundle bundle, string sourceEndpoint)
     {
-        if (!IsCompatiblePeerNetwork(bundle.ProtocolVersion, bundle.NetworkId))
+        BootVersionCompatibilityDto compatibility = EvaluateStateBundleCompatibility(bundle);
+        if (!compatibility.CanSyncState)
         {
+            _logger.LogWarning(
+                "Rejected candidate state bundle from {SourceEndpoint}: {Reason}.",
+                sourceEndpoint,
+                compatibility.Reason);
+            RecordExternalNetworkEvent(
+                "peer-version-mismatch",
+                sourceEndpoint,
+                $"Rejected candidate state bundle: {compatibility.Reason}.",
+                bundle.ParentBlockHash ?? bundle.LockedByBlockHash,
+                bundle.ParentBlockHeight ?? bundle.LockedByBlockHeight);
             return false;
         }
 
@@ -2749,8 +2838,19 @@ public class BootProtocolStateService
 
     public async Task<bool> TryAdoptCurrentStateAsync(BootStateBundle bundle, string? observedTipBlockHash, long? observedTipBlockHeight, string sourceEndpoint)
     {
-        if (!IsCompatiblePeerNetwork(bundle.ProtocolVersion, bundle.NetworkId))
+        BootVersionCompatibilityDto compatibility = EvaluateStateBundleCompatibility(bundle);
+        if (!compatibility.CanSyncState)
         {
+            _logger.LogWarning(
+                "Rejected locked state bundle from {SourceEndpoint}: {Reason}.",
+                sourceEndpoint,
+                compatibility.Reason);
+            RecordExternalNetworkEvent(
+                "peer-version-mismatch",
+                sourceEndpoint,
+                $"Rejected locked state bundle: {compatibility.Reason}.",
+                bundle.LockedByBlockHash ?? observedTipBlockHash,
+                bundle.LockedByBlockHeight ?? observedTipBlockHeight);
             return false;
         }
 
@@ -3017,9 +3117,16 @@ public class BootProtocolStateService
 
     public async Task<bool> TryBootstrapCurrentStateAsync(BootStateBundle bundle, string? observedTipBlockHash, long? observedTipBlockHeight, string sourceEndpoint)
     {
-        if (!IsCompatiblePeerNetwork(bundle.ProtocolVersion, bundle.NetworkId))
+        BootVersionCompatibilityDto compatibility = EvaluateStateBundleCompatibility(bundle);
+        if (!compatibility.CanSyncState)
         {
-            _logger.LogDebug("Rejected bootstrap state from {SourceEndpoint}: incompatible network.", sourceEndpoint);
+            _logger.LogDebug("Rejected bootstrap state from {SourceEndpoint}: {Reason}.", sourceEndpoint, compatibility.Reason);
+            RecordExternalNetworkEvent(
+                "peer-version-mismatch",
+                sourceEndpoint,
+                $"Rejected bootstrap state bundle: {compatibility.Reason}.",
+                bundle.LockedByBlockHash ?? observedTipBlockHash,
+                bundle.LockedByBlockHeight ?? observedTipBlockHeight);
             return false;
         }
 
@@ -3462,6 +3569,12 @@ public class BootProtocolStateService
     {
         _state.Metadata.NetworkId = _poolConfig.BootNetworkId;
         _state.Metadata.ProtocolVersion = _poolConfig.BootProtocolVersion;
+        _state.Metadata.ConsensusVersion = _poolConfig.BootProtocolVersion;
+        _state.Metadata.StateBundleSchemaVersion = BootProtocolVersions.StateBundleSchemaVersion;
+        _state.Metadata.HttpApiVersion = BootProtocolVersions.HttpApiVersion;
+        _state.Metadata.PeerTransportVersion = BootProtocolVersions.PeerTransportVersion;
+        _state.Metadata.UdpRelayVersion = BootProtocolVersions.UdpRelayVersion;
+        _state.Metadata.ReleaseVersion = BootProtocolVersions.Local(_poolConfig).ReleaseVersion;
 
         return new StateFileSnapshot<PoolState>
         {
@@ -3530,7 +3643,13 @@ public class BootProtocolStateService
             Metadata = new BootProtocolMetadata
             {
                 NetworkId = _poolConfig.BootNetworkId,
-                ProtocolVersion = _poolConfig.BootProtocolVersion
+                ProtocolVersion = _poolConfig.BootProtocolVersion,
+                ConsensusVersion = _poolConfig.BootProtocolVersion,
+                StateBundleSchemaVersion = BootProtocolVersions.StateBundleSchemaVersion,
+                HttpApiVersion = BootProtocolVersions.HttpApiVersion,
+                PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
+                UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
+                ReleaseVersion = BootProtocolVersions.Local(_poolConfig).ReleaseVersion
             },
             CurrentStateId = _state.CurrentStateId,
             CandidateStateId = _state.CandidateStateId,
@@ -3607,6 +3726,12 @@ public class BootProtocolStateService
                 ? _poolConfig.BootNetworkId
                 : _state.Metadata.NetworkId;
             _state.Metadata.ProtocolVersion = _poolConfig.BootProtocolVersion;
+            _state.Metadata.ConsensusVersion = _poolConfig.BootProtocolVersion;
+            _state.Metadata.StateBundleSchemaVersion = BootProtocolVersions.StateBundleSchemaVersion;
+            _state.Metadata.HttpApiVersion = BootProtocolVersions.HttpApiVersion;
+            _state.Metadata.PeerTransportVersion = BootProtocolVersions.PeerTransportVersion;
+            _state.Metadata.UdpRelayVersion = BootProtocolVersions.UdpRelayVersion;
+            _state.Metadata.ReleaseVersion = BootProtocolVersions.Local(_poolConfig).ReleaseVersion;
             string? loadedTip = NormalizeCanonicalBlockHash(_state.CurrentTipBlockHash);
             if (!string.IsNullOrWhiteSpace(_state.CurrentTipBlockHash) && string.IsNullOrWhiteSpace(loadedTip))
             {
@@ -4312,11 +4437,19 @@ public class BootProtocolStateService
         double? localDatumHashrateThs = EstimateLocalDatumHashrateThsNoLock(activeNonTemporaryLocalDatumMiners);
         BootCoinbaserDiagnosticsSummaryDto coinbaserDiagnostics = BuildCoinbaserDiagnosticsSummaryNoLock(nowUtc);
         List<BootPeerStatus> peers = CloneExternalPeersNoLock();
+        BootNodeVersionInfo localVersion = BootProtocolVersions.Local(_poolConfig);
 
         return new BootNetworkStatusDto
         {
             SelfEndpoint = NormalizePeerEndpoint(_poolConfig.PublicBaseUrl),
             ProtocolVersion = _poolConfig.BootProtocolVersion,
+            ConsensusVersion = localVersion.ConsensusVersion,
+            StateBundleSchemaVersion = localVersion.StateBundleSchemaVersion,
+            HttpApiVersion = localVersion.HttpApiVersion,
+            PeerTransportVersion = localVersion.PeerTransportVersion,
+            UdpRelayVersion = localVersion.UdpRelayVersion,
+            ReleaseVersion = localVersion.ReleaseVersion,
+            VersionInfo = localVersion,
             NetworkId = _poolConfig.BootNetworkId,
             BitcoinNetwork = BitcoinScript.NormalizeNetwork(_poolConfig.BitcoinNetwork),
             CurrentRoundNumber = _state.CurrentRoundNumber,
@@ -4331,6 +4464,8 @@ public class BootProtocolStateService
             WorkSetReserveLimit = _poolConfig.WorkSetReserveLimit,
             SupportFeeEnabled = _poolConfig.GridLabsSupportFeeEnabled,
             PayoutVariant = BuildPayoutVariantNoLock(),
+            CoinbaseOutputMode = _poolConfig.CoinbaseUncondensedOutputsEnabled ? "uncondensed-test" : "condensed",
+            CoinbaseOutputCount = BuildCoinbaseOutputsNoLock(_state.WinnersList).Count,
             CurrentTipBlockHash = _state.CurrentTipBlockHash,
             CurrentTipBlockHeight = _state.CurrentTipBlockHeight,
             LastRotationUtc = currentRoundStartUtc,
@@ -6164,6 +6299,13 @@ public class BootProtocolStateService
             Kind = "candidate",
             CurrentRoundNumber = _state.CurrentRoundNumber + 1,
             ProtocolVersion = _poolConfig.BootProtocolVersion,
+            ConsensusVersion = _poolConfig.BootProtocolVersion,
+            StateBundleSchemaVersion = BootProtocolVersions.StateBundleSchemaVersion,
+            HttpApiVersion = BootProtocolVersions.HttpApiVersion,
+            PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
+            UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
+            ReleaseVersion = BootProtocolVersions.Local(_poolConfig).ReleaseVersion,
+            VersionInfo = BootProtocolVersions.Local(_poolConfig),
             NetworkId = _poolConfig.BootNetworkId,
             LockedByBlockHash = null,
             LockedByBlockHeight = null,
@@ -6207,6 +6349,13 @@ public class BootProtocolStateService
             Kind = "current",
             CurrentRoundNumber = _state.CurrentRoundNumber,
             ProtocolVersion = _poolConfig.BootProtocolVersion,
+            ConsensusVersion = _poolConfig.BootProtocolVersion,
+            StateBundleSchemaVersion = BootProtocolVersions.StateBundleSchemaVersion,
+            HttpApiVersion = BootProtocolVersions.HttpApiVersion,
+            PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
+            UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
+            ReleaseVersion = BootProtocolVersions.Local(_poolConfig).ReleaseVersion,
+            VersionInfo = BootProtocolVersions.Local(_poolConfig),
             NetworkId = _poolConfig.BootNetworkId,
             LockedByBlockHash = _state.CurrentTipBlockHash,
             LockedByBlockHeight = _state.CurrentTipBlockHeight,
@@ -6641,6 +6790,23 @@ public class BootProtocolStateService
 
     private List<PayoutInfo> BuildCoinbaseOutputsNoLock(IEnumerable<PayoutInfo> payouts)
     {
+        if (_poolConfig.CoinbaseUncondensedOutputsEnabled)
+        {
+            return payouts.Select(payout =>
+            {
+                string normalizedAddress = BitcoinScript.NormalizeAddress(payout.Address);
+                _ = BitcoinScript.AddressToScriptPubKeyHex(normalizedAddress, _poolConfig.BitcoinNetwork);
+                return new PayoutInfo
+                {
+                    Value = payout.Value,
+                    Address = normalizedAddress,
+                    Username = string.IsNullOrWhiteSpace(payout.Username) ? normalizedAddress : payout.Username,
+                    Difficulty = payout.Difficulty,
+                    DiffString = payout.DiffString
+                };
+            }).ToList();
+        }
+
         var compressed = new List<PayoutInfo>();
         var indexByScript = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
@@ -6910,6 +7076,7 @@ public class BootProtocolStateService
         for (int index = 0; index < _state.ArchivedStateBundles.Count; index++)
         {
             BootStateBundle bundle = _state.ArchivedStateBundles[index];
+            StampBundleVersionNoLock(bundle);
             bundle.PreviousStateId = string.IsNullOrWhiteSpace(bundle.PreviousStateId) ? null : bundle.PreviousStateId;
             bundle.LockedByBlockHash = NormalizeCanonicalBlockHash(bundle.LockedByBlockHash);
             bundle.ParentBlockHash = NormalizeCanonicalBlockHash(bundle.ParentBlockHash);
@@ -7360,6 +7527,12 @@ public class BootProtocolStateService
         }
 
         double score = 0;
+        if (string.Equals(peer.CompatibilityStatus, "incompatible", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(peer.Status, "version-mismatch", StringComparison.OrdinalIgnoreCase))
+        {
+            score -= 250;
+        }
+
         if (peer.IsConfiguredSeed)
         {
             score += 20;
@@ -7687,6 +7860,14 @@ public class BootProtocolStateService
         return string.IsNullOrWhiteSpace(nodeId) ? string.Empty : nodeId.Trim();
     }
 
+    private static string ShortPeerNodeId(string? nodeId)
+    {
+        string normalized = NormalizePeerNodeId(nodeId);
+        return string.IsNullOrWhiteSpace(normalized)
+            ? "unknown-peer"
+            : $"node:{normalized[..Math.Min(12, normalized.Length)]}";
+    }
+
     private static List<string> BuildPeerSessionCapabilitiesNoLock(bool hasEndpoint)
     {
         return hasEndpoint
@@ -7730,7 +7911,7 @@ public class BootProtocolStateService
         }
 
         string normalized = status.Trim().ToLowerInvariant();
-        return normalized is "timeout" or "error" or "empty" or "foreign-network" or "relay-timeout" or "relay-error" or "relay-rate-limited" ||
+        return normalized is "timeout" or "error" or "empty" or "foreign-network" or "version-mismatch" or "relay-timeout" or "relay-error" or "relay-rate-limited" ||
                normalized is "session-timeout" or "session-error" or "session-rejected" or "session-closed" or "session-handshake-failed" ||
                normalized is "udp-error" or "udp-invalid" or "udp-too-large" ||
                normalized.StartsWith("relay-http-", StringComparison.OrdinalIgnoreCase);
@@ -7789,6 +7970,23 @@ public class BootProtocolStateService
         if (_poolConfig.EnablePeerSync && healthyPeers == 0)
         {
             dto.Warnings.Add("Peer sync is enabled but no currently healthy peers are visible.");
+        }
+
+        List<BootPeerStatus> incompatiblePeers = peers
+            .Where(peer => string.Equals(peer.CompatibilityStatus, "incompatible", StringComparison.OrdinalIgnoreCase) ||
+                           string.Equals(peer.Status, "version-mismatch", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (incompatiblePeers.Count > 0)
+        {
+            string examples = string.Join("; ", incompatiblePeers
+                .Take(3)
+                .Select(peer =>
+                {
+                    string label = string.IsNullOrWhiteSpace(peer.Endpoint) ? ShortPeerNodeId(peer.NodeId) : peer.Endpoint;
+                    string reason = string.IsNullOrWhiteSpace(peer.CompatibilityReason) ? peer.Status : peer.CompatibilityReason;
+                    return $"{label}: {reason}";
+                }));
+            dto.Warnings.Add($"Version-incompatible peer(s) detected: {examples}.");
         }
 
         dto.Info.Add(_poolConfig.TestingRoundResetEnabled
@@ -8042,7 +8240,30 @@ public class BootProtocolStateService
             LastCurrentStateId = peer.LastCurrentStateId,
             LastCandidateStateId = peer.LastCandidateStateId,
             LastTipBlockHash = peer.LastTipBlockHash,
+            RemoteVersion = CloneVersionInfo(peer.RemoteVersion),
+            CompatibilityStatus = peer.CompatibilityStatus,
+            CompatibilityReason = peer.CompatibilityReason,
+            CompatibilityWarnings = (peer.CompatibilityWarnings ?? []).ToList(),
             Score = peer.Score
+        };
+    }
+
+    private static BootNodeVersionInfo CloneVersionInfo(BootNodeVersionInfo? version)
+    {
+        if (version == null)
+        {
+            return new BootNodeVersionInfo();
+        }
+
+        return new BootNodeVersionInfo
+        {
+            ConsensusVersion = version.ConsensusVersion,
+            ProtocolVersion = version.ProtocolVersion,
+            StateBundleSchemaVersion = version.StateBundleSchemaVersion,
+            HttpApiVersion = version.HttpApiVersion,
+            PeerTransportVersion = version.PeerTransportVersion,
+            UdpRelayVersion = version.UdpRelayVersion,
+            ReleaseVersion = version.ReleaseVersion
         };
     }
 
@@ -8330,6 +8551,22 @@ public class BootProtocolStateService
             Kind = bundle.Kind,
             CurrentRoundNumber = bundle.CurrentRoundNumber,
             ProtocolVersion = bundle.ProtocolVersion,
+            ConsensusVersion = bundle.ConsensusVersion,
+            StateBundleSchemaVersion = bundle.StateBundleSchemaVersion,
+            HttpApiVersion = bundle.HttpApiVersion,
+            PeerTransportVersion = bundle.PeerTransportVersion,
+            UdpRelayVersion = bundle.UdpRelayVersion,
+            ReleaseVersion = bundle.ReleaseVersion,
+            VersionInfo = new BootNodeVersionInfo
+            {
+                ConsensusVersion = bundle.VersionInfo?.ConsensusVersion ?? 0,
+                ProtocolVersion = bundle.VersionInfo?.ProtocolVersion ?? 0,
+                StateBundleSchemaVersion = bundle.VersionInfo?.StateBundleSchemaVersion ?? 0,
+                HttpApiVersion = bundle.VersionInfo?.HttpApiVersion ?? 0,
+                PeerTransportVersion = bundle.VersionInfo?.PeerTransportVersion ?? 0,
+                UdpRelayVersion = bundle.VersionInfo?.UdpRelayVersion ?? 0,
+                ReleaseVersion = bundle.VersionInfo?.ReleaseVersion ?? string.Empty
+            },
             NetworkId = bundle.NetworkId,
             LockedByBlockHash = bundle.LockedByBlockHash,
             LockedByBlockHeight = bundle.LockedByBlockHeight,

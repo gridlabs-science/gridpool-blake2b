@@ -44,6 +44,7 @@
   "grid_labs_support_fee_enabled": true,
   "work_set_reserve_multiplier": 3,
   "coinbase_tag": "Grid Pool",
+  "coinbase_uncondensed_outputs_enabled": false,
   "genesis_round_start_utc": null,
   "prime_id": 21,
   "min_diff": 300,

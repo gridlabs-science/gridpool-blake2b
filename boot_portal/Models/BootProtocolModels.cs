@@ -70,6 +70,10 @@ public class BootPeerStatus
     public string LastCurrentStateId { get; set; } = string.Empty;
     public string LastCandidateStateId { get; set; } = string.Empty;
     public string LastTipBlockHash { get; set; } = string.Empty;
+    public BootNodeVersionInfo RemoteVersion { get; set; } = new();
+    public string CompatibilityStatus { get; set; } = "unknown";
+    public string CompatibilityReason { get; set; } = string.Empty;
+    public List<string> CompatibilityWarnings { get; set; } = [];
     public double Score { get; set; }
 }
 
@@ -197,6 +201,13 @@ public class BootNetworkStatusDto
 {
     public string SelfEndpoint { get; set; } = string.Empty;
     public int ProtocolVersion { get; set; }
+    public int ConsensusVersion { get; set; }
+    public int StateBundleSchemaVersion { get; set; }
+    public int HttpApiVersion { get; set; }
+    public int PeerTransportVersion { get; set; }
+    public int UdpRelayVersion { get; set; }
+    public string ReleaseVersion { get; set; } = string.Empty;
+    public BootNodeVersionInfo VersionInfo { get; set; } = new();
     public string NetworkId { get; set; } = string.Empty;
     public string BitcoinNetwork { get; set; } = "mainnet";
     public int CurrentRoundNumber { get; set; }
@@ -211,6 +222,8 @@ public class BootNetworkStatusDto
     public int WorkSetReserveLimit { get; set; }
     public bool SupportFeeEnabled { get; set; }
     public string PayoutVariant { get; set; } = string.Empty;
+    public string CoinbaseOutputMode { get; set; } = "condensed";
+    public int CoinbaseOutputCount { get; set; }
     public string? CurrentTipBlockHash { get; set; }
     public long? CurrentTipBlockHeight { get; set; }
     public DateTime? LastRotationUtc { get; set; }
@@ -604,6 +617,12 @@ public class PeerShareAnnouncement
 {
     public string SenderEndpoint { get; set; } = string.Empty;
     public int ProtocolVersion { get; set; }
+    public int ConsensusVersion { get; set; }
+    public int StateBundleSchemaVersion { get; set; }
+    public int HttpApiVersion { get; set; }
+    public int PeerTransportVersion { get; set; }
+    public int UdpRelayVersion { get; set; }
+    public string ReleaseVersion { get; set; } = string.Empty;
     public string NetworkId { get; set; } = string.Empty;
     public BootShareProof Share { get; set; } = new();
 }
@@ -612,6 +631,12 @@ public class BootPeerSessionHello
 {
     public string Type { get; set; } = "hello";
     public int ProtocolVersion { get; set; }
+    public int ConsensusVersion { get; set; }
+    public int StateBundleSchemaVersion { get; set; }
+    public int HttpApiVersion { get; set; }
+    public int PeerTransportVersion { get; set; }
+    public int UdpRelayVersion { get; set; }
+    public string ReleaseVersion { get; set; } = string.Empty;
     public string NetworkId { get; set; } = string.Empty;
     public string Endpoint { get; set; } = string.Empty;
     public string NodeId { get; set; } = string.Empty;
@@ -646,6 +671,13 @@ public class BootStateBundle
     public string Kind { get; set; } = "current";
     public int CurrentRoundNumber { get; set; }
     public int ProtocolVersion { get; set; }
+    public int ConsensusVersion { get; set; }
+    public int StateBundleSchemaVersion { get; set; }
+    public int HttpApiVersion { get; set; }
+    public int PeerTransportVersion { get; set; }
+    public int UdpRelayVersion { get; set; }
+    public string ReleaseVersion { get; set; } = string.Empty;
+    public BootNodeVersionInfo VersionInfo { get; set; } = new();
     public string NetworkId { get; set; } = string.Empty;
     public string? LockedByBlockHash { get; set; }
     public long? LockedByBlockHeight { get; set; }

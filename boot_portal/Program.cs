@@ -78,6 +78,9 @@ public class PoolConfig
     [JsonPropertyName("coinbase_tag")]
     public string CoinbaseTag { get; set; } = "Grid Pool";
 
+    [JsonPropertyName("coinbase_uncondensed_outputs_enabled")]
+    public bool CoinbaseUncondensedOutputsEnabled { get; set; } = false;
+
     [JsonPropertyName("genesis_round_start_utc")]
     public DateTime? GenesisRoundStartUtc { get; set; }
 
@@ -94,7 +97,7 @@ public class PoolConfig
     public string BootNetworkId { get; set; } = "mainnet-beta";
 
     [JsonPropertyName("boot_protocol_version")]
-    public int BootProtocolVersion { get; set; } = 2;
+    public int BootProtocolVersion { get; set; } = BootProtocolVersions.ConsensusVersion;
 
     [JsonPropertyName("admin_api_key")]
     public string? AdminApiKey { get; set; }

@@ -70,9 +70,14 @@ public class BootPeerController : ControllerBase
             return StatusCode(requestValidation.Value.StatusCode, new { status = "rejected", reason = requestValidation.Value.Reason });
         }
 
-        if (!_stateService.IsCompatiblePeerNetwork(announcement.ProtocolVersion, announcement.NetworkId))
+        BootVersionCompatibilityDto compatibility = _stateService.EvaluatePeerShareCompatibility(announcement);
+        if (!compatibility.NetworkCompatible || !compatibility.ConsensusCompatible || !compatibility.HttpApiCompatible)
         {
-            return BadRequest(new { status = "rejected", reason = "Network mismatch" });
+            _stateService.RecordExternalNetworkEvent(
+                "peer-version-mismatch",
+                string.IsNullOrWhiteSpace(announcement.SenderEndpoint) ? "peer-http" : announcement.SenderEndpoint,
+                $"Rejected peer share relay: {compatibility.Reason}.");
+            return BadRequest(new { status = "rejected", reason = compatibility.Reason });
         }
 
         string senderEndpoint = string.IsNullOrWhiteSpace(announcement.SenderEndpoint)

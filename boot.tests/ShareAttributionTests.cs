@@ -351,6 +351,13 @@ public sealed class ShareAttributionTests
                 Kind = "current",
                 CurrentRoundNumber = 2,
                 ProtocolVersion = harness.Config.BootProtocolVersion,
+                ConsensusVersion = harness.Config.BootProtocolVersion,
+                StateBundleSchemaVersion = BootProtocolVersions.StateBundleSchemaVersion,
+                HttpApiVersion = BootProtocolVersions.HttpApiVersion,
+                PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
+                UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
+                ReleaseVersion = BootProtocolVersions.Local(harness.Config).ReleaseVersion,
+                VersionInfo = BootProtocolVersions.Local(harness.Config),
                 NetworkId = harness.Config.BootNetworkId,
                 LockedByBlockHash = SamplePrevBlockHash,
                 LockedByBlockHeight = 945001,
@@ -383,6 +390,13 @@ public sealed class ShareAttributionTests
                 Kind = "current",
                 CurrentRoundNumber = 1,
                 ProtocolVersion = harness.Config.BootProtocolVersion,
+                ConsensusVersion = harness.Config.BootProtocolVersion,
+                StateBundleSchemaVersion = BootProtocolVersions.StateBundleSchemaVersion,
+                HttpApiVersion = BootProtocolVersions.HttpApiVersion,
+                PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
+                UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
+                ReleaseVersion = BootProtocolVersions.Local(harness.Config).ReleaseVersion,
+                VersionInfo = BootProtocolVersions.Local(harness.Config),
                 NetworkId = harness.Config.BootNetworkId,
                 LockedByBlockHash = OlderTipBlockHash,
                 LockedByBlockHeight = 945000,
@@ -635,7 +649,7 @@ public sealed class ShareAttributionTests
         JsonObject payload = ParseObjectResult(response, StatusCodes.Status400BadRequest);
 
         Assert.AreEqual("rejected", payload["status"]?.GetValue<string>());
-        Assert.AreEqual("Network mismatch", payload["reason"]?.GetValue<string>());
+        StringAssert.StartsWith(payload["reason"]?.GetValue<string>() ?? string.Empty, "network id mismatch");
         Assert.AreEqual(0, harness.StateService.GetOnDeckList().Count);
     }
 
@@ -652,7 +666,7 @@ public sealed class ShareAttributionTests
         JsonObject payload = ParseObjectResult(response, StatusCodes.Status400BadRequest);
 
         Assert.AreEqual("rejected", payload["status"]?.GetValue<string>());
-        Assert.AreEqual("Network mismatch", payload["reason"]?.GetValue<string>());
+        StringAssert.StartsWith(payload["reason"]?.GetValue<string>() ?? string.Empty, "consensus version mismatch");
         Assert.AreEqual(0, harness.StateService.GetOnDeckList().Count);
     }
 
@@ -711,6 +725,63 @@ public sealed class ShareAttributionTests
         Assert.AreEqual(seedProofs.Length, harness.StateService.GetOnDeckList().Count);
         Assert.IsTrue(activeBundle.SnapshotContexts.Any(context => context.SnapshotId == status.ActiveSnapshotId));
         Assert.IsTrue(activeBundle.WorkSetProofs.All(proof => proof.PayoutSnapshotId == status.ActiveSnapshotId));
+    }
+
+    [TestMethod]
+    public void PeerTransportMismatchAllowsHttpFallbackWhenConsensusAndSchemaMatch()
+    {
+        using var harness = TestHarness.Create();
+        BootNetworkStatusDto remote = harness.StateService.GetNetworkStatus();
+        remote.PeerTransportVersion = BootProtocolVersions.PeerTransportVersion + 1;
+        remote.VersionInfo.PeerTransportVersion = remote.PeerTransportVersion;
+
+        BootVersionCompatibilityDto compatibility = harness.StateService.EvaluatePeerCompatibility(remote);
+
+        Assert.IsTrue(compatibility.CanSyncState);
+        Assert.AreEqual("compatible-with-transport-fallback", compatibility.Status);
+        StringAssert.Contains(compatibility.Reason, "using HTTP fallback");
+    }
+
+    [TestMethod]
+    public async Task CandidateStateWithMissingStateBundleSchemaIsRejectedBeforeImportAsync()
+    {
+        using var remoteHarness = TestHarness.Create(workSetReserveMultiplier: 1);
+        ShareRecordingResult seedResult = await remoteHarness.StateService.SubmitShareAsync(
+            new RecordedShareSubmission
+            {
+                MinerAddress = SampleSlotZeroAddress,
+                Username = string.Empty,
+                HeaderHex = SampleHeaderHex,
+                CoinbaseHex = SampleCoinbaseHex,
+                MerklePath = SampleMerklePath.ToList(),
+                PrevBlockHash = SamplePrevBlockHash,
+                Source = "datum"
+            },
+            "datum-block");
+        Assert.IsTrue(seedResult.Accepted, seedResult.RejectionReason);
+
+        BootNetworkStatusDto remoteStatus = remoteHarness.StateService.GetNetworkStatus();
+        BootStateBundle currentBundle = remoteHarness.StateService.GetStateBundle(remoteStatus.CurrentStateId)!;
+        BootStateBundle candidateBundle = remoteHarness.StateService.GetStateBundle(remoteStatus.CandidateStateId)!;
+        candidateBundle.StateBundleSchemaVersion = 0;
+        candidateBundle.VersionInfo.StateBundleSchemaVersion = 0;
+
+        using var localHarness = TestHarness.Create(
+            currentTipBlockHash: remoteStatus.CurrentTipBlockHash,
+            currentRoundNumber: remoteStatus.CurrentRoundNumber,
+            currentStateId: remoteStatus.CurrentStateId,
+            winnersList: currentBundle.WinnersList,
+            activeSnapshotId: currentBundle.ActiveSnapshotId,
+            activeSnapshotProofIds: currentBundle.ActiveSnapshotProofIds,
+            snapshotContexts: currentBundle.SnapshotContexts,
+            workSetReserveMultiplier: 1);
+
+        bool imported = await localHarness.StateService.TryImportCandidateStateAsync(
+            candidateBundle,
+            "https://peer.example");
+
+        Assert.IsFalse(imported);
+        Assert.AreNotEqual(remoteStatus.CandidateStateId, localHarness.StateService.GetNetworkStatus().CandidateStateId);
     }
 
     [TestMethod]
@@ -939,6 +1010,30 @@ public sealed class ShareAttributionTests
         Assert.AreEqual(50, feeFreeWinners[1].Difficulty);
         Assert.AreEqual(25, feeFreeWinners[2].Difficulty);
         Assert.IsFalse(string.Equals(feeFreeWinners[0].Username, "Grid Labs support", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [TestMethod]
+    public void CoinbaseOutputsCanBeServedUncondensedForFirmwareStressTesting()
+    {
+        var winners = new List<PayoutInfo>
+        {
+            new() { Address = SampleSlotZeroAddress, Username = "a", Value = 1000, Difficulty = 100 },
+            new() { Address = SampleSlotZeroAddress, Username = "a", Value = 1000, Difficulty = 90 },
+            new() { Address = AlternateAddress, Username = "b", Value = 1000, Difficulty = 80 }
+        };
+
+        using var harness = TestHarness.Create(winnersList: winners);
+
+        List<PayoutInfo> condensed = harness.StateService.GetCoinbaseOutputs();
+        Assert.AreEqual(2, condensed.Count);
+        Assert.AreEqual(2000UL, condensed.Single(payout => payout.Address == SampleSlotZeroAddress).Value);
+
+        harness.Config.CoinbaseUncondensedOutputsEnabled = true;
+        List<PayoutInfo> uncondensed = harness.StateService.GetCoinbaseOutputs();
+
+        Assert.AreEqual(3, uncondensed.Count);
+        Assert.AreEqual(2, uncondensed.Count(payout => payout.Address == SampleSlotZeroAddress));
+        Assert.IsTrue(uncondensed.All(payout => payout.Value == 1000));
     }
 
     [TestMethod]

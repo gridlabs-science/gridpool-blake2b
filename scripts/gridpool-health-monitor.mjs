@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-const SCRIPT_VERSION = 1;
+const SCRIPT_VERSION = 2;
 const DEFAULT_STATE_DIR = path.join(os.homedir(), ".local", "state", "gridpool-monitor");
 const DEFAULT_CONFIG_PATHS = [
     path.join(os.homedir(), ".config", "gridpool-health-monitor", "config.json"),
@@ -38,6 +38,10 @@ const DEFAULT_CONFIG = {
     },
     thresholds: {
         endpointFailureConsecutive: 2,
+        consensusDivergenceConsecutive: 2,
+        candidateDivergenceConsecutive: 3,
+        datumRejectRateMax: 0.10,
+        datumRejectRateMinSubmissions: 25,
         hashrateDropFraction: 0.35,
         hashrateSpikeMultiplier: 2.0,
         hashrateSamplesForTrend: 3,
@@ -49,6 +53,7 @@ const DEFAULT_CONFIG = {
             name: "main",
             baseUrl: "http://127.0.0.1:5000",
             critical: true,
+            consensusGroup: "mainnet-beta",
             minimumPeerCount: 0
         }
     ],
@@ -325,7 +330,11 @@ async function collectGridPoolNode(node, config) {
         localMiners: [],
         payoutAddresses: [],
         candidateAddresses: [],
-        peers: []
+        peers: [],
+        peerRecords: [],
+        consensusGroup: node.consensusGroup || "",
+        version: null,
+        networkKey: ""
     };
 
     const live = await fetchJson(baseUrl, "/health/live", config);
@@ -361,9 +370,22 @@ async function collectGridPoolNode(node, config) {
         if (!state.ok) result.errors.push(`candidate state failed: ${state.error || state.status}`);
     }
 
-    result.peers = Array.isArray(summary.json?.peers)
-        ? summary.json.peers.map(peer => peer.endpoint || peer.url || peer.address).filter(Boolean)
-        : [];
+    result.peerRecords = Array.isArray(summary.json?.peers) ? summary.json.peers : [];
+    result.peers = result.peerRecords
+        .map(peer => peer.endpoint || peer.url || peer.address)
+        .filter(Boolean);
+    result.version = summary.json?.versionInfo || {
+        consensusVersion: summary.json?.consensusVersion,
+        stateBundleSchemaVersion: summary.json?.stateBundleSchemaVersion,
+        httpApiVersion: summary.json?.httpApiVersion,
+        peerTransportVersion: summary.json?.peerTransportVersion,
+        udpRelayVersion: summary.json?.udpRelayVersion,
+        releaseVersion: summary.json?.releaseVersion
+    };
+    result.networkKey = node.consensusGroup ||
+        summary.json?.networkId ||
+        `${summary.json?.bitcoinNetwork || "unknown"}:${summary.json?.bootNetworkId || ""}` ||
+        node.name;
 
     result.ok = result.errors.length === 0;
     return result;
@@ -569,7 +591,13 @@ function buildAlerts(snapshot, state, config) {
 
         maybeAddGridPoolBlockAlerts(alerts, node, state);
         maybeAddHashrateAlerts(alerts, node, state, config);
+        maybeAddDatumRejectRateAlert(alerts, node, config);
+        maybeAddPeerCompatibilityAlerts(alerts, node);
+        maybeAddCoinbaseModeAlert(alerts, node);
+        maybeAddNodeVersionVisibilityAlert(alerts, node);
     }
+
+    maybeAddConsensusComparisonAlerts(alerts, snapshot, state, config);
 
     for (const hydrapool of snapshot.hydrapools) {
         for (const [checkName, check] of Object.entries(hydrapool.checks || {})) {
@@ -619,6 +647,134 @@ function buildAlerts(snapshot, state, config) {
     updateKnownSets(snapshot, state, config);
     updateRoundMemory(snapshot, state);
     return alerts;
+}
+
+function maybeAddDatumRejectRateAlert(alerts, node, config) {
+    const diagnostics = node.summary?.localDatumDiagnostics;
+    if (!diagnostics) return;
+
+    const total = Number(diagnostics.totalSubmissions || 0);
+    const rejected = Number(diagnostics.rejectedCount || 0);
+    const minSubmissions = Number(config.thresholds.datumRejectRateMinSubmissions || 25);
+    if (total < minSubmissions || rejected <= 0) return;
+
+    const rejectRate = rejected / total;
+    const maxRate = Number(config.thresholds.datumRejectRateMax || 0.10);
+    if (rejectRate <= maxRate) return;
+
+    const topReasons = Array.isArray(diagnostics.rejectionReasons)
+        ? diagnostics.rejectionReasons
+            .slice(0, 4)
+            .map(item => `${item.reason || "unknown"}=${item.count}`)
+            .join(", ")
+        : "";
+
+    alerts.push({
+        severity: "warning",
+        category: "datum-reject-rate-high",
+        fingerprint: `gridpool:${node.name}:datum-reject-rate-high`,
+        title: `GridPool ${node.name} DATUM reject rate is high`,
+        detail: `${rejected}/${total} rejected (${(rejectRate * 100).toFixed(1)}%) over ${diagnostics.windowSeconds || "--"}s. ${topReasons}`.trim(),
+        codexEligible: true
+    });
+}
+
+function maybeAddPeerCompatibilityAlerts(alerts, node) {
+    for (const peer of node.peerRecords || []) {
+        const status = String(peer.compatibilityStatus || "").toLowerCase();
+        if (!status || status === "compatible" || status === "unknown") continue;
+        const endpoint = peer.endpoint || peer.url || peer.address || peer.nodeId || "unknown-peer";
+        alerts.push({
+            severity: status === "incompatible" ? "warning" : "info",
+            category: "peer-version-mismatch",
+            fingerprint: `gridpool:${node.name}:peer-version:${endpoint}:${status}`,
+            title: `GridPool ${node.name} sees peer compatibility issue`,
+            detail: `${endpoint}: ${peer.compatibilityStatus}${peer.compatibilityReason ? ` - ${peer.compatibilityReason}` : ""}`,
+            codexEligible: status === "incompatible"
+        });
+    }
+}
+
+function maybeAddCoinbaseModeAlert(alerts, node) {
+    const mode = String(node.summary?.coinbaseOutputMode || "").toLowerCase();
+    if (!mode || mode === "condensed") return;
+    alerts.push({
+        severity: "warning",
+        category: "coinbase-stress-mode",
+        fingerprint: `gridpool:${node.name}:coinbase-mode:${mode}`,
+        title: `GridPool ${node.name} is serving non-standard coinbase outputs`,
+        detail: `coinbaseOutputMode=${node.summary?.coinbaseOutputMode}; coinbaseOutputCount=${node.summary?.coinbaseOutputCount ?? "--"}. This should be lab-only firmware stress testing.`,
+        codexEligible: true
+    });
+}
+
+function maybeAddNodeVersionVisibilityAlert(alerts, node) {
+    if (!node.summary) return;
+    const version = node.version || {};
+    if (version.consensusVersion != null && version.stateBundleSchemaVersion != null) return;
+    alerts.push({
+        severity: "warning",
+        category: "node-version-missing",
+        fingerprint: `gridpool:${node.name}:node-version-missing`,
+        title: `GridPool ${node.name} does not expose protocol version fields`,
+        detail: "Upgrade this node before public package release so peers/operators can see consensus and state-bundle schema compatibility.",
+        codexEligible: true
+    });
+}
+
+function maybeAddConsensusComparisonAlerts(alerts, snapshot, state, config) {
+    for (const group of buildConsensusReport(snapshot, config)) {
+        if (group.nodes.length < 2) continue;
+
+        addDivergenceAlertForField(alerts, state, config, group, "consensusVersion", "consensus version", true);
+        addDivergenceAlertForField(alerts, state, config, group, "stateBundleSchemaVersion", "state schema version", true);
+        addDivergenceAlertForField(alerts, state, config, group, "currentStateId", "current state", true);
+        addDivergenceAlertForField(alerts, state, config, group, "activeSnapshotId", "active snapshot", true);
+        addDivergenceAlertForField(alerts, state, config, group, "candidateStateId", "candidate state", false);
+
+        const workSetCounts = group.nodes
+            .map(node => Number(node.workSetCount))
+            .filter(value => Number.isFinite(value));
+        const reserveLimits = group.nodes
+            .map(node => Number(node.workSetReserveLimit))
+            .filter(value => Number.isFinite(value) && value > 0);
+        const expectedReserve = reserveLimits.length ? Math.max(...reserveLimits) : 0;
+        const minWorkSet = workSetCounts.length ? Math.min(...workSetCounts) : 0;
+        if (expectedReserve > 0 && minWorkSet < expectedReserve * 0.9) {
+            alerts.push({
+                severity: "warning",
+                category: "work-set-underfilled",
+                fingerprint: `consensus:${group.groupKey}:work-set-underfilled`,
+                title: `GridPool ${group.groupKey} Work Set is underfilled on at least one node`,
+                detail: group.nodes.map(node => `${node.name}=${node.workSetCount}/${node.workSetReserveLimit}`).join(", "),
+                codexEligible: true
+            });
+        }
+    }
+}
+
+function addDivergenceAlertForField(alerts, state, config, group, fieldName, label, immediate) {
+    const values = [...new Set(group.nodes.map(node => normalizeId(node[fieldName])).filter(Boolean))];
+    const key = `consensus:${group.groupKey}:${fieldName}`;
+    if (values.length <= 1) {
+        resetFailure(state, key);
+        return;
+    }
+
+    const count = incrementFailure(state, key);
+    const threshold = immediate
+        ? Number(config.thresholds.consensusDivergenceConsecutive || 2)
+        : Number(config.thresholds.candidateDivergenceConsecutive || 3);
+    if (count < threshold) return;
+
+    alerts.push({
+        severity: immediate ? "critical" : "warning",
+        category: immediate ? "consensus-divergence" : "candidate-divergence",
+        fingerprint: key,
+        title: `GridPool ${group.groupKey} ${label} diverged`,
+        detail: group.nodes.map(node => `${node.name}=${shortId(node[fieldName]) || "--"}`).join(", "),
+        codexEligible: true
+    });
 }
 
 function incrementFailure(state, key) {
@@ -807,6 +963,108 @@ function currentPeers(snapshot) {
     return [...new Set((snapshot.gridpoolNodes || []).flatMap(node => node.peers || []).filter(Boolean))].sort();
 }
 
+function buildConsensusReport(snapshot, config) {
+    const groups = new Map();
+    for (const node of snapshot.gridpoolNodes || []) {
+        if (!node.ok || !node.summary) continue;
+        const groupKey = node.consensusGroup ||
+            node.summary.networkId ||
+            node.networkKey ||
+            node.name;
+        if (!groups.has(groupKey)) {
+            groups.set(groupKey, []);
+        }
+        groups.get(groupKey).push(compactNodeConsensus(node));
+    }
+
+    return [...groups.entries()].map(([groupKey, nodes]) => {
+        const fields = [
+            "consensusVersion",
+            "stateBundleSchemaVersion",
+            "httpApiVersion",
+            "peerTransportVersion",
+            "udpRelayVersion",
+            "currentStateId",
+            "candidateStateId",
+            "activeSnapshotId",
+            "lastPaidSnapshotId",
+            "currentTipBlockHash",
+            "currentTipBlockHeight"
+        ];
+        const divergences = {};
+        for (const field of fields) {
+            const values = [...new Set(nodes.map(node => normalizeId(node[field])).filter(Boolean))];
+            if (values.length > 1) {
+                divergences[field] = values;
+            }
+        }
+
+        return {
+            groupKey,
+            nodeCount: nodes.length,
+            aligned: Object.keys(divergences).length === 0,
+            divergences,
+            nodes
+        };
+    }).sort((a, b) => a.groupKey.localeCompare(b.groupKey));
+}
+
+function compactNodeConsensus(node) {
+    const summary = node.summary || {};
+    const version = node.version || {};
+    return {
+        name: node.name,
+        baseUrl: node.baseUrl,
+        networkId: summary.networkId || "",
+        bitcoinNetwork: summary.bitcoinNetwork || "",
+        consensusVersion: version.consensusVersion ?? summary.consensusVersion ?? null,
+        stateBundleSchemaVersion: version.stateBundleSchemaVersion ?? summary.stateBundleSchemaVersion ?? null,
+        httpApiVersion: version.httpApiVersion ?? summary.httpApiVersion ?? null,
+        peerTransportVersion: version.peerTransportVersion ?? summary.peerTransportVersion ?? null,
+        udpRelayVersion: version.udpRelayVersion ?? summary.udpRelayVersion ?? null,
+        releaseVersion: version.releaseVersion ?? summary.releaseVersion ?? "",
+        currentRoundNumber: summary.currentRoundNumber ?? null,
+        currentStateId: summary.currentStateId || "",
+        candidateStateId: summary.candidateStateId || "",
+        activeSnapshotId: summary.activeSnapshotId || "",
+        lastPaidSnapshotId: summary.lastPaidSnapshotId || "",
+        currentTipBlockHash: summary.currentTipBlockHash || "",
+        currentTipBlockHeight: summary.currentTipBlockHeight ?? null,
+        workSetCount: summary.workSetCount ?? null,
+        workSetReserveLimit: summary.workSetReserveLimit ?? null,
+        activeSnapshotProofCount: summary.activeSnapshotProofCount ?? null,
+        coinbaseOutputMode: summary.coinbaseOutputMode || "",
+        coinbaseOutputCount: summary.coinbaseOutputCount ?? null,
+        currentStateTotalDifficulty: summary.currentStateTotalDifficulty ?? null,
+        onDeckTotalDifficulty: summary.onDeckTotalDifficulty ?? null,
+        teamHashrateThs: summary.currentRoundObservedHashrateThs ?? null,
+        localHashrateThs: summary.localDatumHashrateThs ?? null,
+        peerCount: summary.peerCount ?? null,
+        supportFeeEnabled: summary.supportFeeEnabled ?? null,
+        payoutVariant: summary.payoutVariant || "",
+        datumAcceptanceRate: datumAcceptanceRate(summary.localDatumDiagnostics)
+    };
+}
+
+function datumAcceptanceRate(diagnostics) {
+    const total = Number(diagnostics?.totalSubmissions || 0);
+    if (!Number.isFinite(total) || total <= 0) return null;
+    const accepted = Number(diagnostics?.acceptedCount || 0);
+    return accepted / total;
+}
+
+function normalizeId(value) {
+    if (value == null) return "";
+    return String(value).trim().toLowerCase();
+}
+
+function shortId(value) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    if (text.length <= 16) return text;
+    return `${text.slice(0, 8)}...${text.slice(-6)}`;
+}
+
 function currentListAddresses(snapshot) {
     return [...new Set((snapshot.gridpoolNodes || [])
         .flatMap(node => [...(node.payoutAddresses || []), ...(node.candidateAddresses || [])])
@@ -921,9 +1179,20 @@ function buildDigest(snapshot, state) {
         ""
     ];
 
+    const consensusReport = buildConsensusReport(snapshot, {});
+    if (consensusReport.length) {
+        lines.push("Consensus groups:");
+        for (const group of consensusReport) {
+            const stateValues = [...new Set(group.nodes.map(node => shortId(node.currentStateId)).filter(Boolean))];
+            const candidateValues = [...new Set(group.nodes.map(node => shortId(node.candidateStateId)).filter(Boolean))];
+            lines.push(`${group.groupKey}: ${group.nodeCount} node(s); state=${stateValues.join(", ") || "--"}; candidate=${candidateValues.join(", ") || "--"}`);
+        }
+        lines.push("");
+    }
+
     for (const node of snapshot.gridpoolNodes || []) {
         lines.push(`GridPool ${node.name}: ${node.ok ? "ok" : "problem"}`);
-        lines.push(`Snapshot ${node.summary?.currentRoundNumber ?? "--"}; tip ${node.summary?.currentTipBlockHeight ?? "--"}; peers ${node.summary?.peerCount ?? "--"}`);
+        lines.push(`Snapshot ${node.summary?.currentRoundNumber ?? "--"}; state ${shortId(node.summary?.currentStateId) || "--"}; candidate ${shortId(node.summary?.candidateStateId) || "--"}; tip ${node.summary?.currentTipBlockHeight ?? "--"}; peers ${node.summary?.peerCount ?? "--"}`);
         lines.push(`Last GridPool block ${node.summary?.lastGridPoolBlockHeight ?? "--"}; paid snapshot ${node.summary?.lastPaidSnapshotId || "--"}`);
         lines.push(`Team hashrate ${node.summary?.currentRoundObservedHashrateDisplay || formatHashrateThs(node.summary?.currentRoundObservedHashrateThs)}; local DATUM ${node.summary?.localDatumHashrateDisplay || formatHashrateThs(node.summary?.localDatumHashrateThs)}`);
         lines.push(`Local DATUM miners: ${(node.localMiners || []).length}; payout addresses: ${(node.payoutAddresses || []).length}; candidate addresses: ${(node.candidateAddresses || []).length}`);
@@ -957,8 +1226,12 @@ function buildDigest(snapshot, state) {
 
 function buildStatusMessage(snapshot) {
     const lines = [`GridPool status: ${snapshot.monitorName}`];
+    for (const group of buildConsensusReport(snapshot, {})) {
+        const currentStates = [...new Set(group.nodes.map(node => shortId(node.currentStateId)).filter(Boolean))];
+        lines.push(`Consensus ${group.groupKey}: nodes=${group.nodeCount} states=${currentStates.join(", ") || "--"}`);
+    }
     for (const node of snapshot.gridpoolNodes || []) {
-        lines.push(`${node.name}: ${node.ok ? "ok" : "problem"} snapshot=${node.summary?.currentRoundNumber ?? "--"} team=${node.summary?.currentRoundObservedHashrateDisplay || formatHashrateThs(node.summary?.currentRoundObservedHashrateThs)} peers=${node.summary?.peerCount ?? "--"} lastBlock=${node.summary?.lastGridPoolBlockHeight ?? "--"}`);
+        lines.push(`${node.name}: ${node.ok ? "ok" : "problem"} snapshot=${node.summary?.currentRoundNumber ?? "--"} state=${shortId(node.summary?.currentStateId) || "--"} team=${node.summary?.currentRoundObservedHashrateDisplay || formatHashrateThs(node.summary?.currentRoundObservedHashrateThs)} peers=${node.summary?.peerCount ?? "--"} lastBlock=${node.summary?.lastGridPoolBlockHeight ?? "--"}`);
     }
     for (const hydrapool of snapshot.hydrapools || []) {
         lines.push(`${hydrapool.name}: ${hydrapool.ok ? "ok" : "problem"} workers=${(hydrapool.workers || []).length}`);
@@ -1205,14 +1478,30 @@ function codexResultSchema() {
 function compactSummary(snapshot, alerts) {
     return {
         collectedAtUtc: snapshot.collectedAtUtc,
+        consensus: buildConsensusReport(snapshot, {}),
         gridpoolNodes: snapshot.gridpoolNodes.map(node => ({
             name: node.name,
+            baseUrl: node.baseUrl,
             ok: node.ok,
             round: node.summary?.currentRoundNumber,
+            networkId: node.summary?.networkId,
+            bitcoinNetwork: node.summary?.bitcoinNetwork,
+            consensusVersion: node.version?.consensusVersion ?? node.summary?.consensusVersion,
+            stateBundleSchemaVersion: node.version?.stateBundleSchemaVersion ?? node.summary?.stateBundleSchemaVersion,
+            releaseVersion: node.version?.releaseVersion ?? node.summary?.releaseVersion,
+            currentStateId: node.summary?.currentStateId,
+            candidateStateId: node.summary?.candidateStateId,
+            activeSnapshotId: node.summary?.activeSnapshotId,
+            workSetCount: node.summary?.workSetCount,
+            workSetReserveLimit: node.summary?.workSetReserveLimit,
+            coinbaseOutputMode: node.summary?.coinbaseOutputMode,
+            coinbaseOutputCount: node.summary?.coinbaseOutputCount,
             teamHashrate: node.summary?.currentRoundObservedHashrateDisplay || formatHashrateThs(node.summary?.currentRoundObservedHashrateThs),
             localDatumHashrate: node.summary?.localDatumHashrateDisplay || formatHashrateThs(node.summary?.localDatumHashrateThs),
+            datumAcceptanceRate: datumAcceptanceRate(node.summary?.localDatumDiagnostics),
             localMiners: node.localMiners.length,
-            peers: node.summary?.peerCount
+            peers: node.summary?.peerCount,
+            errors: node.errors
         })),
         hydrapools: snapshot.hydrapools.map(hydrapool => ({
             name: hydrapool.name,
@@ -1231,6 +1520,28 @@ function compactSummary(snapshot, alerts) {
             title: alert.title
         }))
     };
+}
+
+function writeMonitorLogs(stateDir, snapshot, alerts) {
+    const date = snapshot.collectedAtUtc.slice(0, 10);
+    const compact = compactSummary(snapshot, alerts);
+    const consensus = {
+        collectedAtUtc: snapshot.collectedAtUtc,
+        monitorName: snapshot.monitorName,
+        groups: compact.consensus
+    };
+
+    appendJsonLine(path.join(stateDir, "snapshots", `${date}.jsonl`), compact);
+    appendJsonLine(path.join(stateDir, "consensus", `${date}.jsonl`), consensus);
+    if (alerts.length) {
+        appendJsonLine(path.join(stateDir, "alerts", `${date}.jsonl`), {
+            utc: snapshot.collectedAtUtc,
+            alerts
+        });
+    }
+
+    writeJsonAtomic(path.join(stateDir, "latest-summary.json"), compact);
+    writeJsonAtomic(path.join(stateDir, "latest-consensus.json"), consensus);
 }
 
 async function main() {
@@ -1278,6 +1589,7 @@ async function main() {
     state.lastSnapshot = snapshot;
     state.lastRunUtc = currentIso();
 
+    writeMonitorLogs(stateDir, snapshot, alerts);
     appendJsonLine(path.join(stateDir, "runs.jsonl"), {
         utc: currentIso(),
         summary: compactSummary(snapshot, deliverableAlerts)

@@ -61,7 +61,13 @@ public class PoolStateHistory
 public class BootProtocolMetadata
 {
     public string NetworkId { get; set; } = "mainnet-beta";
-    public int ProtocolVersion { get; set; } = 2;
+    public int ProtocolVersion { get; set; } = BootProtocolVersions.ConsensusVersion;
+    public int ConsensusVersion { get; set; } = BootProtocolVersions.ConsensusVersion;
+    public int StateBundleSchemaVersion { get; set; } = BootProtocolVersions.StateBundleSchemaVersion;
+    public int HttpApiVersion { get; set; } = BootProtocolVersions.HttpApiVersion;
+    public int PeerTransportVersion { get; set; } = BootProtocolVersions.PeerTransportVersion;
+    public int UdpRelayVersion { get; set; } = BootProtocolVersions.UdpRelayVersion;
+    public string ReleaseVersion { get; set; } = string.Empty;
 }
 
 public class BestShareRecord

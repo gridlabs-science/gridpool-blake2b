@@ -165,6 +165,24 @@ public sealed class PoolConfigValidatorTests
     }
 
     [TestMethod]
+    public void ProductionRejectsUncondensedCoinbaseStressMode()
+    {
+        var config = new PoolConfig
+        {
+            NodeMode = "production",
+            PublicBaseUrl = "https://use1.gridlabs.science",
+            DatumPublicHost = "datum-use1.gridlabs.science",
+            EnableAdminApi = false,
+            TestingRoundResetMode = "none",
+            CoinbaseUncondensedOutputsEnabled = true
+        };
+
+        List<string> errors = PoolConfigValidator.Validate(config);
+
+        Assert.IsTrue(errors.Any(error => error.Contains("coinbase_uncondensed_outputs_enabled", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
     public void ProductionAcceptsExplicitPublicEndpoints()
     {
         var config = new PoolConfig

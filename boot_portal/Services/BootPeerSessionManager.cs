@@ -125,6 +125,12 @@ public sealed class BootPeerSessionManager : BackgroundService
         {
             SenderEndpoint = _stateService.GetSelfEndpoint(),
             ProtocolVersion = _poolConfig.BootProtocolVersion,
+            ConsensusVersion = _poolConfig.BootProtocolVersion,
+            StateBundleSchemaVersion = BootProtocolVersions.StateBundleSchemaVersion,
+            HttpApiVersion = BootProtocolVersions.HttpApiVersion,
+            PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
+            UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
+            ReleaseVersion = BootProtocolVersions.Local(_poolConfig).ReleaseVersion,
             NetworkId = _poolConfig.BootNetworkId,
             Share = proof
         };
@@ -318,6 +324,12 @@ public sealed class BootPeerSessionManager : BackgroundService
             }
 
             remoteEndpoint = ResolveRemoteEndpoint(dialedEndpoint, remoteHello!.Endpoint);
+            BootVersionCompatibilityDto compatibility = BootProtocolVersions.Evaluate(
+                BootProtocolVersions.Local(_poolConfig),
+                BootProtocolVersions.FromPeerHello(remoteHello),
+                _poolConfig.BootNetworkId,
+                remoteHello.NetworkId,
+                requireStateBundleSchema: true);
             byte[] sharedSecret = _identity.ComputeSharedSecret(remoteHello);
             var crypto = BootPeerSessionCrypto.Create(
                 sharedSecret,
@@ -339,6 +351,7 @@ public sealed class BootPeerSessionManager : BackgroundService
             }
 
             _stateService.UpdatePeerSessionHeartbeat(remoteEndpoint, remoteHello.NodeId, "session-connected", DateTime.UtcNow);
+            _stateService.UpdatePeerCompatibility(remoteEndpoint, compatibility, DateTime.UtcNow);
 
             _logger.LogInformation(
                 "V2 peer session connected: {Endpoint} node={NodeId} initiator={Initiator}",
@@ -511,9 +524,14 @@ public sealed class BootPeerSessionManager : BackgroundService
             return;
         }
 
-        if (!_stateService.IsCompatiblePeerNetwork(announcement.ProtocolVersion, announcement.NetworkId))
+        BootVersionCompatibilityDto compatibility = _stateService.EvaluatePeerShareCompatibility(announcement);
+        if (!compatibility.NetworkCompatible || !compatibility.ConsensusCompatible || !compatibility.HttpApiCompatible)
         {
             _stateService.MarkPeerSessionFailure(session.RemoteEndpoint, session.RemoteNodeId, "session-rejected");
+            _stateService.RecordExternalNetworkEvent(
+                "peer-version-mismatch",
+                string.IsNullOrWhiteSpace(session.RemoteEndpoint) ? session.RemoteNodeId : session.RemoteEndpoint,
+                $"Rejected session share relay: {compatibility.Reason}.");
             return;
         }
 
