@@ -63,7 +63,7 @@ Goal: stop relying on "everyone pull latest" before packaged installs exist.
 - [x] Define transport fallback behavior when WebSocket/UDP versions differ but HTTP/state consensus remains compatible.
 - [x] Add a visible UI warning when peers are unreachable because of version mismatch.
 - [x] Add health-monitor alerts for version mismatch or missing version visibility.
-- [ ] Add a release-note template that explicitly labels coordinated-upgrade releases.
+- [x] Add a release-note template that explicitly labels coordinated-upgrade releases.
 
 Completion criteria:
 
@@ -77,6 +77,7 @@ Current evidence:
 - `/api/network/summary`, state bundles, peer share announcements, and peer session hellos carry version fields.
 - Node UI surfaces consensus/schema/API/transport/release metadata and peer compatibility.
 - Health monitor flags version mismatch or missing version visibility.
+- Branch/tag policy lives in [release-process.md](release-process.md), and the release-note template lives in [release-notes-template.md](release-notes-template.md).
 
 ## G3: External Beta Stability
 
@@ -143,9 +144,9 @@ Goal: make installation boring and reversible.
 - [ ] Decide package architecture for Umbrel.
 - [ ] Decide package architecture for Start9.
 - [ ] Confirm whether Start9 package should live in this repo or a separate wrapper repo.
-- [ ] Provide Docker image tags for stable beta releases.
+- [x] Provide Docker image tags for stable beta releases.
 - [x] Provide sample config for mainnet beta Docker/manual installs.
-- [ ] Provide separate sample config for testnet4 beta installs.
+- [x] Provide separate sample config for testnet4 beta installs.
 - [x] Provide safe default ports for UI, DATUM, peer HTTP/WebSocket, and UDP relay.
 - [ ] Provide migration scripts for state files.
 - [ ] Provide backup and restore docs for node identity keys and pool state.
@@ -164,6 +165,8 @@ Completion criteria:
 Current evidence:
 
 - Docker sample config exists at `docker/boot_portal_config.sample.json`.
+- Testnet4 sample config exists at `docker/boot_portal_config.testnet4.sample.json`.
+- GitHub Actions publishes branch, tag, SHA, and `latest` images to GHCR; `develop` is available for staging once that branch exists.
 - Main documented defaults are `5000` WebUI/API, `3008` DATUM, and `5001/udp` peer fast relay.
 - Raspberry Pi/full-stack installer docs exist, but appliance packaging is not yet complete enough for Umbrel/Start9 users.
 

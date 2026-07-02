@@ -785,6 +785,34 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public void V2CandidateStateSelectionRequiresStrictlyStrongerWorkSetUnlessStateIdAlreadyMatches()
+    {
+        Assert.IsTrue(BootCandidateStateSelection.ShouldImportCandidate(
+            remoteTotalDifficulty: 101,
+            localTotalDifficulty: 100,
+            remoteStateId: "remote-stronger",
+            localCandidateStateId: "local-candidate"));
+
+        Assert.IsFalse(BootCandidateStateSelection.ShouldImportCandidate(
+            remoteTotalDifficulty: 100,
+            localTotalDifficulty: 100,
+            remoteStateId: "remote-equal",
+            localCandidateStateId: "local-candidate"));
+
+        Assert.IsFalse(BootCandidateStateSelection.ShouldImportCandidate(
+            remoteTotalDifficulty: 99,
+            localTotalDifficulty: 100,
+            remoteStateId: "remote-weaker",
+            localCandidateStateId: "local-candidate"));
+
+        Assert.IsTrue(BootCandidateStateSelection.ShouldImportCandidate(
+            remoteTotalDifficulty: 100,
+            localTotalDifficulty: 100,
+            remoteStateId: "same-candidate",
+            localCandidateStateId: "same-candidate"));
+    }
+
+    [TestMethod]
     public void WorkSetAdmissionDifficultyUsesReserveFloorWhenFull()
     {
         BootShareProof[] seedProofs =

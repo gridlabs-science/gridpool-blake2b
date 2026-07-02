@@ -17,6 +17,7 @@ GridPool is early, and several claims still need rigorous public modeling.
 - `docs/critic-faq.md` answers common technical objections such as pool hopping, loose consensus, sharechain comparisons, Sybil accounting, and majority-miner team splits.
 - `docs/modeling-and-simulation-roadmap.md` defines the open simulation work needed to turn those answers into reproducible evidence.
 - `docs/scaling-analysis.md` and `docs/stress-test-plan.md` cover bandwidth, latency, peer topology, and load-test targets.
+- `docs/release-process.md` defines the public beta branch, Docker image, tag, and coordinated-upgrade policy.
 
 ## GridPool Node Quickstart
 Most miners should start by running only a GridPool node, then pointing an existing DATUM Gateway at it. This keeps Bitcoin and DATUM under your own control while adding the GridPool reward-sharing network layer.
@@ -75,6 +76,7 @@ Beta defaults now assume `300` total conceptual payout slots. Slot `0` is reserv
 
 Notes:
 - The default Docker Compose file pulls the prebuilt image `ghcr.io/gridlabs-science/boot-protocol:latest`.
+- Public beta operators should use `:latest`, `:main`, or a pinned release tag. Staging nodes may intentionally track `:develop`.
 - To build locally from source instead, run `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
 - To pin a specific published image, set `GRIDPOOL_BOOT_IMAGE`, for example `GRIDPOOL_BOOT_IMAGE=ghcr.io/gridlabs-science/boot-protocol:sha-abc1234 docker compose up -d`.
 - The container is set up for HTTP on the WebUI by default.  Terminate TLS at a reverse proxy, Cloudflare tunnel, or similar edge layer.
@@ -82,7 +84,7 @@ Notes:
 - The default sample uses `NotificationSource = "MempoolSpace"` so a local `bitcoind` is not required for first boot.
 - If you want local ZMQ block notifications, change the config and make sure the container can reach your Bitcoin node.
 - The mainnet beta bootstrap seed is `https://main.gridpool.net` unless you override `bootstrap_peers`.
-- Testnet4 beta nodes should use `bitcoin_network = "testnet4"`, `boot_network_id = "testnet4-beta"`, and bootstrap from `https://test.gridpool.net`.
+- Testnet4 beta nodes should use `docker/boot_portal_config.testnet4.sample.json`, or set `bitcoin_network = "testnet4"`, `boot_network_id = "testnet4-beta"`, and bootstrap from `https://test.gridpool.net`.
 - Health probes are exposed at `/health/live` and `/health/ready`.
 - The default DATUM primary coinbase tag is `Grid Pool`; set `coinbase_tag` to another string, or `""` for unbranded blocks.
 - Back up the Docker `./data` directory before machine moves, package upgrades, or host rebuilds. It contains live config, server identity keys, pool state, and history.

@@ -2800,8 +2800,11 @@ public class BootProtocolStateService
             }
 
             double localTotalDifficulty = _state.OnDeckProofs.Sum(x => x.Difficulty);
-            if (totalDifficulty <= localTotalDifficulty &&
-                !string.Equals(bundle.StateId, _state.CandidateStateId, StringComparison.OrdinalIgnoreCase))
+            if (!BootCandidateStateSelection.ShouldImportCandidate(
+                    totalDifficulty,
+                    localTotalDifficulty,
+                    bundle.StateId,
+                    _state.CandidateStateId))
             {
                 return false;
             }
