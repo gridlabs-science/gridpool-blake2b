@@ -27,7 +27,8 @@ const DEFAULT_CONFIG = {
     telegram: {
         enabled: true,
         botTokenEnv: "TELEGRAM_BOT_TOKEN",
-        allowedChatIdsEnv: "TELEGRAM_ALLOWED_CHAT_IDS"
+        allowedChatIdsEnv: "TELEGRAM_ALLOWED_CHAT_IDS",
+        commandChatIdsEnv: "TELEGRAM_COMMAND_CHAT_IDS"
     },
     codex: {
         enabled: true,
@@ -1247,6 +1248,11 @@ class TelegramClient {
             .split(",")
             .map(item => item.trim())
             .filter(Boolean);
+        const commandChatIds = (process.env[config.telegram?.commandChatIdsEnv || "TELEGRAM_COMMAND_CHAT_IDS"] || "")
+            .split(",")
+            .map(item => item.trim())
+            .filter(Boolean);
+        this.commandChatIds = commandChatIds.length > 0 ? commandChatIds : this.chatIds;
     }
 
     get available() {
@@ -1309,7 +1315,7 @@ async function processTelegramCommands(telegram, state, snapshot, config, stateD
         const message = update.message || update.edited_message;
         const text = String(message?.text || "").trim();
         const chatId = String(message?.chat?.id || "");
-        if (!text || !chatId || !telegram.chatIds.includes(chatId)) {
+        if (!text || !chatId || !telegram.chatIds.includes(chatId) || !telegram.commandChatIds.includes(chatId)) {
             continue;
         }
 
@@ -1421,7 +1427,7 @@ ${JSON.stringify(incident, null, 2)}
         cwd: config.codex.repoDir || process.cwd()
     });
 
-    const parsed = readJsonIfExists(outputPath);
+    const parsed = readJsonOrExtractObjectIfExists(outputPath);
     if (parsed) {
         appendJsonLine(path.join(stateDir, "codex-investigations.jsonl"), {
             utc: currentIso(),
@@ -1473,6 +1479,88 @@ function codexResultSchema() {
             "confidence"
         ]
     };
+}
+
+function readJsonOrExtractObjectIfExists(filePath) {
+    if (!filePath || !fs.existsSync(filePath)) {
+        return null;
+    }
+
+    const text = fs.readFileSync(filePath, "utf8").trim();
+    if (!text) {
+        return null;
+    }
+
+    try {
+        return JSON.parse(text);
+    } catch {
+        // Some Codex CLI versions may write a fenced or prose-wrapped final
+        // message even when given an output schema. Keep automation useful by
+        // extracting the first balanced JSON object.
+    }
+
+    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fenced) {
+        try {
+            return JSON.parse(fenced[1].trim());
+        } catch {
+            // Fall through to balanced-object extraction.
+        }
+    }
+
+    const objectText = extractFirstJsonObject(text);
+    if (!objectText) {
+        return null;
+    }
+
+    try {
+        return JSON.parse(objectText);
+    } catch {
+        return null;
+    }
+}
+
+function extractFirstJsonObject(text) {
+    const start = text.indexOf("{");
+    if (start < 0) {
+        return null;
+    }
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < text.length; index += 1) {
+        const char = text[index];
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+
+        if (char === "\\") {
+            escaped = inString;
+            continue;
+        }
+
+        if (char === "\"") {
+            inString = !inString;
+            continue;
+        }
+
+        if (inString) {
+            continue;
+        }
+
+        if (char === "{") {
+            depth += 1;
+        } else if (char === "}") {
+            depth -= 1;
+            if (depth === 0) {
+                return text.slice(start, index + 1);
+            }
+        }
+    }
+
+    return null;
 }
 
 function compactSummary(snapshot, alerts) {

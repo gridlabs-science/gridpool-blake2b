@@ -20,8 +20,12 @@ if [[ ! -f "${CONFIG_DIR}/monitor.env" ]]; then
 # Telegram bot token from @BotFather.
 TELEGRAM_BOT_TOKEN=
 
-# Comma-separated Telegram chat IDs allowed to control/receive this bot.
+# Comma-separated Telegram chat IDs that receive alerts and digests.
 TELEGRAM_ALLOWED_CHAT_IDS=
+
+# Optional comma-separated Telegram chat IDs allowed to issue bot commands.
+# If empty, TELEGRAM_ALLOWED_CHAT_IDS can issue commands for backward compatibility.
+TELEGRAM_COMMAND_CHAT_IDS=
 
 # Hydrapool API credentials. Defaults are shown here for the current beta setup.
 HYDRAPOOL_API_USER=hydrapool

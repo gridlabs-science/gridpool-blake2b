@@ -90,11 +90,21 @@ Set:
 ```bash
 TELEGRAM_BOT_TOKEN=PASTE_TOKEN_HERE
 TELEGRAM_ALLOWED_CHAT_IDS=123456789
+TELEGRAM_COMMAND_CHAT_IDS=123456789
 HYDRAPOOL_API_USER=hydrapool
 HYDRAPOOL_API_PASSWORD=hydrapool
 ```
 
-Use comma-separated chat IDs if more than one chat should receive alerts.
+Use comma-separated chat IDs if more than one chat should receive alerts. To add receive-only observers, include them in `TELEGRAM_ALLOWED_CHAT_IDS` but not in `TELEGRAM_COMMAND_CHAT_IDS`.
+
+Example with you as the only command operator and a tester as receive-only:
+
+```bash
+TELEGRAM_ALLOWED_CHAT_IDS=YOUR_CHAT_ID,TESTER_CHAT_ID
+TELEGRAM_COMMAND_CHAT_IDS=YOUR_CHAT_ID
+```
+
+If `TELEGRAM_COMMAND_CHAT_IDS` is empty, the monitor preserves old behavior and allows every `TELEGRAM_ALLOWED_CHAT_IDS` chat to use commands.
 
 11. Send a test message:
 
@@ -161,6 +171,8 @@ Send these to the bot from an allowed chat:
 - `/investigate`: launch a Codex investigation on the latest state.
 - `/silence 2h`: mute non-critical alerts for two hours.
 - `/help`: command list.
+
+Only chats listed in `TELEGRAM_COMMAND_CHAT_IDS` can use commands. Other chats listed in `TELEGRAM_ALLOWED_CHAT_IDS` receive alerts and digests only.
 
 ## Codex Investigation
 
