@@ -1,4 +1,4 @@
-# GridPool protocol Mining Hot Paths
+# GridPool Mining Hot Paths
 
 ## Purpose
 

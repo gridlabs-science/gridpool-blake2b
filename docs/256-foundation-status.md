@@ -1,7 +1,7 @@
-# GridPool protocol Current Status and Launch Readiness
+# GridPool Current Status and Launch Readiness
 
 ## Executive Summary
-GridPool protocol is an advanced open-source prototype with live DATUM integration, multi-node peer synchronization, share relay, WebUI tooling, Docker packaging, and active real-world testing across multiple nodes.
+GridPool is an advanced open-source prototype with live DATUM integration, multi-node peer synchronization, share relay, WebUI tooling, Docker packaging, and active real-world testing across multiple nodes.
 
 The project is best described as being in `late prototype / launch hardening` stage. The core system exists and works. The remaining effort is primarily stabilization, documentation, deployment polish, interoperability completion, and launch operations.
 
@@ -54,7 +54,7 @@ The project is best described as being in `late prototype / launch hardening` st
 - Wider ecosystem compatibility beyond DATUM remains future-scope work
 
 ## Launch Readiness Definition
-For GridPool protocol to be considered ready for public launch, the following should be true:
+For GridPool to be considered ready for public launch, the following should be true:
 
 - at least several public GridPool nodes can converge on the same active payout snapshot and unpaid Work Set
 - DATUM-based miners can join and submit shares reliably
@@ -101,4 +101,4 @@ Additional support would accelerate the final 20% of work that turns a working p
 - documentation and launch operations
 
 ## Conclusion
-GridPool protocol is already a real system. The remaining work is not invention from scratch, but the finishing work required to make it stable, understandable, and launch-ready for sovereign Bitcoin miners and the 256 Foundation.
+GridPool is already a real system. The remaining work is not invention from scratch, but the finishing work required to make it stable, understandable, and launch-ready for sovereign Bitcoin miners and the 256 Foundation.

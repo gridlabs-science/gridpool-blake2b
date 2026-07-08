@@ -1,8 +1,8 @@
-# GridPool protocol Scaling Analysis
+# GridPool Scaling Analysis
 
 ## Purpose
 
-This document analyzes whether GridPool protocol can scale far beyond the current test setup, including the extreme stretch goal of eventually supporting a very large fraction of global Bitcoin hashrate.
+This document analyzes whether the GridPool protocol can scale far beyond the current test setup, including the extreme stretch goal of eventually supporting a very large fraction of global Bitcoin hashrate.
 
 The goal is not to prove that outcome today. The goal is to identify:
 

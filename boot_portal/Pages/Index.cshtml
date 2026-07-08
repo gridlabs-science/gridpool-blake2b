@@ -1442,7 +1442,7 @@
                 <strong id="header-node-endpoint">--</strong>
             </div>
             <div class="node-network-card-row">
-                <span>Round mode</span>
+                <span>Snapshot mode</span>
                 <strong id="header-round-mode">--</strong>
             </div>
         </div>
@@ -1458,7 +1458,7 @@
             </div>
         </div>
         <div class="mode-toolbar-right">
-            <div class="mode-status-item">Round <strong id="mode-header-round">--</strong></div>
+            <div class="mode-status-item">Snapshot <strong id="mode-header-round">--</strong></div>
             <div class="mode-status-item">Trigger <strong id="mode-header-trigger">--</strong></div>
             <div class="mode-status-item">Team <strong id="mode-header-hashrate">--</strong></div>
             <div class="mode-status-item">Peers <strong id="mode-header-peers">--</strong></div>
@@ -1615,29 +1615,29 @@
             <div>State Schema: <span class="accent-value" id="state-schema-version">--</span></div>
             <div>Transport/API: <span class="accent-value" id="transport-api-version">--</span></div>
             <div>Release: <span class="accent-value" id="release-version">--</span></div>
-            <div>Current Round: <span class="accent-value" id="current-round-number">--</span></div>
+            <div>Current Snapshot: <span class="accent-value" id="current-round-number">--</span></div>
             <div>Template Slots: <span class="accent-value" id="template-slot-count">Loading...</span></div>
             <div>Peers: <span class="accent-value" id="peer-count">0</span></div>
             <div>Current State: <span class="accent-value" id="current-state-id">Loading...</span></div>
             <div>Candidate State: <span class="accent-value" id="candidate-state-id">Loading...</span></div>
-            <div>Round Age: <span class="accent-value" id="current-round-age">--</span></div>
+            <div>Snapshot Age: <span class="accent-value" id="current-round-age">--</span></div>
             <div>Estimated Hashrate: <span class="accent-value" id="current-round-hashrate">--</span></div>
             <div>Local DATUM Hashrate: <span class="accent-value" id="local-datum-hashrate">--</span></div>
             <h3 style="margin-top: 10px;">Local DATUM Diagnostics</h3>
             <div>Window: <span class="accent-value" id="datum-diagnostic-window">--</span></div>
             <div>Accepted: <span class="accent-value" id="datum-accepted-count">--</span></div>
-            <div>On Deck: <span class="accent-value" id="datum-ondeck-count">--</span></div>
+            <div>Work Set Accepted: <span class="accent-value" id="datum-ondeck-count">--</span></div>
             <div>Rejected: <span class="accent-value" id="datum-rejected-count">--</span></div>
             <div>Acceptance: <span class="accent-value" id="datum-acceptance-rate">--</span></div>
             <div>Test Trigger: <span class="accent-value" id="testing-trigger-status">Loading...</span></div>
             <div>Last Test Block: <span class="accent-value" id="last-testing-trigger-block">--</span></div>
-            <div>Round Mode: <span class="accent-value" id="launch-ready-status">Loading...</span></div>
+            <div>Payment Mode: <span class="accent-value" id="launch-ready-status">Loading...</span></div>
             <h3 style="margin-top: 10px;">Commitment Preview</h3>
             <div class="info-value" id="commitment-preview">Loading...</div>
             <div class="search-results" id="commitment-note"></div>
             <div class="search-results" id="testing-trigger-note"></div>
             <div class="search-results" id="launch-readiness-note"></div>
-            <div class="search-results" id="round-hashrate-note">Team estimate uses the median rank-adjusted current On Deck share set. Genesis estimates use the active share window so idle setup time does not dilute the display. Local DATUM estimate uses a rolling window of directly connected DATUM shares.</div>
+            <div class="search-results" id="round-hashrate-note">Team estimate uses the current unpaid Work Set share window. Local DATUM estimate uses a rolling window of directly connected DATUM shares.</div>
             <div class="search-results" id="datum-rejection-note"></div>
         </div>
     </div>
@@ -1686,7 +1686,7 @@
     </details>
 
     <section style="margin-top: 30px;" id="round-history-section">
-        <h2 id="round-history-heading">Round History</h2>
+        <h2 id="round-history-heading">Paid Snapshot History</h2>
         <div class="round-history-toolbar">
             <div class="round-history-note" id="round-history-note">Loading round history...</div>
             <div class="view-toggle">
@@ -1712,16 +1712,16 @@
 
     <details class="technical-disclosure list-disclosure" id="list-disclosure">
         <summary>
-            <span id="list-disclosure-title">Show Full Winner Lists</span>
-            <span class="technical-summary-note" id="list-disclosure-summary-note">Current paid team and next payout queue.</span>
+            <span id="list-disclosure-title">Show Full Snapshot Lists</span>
+            <span class="technical-summary-note" id="list-disclosure-summary-note">Active payout snapshot and unpaid Work Set reserve.</span>
         </summary>
         <div class="technical-content">
     <div class="lists-container" id="lists-container">
         <section>
             <h2 id="winners-heading">
-                Current Winners List
+                Active Payout Snapshot
                 <span class="info-icon"
-                      data-tooltip="High difficulty shares that won the last round.  Miners put these payouts in their coinbase transaction (including one spot for their own) to compete in the current round.">i</span>
+                      data-tooltip="Shared payout slots currently used in GridPool coinbase templates. Slot 0 still belongs to the block finder.">i</span>
             </h2>
             <div class="list-toolbar">
                 <div class="list-summary-note" id="winners-summary-note"></div>
@@ -1746,9 +1746,9 @@
 
         <section style="margin-top: 30px;">
             <h2 id="ondeck-heading">
-                On-Deck List
+                Unpaid Work Set
                 <span class="info-icon"
-                      data-tooltip="The current round of competition. When the team finds a new block, these addresses get locked into the Winners List.">i</span>
+                      data-tooltip="Bounded reserve of high-difficulty unpaid proofs. New Bitcoin blocks snapshot the strongest unpaid proofs into the active payout snapshot; GridPool blocks remove only paid proofs.">i</span>
             </h2>
             <div class="list-toolbar">
                 <div class="list-summary-note" id="ondeck-summary-note"></div>
@@ -1788,12 +1788,9 @@
         <h2>Why It's Not A Pool</h2>
         <p>GridPool operates differently than traditional pools. It's more like a protocol for solo miners to split
             rewards in exchange for better odds.</p>
-        <p>Nodes maintain a "Winners List", which defines the 299 shared payout slots for the coinbase split. Slot 0 always belongs to the block finder, so a full template has 300 total payout slots.
-            Miners make their own templates using this coinbase payout, and submit the highest difficulty shares to the
-            nodes.
-            Nodes keep track of top shares with the "On Deck List". Once someone finds a golden nonce and the Winner's
-            List is paid on the Bitcoin blockchain,
-            the "On Deck List" becomes the new Winner's List. </p>
+        <p>Nodes maintain an active payout snapshot, which defines the shared coinbase outputs after slot 0. Slot 0 always belongs to the block finder, so a full template has 300 conceptual payout slots.
+            Miners make their own templates using this coinbase payout, and submit high-difficulty share proofs to GridPool nodes.
+            Nodes keep a bounded unpaid Work Set. Each new Bitcoin block snapshots the strongest unpaid proofs into the active payout snapshot without clearing the reserve. When a real GridPool block is found, it pays the active snapshot and only the paid proof IDs are removed. </p>
         <p>This model has some interesting attributes. It should have scalable resistance to block withholding attacks,
             since a block withholding miner would usually hurt
             themselves more than the other miners. It is trivial to run decentralized, and bandwidth requirements
@@ -2048,7 +2045,7 @@
         if (brandTitle) brandTitle.innerText = isTestnet ? "GridPool Testnet4" : "GridPool";
         if (subtitle) {
             subtitle.innerText = isTestnet
-                ? "Real trigger testing for GridPool round rotation. Test coins only."
+                ? "Real trigger testing for GridPool payment transitions. Test coins only."
                 : "The pool for cypherpunks. Sovereign templates, shared variance, no pool wallet.";
         }
         if (headerNetworkName) headerNetworkName.innerText = state ? `${getNetworkDisplayName(state)} · ${state.networkId || "--"}` : "Loading...";
@@ -2339,11 +2336,11 @@
     function getModeListLabels() {
         switch (activeUiMode) {
             case "lottery":
-                return { winners: "Current Paid Team", ondeck: "Next Payout Queue" };
+                return { winners: "Active Payout Snapshot", ondeck: "Unpaid Work Set" };
             case "business":
-                return { winners: "Current Winners", ondeck: "Pending Winners" };
+                return { winners: "Active Payout Snapshot", ondeck: "Unpaid Work Set" };
             default:
-                return { winners: "Winners List", ondeck: "On-Deck List" };
+                return { winners: "Active Payout Snapshot", ondeck: "Unpaid Work Set" };
         }
     }
 
@@ -2826,7 +2823,7 @@
                     { label: "Your best this round", value: "--" },
                     { label: "Team best this round", value: "--" }
                 ]),
-                "The live threshold appears once the next payout queue has difficulty data."
+                "The live threshold appears once the unpaid Work Set has difficulty data."
             );
         }
 
@@ -2957,9 +2954,9 @@
             const heroCopy = !search.hasSearch
                 ? "Search a payout address or tap one of your directly connected DATUM miners to turn on personal odds and queue tracking."
                 : search.winnerSlots > 0
-                    ? `Your share is locked into the current paid team. Average wait to be paid is about ${formatDurationLong(quantileTimeForPoissonEvent(teamBlockRate, 0.5))}.`
+                    ? `Your share is locked into the active payout snapshot. Average wait to be paid is about ${formatDurationLong(quantileTimeForPoissonEvent(teamBlockRate, 0.5))}.`
                     : search.onDeckSlots > 0
-                        ? `You are in the live next-payout queue. This position is temporary until the round locks, and then it still needs one more team-found block to pay.`
+                        ? `You are in the live unpaid Work Set. This position is temporary until a Bitcoin-block snapshot locks it into the active payout snapshot, and then it still needs a team-found GridPool block to pay.`
                         : `You are not on the queue yet. The live target right now is ${getCurrentOnDeckThresholdDisplay()}.`;
 
             heading.innerText = "Lottery View";
@@ -3076,7 +3073,7 @@
                     [
                         buildFocusMetric("Accepted", (localDiagnostics.acceptedCount ?? 0).toLocaleString()),
                         buildFocusMetric("Rejected", (localDiagnostics.rejectedCount ?? 0).toLocaleString()),
-                        buildFocusMetric("On Deck accepts", (localDiagnostics.acceptedOnDeckCount ?? 0).toLocaleString())
+                        buildFocusMetric("Work Set accepts", (localDiagnostics.acceptedOnDeckCount ?? 0).toLocaleString())
                     ].join(""),
                     "Use the technical disclosure for peer status, diagnostics, and commitment preview."
                 ),
@@ -3088,7 +3085,7 @@
                         buildFocusMetric("Local/team share", localSharePercent),
                         buildFocusMetric("Round age", currentRoundAge)
                     ].join(""),
-                    "Team estimate comes from the On Deck list. Local DATUM uses the direct-share rolling window."
+                    "Team estimate comes from the unpaid Work Set. Local DATUM uses the direct-share rolling window."
                 ),
                 buildFocusCard(
                     "Connection Target",
@@ -3101,7 +3098,7 @@
                     ].join(""),
                     search.hasSearch
                         ? `Search match recent paid rounds: ${search.paidRounds.length}/${search.recentCanonicalRounds.length || 0}.`
-                        : "Use search to trace a payout address across winners, On Deck, and round history."
+                        : "Use search to trace a payout address across paid snapshots, the active snapshot, and the unpaid Work Set."
                 )
             ];
         }
@@ -3127,22 +3124,22 @@
             intro.innerHTML = "<strong>Lottery mode</strong> is the fun view: team block odds, your live chance to make the queue, and a clearer sense of how close your best share is to something that matters.";
             document.getElementById("round-history-heading").innerText = "Recent Payout Timeline";
             document.getElementById("mode-focus-heading").innerText = "Lottery View";
-            document.getElementById("list-disclosure-title").innerText = "Show Full Winner Lists";
-            document.getElementById("list-disclosure-summary-note").innerText = "Current paid team and live next payout queue.";
+            document.getElementById("list-disclosure-title").innerText = "Show Full Snapshot Lists";
+            document.getElementById("list-disclosure-summary-note").innerText = "Active payout snapshot and live unpaid Work Set.";
         } else if (activeUiMode === "business") {
             intro.innerHTML = "<strong>Business mode</strong> focuses on operational health, local-vs-team contribution, and payout cadence with approximate confidence bands for planning.";
             document.getElementById("round-history-heading").innerText = "Recent Payout Timeline";
             document.getElementById("mode-focus-heading").innerText = "Business View";
-            document.getElementById("list-disclosure-title").innerText = "Show Full Winner Lists";
-            document.getElementById("list-disclosure-summary-note").innerText = "Expand for the raw current winners and pending queue.";
+            document.getElementById("list-disclosure-title").innerText = "Show Full Snapshot Lists";
+            document.getElementById("list-disclosure-summary-note").innerText = "Expand for the active payout snapshot and unpaid Work Set.";
         } else {
             intro.innerHTML = "<strong>Nerd mode</strong> keeps the protocol exposed: state IDs, peer visibility, diagnostics, charts, and the raw signals you want when testing convergence and mining behavior.";
-            document.getElementById("round-history-heading").innerText = "Round History";
+            document.getElementById("round-history-heading").innerText = "Paid Snapshot History";
             document.getElementById("mode-focus-heading").innerText = "Nerd Snapshot";
             document.getElementById("technical-details-title").innerText = "Technical Details";
             document.getElementById("technical-details-summary-note").innerText = "Nerd mode keeps the raw dashboard visible by default.";
-            document.getElementById("list-disclosure-title").innerText = "Winner Lists";
-            document.getElementById("list-disclosure-summary-note").innerText = "Current winners and live On Deck queue.";
+            document.getElementById("list-disclosure-title").innerText = "Snapshot Lists";
+            document.getElementById("list-disclosure-summary-note").innerText = "Active payout snapshot and unpaid Work Set.";
         }
 
         setElementHidden("difficulty-section", activeUiMode !== "nerd");
@@ -3310,7 +3307,7 @@
         setModeCard(
             1,
             "Protocol State",
-            `Round ${latestNetworkState?.currentRoundNumber ?? "--"}`,
+            `Snapshot ${latestNetworkState?.currentRoundNumber ?? "--"}`,
             `Current ${shortenHash(latestNetworkState?.currentStateId)} · Candidate ${shortenHash(latestNetworkState?.candidateStateId)}`,
             latestNetworkState?.currentTipBlockHeight != null
                 ? `Tip ${latestNetworkState.currentTipBlockHeight.toLocaleString()} · trigger ${latestNetworkState.lastTestingTriggerBlockHeight ?? "--"}`
@@ -3323,7 +3320,7 @@
             "Mining Telemetry",
             "Team / Local Hashrate",
             `${currentTeamHashrateDisplay()} / ${formatHashrateFromThs(localHashrateThs)}`,
-            `${localDiagnostics.acceptedCount ?? 0}/${localDiagnostics.totalSubmissions ?? 0} accepted · ${latestNetworkState?.onDeckCount ?? 0} On Deck`,
+            `${localDiagnostics.acceptedCount ?? 0}/${localDiagnostics.totalSubmissions ?? 0} accepted · ${latestNetworkState?.onDeckCount ?? 0} Work Set`,
             Array.isArray(localDiagnostics.rejectionReasons) && localDiagnostics.rejectionReasons.length > 0
                 ? localDiagnostics.rejectionReasons.map(item => `${item.reason} (${item.count})`).join(", ")
                 : "No recent local rejects."
@@ -4008,7 +4005,7 @@
                <div class="round-detail-subline">${describeRoundStatus(entry)}</div>`;
 
         const paidSectionTitle = isLottery ? "Paid This Round" : "Paid Recipients";
-        const nextSectionTitle = isLottery ? "Next Payout Queue" : (isBusiness ? "Pending Winners" : "Locked Next Winners");
+        const nextSectionTitle = "Unpaid Work Set";
         const winningDifficultyBox = isLottery
             ? ""
             : `<div class="round-detail-box">
@@ -4034,7 +4031,7 @@
                     <div class="round-detail-value">${formatBlockLabel(entry.triggerBlockHash, entry.triggerBlockHeight)}</div>
                 </div>
                 <div class="round-detail-box">
-                    <h3>Round Duration</h3>
+                    <h3>Paid Snapshot Duration</h3>
                     <div class="round-detail-value">${formatElapsedSeconds(entry.roundElapsedSeconds)}</div>
                 </div>
                 <div class="round-detail-box">
@@ -4046,7 +4043,7 @@
                     <div class="round-detail-value">${entry.paidRecipientCount} recipients · ${formatBtcFromSats(entry.paidTotalValue)} BTC</div>
                 </div>
                 <div class="round-detail-box">
-                    <h3>Next Queue Locked</h3>
+                    <h3>Current Work Set</h3>
                     <div class="round-detail-value">${entry.nextWinnerRecipientCount} recipients · ${entry.nextWinnerSlotCount} shared slots</div>
                 </div>
                 ${searchBoxes}
@@ -4062,7 +4059,7 @@
                     <div class="round-detail-value">${formatTimestamp(entry.lockedAtUtc)}</div>
                 </div>
                 <div class="round-detail-box">
-                    <h3>Round Duration</h3>
+                    <h3>Paid Snapshot Duration</h3>
                     <div class="round-detail-value">${formatElapsedSeconds(entry.roundElapsedSeconds)}</div>
                 </div>
                 <div class="round-detail-box">
@@ -4078,7 +4075,7 @@
                     <div class="round-detail-value">${entry.paidRecipientCount} recipients across ${entry.paidSlotCount} shared slots</div>
                 </div>
                 <div class="round-detail-box">
-                    <h3>Next Round Locked</h3>
+                    <h3>Next Snapshot Candidates</h3>
                     <div class="round-detail-value">${entry.nextWinnerRecipientCount} recipients across ${entry.nextWinnerSlotCount} shared slots</div>
                 </div>
                 ${searchBoxes}
@@ -4093,7 +4090,7 @@
                     <div class="round-detail-value">${formatTimestamp(entry.lockedAtUtc)}</div>
                 </div>
                 <div class="round-detail-box">
-                    <h3>Round Duration</h3>
+                    <h3>Paid Snapshot Duration</h3>
                     <div class="round-detail-value">${formatElapsedSeconds(entry.roundElapsedSeconds)}</div>
                 </div>
                 <div class="round-detail-box">
@@ -4110,7 +4107,7 @@
                     <div class="round-detail-value">${formatBtcFromSats(entry.paidTotalValue)} BTC</div>
                 </div>
                 <div class="round-detail-box">
-                    <h3>Locked For Next Round</h3>
+                    <h3>Next Snapshot Candidates</h3>
                     <div class="round-detail-value">${entry.nextWinnerRecipientCount} recipients across ${entry.nextWinnerSlotCount} shared slots</div>
                 </div>
                 ${searchBoxes}

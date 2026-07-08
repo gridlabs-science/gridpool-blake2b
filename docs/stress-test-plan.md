@@ -1,8 +1,8 @@
-# GridPool protocol Stress-Test Plan
+# GridPool Stress-Test Plan
 
 ## Purpose
 
-This document defines how to stress-test GridPool protocol before launch.
+This document defines how to stress-test the GridPool protocol before launch.
 
 The goals are:
 
@@ -75,7 +75,7 @@ The harness should support:
 - open sockets
 - GC pause indicators if available
 
-### GridPool protocol
+### GridPool Protocol
 
 - current and candidate convergence time
 - peer poll success/failure counts

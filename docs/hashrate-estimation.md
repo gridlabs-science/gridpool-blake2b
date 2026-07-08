@@ -1,13 +1,13 @@
-# GridPool protocol Hashrate Estimation
+# GridPool Hashrate Estimation
 
 ## Purpose
 
-GridPool protocol needs a usable estimate of team hashrate even when very few shares are visible.
+GridPool needs a usable estimate of team hashrate even when very few shares are visible.
 
 That is a different problem from a conventional pool:
 
 - A normal pool sees a high volume of low-threshold shares and can estimate hashrate from share counts over time.
-- GridPool protocol intentionally only keeps the top `N` shares in the current `On Deck` list.
+- GridPool intentionally only keeps the top `N` shares in the current `On Deck` list.
 - That means the estimator has to work from sparse, high-value order statistics rather than a flood of uniform-difficulty share counts.
 
 The current estimator works surprisingly well for this reason:
@@ -287,7 +287,7 @@ That gives it three useful properties:
 2. It updates naturally as the On Deck list grows.
 3. It stays informative even in a decentralized setting where nodes may not want to expose all low-difficulty share traffic.
 
-This makes it unusually well suited to GridPool protocol specifically.
+This makes it unusually well suited to GridPool specifically.
 
 ## Planned Next Improvements
 

@@ -14,7 +14,7 @@ This checklist is intentionally stricter than "public beta works on my machine."
 - [ ] Public docs and UI match V2.1 snapshot/reserve consensus.
 - [ ] Firmware and rental compatibility with 300-slot coinbases is tested and documented.
 - [x] Monitoring catches the failure classes already seen in public beta.
-- [ ] Repo is clean enough that outside contributors can orient quickly.
+- [ ] Repo is clean enough that outside contributors can orient quickly. G6 now has a target architecture map; remaining work is README/docs pruning and more archive passes.
 
 ## G1: Consensus Selection And State Convergence
 
@@ -210,15 +210,15 @@ Current evidence:
 
 Goal: avoid turning the reference node into a junk drawer for every future adapter.
 
-- [ ] Write a target repo map for the GridPool ecosystem.
+- [x] Write a target repo map for the GridPool ecosystem.
 - [x] Keep `gridpool-web` separate from node code.
 - [x] Keep `gridpool-simulations` separate from node code.
-- [ ] Decide whether to create `gridpool-spec` for protocol docs and test vectors.
-- [ ] Decide whether adapters belong in this repo or separate repos.
-- [ ] Move old soak logs and historical test artifacts into `docs/archive/` or out of the repo.
-- [ ] Archive stale V1-era planning docs rather than deleting useful history.
-- [ ] Update README to point to the current docs and hide obsolete rabbit holes.
-- [ ] Ensure public docs use "GridPool" language consistently.
+- [x] Decide whether to create `gridpool-spec` for protocol docs and test vectors.
+- [x] Decide whether adapters belong in this repo or separate repos.
+- [x] Move obvious old soak logs and historical test artifacts into `docs/archive/` or out of the repo.
+- [x] Archive stale V1-era planning docs rather than deleting useful history.
+- [x] Update README to point to the current docs and hide obsolete rabbit holes.
+- [x] Ensure public docs use "GridPool" language consistently.
 
 Completion criteria:
 
@@ -229,22 +229,25 @@ Completion criteria:
 
 Current evidence:
 
-- Local sibling repos exist at `../gridpool-web` and `../gridpool-simulations`.
-- This repo still needs an explicit architecture map and archive pass before broad outside contributors are invited.
+- Local sibling repos exist at `../gridpool-web`, `../gridpool-simulations`, and `../gridpool-spec`.
+- Target repo responsibilities are documented in [project-architecture-map.md](project-architecture-map.md).
+- Adapter decision: modules that reuse this node's consensus/networking core can live in this repo for now; independently useful gateways, firmware forks, alternate pool backends, and cross-implementation fixtures should move to separate repos when their release lifecycle diverges.
+- First archive pass moved completed session/debug investigations and the superseded broad launch checklist into `docs/archive/`.
+- Active docs now have an index at [README.md](README.md), and the only remaining public-facing `Boot Protocol` references are explicit old-name notes.
 
 ## G7: Public Docs, Website, And UI
 
 Goal: public-facing language must match V2.1 consensus and current operational reality.
 
-- [ ] Replace or remove the V1-era intro video.
-- [ ] Update website FAQ for pool hopping, payout snapshots, block withholding, firmware coinbase limits, and outbound-only nodes.
-- [ ] Update node UI terminology:
+- [x] Replace or remove the V1-era intro video.
+- [x] Update website FAQ for pool hopping, payout snapshots, block withholding, firmware coinbase limits, and outbound-only nodes.
+- [x] Update node UI terminology:
   `active payout snapshot`, `unpaid Work Set`, `current shared payout slots`, and `local DATUM hashrate`.
-- [ ] Remove or rename V1 leftovers in Nerd Mode.
+- [x] Remove or rename V1 leftovers in Nerd Mode.
 - [x] Add a clear testnet/mainnet visual banner.
 - [x] Add current consensus version and network ID to Nerd Mode.
 - [x] Add a concise "What happens if we find a block?" explanation in README/operator-facing docs.
-- [ ] Keep "The pool for cypherpunks" but make the technical explanation precise.
+- [x] Keep "The pool for cypherpunks" but make the technical explanation precise.
 
 Completion criteria:
 
@@ -257,7 +260,8 @@ Current evidence:
 
 - README includes the DATUM block-submission safety note and V2.1 snapshot/reserve explanation.
 - Node UI now exposes protocol/network version fields in Nerd Mode.
-- Public website still needs the intro video refreshed and FAQ tightened for the latest consensus language.
+- Public website now embeds the V2.1-oriented explainer video and includes FAQ entries for pool hopping, payout snapshots, block withholding/attack resistance, firmware coinbase limits, and outbound-only nodes.
+- Node UI labels now prefer `active payout snapshot`, `unpaid Work Set`, `snapshot`, and `payment transition` in user-facing text while preserving internal IDs/events for compatibility.
 
 ## G8: Security, Abuse, And Operational Monitoring
 

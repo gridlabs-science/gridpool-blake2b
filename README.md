@@ -11,13 +11,17 @@ GridPool was originally developed under the working name "Boot Protocol." Some i
 ## Critic-Facing Design Notes
 GridPool is early, and several claims still need rigorous public modeling.
 
+- `docs/README.md` is the index for current docs.
 - `docs/umbrel-start9-launch-checklist.md` is the primary launch-gating checklist before broad Umbrel / Start9 packaging.
+- `docs/project-architecture-map.md` explains which work belongs in this reference node repo versus `gridpool-spec`, `gridpool-web`, and `gridpool-simulations`.
 - `docs/consensus-selection-audit.md` documents the V2.1 snapshot-boundary and merge rule plus remaining scoring questions.
 - `docs/simulation-findings-2026-06.md` summarizes which current simulation findings look publishable and which are still too early.
 - `docs/critic-faq.md` answers common technical objections such as pool hopping, loose consensus, sharechain comparisons, Sybil accounting, and majority-miner team splits.
 - `docs/modeling-and-simulation-roadmap.md` defines the open simulation work needed to turn those answers into reproducible evidence.
 - `docs/scaling-analysis.md` and `docs/stress-test-plan.md` cover bandwidth, latency, peer topology, and load-test targets.
 - `docs/release-process.md` defines the public beta branch, Docker image, tag, and coordinated-upgrade policy.
+
+Historical debugging notes and completed investigations live under `docs/archive/`.
 
 ## GridPool Node Quickstart
 Most miners should start by running only a GridPool node, then pointing an existing DATUM Gateway at it. This keeps Bitcoin and DATUM under your own control while adding the GridPool reward-sharing network layer.

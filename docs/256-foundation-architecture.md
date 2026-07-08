@@ -1,7 +1,7 @@
-# GridPool protocol Architecture and Launch Model
+# GridPool Architecture and Launch Model
 
 ## Summary
-GridPool protocol is a decentralized reward-sharing protocol for sovereign Bitcoin miners. It is designed to reduce payout variance without centralizing block construction or pooling block rewards into a custodial wallet.
+GridPool is a decentralized reward-sharing protocol for sovereign Bitcoin miners. It is designed to reduce payout variance without centralizing block construction or pooling block rewards into a custodial wallet.
 
 Each miner continues to build and hash their own Bitcoin block templates. The only shared coordination is an active payout snapshot derived from a bounded unpaid Work Set of previously submitted high-difficulty shares. Slot `0` is always reserved for the current miner's own payout address and receives transaction fees plus any subsidy remainder. With the default support fee enabled, one post-slot-0 slot is the canonical Grid Labs support output and up to `298` shared proof slots are paid. If the support slot is disabled, up to `299` shared proof slots are paid.
 
