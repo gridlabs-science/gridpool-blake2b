@@ -12,6 +12,7 @@ This checklist is intentionally stricter than "public beta works on my machine."
 - [ ] Hidden/outbound-only node behavior is clear, observable, and safe.
 - [ ] Install and upgrade paths are repeatable on clean machines.
 - [ ] Public docs and UI match V2.1 snapshot/reserve consensus.
+- [ ] Firmware and rental compatibility with 300-slot coinbases is tested and documented.
 - [x] Monitoring catches the failure classes already seen in public beta.
 - [ ] Repo is clean enough that outside contributors can orient quickly.
 
@@ -108,6 +109,7 @@ Completion criteria:
 - DATUM share acceptance is above 95% after excluding clearly invalid solo fallback or firmware-truncated templates.
 - Any lower acceptance rate has a documented root cause and mitigation.
 - External tester can upgrade from a previous beta release without wiping state.
+- At least one full 300-output coinbase stress run is completed against representative firmware and rental providers before recommending them publicly.
 
 Current evidence:
 
@@ -177,6 +179,32 @@ Current evidence:
 - GitHub Actions publishes branch, tag, SHA, and `latest` images to GHCR; `develop` is available for staging once that branch exists.
 - Main documented defaults are `5000` WebUI/API, `3008` DATUM, and `5001/udp` peer fast relay.
 - Raspberry Pi/full-stack installer docs exist, but appliance packaging is not yet complete enough for Umbrel/Start9 users.
+
+## G5.5: Miner Firmware, Rental, And Stratum V2 Compatibility
+
+Goal: avoid launching a 300-slot team that silently breaks common ASIC firmware or rental intermediaries.
+
+- [ ] Build a repeatable firmware compatibility matrix for the 300-slot beta team.
+- [ ] Test uncondensed 300-output coinbases against known-good sovereign firmware.
+- [ ] Test uncondensed 300-output coinbases against stock/older Bitmain-class firmware if available, and document failure behavior rather than supporting it silently.
+- [ ] Test at least one Whatsminer-class setup, one Bitaxe/AxeOS-class setup, and one alternate firmware path such as ePIC/PowerPlay-BM or VNish/xminer-class firmware.
+- [ ] Test hashrate rental paths before recommending any provider publicly.
+- [ ] Publish a public compatibility table with `works`, `fails`, `untested`, and `requires alternate firmware` states.
+- [ ] Add a UI/API warning when firmware truncation rejects are observed repeatedly from a local DATUM session.
+- [ ] Complete the Stratum V2/GridPool integration review in [stratum-v2-gridpool-evaluation.md](stratum-v2-gridpool-evaluation.md).
+- [ ] Decide whether Stratum V2 standard-channel/header-only mining is the preferred long-term path for avoiding ASIC coinbase-size constraints.
+
+Completion criteria:
+
+- A miner can check the docs before renting or redirecting hashrate and know whether their firmware path is expected to work with a full 300-slot payout list.
+- The beta website clearly says that firmware/rental support is compatibility-tested, not assumed.
+- The project has a written decision on whether SV2 support is a launch-adjacent priority or a post-Umbrel/Start9 roadmap item.
+
+Current evidence:
+
+- Strict firmware truncation detection is implemented and tested.
+- `coinbase_uncondensed_outputs_enabled` exists for non-production firmware/rental stress testing.
+- Current support docs warn that some firmware cannot handle large coinbase templates, but the compatibility matrix is not yet built.
 
 ## G6: Repo And Project Architecture
 
@@ -269,6 +297,7 @@ Before Umbrel/Start9 launch, answer yes to all:
 - [ ] Can a fresh install sync without handholding?
 - [ ] Can a nontechnical user recover from restart/power loss?
 - [ ] Are public docs accurate enough that users will not connect unsupported firmware and blame the protocol?
+- [ ] Do we know which miner firmware and rental paths can handle a full 300-slot GridPool payout list?
 - [ ] Have at least two external operators run nodes successfully?
 
 If any answer is no, keep the project in public beta and avoid one-click platform launch.
