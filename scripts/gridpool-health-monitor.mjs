@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -69,6 +70,7 @@ const DEFAULT_CONFIG = {
             defaultPassword: "hydrapool"
         }
     ],
+    tcpEndpoints: [],
     services: [
         { name: "bootserverapp.service", critical: true },
         { name: "hydrapool-gridpool.service", critical: false },
@@ -333,6 +335,7 @@ async function collectGridPoolNode(node, config) {
         candidateAddresses: [],
         peers: [],
         peerRecords: [],
+        peerRelayLatency: null,
         consensusGroup: node.consensusGroup || "",
         version: null,
         networkKey: ""
@@ -371,6 +374,11 @@ async function collectGridPoolNode(node, config) {
         if (!state.ok) result.errors.push(`candidate state failed: ${state.error || state.status}`);
     }
 
+    const latency = await fetchJson(baseUrl, "/api/network/peer-relay-latency?window=24h&limit=1000", config);
+    result.checks.peerRelayLatency = compactFetchResult(latency);
+    result.peerRelayLatency = latency.json;
+    if (!latency.ok) result.errors.push(`peer relay latency failed: ${latency.error || latency.status}`);
+
     result.peerRecords = Array.isArray(summary.json?.peers) ? summary.json.peers : [];
     result.peers = result.peerRecords
         .map(peer => peer.endpoint || peer.url || peer.address)
@@ -390,6 +398,49 @@ async function collectGridPoolNode(node, config) {
 
     result.ok = result.errors.length === 0;
     return result;
+}
+
+async function collectTcpEndpoint(endpoint, config) {
+    const started = Date.now();
+    const timeoutMs = Number(endpoint.timeoutMs || config.requestTimeoutMs || 8000);
+    const host = String(endpoint.host || "").trim();
+    const port = Number(endpoint.port);
+    const result = {
+        type: "tcp",
+        name: endpoint.name,
+        host,
+        port,
+        critical: endpoint.critical === true,
+        ok: false,
+        durationMs: null,
+        error: null
+    };
+
+    if (!host || !Number.isInteger(port) || port <= 0 || port > 65535) {
+        result.error = "invalid TCP endpoint config";
+        result.durationMs = Date.now() - started;
+        return result;
+    }
+
+    return new Promise(resolve => {
+        const socket = new net.Socket();
+        let settled = false;
+        const finish = (ok, error = null) => {
+            if (settled) return;
+            settled = true;
+            socket.destroy();
+            result.ok = ok;
+            result.error = error;
+            result.durationMs = Date.now() - started;
+            resolve(result);
+        };
+
+        socket.setTimeout(timeoutMs);
+        socket.once("connect", () => finish(true));
+        socket.once("timeout", () => finish(false, "connection timed out"));
+        socket.once("error", error => finish(false, String(error?.message || error)));
+        socket.connect(port, host);
+    });
 }
 
 function compactFetchResult(result) {
@@ -544,12 +595,18 @@ async function collectSnapshot(config) {
         hydrapools.push(await collectHydrapool(hydrapool, config));
     }
 
+    const tcpEndpoints = [];
+    for (const endpoint of config.tcpEndpoints || []) {
+        tcpEndpoints.push(await collectTcpEndpoint(endpoint, config));
+    }
+
     return {
         version: SCRIPT_VERSION,
         monitorName: config.monitorName,
         collectedAtUtc: currentIso(),
         gridpoolNodes,
         hydrapools,
+        tcpEndpoints,
         services: collectServiceStatus(config.services || [])
     };
 }
@@ -618,6 +675,25 @@ function buildAlerts(snapshot, state, config) {
             } else {
                 resetFailure(state, key);
             }
+        }
+    }
+
+    for (const endpoint of snapshot.tcpEndpoints || []) {
+        const key = `tcp:${endpoint.name}`;
+        if (!endpoint.ok) {
+            const count = incrementFailure(state, key);
+            if (count >= Number(config.thresholds.endpointFailureConsecutive || 2)) {
+                alerts.push({
+                    severity: endpoint.critical ? "critical" : "warning",
+                    category: "endpoint-down",
+                    fingerprint: key,
+                    title: `TCP endpoint ${endpoint.name} unreachable`,
+                    detail: `${endpoint.host}:${endpoint.port} ${endpoint.error || ""}`.trim(),
+                    codexEligible: true
+                });
+            }
+        } else {
+            resetFailure(state, key);
         }
     }
 
@@ -1208,6 +1284,12 @@ function buildDigest(snapshot, state) {
         lines.push("");
     }
 
+    for (const endpoint of snapshot.tcpEndpoints || []) {
+        lines.push(`TCP ${endpoint.name}: ${endpoint.ok ? "ok" : "problem"} ${endpoint.host}:${endpoint.port} ${durationMsLabel(endpoint.durationMs)}`);
+        if (endpoint.error) lines.push(`Error: ${endpoint.error}`);
+    }
+    if ((snapshot.tcpEndpoints || []).length) lines.push("");
+
     const inactiveServices = (snapshot.services || []).filter(service => !service.ok);
     lines.push(`Services inactive: ${inactiveServices.length ? inactiveServices.map(service => service.name).join(", ") : "none"}`);
     const unknown = state.known?.unknownListAddresses || [];
@@ -1236,6 +1318,9 @@ function buildStatusMessage(snapshot) {
     }
     for (const hydrapool of snapshot.hydrapools || []) {
         lines.push(`${hydrapool.name}: ${hydrapool.ok ? "ok" : "problem"} workers=${(hydrapool.workers || []).length}`);
+    }
+    for (const endpoint of snapshot.tcpEndpoints || []) {
+        lines.push(`${endpoint.name}: ${endpoint.ok ? "ok" : "problem"} ${endpoint.host}:${endpoint.port} ${durationMsLabel(endpoint.durationMs)}`);
     }
     return lines.join("\n");
 }
@@ -1589,6 +1674,8 @@ function compactSummary(snapshot, alerts) {
             datumAcceptanceRate: datumAcceptanceRate(node.summary?.localDatumDiagnostics),
             localMiners: node.localMiners.length,
             peers: node.summary?.peerCount,
+            checks: node.checks,
+            peerRelayLatency: compactPeerRelayLatency(node.peerRelayLatency),
             errors: node.errors
         })),
         hydrapools: snapshot.hydrapools.map(hydrapool => ({
@@ -1596,6 +1683,14 @@ function compactSummary(snapshot, alerts) {
             ok: hydrapool.ok,
             workers: hydrapool.workers.length,
             users: hydrapool.users.length
+        })),
+        tcpEndpoints: (snapshot.tcpEndpoints || []).map(endpoint => ({
+            name: endpoint.name,
+            host: endpoint.host,
+            port: endpoint.port,
+            ok: endpoint.ok,
+            durationMs: endpoint.durationMs,
+            error: endpoint.error
         })),
         services: snapshot.services.map(service => ({
             name: service.name,
@@ -1607,6 +1702,30 @@ function compactSummary(snapshot, alerts) {
             category: alert.category,
             title: alert.title
         }))
+    };
+}
+
+function compactPeerRelayLatency(series) {
+    if (!series) return null;
+    return {
+        windowSeconds: series.windowSeconds ?? null,
+        totalEvents: series.totalEvents ?? null,
+        transports: Array.isArray(series.transports)
+            ? series.transports.map(transport => ({
+                transport: transport.transport,
+                arrivalCount: transport.arrivalCount,
+                firstArrivalCount: transport.firstArrivalCount,
+                acceptedCount: transport.acceptedCount,
+                duplicateCount: transport.duplicateCount,
+                rejectedCount: transport.rejectedCount,
+                averageDeltaFromFirstMs: transport.averageDeltaFromFirstMs,
+                medianDeltaFromFirstMs: transport.medianDeltaFromFirstMs,
+                p95DeltaFromFirstMs: transport.p95DeltaFromFirstMs,
+                averagePayloadBytes: transport.averagePayloadBytes,
+                minPayloadBytes: transport.minPayloadBytes,
+                maxPayloadBytes: transport.maxPayloadBytes
+            }))
+            : []
     };
 }
 

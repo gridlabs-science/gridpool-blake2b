@@ -116,6 +116,30 @@ public sealed class PeerPruningTests
         Assert.IsFalse(peer.SessionConnected);
     }
 
+    [TestMethod]
+    public void ResolvePeerEndpointKeepsExplicitDialedPortWhenAdvertisedEndpointOmitsPort()
+    {
+        var service = CreateService();
+
+        string endpoint = service.ResolvePeerEndpoint(
+            "http://evomining.farted.net:5000",
+            "http://evomining.farted.net");
+
+        Assert.AreEqual("http://evomining.farted.net:5000", endpoint);
+    }
+
+    [TestMethod]
+    public void ResolvePeerEndpointStillUsesDifferentAdvertisedEndpoint()
+    {
+        var service = CreateService();
+
+        string endpoint = service.ResolvePeerEndpoint(
+            "http://bootstrap.gridpool.net:5000",
+            "http://dallas.gridpool.net");
+
+        Assert.AreEqual("http://dallas.gridpool.net", endpoint);
+    }
+
     private static BootProtocolStateService CreateService()
     {
         var config = new PoolConfig

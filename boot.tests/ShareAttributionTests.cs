@@ -719,7 +719,7 @@ public sealed class ShareAttributionTests
         BootNetworkStatusDto status = harness.StateService.GetNetworkStatus();
         BootStateBundle activeBundle = harness.StateService.GetStateBundle(status.CurrentStateId)!;
 
-        Assert.AreEqual(2, status.ProtocolVersion);
+        Assert.AreEqual(BootProtocolVersions.ConsensusVersion, status.ProtocolVersion);
         Assert.AreEqual(seedProofs.Length, status.WorkSetCount);
         Assert.AreEqual("seed-current", status.ActiveSnapshotId);
         Assert.AreEqual(seedProofs.Length, harness.StateService.GetOnDeckList().Count);
@@ -810,6 +810,61 @@ public sealed class ShareAttributionTests
             localTotalDifficulty: 100,
             remoteStateId: "same-candidate",
             localCandidateStateId: "same-candidate"));
+    }
+
+    [TestMethod]
+    public async Task CandidateImportIgnoresLatePreviousParentProofsAfterLocalSnapshotBoundaryAsync()
+    {
+        string newTip = "0000000000000000000000000000000000000000000000000000000000f00d01";
+        BootShareProof staleProof = CreateValidatedProof(SampleHeaderHex, SamplePrevBlockHash, "seed-current");
+
+        using var remoteHarness = TestHarness.Create(
+            currentTipBlockHash: newTip,
+            onDeckProofs: [staleProof],
+            snapshotContexts: [CreateSnapshotContext("seed-current", SampleExpectedWinners)]);
+        BootNetworkStatusDto remoteStatus = remoteHarness.StateService.GetNetworkStatus();
+        BootStateBundle candidateBundle = remoteHarness.StateService.GetStateBundle(remoteStatus.CandidateStateId)!;
+
+        using var localHarness = TestHarness.Create(
+            currentTipBlockHash: newTip,
+            onDeckProofs: [],
+            snapshotContexts: [CreateSnapshotContext("seed-current", SampleExpectedWinners)]);
+
+        bool imported = await localHarness.StateService.TryImportCandidateStateAsync(
+            candidateBundle,
+            "https://peer.example");
+
+        Assert.IsFalse(imported);
+        Assert.AreEqual(0, localHarness.StateService.GetNetworkStatus().WorkSetCount);
+    }
+
+    [TestMethod]
+    public async Task CandidateImportMergesCurrentParentDivergentSnapshotProofsAsync()
+    {
+        string newTip = "0000000000000000000000000000000000000000000000000000000000f00d02";
+        string currentParentHeader = RewriteHeaderPrevBlockHash(SampleHeaderHex, newTip);
+        BootShareProof currentParentProof = CreateValidatedProof(currentParentHeader, newTip, "remote-snapshot");
+
+        using var remoteHarness = TestHarness.Create(
+            currentTipBlockHash: newTip,
+            onDeckProofs: [currentParentProof],
+            snapshotContexts: [CreateSnapshotContext("remote-snapshot", SampleExpectedWinners, newTip)]);
+        BootNetworkStatusDto remoteStatus = remoteHarness.StateService.GetNetworkStatus();
+        BootStateBundle candidateBundle = remoteHarness.StateService.GetStateBundle(remoteStatus.CandidateStateId)!;
+
+        using var localHarness = TestHarness.Create(
+            currentTipBlockHash: newTip,
+            onDeckProofs: [],
+            snapshotContexts: [CreateSnapshotContext("seed-current", SampleExpectedWinners, newTip)]);
+
+        bool imported = await localHarness.StateService.TryImportCandidateStateAsync(
+            candidateBundle,
+            "https://peer.example");
+
+        Assert.IsTrue(imported);
+        BootNetworkStatusDto status = localHarness.StateService.GetNetworkStatus();
+        Assert.AreEqual(1, status.WorkSetCount);
+        Assert.AreEqual(localHarness.StateService.GetStateBundle(status.CandidateStateId)!.WorkSetProofs[0].ShareId, currentParentProof.ShareId);
     }
 
     [TestMethod]
@@ -1491,6 +1546,61 @@ public sealed class ShareAttributionTests
         };
     }
 
+    private static BootShareProof CreateValidatedProof(
+        string headerHex,
+        string prevBlockHash,
+        string? payoutSnapshotId = null)
+    {
+        var verifier = new BootShareVerifier();
+        BootShareValidationResult validation = verifier.ValidateShare(
+            new RecordedShareSubmission
+            {
+                MinerAddress = SampleSlotZeroAddress,
+                Username = SampleSlotZeroAddress,
+                HeaderHex = headerHex,
+                CoinbaseHex = SampleCoinbaseHex,
+                MerklePath = SampleMerklePath.ToList(),
+                PrevBlockHash = prevBlockHash,
+                Source = "test"
+            },
+            SampleExpectedWinners,
+            prevBlockHash);
+        Assert.IsTrue(validation.IsValid, validation.RejectionReason);
+        return new BootShareProof
+        {
+            ShareId = validation.ShareId,
+            MinerAddress = validation.MinerAddress,
+            Username = validation.Username,
+            ScriptPubKeyHex = validation.ScriptPubKeyHex,
+            HeaderHex = validation.HeaderHex,
+            CoinbaseHex = validation.CoinbaseHex,
+            MerklePath = validation.MerklePath.ToList(),
+            PayoutSnapshotId = payoutSnapshotId,
+            PrevBlockHash = validation.PrevBlockHash,
+            Difficulty = validation.Difficulty,
+            DiffString = ClientHandler.FormatDifficulty(validation.Difficulty),
+            Source = "test-seed",
+            Timestamp = DateTime.UtcNow
+        };
+    }
+
+    private static BootPayoutSnapshotContext CreateSnapshotContext(
+        string snapshotId,
+        IReadOnlyList<PayoutInfo> winners,
+        string? lockedByBlockHash = SamplePrevBlockHash)
+    {
+        return new BootPayoutSnapshotContext
+        {
+            SnapshotId = snapshotId,
+            CurrentRoundNumber = 1,
+            LockedByBlockHash = lockedByBlockHash,
+            LockedByBlockHeight = 945000,
+            CreatedAtUtc = DateTime.UtcNow,
+            WinnersList = winners.Select(ClonePayout).ToList(),
+            FeeFreeWinnersList = winners.Select(ClonePayout).ToList()
+        };
+    }
+
     private static JsonObject ParseObjectResult(IActionResult actionResult, int expectedStatusCode)
     {
         var objectResult = actionResult as ObjectResult;
@@ -1703,6 +1813,14 @@ public sealed class ShareAttributionTests
         return Convert.ToHexString(headerBytes).ToLowerInvariant();
     }
 
+    private static string RewriteHeaderPrevBlockHash(string headerHex, string prevBlockHash)
+    {
+        byte[] headerBytes = Convert.FromHexString(headerHex);
+        byte[] internalHashBytes = Convert.FromHexString(BitcoinHashes.ReverseHexByteOrder(prevBlockHash));
+        Array.Copy(internalHashBytes, 0, headerBytes, 4, 32);
+        return Convert.ToHexString(headerBytes).ToLowerInvariant();
+    }
+
     private static (string HeaderHex, string CoinbaseHex) BuildLowDifficultySlotZeroMutation(
         string headerHex,
         string coinbaseHex,
@@ -1876,7 +1994,7 @@ public sealed class ShareAttributionTests
             var config = new PoolConfig
             {
                 BootNetworkId = "testnet",
-                BootProtocolVersion = 2,
+                BootProtocolVersion = BootProtocolVersions.ConsensusVersion,
                 WinnersListSize = sharedWinnerSlotCount ?? Math.Max(8, SampleExpectedWinners.Count),
                 PoolPayoutScript = SampleSlotZeroAddress,
                 GridLabsSupportFeeEnabled = supportFeeEnabled,

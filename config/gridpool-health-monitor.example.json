@@ -60,10 +60,37 @@
     },
     {
       "name": "evomining",
-      "baseUrl": "http://evomining.farted.net:5000",
+      "baseUrl": "http://evomining.farted.net",
       "critical": false,
       "consensusGroup": "mainnet-beta",
       "minimumPeerCount": 1
+    },
+    {
+      "name": "dallas",
+      "baseUrl": "https://dallas.gridpool.net",
+      "critical": false,
+      "consensusGroup": "mainnet-beta",
+      "minimumPeerCount": 1
+    }
+  ],
+  "tcpEndpoints": [
+    {
+      "name": "datum-main",
+      "host": "datum.main.gridpool.net",
+      "port": 3008,
+      "critical": true
+    },
+    {
+      "name": "datum-testnet4",
+      "host": "datum.test.gridpool.net",
+      "port": 3009,
+      "critical": false
+    },
+    {
+      "name": "datum-dallas",
+      "host": "datum.dallas.gridpool.net",
+      "port": 3008,
+      "critical": false
     }
   ],
   "hydrapools": [

@@ -1139,13 +1139,19 @@ public class BootProtocolStateService
 
     public string ResolvePeerEndpoint(string dialedEndpoint, string? advertisedEndpoint)
     {
+        bool hasNormalizedDialed = TryNormalizePeerEndpoint(dialedEndpoint, allowPrivate: true, out string normalizedDialed, out _);
         if (!string.IsNullOrWhiteSpace(advertisedEndpoint) &&
             TryNormalizePeerEndpoint(advertisedEndpoint, AllowPrivatePeerAdvertisements(), out string normalizedAdvertised, out _))
         {
+            if (hasNormalizedDialed && ShouldPreferDialedEndpoint(normalizedDialed, normalizedAdvertised))
+            {
+                return normalizedDialed;
+            }
+
             return normalizedAdvertised;
         }
 
-        return TryNormalizePeerEndpoint(dialedEndpoint, allowPrivate: true, out string normalizedDialed, out _)
+        return hasNormalizedDialed
             ? normalizedDialed
             : NormalizePeerEndpoint(dialedEndpoint);
     }
@@ -2337,6 +2343,75 @@ public class BootProtocolStateService
             .ToList();
     }
 
+    private List<BootShareProof> MergeCandidateProofsIntoCanonicalReserveNoLock(IEnumerable<BootShareProof> remoteProofs)
+    {
+        string? currentTip = NormalizeCanonicalBlockHash(_state.CurrentTipBlockHash);
+        HashSet<string> knownShareIds = _state.OnDeckProofs
+            .Select(proof => proof.ShareId)
+            .Where(shareId => !string.IsNullOrWhiteSpace(shareId))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var merged = new List<BootShareProof>(_state.OnDeckProofs.Select(CloneProof));
+        foreach (BootShareProof proof in remoteProofs)
+        {
+            if (ShouldMergeRemoteProofIntoCanonicalReserveNoLock(proof, currentTip, knownShareIds))
+            {
+                merged.Add(CloneProof(proof));
+            }
+        }
+
+        return SortAndTrimProofs(merged, _poolConfig.WorkSetReserveLimit);
+    }
+
+    private bool ShouldMergeRemoteProofIntoCanonicalReserveNoLock(
+        BootShareProof proof,
+        string? currentTip,
+        HashSet<string> knownShareIds)
+    {
+        if (string.IsNullOrWhiteSpace(proof.ShareId))
+        {
+            return false;
+        }
+
+        if (knownShareIds.Contains(proof.ShareId))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(currentTip))
+        {
+            return true;
+        }
+
+        return BitcoinHashes.AreEquivalent(proof.PrevBlockHash, currentTip);
+    }
+
+    private List<string> GetCanonicalParentBlockHashesForReserveNoLock()
+    {
+        return NormalizeAcceptedParentBlockHashes(
+            _state.OnDeckProofs
+                .Select(proof => proof.PrevBlockHash)
+                .Append(_state.CurrentTipBlockHash));
+    }
+
+    private static bool ProofSetsEqualNoLock(IReadOnlyList<BootShareProof> left, IReadOnlyList<BootShareProof> right)
+    {
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        List<string> leftIds = left
+            .Select(proof => proof.ShareId)
+            .OrderBy(shareId => shareId, StringComparer.Ordinal)
+            .ToList();
+        List<string> rightIds = right
+            .Select(proof => proof.ShareId)
+            .OrderBy(shareId => shareId, StringComparer.Ordinal)
+            .ToList();
+        return leftIds.SequenceEqual(rightIds, StringComparer.OrdinalIgnoreCase);
+    }
+
     public async Task<ShareRecordingResult> SubmitShareAsync(RecordedShareSubmission share, string blockSource)
     {
         ShareRecordingResult result = await RecordShareAsync(share);
@@ -2745,7 +2820,6 @@ public class BootProtocolStateService
 
         List<BootShareProof> validatedProofs;
         List<PayoutInfo> expectedPayouts;
-        double totalDifficulty;
 
         try
         {
@@ -2759,7 +2833,6 @@ public class BootProtocolStateService
                 $"peer-state:{sourceEndpoint}",
                 bundle.SnapshotContexts);
             expectedPayouts = BuildPayoutsFromProofs(validatedProofs);
-            totalDifficulty = validatedProofs.Sum(x => x.Difficulty);
         }
         catch (Exception ex)
         {
@@ -2799,26 +2872,22 @@ public class BootProtocolStateService
                 return false;
             }
 
-            double localTotalDifficulty = _state.OnDeckProofs.Sum(x => x.Difficulty);
-            if (!BootCandidateStateSelection.ShouldImportCandidate(
-                    totalDifficulty,
-                    localTotalDifficulty,
-                    bundle.StateId,
-                    _state.CandidateStateId))
+            List<BootShareProof> mergedCanonicalProofs = MergeCandidateProofsIntoCanonicalReserveNoLock(validatedProofs);
+            if (ProofSetsEqualNoLock(mergedCanonicalProofs, _state.OnDeckProofs))
             {
                 return false;
             }
 
-            _state.OnDeckProofs = SortAndTrimProofs(validatedProofs, _poolConfig.WorkSetReserveLimit);
             foreach (BootPayoutSnapshotContext context in bundle.SnapshotContexts)
             {
                 UpsertSnapshotContextNoLock(context);
             }
+            _state.OnDeckProofs = mergedCanonicalProofs;
             RebuildOnDeckListNoLock();
-            SetAcceptedParentBlockHashesNoLock(mergedAcceptedParentBlockHashes, _state.CurrentTipBlockHash);
-            _state.CandidateStateId = bundle.StateId;
-            CacheCandidateBundleNoLock(bundle);
-            foreach (var proof in validatedProofs)
+            SetAcceptedParentBlockHashesNoLock(GetCanonicalParentBlockHashesForReserveNoLock(), _state.CurrentTipBlockHash);
+            _state.CandidateStateId = ComputeCandidateStateIdNoLock();
+            CacheCurrentCandidateBundleNoLock();
+            foreach (var proof in _state.OnDeckProofs)
             {
                 RememberShareIdNoLock(proof.ShareId);
             }
@@ -2831,7 +2900,7 @@ public class BootProtocolStateService
 
         if (imported)
         {
-            _logger.LogInformation("Imported stronger candidate state {StateId} from {SourceEndpoint}.", bundle.StateId, sourceEndpoint);
+            _logger.LogInformation("Merged candidate reserve proofs from {StateId} via {SourceEndpoint}.", bundle.StateId, sourceEndpoint);
             await _hubContext.Clients.All.SendAsync("UpdateOnDeck", onDeckSnapshot);
             await _hubContext.Clients.All.SendAsync("UpdateNetworkState", networkStatus);
         }
@@ -3008,10 +3077,8 @@ public class BootProtocolStateService
                  (localStateIsEmpty ||
                   bundle.CurrentRoundNumber > _state.CurrentRoundNumber ||
                   (bundle.CurrentRoundNumber == _state.CurrentRoundNumber &&
-                   remoteLockedTotalDifficulty > localLockedTotalDifficulty + difficultyEpsilon) ||
-                  (bundle.CurrentRoundNumber == _state.CurrentRoundNumber &&
-                   Math.Abs(remoteLockedTotalDifficulty - localLockedTotalDifficulty) <= difficultyEpsilon &&
-                   string.CompareOrdinal(bundle.StateId ?? string.Empty, _state.CurrentStateId ?? string.Empty) > 0)));
+                   !CurrentStateHasShareProofsNoLock() &&
+                   remoteLockedTotalDifficulty > localLockedTotalDifficulty + difficultyEpsilon)));
             if (!remoteLooksStronger)
             {
                 return false;
@@ -7753,6 +7820,23 @@ public class BootProtocolStateService
         var builder = new UriBuilder(uri.Scheme.ToLowerInvariant(), host, uri.IsDefaultPort ? -1 : uri.Port);
         normalized = builder.Uri.GetLeftPart(UriPartial.Authority).TrimEnd('/');
         return true;
+    }
+
+    private static bool ShouldPreferDialedEndpoint(string normalizedDialed, string normalizedAdvertised)
+    {
+        if (!Uri.TryCreate(normalizedDialed, UriKind.Absolute, out Uri? dialedUri) ||
+            !Uri.TryCreate(normalizedAdvertised, UriKind.Absolute, out Uri? advertisedUri))
+        {
+            return false;
+        }
+
+        if (!string.Equals(dialedUri.Scheme, advertisedUri.Scheme, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(dialedUri.Host, advertisedUri.Host, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return !dialedUri.IsDefaultPort && advertisedUri.IsDefaultPort;
     }
 
     private static bool IsPlaceholderPeerHost(string host)

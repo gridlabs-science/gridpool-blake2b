@@ -14,7 +14,7 @@ BITCOIN_COOKIE_PATH="${BITCOIN_COOKIE_PATH:-/data/.bitcoin/.cookie}"
 BITCOIN_RPC_URL="${BITCOIN_RPC_URL:-http://10.21.21.8:8332}"
 BITCOIN_ZMQ_HASHBLOCK="${BITCOIN_ZMQ_HASHBLOCK:-tcp://10.21.21.8:28334}"
 GRIDPOOL_PAYOUT_URL="${GRIDPOOL_PAYOUT_URL:-http://127.0.0.1:5000/api/mining/payouts}"
-WAIT_TIMEOUT_SECONDS="${WAIT_TIMEOUT_SECONDS:-180}"
+WAIT_TIMEOUT_SECONDS="${WAIT_TIMEOUT_SECONDS:-0}"
 
 log() {
   printf '[hydrapool-gridpool-launcher] %s\n' "$*" >&2
@@ -30,7 +30,7 @@ wait_until() {
       return 0
     fi
     now="$(date +%s)"
-    if (( now - start >= WAIT_TIMEOUT_SECONDS )); then
+    if (( WAIT_TIMEOUT_SECONDS > 0 && now - start >= WAIT_TIMEOUT_SECONDS )); then
       log "timed out waiting for ${label}"
       return 1
     fi
@@ -68,6 +68,20 @@ if [[ -z "$rpc_user" || -z "$rpc_pass" || "$rpc_user" == "$rpc_pass" ]]; then
   log "failed to parse bitcoind RPC cookie"
   exit 1
 fi
+
+bitcoin_rpc_ready() {
+  local response
+  response="$(curl -fsS \
+    --user "${rpc_user}:${rpc_pass}" \
+    --data-binary '{"jsonrpc":"1.0","id":"health","method":"getblockchaininfo","params":[]}' \
+    -H 'content-type: text/plain;' \
+    "${BITCOIN_RPC_URL}/" 2>/dev/null)" || return 1
+
+  jq -e '.error == null and .result.initialblockdownload == false' >/dev/null <<<"$response"
+}
+
+wait_until "bitcoind RPC ready and out of initial block download at ${BITCOIN_RPC_URL}" \
+  bitcoin_rpc_ready
 
 if [[ "${DRY_RUN:-0}" == "1" ]]; then
   log "dry-run ok: dependencies ready and RPC cookie parsed"

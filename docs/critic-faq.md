@@ -112,14 +112,17 @@ validates:
 - proof difficulty and ranking
 
 When nodes disagree, they can exchange the proof bundle behind the competing
-state. A heavier valid Work Set or payout snapshot is not just an opinion. It is
-a set of independently verifiable proofs.
+state. The proof bundle is not accepted by reputation; each proof must validate
+against its header, merkle root, parent block, slot-0 attribution, and retained
+payout snapshot context.
 
-This is closer to "heaviest valid payout state" than to Nakamoto consensus over
-a separate chain. That is a simpler object, but it also means GridPool must
-measure convergence behavior carefully. The key open engineering question is
-not whether nodes can verify a candidate state. They can. The key question is
-how fast the peer network converges under latency, churn, and adversarial relay.
+V2.1 uses merge-forward recovery rather than ordinary same-round "heaviest
+branch" replacement. If a peer presents valid proofs on the current Bitcoin
+parent but against a divergent retained payout snapshot, those proofs can be
+merged into the unpaid Work Set for future snapshots. If a peer presents late
+proofs on the previous Bitcoin parent after the local node already observed the
+new block, those proofs are rejected or quarantined from the canonical reserve.
+This keeps accidental split recovery possible without trusting peer clocks.
 
 ## Why Not Use A Sharechain Like P2Pool?
 

@@ -6,25 +6,26 @@ This checklist is intentionally stricter than "public beta works on my machine."
 
 ## Launch Gate Summary
 
-- [ ] Consensus selection rule audited and frozen for the first packaged beta. Current V2 rule is documented; final freeze still needs external beta evidence.
+- [x] Consensus selection rule audited and frozen for the first packaged beta. V2.1 boundary/merge behavior is documented and regression-tested; rollout still requires coordination.
 - [x] Protocol/API/state/peer version fields and compatibility checks are implemented.
 - [ ] External multi-node beta runs stably for at least 7 consecutive days. Monitoring is implemented; the clock still needs to run.
 - [ ] Hidden/outbound-only node behavior is clear, observable, and safe.
 - [ ] Install and upgrade paths are repeatable on clean machines.
-- [ ] Public docs and UI match V2 snapshot/reserve consensus.
+- [ ] Public docs and UI match V2.1 snapshot/reserve consensus.
 - [x] Monitoring catches the failure classes already seen in public beta.
 - [ ] Repo is clean enough that outside contributors can orient quickly.
 
 ## G1: Consensus Selection And State Convergence
 
-Goal: keep V2 snapshot/reserve consensus predictable and safe enough for a short-term packaged beta. This gate is not trying to solve the full V3 branch-market / adversarial fork-choice research problem.
+Goal: keep V2.1 snapshot/reserve consensus predictable and safe enough for a short-term packaged beta. This gate is not trying to solve the full V3 branch-market / adversarial fork-choice research problem.
 
-Current V2 posture:
+Current V2.1 posture:
 
-- V2 keeps the existing "heaviest valid state" adoption rule for now.
 - Work Set and active snapshot proofs must remain fully validated before import.
 - Incompatible consensus or state-bundle schema versions must fail visibly and safely.
-- Same-snapshot Work Sets should converge through valid proof import and duplicate suppression.
+- Established nodes merge valid current-parent proofs from retained divergent snapshot contexts instead of replacing active snapshots wholesale.
+- A node must not rewrite an already-observed Bitcoin-block payout snapshot using proofs that first arrive after that node's local snapshot boundary. Late previous-parent proofs should be rejected or quarantined from the canonical future reserve. Valid current-parent proofs from divergent retained snapshot contexts should merge forward into the unpaid reserve.
+- "Heaviest state" adoption is limited to bootstrap/proofless recovery and future explicit consensus-version changes, not ordinary same-round active snapshot replacement.
 - Any deeper change to fork choice, boundary finality, or multi-branch markets must be a coordinated future consensus-version bump.
 
 Deferred research is already tracked in:
@@ -33,21 +34,26 @@ Deferred research is already tracked in:
 - [v3-branch-market-examples.md](v3-branch-market-examples.md)
 - [simulation-findings-2026-06.md](simulation-findings-2026-06.md)
 
-Short-term V2 checklist:
+Short-term V2.1 checklist:
 
-- [x] Document the current state-selection rule in code-level detail.
+- [x] Document the current boundary/merge state-convergence rule in code-level detail.
 - [x] Implement explicit consensus, state-bundle schema, HTTP API, peer transport, UDP relay, and release version fields.
 - [x] Reject incompatible consensus/state-bundle schema versions before import.
 - [x] Preserve HTTP fallback when only peer transport version differs.
 - [x] Add visible UI/API/monitor visibility for version mismatch.
-- [ ] Add a compact state-selection regression fixture with two competing valid states where the expected V2 winner is explicit.
+- [x] Add compact V2.1 state-convergence regression coverage for the two important cases: reject late previous-parent proofs and merge valid current-parent divergent proofs.
+- [x] Add a delayed-snapshot regression fixture: after a local node observes a Bitcoin block and activates a snapshot, a peer bundle with extra stale-parent proofs from the previous parent must not replace the active snapshot or enter the canonical future reserve.
+- [x] Add a split-recovery regression fixture: two nodes on the same current Bitcoin parent but different payout snapshot contexts should merge fully valid current-parent proofs into the unpaid reserve and converge at the next snapshot.
 - [ ] Run a multi-node public beta soak and confirm current/candidate state IDs converge without manual state wipes.
-- [ ] Decide whether V2 summed-difficulty state selection is "good enough for beta" or whether package launch waits for a coordinated V3 rule.
+- [x] Decide whether V2.1 state selection plus non-retroactive snapshot boundaries is "good enough for beta" or whether package launch waits for a coordinated V3 rule.
+- [ ] Coordinate V2.1 rollout: heal current public-node state first, then deploy code and config with `boot_protocol_version: 21` together on all participating nodes.
 
 Completion criteria:
 
 - A packaged node rejects incompatible consensus/schema versions instead of silently importing them.
-- Two live V2 nodes converge after temporary divergence without manual state wipes.
+- Two live V2.1 nodes converge after temporary divergence without manual state wipes.
+- A late stale-parent branch cannot pull an established node back to a different active snapshot for a Bitcoin block it already observed.
+- Public nodes advertise consensus/protocol version `21` after the coordinated V2.1 cutover.
 - No V3 or experimental fork-choice rule is required for the short-term development-mode beta.
 - Any later fork-choice redesign is documented as a future consensus-version bump, not as an implicit beta behavior change.
 
@@ -93,6 +99,7 @@ Goal: make the current beta boring before inviting one-click installers.
 - [x] Track DATUM session churn through existing diagnostics and rejection-rate alerts.
 - [x] Track real quickdiff submissions after the quickdiff reconstruction fix through local DATUM diagnostics.
 - [x] Write compact monitor logs for later Codex/human review.
+- [x] Add `dallas.gridpool.net` to the production monitor config once its deployed version is compatible.
 
 Completion criteria:
 
@@ -105,7 +112,8 @@ Completion criteria:
 Current evidence:
 
 - `scripts/gridpool-health-monitor.mjs` compares `mainnet-beta` nodes separately from `testnet4-beta`.
-- Live config currently monitors `main.gridpool.net`, `test.gridpool.net`, and `evomining.farted.net`.
+- Live config currently monitors `main.gridpool.net`, `test.gridpool.net`, `evomining.farted.net`, and `dallas.gridpool.net`.
+- DATUM TCP endpoint checks cover `datum.main.gridpool.net:3008`, `datum.test.gridpool.net:3009`, and `datum.dallas.gridpool.net:3008`.
 - Monitor logs are written to `~/.local/state/gridpool-monitor/latest-summary.json`, `latest-consensus.json`, and dated `snapshots/`, `consensus/`, and `alerts/` JSONL files.
 - As of the first dry run after this change, `main` and `evomining` were aligned on mainnet current/candidate/active snapshot IDs.
 
@@ -134,7 +142,7 @@ Completion criteria:
 Current evidence:
 
 - Implementation status is tracked in [robust-networking-architecture-plan.md](robust-networking-architecture-plan.md).
-- V2.1 hidden session accounting and direct live WebSocket share relay are implemented.
+- Hidden session accounting and direct live WebSocket share relay are implemented.
 - Seed-mediated hidden-to-hidden relay, NAT traversal, and automated port mapping remain open.
 
 ## G5: Packaging And Installer Readiness
@@ -198,7 +206,7 @@ Current evidence:
 
 ## G7: Public Docs, Website, And UI
 
-Goal: public-facing language must match V2 consensus and current operational reality.
+Goal: public-facing language must match V2.1 consensus and current operational reality.
 
 - [ ] Replace or remove the V1-era intro video.
 - [ ] Update website FAQ for pool hopping, payout snapshots, block withholding, firmware coinbase limits, and outbound-only nodes.
@@ -215,11 +223,11 @@ Completion criteria:
 - A user can tell whether they are looking at mainnet or testnet in under 3 seconds.
 - The UI does not imply that every Bitcoin block is a paid GridPool round.
 - Public docs explain why raw Stratum V1 is not native unless using a gateway.
-- Website and README describe V2 snapshot/reserve consensus.
+- Website and README describe V2.1 snapshot/reserve consensus.
 
 Current evidence:
 
-- README includes the DATUM block-submission safety note and V2 snapshot/reserve explanation.
+- README includes the DATUM block-submission safety note and V2.1 snapshot/reserve explanation.
 - Node UI now exposes protocol/network version fields in Nerd Mode.
 - Public website still needs the intro video refreshed and FAQ tightened for the latest consensus language.
 
@@ -234,7 +242,7 @@ Goal: keep failures visible and bounded.
 - [ ] Add rate limits for low-difficulty peer spam.
 - [ ] Add rate limits for state bundle fetches.
 - [x] Add health-monitor checks for GridPool block found, service down, peer divergence, version mismatch, coinbase stress mode, and DATUM acceptance drops.
-- [x] Add alert suppression so ordinary V2 snapshots do not page the operator.
+- [x] Add alert suppression so ordinary V2.1 snapshots do not page the operator.
 - [x] Add monitor logs and summaries for top rejection categories and node acceptance rates.
 - [x] Add lab-only uncondensed coinbase output mode for firmware/rental compatibility testing.
 
@@ -255,7 +263,7 @@ Current evidence:
 
 Before Umbrel/Start9 launch, answer yes to all:
 
-- [ ] Do we know the current consensus scoring rule is good enough for packaged beta?
+- [x] Do we know the current consensus rule is good enough for packaged beta?
 - [x] Can incompatible nodes fail safely?
 - [ ] Can an outbound-only home node participate usefully?
 - [ ] Can a fresh install sync without handholding?

@@ -19,8 +19,11 @@ so user-level timers do not accidentally run the old distro `node` binary.
   - `/health/ready`
   - `/api/network/summary`
   - `/api/network/state/{candidateStateId}`
+  - `/api/network/peer-relay-latency`
   - `/api/mining/payouts`
   - `/api/network/local-miners`
+- Public DATUM TCP endpoint reachability, for example
+  `datum.main.gridpool.net:3008` and `datum.dallas.gridpool.net:3008`
 - Hydrapool health and Prometheus metrics:
   - `/health`
   - `/metrics`
@@ -31,6 +34,7 @@ so user-level timers do not accidentally run the old distro `node` binary.
   - `docker.service`
 - Attention-worthy changes:
   - endpoints down for two consecutive checks
+  - public DATUM TCP endpoints unreachable
   - actual GridPool block found / payment snapshot paid
   - public nodes in the same consensus group disagreeing on protocol version,
     active snapshot, current state, or candidate state for multiple checks
@@ -220,10 +224,13 @@ Tune these fields first:
 
 - `nodes`: GridPool UI/API endpoints.
   - Use `consensusGroup` to compare only nodes that should agree. Example:
-    `mainnet-beta` for `main.gridpool.net` and `evomining.farted.net`, and
-    `testnet4-beta` for `test.gridpool.net`.
+    `mainnet-beta` for `main.gridpool.net`, `evomining.farted.net`, and
+    `dallas.gridpool.net`, and `testnet4-beta` for `test.gridpool.net`.
   - `minimumPeerCount` is checked per node, but hidden/NATed peers may still
     be visible only through another public node.
+- `tcpEndpoints`: plain TCP endpoint checks for DATUM or other public mining
+  listener ports. These checks only verify that TCP connects; they do not run a
+  full DATUM handshake.
 - `hydrapools`: Hydrapool API endpoints.
 - `services`: local systemd services to check.
 - `knownAddresses`: addresses that should not trigger unknown-address alerts.
@@ -255,7 +262,8 @@ The monitor writes compact logs intended for quick review by a human or Codex:
 The JSONL files intentionally omit full state bundles. They preserve the
 important operational facts: endpoint status, version numbers, state IDs,
 snapshot IDs, Work Set counts, hashrate, local DATUM reject rate, peer counts,
-and consensus-group divergence.
+consensus-group divergence, endpoint timing, TCP endpoint status, and compact
+peer relay latency summaries from `/api/network/peer-relay-latency`.
 
 ## Files
 
