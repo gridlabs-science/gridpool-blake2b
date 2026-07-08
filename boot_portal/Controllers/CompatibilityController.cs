@@ -83,6 +83,12 @@ public class CompatibilityController : ControllerBase
       <thead><tr><th>Tester</th><th>Worker</th><th>Status</th><th>Coinbase</th><th>Unsafe</th><th>Accepted</th><th>Rejected</th><th>User agent</th></tr></thead>
       <tbody id="clients"></tbody>
     </table>
+    <h3>Recent compatibility events</h3>
+    <p>Fast disconnects may appear here even when the client is gone before the DATUM live client list refreshes.</p>
+    <table>
+      <thead><tr><th>Time</th><th>Event</th><th>Fingerprint</th><th>Forced</th><th>User agent</th></tr></thead>
+      <tbody id="events"></tbody>
+    </table>
   </section>
 </main>
 <script>
@@ -106,6 +112,15 @@ async function refresh() {
     <td>${esc(c.acceptedShareCount ?? 0)}</td>
     <td>${esc(c.rejectedShareCount ?? 0)}</td>
     <td>${esc(c.userAgent || "")}</td>
+  </tr>`).join("");
+  const events = Array.isArray(data.telemetry?.recentEvents) ? data.telemetry.recentEvents.slice(-25).reverse() : [];
+  const eventBody = document.getElementById("events");
+  eventBody.innerHTML = events.map(e => `<tr>
+    <td>${esc(e.timestamp || "")}</td>
+    <td><span class="pill">${esc(e.type || "")}</span></td>
+    <td>${esc(e.fingerprintedClass ?? "")}</td>
+    <td>${esc(e.forcedClass ?? "")}</td>
+    <td>${esc(e.userAgent || "")}</td>
   </tr>`).join("");
 }
 refresh();

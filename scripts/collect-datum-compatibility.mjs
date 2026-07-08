@@ -29,6 +29,7 @@ Options:
   --password-env <name>   Env var containing DATUM API password (default: DATUM_API_PASSWORD)
   --out <file>            Sanitized public telemetry output JSON
   --raw-log <file>        Optional local-only raw JSONL append log
+  --datum-log <file>      Optional DATUM log file for recent compatibility events
   --salt-env <name>       Env var for IP hash salt (default: GRIDPOOL_COMPAT_SALT)
   --help                  Show this help
 `);
@@ -75,6 +76,59 @@ function classifyClient(client) {
     return "subscribed";
 }
 
+function tailFile(filePath, maxBytes = 512 * 1024) {
+    if (!filePath || !fs.existsSync(filePath)) return "";
+    const stat = fs.statSync(filePath);
+    const start = Math.max(0, stat.size - maxBytes);
+    const length = stat.size - start;
+    const fd = fs.openSync(filePath, "r");
+    try {
+        const buffer = Buffer.alloc(length);
+        fs.readSync(fd, buffer, 0, length, start);
+        return buffer.toString("utf8");
+    } finally {
+        fs.closeSync(fd);
+    }
+}
+
+function parseDatumCompatibilityEvents(logPath) {
+    const text = tailFile(logPath);
+    if (!text) return [];
+
+    const events = [];
+    for (const line of text.split(/\r?\n/)) {
+        if (!line.includes("coinbase") && !line.includes("UNSAFE") && !line.includes("Unsafe")) continue;
+
+        let type = "";
+        if (line.includes("Deferring Stratum work")) {
+            type = "blocked-awaiting-unsafe-override";
+        } else if (line.includes("Disconnecting Stratum client") && line.includes("forced coinbase template")) {
+            type = "blocked-without-unsafe-override";
+        } else if (line.includes("Unsafe full-coinbase override enabled")) {
+            type = "unsafe-override-enabled";
+        } else {
+            continue;
+        }
+
+        const timestamp = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?)/)?.[1] || "";
+        const userAgent = line.match(/Stratum client \"([^\"]+)\"/)?.[1] ||
+            line.match(/for \"([^\"]+)\"/)?.[1] ||
+            "";
+        const fingerprintedClass = line.match(/fingerprinted coinbase class (\d+)/)?.[1] || "";
+        const forcedClass = line.match(/forced class (\d+)/)?.[1] || "";
+
+        events.push({
+            timestamp,
+            type,
+            userAgent,
+            fingerprintedClass: fingerprintedClass ? Number(fingerprintedClass) : null,
+            forcedClass: forcedClass ? Number(forcedClass) : null
+        });
+    }
+
+    return events.slice(-100);
+}
+
 function fetchDatumJson(datumUrl, user, password) {
     const result = spawnSync("curl", [
         "-fsS",
@@ -113,6 +167,7 @@ function main() {
     const salt = process.env[saltEnv] || os.hostname();
     const outPath = expandHome(args.out || DEFAULT_OUT);
     const rawLogPath = args["raw-log"] ? expandHome(args["raw-log"]) : "";
+    const datumLogPath = args["datum-log"] ? expandHome(args["datum-log"]) : "";
 
     const raw = fetchDatumJson(datumUrl, user, password);
     const nowUtc = new Date().toISOString();
@@ -149,10 +204,13 @@ function main() {
             connected: sanitizedClients.length,
             unsafeOverride: sanitizedClients.filter((client) => client.unsafeFullCoinbaseOverride).length,
             waitingForUnsafeOverride: sanitizedClients.filter((client) => client.waitingForUnsafeOverride).length,
-            submittingShares: sanitizedClients.filter((client) => client.status === "submitting-shares").length
+            submittingShares: sanitizedClients.filter((client) => client.status === "submitting-shares").length,
+            recentEvents: 0
         },
-        clients: sanitizedClients
+        clients: sanitizedClients,
+        recentEvents: parseDatumCompatibilityEvents(datumLogPath)
     };
+    summary.totals.recentEvents = summary.recentEvents.length;
 
     ensureParent(outPath);
     fs.writeFileSync(outPath, `${JSON.stringify(summary, null, 2)}\n`, { mode: 0o644 });
