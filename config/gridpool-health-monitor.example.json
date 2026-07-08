@@ -15,7 +15,7 @@
     "commandChatIdsEnv": "TELEGRAM_COMMAND_CHAT_IDS"
   },
   "codex": {
-    "enabled": true,
+    "enabled": false,
     "repoDir": "/home/keegreil/Documents/GitHub/boot-protocol",
     "timeoutSeconds": 600,
     "model": "",
@@ -35,6 +35,7 @@
     "endpointFailureConsecutive": 2,
     "consensusDivergenceConsecutive": 2,
     "candidateDivergenceConsecutive": 3,
+    "candidateDivergenceMinimumMinutes": 10,
     "datumRejectRateMax": 0.1,
     "datumRejectRateMinSubmissions": 25,
     "hashrateDropFraction": 0.35,

@@ -172,7 +172,6 @@ Send these to the bot from an allowed chat:
 
 - `/status`: compact live status.
 - `/digest`: full digest immediately.
-- `/investigate`: launch a Codex investigation on the latest state.
 - `/silence 2h`: mute non-critical alerts for two hours.
 - `/help`: command list.
 
@@ -180,7 +179,11 @@ Only chats listed in `TELEGRAM_COMMAND_CHAT_IDS` can use commands. Other chats l
 
 ## Codex Investigation
 
-When warning or critical incidents are delivered, the monitor can run:
+Codex investigation is disabled by default. When disabled, `/help` does not list
+`/investigate`, and direct `/investigate` requests receive a disabled message.
+
+If `codex.enabled` is explicitly set to `true`, warning or critical incidents
+can run:
 
 ```bash
 codex exec -C /home/keegreil/Documents/GitHub/boot-protocol \
@@ -205,6 +208,9 @@ Incident packets and Codex findings are written under:
 ```bash
 ~/.local/state/gridpool-monitor/incidents/
 ```
+
+Keep this disabled for shared operator chats unless everyone in
+`TELEGRAM_COMMAND_CHAT_IDS` should be able to request local Codex diagnostics.
 
 ## Configuration
 
@@ -237,6 +243,11 @@ Tune these fields first:
 - `thresholds.consensusDivergenceConsecutive`: default `2`.
 - `thresholds.candidateDivergenceConsecutive`: default `3`, because candidate
   state can drift briefly while shares propagate.
+- `thresholds.candidateDivergenceMinimumMinutes`: default `10`. Candidate-only
+  divergence alerts are emitted only when current state and active snapshot are
+  still aligned and the candidate mismatch persists for at least this long.
+  Current-state, active-snapshot, consensus-version, and schema-version
+  divergence remain higher-priority alerts.
 - `thresholds.datumRejectRateMax`: default `0.10`.
 - `thresholds.hashrateDropFraction`: default `0.35`.
 - `thresholds.hashrateSpikeMultiplier`: default `2.0`.

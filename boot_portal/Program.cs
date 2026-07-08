@@ -81,6 +81,21 @@ public class PoolConfig
     [JsonPropertyName("coinbase_uncondensed_outputs_enabled")]
     public bool CoinbaseUncondensedOutputsEnabled { get; set; } = false;
 
+    [JsonPropertyName("compatibility_page_enabled")]
+    public bool CompatibilityPageEnabled { get; set; } = true;
+
+    [JsonPropertyName("compatibility_telemetry_path")]
+    public string CompatibilityTelemetryPath { get; set; } = string.Empty;
+
+    [JsonPropertyName("compatibility_stratum_public_host")]
+    public string CompatibilityStratumPublicHost { get; set; } = string.Empty;
+
+    [JsonPropertyName("compatibility_stratum_public_port")]
+    public int CompatibilityStratumPublicPort { get; set; } = 0;
+
+    [JsonPropertyName("compatibility_unsafe_override_phrase")]
+    public string CompatibilityUnsafeOverridePhrase { get; set; } = "UNSAFE_FULL_COINBASE";
+
     [JsonPropertyName("genesis_round_start_utc")]
     public DateTime? GenesisRoundStartUtc { get; set; }
 

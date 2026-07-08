@@ -25,6 +25,7 @@ TELEGRAM_ALLOWED_CHAT_IDS=
 
 # Optional comma-separated Telegram chat IDs allowed to issue bot commands.
 # If empty, TELEGRAM_ALLOWED_CHAT_IDS can issue commands for backward compatibility.
+# Keep receive-only observers out of this list.
 TELEGRAM_COMMAND_CHAT_IDS=
 
 # Hydrapool API credentials. Defaults are shown here for the current beta setup.

@@ -32,7 +32,7 @@ const DEFAULT_CONFIG = {
         commandChatIdsEnv: "TELEGRAM_COMMAND_CHAT_IDS"
     },
     codex: {
-        enabled: true,
+        enabled: false,
         repoDir: process.cwd(),
         timeoutSeconds: 600,
         model: "",
@@ -42,6 +42,7 @@ const DEFAULT_CONFIG = {
         endpointFailureConsecutive: 2,
         consensusDivergenceConsecutive: 2,
         candidateDivergenceConsecutive: 3,
+        candidateDivergenceMinimumMinutes: 10,
         datumRejectRateMax: 0.10,
         datumRejectRateMinSubmissions: 25,
         hashrateDropFraction: 0.35,
@@ -194,6 +195,7 @@ function loadState(stateDir) {
         version: SCRIPT_VERSION,
         initialized: false,
         failureCounts: {},
+        failureFirstSeenUtc: {},
         alertCooldowns: {},
         codexCooldowns: {},
         hashrateHistory: {},
@@ -807,7 +809,14 @@ function maybeAddConsensusComparisonAlerts(alerts, snapshot, state, config) {
         addDivergenceAlertForField(alerts, state, config, group, "stateBundleSchemaVersion", "state schema version", true);
         addDivergenceAlertForField(alerts, state, config, group, "currentStateId", "current state", true);
         addDivergenceAlertForField(alerts, state, config, group, "activeSnapshotId", "active snapshot", true);
-        addDivergenceAlertForField(alerts, state, config, group, "candidateStateId", "candidate state", false);
+
+        const hardDivergence = ["consensusVersion", "stateBundleSchemaVersion", "currentStateId", "activeSnapshotId"]
+            .some(fieldName => fieldDiverges(group, fieldName));
+        if (!hardDivergence) {
+            addDivergenceAlertForField(alerts, state, config, group, "candidateStateId", "candidate state", false);
+        } else {
+            resetFailure(state, `consensus:${group.groupKey}:candidateStateId`);
+        }
 
         const workSetCounts = group.nodes
             .map(node => Number(node.workSetCount))
@@ -831,7 +840,7 @@ function maybeAddConsensusComparisonAlerts(alerts, snapshot, state, config) {
 }
 
 function addDivergenceAlertForField(alerts, state, config, group, fieldName, label, immediate) {
-    const values = [...new Set(group.nodes.map(node => normalizeId(node[fieldName])).filter(Boolean))];
+    const values = divergentValues(group, fieldName);
     const key = `consensus:${group.groupKey}:${fieldName}`;
     if (values.length <= 1) {
         resetFailure(state, key);
@@ -844,6 +853,14 @@ function addDivergenceAlertForField(alerts, state, config, group, fieldName, lab
         : Number(config.thresholds.candidateDivergenceConsecutive || 3);
     if (count < threshold) return;
 
+    if (!immediate) {
+        const firstSeen = parseDate(state.failureFirstSeenUtc?.[key]);
+        const minimumMinutes = Number(config.thresholds.candidateDivergenceMinimumMinutes ?? 10);
+        if (minimumMinutes > 0 && (!firstSeen || Date.now() - firstSeen < minimumMinutes * 60_000)) {
+            return;
+        }
+    }
+
     alerts.push({
         severity: immediate ? "critical" : "warning",
         category: immediate ? "consensus-divergence" : "candidate-divergence",
@@ -854,13 +871,28 @@ function addDivergenceAlertForField(alerts, state, config, group, fieldName, lab
     });
 }
 
+function fieldDiverges(group, fieldName) {
+    return divergentValues(group, fieldName).length > 1;
+}
+
+function divergentValues(group, fieldName) {
+    return [...new Set(group.nodes.map(node => normalizeId(node[fieldName])).filter(Boolean))];
+}
+
 function incrementFailure(state, key) {
     state.failureCounts[key] = Number(state.failureCounts[key] || 0) + 1;
+    state.failureFirstSeenUtc ||= {};
+    if (!state.failureFirstSeenUtc[key]) {
+        state.failureFirstSeenUtc[key] = currentIso();
+    }
     return state.failureCounts[key];
 }
 
 function resetFailure(state, key) {
     state.failureCounts[key] = 0;
+    if (state.failureFirstSeenUtc) {
+        delete state.failureFirstSeenUtc[key];
+    }
 }
 
 function maybeAddGridPoolBlockAlerts(alerts, node, state) {
@@ -1409,12 +1441,20 @@ async function processTelegramCommands(telegram, state, snapshot, config, stateD
         } else if (text.startsWith("/digest")) {
             await telegram.sendMessage(buildDigest(snapshot, state), [chatId]);
         } else if (text.startsWith("/help")) {
-            await telegram.sendMessage("Commands: /status, /digest, /investigate, /silence 2h, /help", [chatId]);
+            const commands = ["/status", "/digest", "/silence 2h", "/help"];
+            if (config.codex?.enabled) {
+                commands.splice(2, 0, "/investigate");
+            }
+            await telegram.sendMessage(`Commands: ${commands.join(", ")}`, [chatId]);
         } else if (text.startsWith("/silence")) {
             const duration = parseDurationMs(text.split(/\s+/)[1] || "2h") || (2 * 60 * 60_000);
             state.telegram.silencedUntilUtc = new Date(Date.now() + duration).toISOString();
             await telegram.sendMessage(`Non-critical alerts silenced until ${state.telegram.silencedUntilUtc}.`, [chatId]);
         } else if (text.startsWith("/investigate")) {
+            if (!config.codex?.enabled) {
+                await telegram.sendMessage("Codex investigation is disabled on this monitor. Use /status or /digest, then inspect the monitor logs manually.", [chatId]);
+                continue;
+            }
             const incident = {
                 severity: "warning",
                 category: "manual-investigation",

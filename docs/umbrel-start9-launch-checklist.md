@@ -12,7 +12,7 @@ This checklist is intentionally stricter than "public beta works on my machine."
 - [ ] Hidden/outbound-only node behavior is clear, observable, and safe.
 - [ ] Install and upgrade paths are repeatable on clean machines.
 - [ ] Public docs and UI match V2.1 snapshot/reserve consensus.
-- [ ] Firmware and rental compatibility with 300-slot coinbases is tested and documented.
+- [ ] Firmware and rental compatibility with 300-slot coinbases is tested and documented. The community matrix shell exists, but enough real test rows have not been collected yet.
 - [x] Monitoring catches the failure classes already seen in public beta.
 - [ ] Repo is clean enough that outside contributors can orient quickly. G6 now has a target architecture map; remaining work is README/docs pruning and more archive passes.
 
@@ -47,7 +47,7 @@ Short-term V2.1 checklist:
 - [x] Add a split-recovery regression fixture: two nodes on the same current Bitcoin parent but different payout snapshot contexts should merge fully valid current-parent proofs into the unpaid reserve and converge at the next snapshot.
 - [ ] Run a multi-node public beta soak and confirm current/candidate state IDs converge without manual state wipes.
 - [x] Decide whether V2.1 state selection plus non-retroactive snapshot boundaries is "good enough for beta" or whether package launch waits for a coordinated V3 rule.
-- [ ] Coordinate V2.1 rollout: heal current public-node state first, then deploy code and config with `boot_protocol_version: 21` together on all participating nodes.
+- [x] Coordinate V2.1 rollout: heal current public-node state first, then deploy code and config with `boot_protocol_version: 21` together on all participating nodes.
 
 Completion criteria:
 
@@ -184,13 +184,17 @@ Current evidence:
 
 Goal: avoid launching a 300-slot team that silently breaks common ASIC firmware or rental intermediaries.
 
-- [ ] Build a repeatable firmware compatibility matrix for the 300-slot beta team.
+- [x] Build a repeatable community firmware compatibility matrix shell for the 300-slot beta team.
 - [ ] Test uncondensed 300-output coinbases against known-good sovereign firmware.
 - [ ] Test uncondensed 300-output coinbases against stock/older Bitmain-class firmware if available, and document failure behavior rather than supporting it silently.
 - [ ] Test at least one Whatsminer-class setup, one Bitaxe/AxeOS-class setup, and one alternate firmware path such as ePIC/PowerPlay-BM or VNish/xminer-class firmware.
 - [ ] Test hashrate rental paths before recommending any provider publicly.
-- [ ] Publish a public compatibility table with `works`, `fails`, `untested`, and `requires alternate firmware` states.
+- [x] Publish a public compatibility table with `works`, `fails`, `untested`, `suspected works`, `suspected fails`, and `requires alternate firmware` states.
 - [ ] Add a UI/API warning when firmware truncation rejects are observed repeatedly from a local DATUM session.
+- [x] Investigate whether DATUM coinbase-size selection can be made GridPool-safe with existing config. See [datum-gridpool-coinbase-compatibility.md](datum-gridpool-coinbase-compatibility.md).
+- [x] Propose or track a DATUM operating mode that can force or require a large coinbase class for GridPool-compatible templates.
+- [ ] Stand up the testnet full-coinbase compatibility endpoint with `coinbase_uncondensed_outputs_enabled: true`, separate state or network ID, and public `/compat` telemetry.
+- [ ] Expose DATUM Stratum V1 on `stratum.test.gridpool.net:3334` for first-pass firmware and rental-provider testing.
 - [ ] Complete the Stratum V2/GridPool integration review in [stratum-v2-gridpool-evaluation.md](stratum-v2-gridpool-evaluation.md).
 - [ ] Decide whether Stratum V2 standard-channel/header-only mining is the preferred long-term path for avoiding ASIC coinbase-size constraints.
 
@@ -204,7 +208,10 @@ Current evidence:
 
 - Strict firmware truncation detection is implemented and tested.
 - `coinbase_uncondensed_outputs_enabled` exists for non-production firmware/rental stress testing.
-- Current support docs warn that some firmware cannot handle large coinbase templates, but the compatibility matrix is not yet built.
+- Current support docs warn that some firmware cannot handle large coinbase templates, and the community matrix shell lives in [firmware-coinbase-compatibility-matrix.md](firmware-coinbase-compatibility-matrix.md).
+- Existing DATUM `stratum.fingerprint_miners` does not solve this. Unknown miners default to a smaller Antminer-compatible coinbase class, and disabling fingerprinting makes that worse. A full 300-unique-address GridPool list likely requires DATUM's 16 KB `YUGE` class or an equivalent Stratum V2/header-only path.
+- A DATUM PR now exists for `coinbase_selection_mode = "force"` plus known-incompatible client disconnects before oversized work is served.
+- The first recommended lab endpoint shape is `test.gridpool.net/compat`, `datum.test.gridpool.net:3009` for DATUM gateways, and `stratum.test.gridpool.net:3334` for raw Stratum V1 ASICs, backed by testnet uncondensed output mode.
 
 ## G6: Repo And Project Architecture
 

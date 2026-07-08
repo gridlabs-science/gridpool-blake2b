@@ -23,6 +23,7 @@ are the best current references.
 
 - [Mainnet Beta Service Runbook](mainnet-beta-service-runbook.md)
 - [GridPool Health Monitor](gridpool-health-monitor.md)
+- [Testnet Full-Coinbase Compatibility Endpoint](testnet-full-coinbase-compatibility-endpoint.md)
 - [Raspberry Pi Sovereign Stack Installer](raspberry-pi-one-shot-installer.md)
 - [Testnet4 Real-Trigger Runbook](testnet4-real-trigger-runbook.md)
 
@@ -36,6 +37,7 @@ are the best current references.
 - [Hydrapool HTTP Submission](hydrapool-http-submission.md)
 - [DATUM Upstream Server Compatibility Notes](datum-server-compatibility-notes.md)
 - [Stratum V2 / GridPool Evaluation](stratum-v2-gridpool-evaluation.md)
+- [Firmware Coinbase Compatibility Matrix](firmware-coinbase-compatibility-matrix.md)
 
 ## Research And Testing
 

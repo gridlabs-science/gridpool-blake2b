@@ -62,6 +62,7 @@ Firmware compatibility warning:
 - Prefer DATUM setups using firmware known to support larger coinbases, such as ePIC / PowerPlay-BM, VNish / xminer-class firmware, Whatsminer-class firmware, Bitaxe, or other firmware that DATUM fingerprints into larger coinbase classes.
 - If older Antminer hardware cannot run compatible alternative firmware, wait for future smaller-team GridPool compatibility tiers rather than mining on the 300-slot beta.
 - Operators can temporarily set `coinbase_uncondensed_outputs_enabled: true` in non-production lab configs to force DATUM to serve the full uncondensed payout-output set for firmware or rental-provider compatibility testing. Do not use that mode on production nodes.
+- Compatibility results are tracked in `docs/firmware-coinbase-compatibility-matrix.md`. This is a community-maintained matrix; please submit PRs with exact firmware, gateway, and test-mode details.
 
 If you need a full fresh sovereign stack, including pruned Bitcoin Core and DATUM Gateway, use the full-stack installer in `docs/raspberry-pi-one-shot-installer.md`.
 
