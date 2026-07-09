@@ -1,6 +1,7 @@
 # Stratum V2 / GridPool Evaluation
 
-Status: draft research note.
+Status: research note. The selected MVP path is documented in
+`docs/stratum-v2-gridpool-integration-plan.md`.
 
 Purpose: evaluate whether Stratum V2 can remove or reduce GridPool's miner-firmware coinbase-size constraint, especially for the 300-slot payout list.
 
@@ -130,7 +131,13 @@ Cons:
 2. Use `coinbase_uncondensed_outputs_enabled` on non-production nodes to build a firmware/rental compatibility matrix.
 3. Warn users that 300-slot GridPool requires firmware or proxy software that can handle large payout coinbases unless using a header-only/native SV2 path in the future.
 4. Treat SV2 as a serious post-V2.1 integration track, not a quick patch.
-5. Start with a design doc and prototype proxy, not a full rewrite of the reference node.
+5. Start with a sidecar adapter that implements the pool-side SV2 Pool Service / Job Declarator Server behavior and converts SV2 custom-job shares into GridPool's existing full-proof HTTP submission format.
+6. Target coinbase-only Job Declaration first, preserving miner transaction-set privacy while keeping GridPool's slot-0 attribution and payout-output validation.
+
+GridPool now exposes `GET /api/mining/sv2-work-selection` as the stable node-side
+contract for that adapter. The endpoint returns active snapshot metadata,
+serialized GridPool coinbase payout outputs, and the current reserve admission
+difficulty. Share submission remains `POST /api/mining/share`.
 
 ## Launch Checklist Impact
 

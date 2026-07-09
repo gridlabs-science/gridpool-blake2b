@@ -193,9 +193,9 @@ Goal: avoid launching a 300-slot team that silently breaks common ASIC firmware 
 - [ ] Add a UI/API warning when firmware truncation rejects are observed repeatedly from a local DATUM session.
 - [x] Investigate whether DATUM coinbase-size selection can be made GridPool-safe with existing config. See [datum-gridpool-coinbase-compatibility.md](datum-gridpool-coinbase-compatibility.md).
 - [x] Propose or track a DATUM operating mode that can force or require a large coinbase class for GridPool-compatible templates.
-- [ ] Stand up the testnet full-coinbase compatibility endpoint with `coinbase_uncondensed_outputs_enabled: true`, separate state or network ID, and public `/compat` telemetry.
-- [ ] Expose DATUM Stratum V1 on `stratum.test.gridpool.net:3334` for first-pass firmware and rental-provider testing.
-- [ ] Complete the Stratum V2/GridPool integration review in [stratum-v2-gridpool-evaluation.md](stratum-v2-gridpool-evaluation.md).
+- [x] Stand up the testnet full-coinbase compatibility endpoint with `coinbase_uncondensed_outputs_enabled: true`, separate state or network ID, and public `/compat` telemetry.
+- [x] Expose DATUM Stratum V1 on `stratum.test.gridpool.net:3334` for first-pass firmware and rental-provider testing.
+- [x] Complete the Stratum V2/GridPool integration review in [stratum-v2-gridpool-evaluation.md](stratum-v2-gridpool-evaluation.md).
 - [ ] Decide whether Stratum V2 standard-channel/header-only mining is the preferred long-term path for avoiding ASIC coinbase-size constraints.
 
 Completion criteria:

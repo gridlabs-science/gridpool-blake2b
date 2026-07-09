@@ -1120,6 +1120,50 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public void Sv2WorkSelectionReturnsConsensusSerializedCoinbaseOutputs()
+    {
+        var winners = new List<PayoutInfo>
+        {
+            new() { Address = SampleSlotZeroAddress, Username = "a", Value = 1000, Difficulty = 100 },
+            new() { Address = SampleSlotZeroAddress, Username = "a", Value = 2000, Difficulty = 90 },
+            new() { Address = AlternateAddress, Username = "b", Value = 3000, Difficulty = 80 }
+        };
+
+        using var harness = TestHarness.Create(winnersList: winners);
+
+        Sv2WorkSelectionDto response = harness.StateService.GetSv2WorkSelectionResponse();
+
+        Assert.AreEqual("coinbase-only", response.Mode);
+        Assert.AreEqual(harness.Config.BootNetworkId, response.NetworkId);
+        Assert.AreEqual(harness.Config.BitcoinNetwork, response.BitcoinNetwork);
+        Assert.AreEqual(harness.Config.BootProtocolVersion, response.ProtocolVersion);
+        Assert.AreEqual("seed-current", response.ActiveSnapshotId);
+        Assert.AreEqual(2, response.CoinbaseOutputCount);
+        Assert.AreEqual(2, response.CoinbaseOutputs.Count);
+
+        string expectedHex = "02" + string.Concat(response.CoinbaseOutputs.Select(output => output.OutputHex));
+        Assert.AreEqual(expectedHex, response.CoinbaseTxOutputsHex);
+        Assert.AreEqual(Convert.FromHexString(expectedHex).Length, response.CoinbaseTxOutputsBytes);
+        Assert.AreEqual(3000UL, response.CoinbaseOutputs.Single(output => output.Address == SampleSlotZeroAddress).Value);
+        Assert.AreEqual(3000UL, response.CoinbaseOutputs.Single(output => output.Address == AlternateAddress).Value);
+    }
+
+    [TestMethod]
+    public void BitcoinTransactionSerializationUsesCompactSizeForLargeSv2OutputSets()
+    {
+        byte[] script = BitcoinScript.AddressToScriptPubKey(SampleSlotZeroAddress, BitcoinScript.Mainnet);
+        var outputs = Enumerable.Range(0, 300)
+            .Select(_ => (Value: 1UL, ScriptPubKey: script))
+            .ToList();
+
+        byte[] serialized = BitcoinTransactionSerialization.SerializeTxOutputs(outputs);
+
+        Assert.AreEqual(0xfd, serialized[0]);
+        Assert.AreEqual(300, BinaryPrimitives.ReadUInt16LittleEndian(serialized.AsSpan(1, 2)));
+        Assert.AreEqual(3 + (8 + 1 + script.Length) * 300, serialized.Length);
+    }
+
+    [TestMethod]
     public async Task SupportFeePaymentRemovesOnlyActuallyPaidSharedProofsAsync()
     {
         BootShareProof[] seedProofs =

@@ -50,3 +50,39 @@ public class MiningShareAdviceDto
     public string BestOnDeckDifficultyDisplay { get; set; } = "--";
     public string SubmitRule { get; set; } = string.Empty;
 }
+
+public class Sv2WorkSelectionDto
+{
+    public long Sequence { get; set; }
+    public string NetworkId { get; set; } = string.Empty;
+    public string BitcoinNetwork { get; set; } = string.Empty;
+    public int ProtocolVersion { get; set; }
+    public string ActiveSnapshotId { get; set; } = string.Empty;
+    public string CurrentStateId { get; set; } = string.Empty;
+    public string CandidateStateId { get; set; } = string.Empty;
+    public string? CurrentTipBlockHash { get; set; }
+    public long? CurrentTipBlockHeight { get; set; }
+    public int TotalPayoutSlotCount { get; set; }
+    public int SharedWinnerSlotCount { get; set; }
+    public bool SupportFeeEnabled { get; set; }
+    public int CoinbaseOutputCount { get; set; }
+    public int CoinbaseTxOutputsBytes { get; set; }
+    public string CoinbaseTxOutputsHex { get; set; } = string.Empty;
+    public List<Sv2CoinbaseOutputDto> CoinbaseOutputs { get; set; } = [];
+    public double MinimumAcceptedDifficulty { get; set; } = 1;
+    public double MinimumDifficultyToEnterReserve { get; set; } = 1;
+    public string MinimumDifficultyToEnterReserveDisplay { get; set; } = "1";
+    public string UserIdentifierRule { get; set; } = string.Empty;
+    public string Mode { get; set; } = "coinbase-only";
+}
+
+public class Sv2CoinbaseOutputDto
+{
+    public ulong Value { get; set; }
+    public string Address { get; set; } = string.Empty;
+    public string ScriptPubKeyHex { get; set; } = string.Empty;
+    public string OutputHex { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public double Difficulty { get; set; }
+    public string DiffString { get; set; } = "0";
+}

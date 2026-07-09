@@ -95,6 +95,7 @@ Notes:
 - Back up the Docker `./data` directory before machine moves, package upgrades, or host rebuilds. It contains live config, server identity keys, pool state, and history.
 - Hydrapool and other direct HTTP submitters should follow `docs/hydrapool-http-submission.md`.
 - DATUM-server implementers should review `docs/datum-server-compatibility-notes.md` for coinbaser ID, payout snapshot, and share hot-path requirements.
+- Stratum V2 integration is planned as a pool-side Job Declaration adapter. See `docs/stratum-v2-gridpool-integration-plan.md`; the node exposes `GET /api/mining/sv2-work-selection` for adapter work selection.
 
 ## Raspberry Pi Full-Stack Sovereign Install
 For a one-shot Raspberry Pi / Ubuntu install that sets up a pruned Bitcoin Core node, DATUM Gateway, and GridPool together, see `docs/raspberry-pi-one-shot-installer.md`.

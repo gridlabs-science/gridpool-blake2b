@@ -9,10 +9,13 @@ set -euo pipefail
 HYDRAPOOL_DIR="${HYDRAPOOL_DIR:-/home/keegreil/Documents/GitHub/hydrapool}"
 HYDRAPOOL_CONFIG="${HYDRAPOOL_CONFIG:-${HYDRAPOOL_DIR}/config.toml}"
 HYDRAPOOL_BIN="${HYDRAPOOL_BIN:-${HYDRAPOOL_DIR}/target/debug/hydrapool}"
-BITCOIN_CONTAINER="${BITCOIN_CONTAINER:-bitcoin_bitcoind_1}"
+BITCOIN_CONTAINER="${BITCOIN_CONTAINER:-}"
+BITCOIN_COOKIE_FILE="${BITCOIN_COOKIE_FILE:-/home/keegreil/.bitcoin/.cookie}"
 BITCOIN_COOKIE_PATH="${BITCOIN_COOKIE_PATH:-/data/.bitcoin/.cookie}"
-BITCOIN_RPC_URL="${BITCOIN_RPC_URL:-http://10.21.21.8:8332}"
-BITCOIN_ZMQ_HASHBLOCK="${BITCOIN_ZMQ_HASHBLOCK:-tcp://10.21.21.8:28334}"
+BITCOIN_RPC_URL="${BITCOIN_RPC_URL:-http://127.0.0.1:8334}"
+BITCOIN_RPC_USERNAME="${BITCOIN_RPC_USERNAME:-}"
+BITCOIN_RPC_PASSWORD="${BITCOIN_RPC_PASSWORD:-}"
+BITCOIN_ZMQ_HASHBLOCK="${BITCOIN_ZMQ_HASHBLOCK:-tcp://127.0.0.1:28342}"
 GRIDPOOL_PAYOUT_URL="${GRIDPOOL_PAYOUT_URL:-http://127.0.0.1:5000/api/mining/payouts}"
 WAIT_TIMEOUT_SECONDS="${WAIT_TIMEOUT_SECONDS:-0}"
 
@@ -52,15 +55,26 @@ if [[ ! -f "$HYDRAPOOL_CONFIG" ]]; then
   exit 1
 fi
 
-wait_until "Docker container ${BITCOIN_CONTAINER}" bitcoin_container_running
-
 wait_until "GridPool payout API ${GRIDPOOL_PAYOUT_URL}" \
   curl -fsS "$GRIDPOOL_PAYOUT_URL"
 
-wait_until "bitcoind RPC cookie ${BITCOIN_CONTAINER}:${BITCOIN_COOKIE_PATH}" \
-  docker exec "$BITCOIN_CONTAINER" sh -lc "test -s '${BITCOIN_COOKIE_PATH}'"
+if [[ -n "$BITCOIN_CONTAINER" ]]; then
+  wait_until "Docker container ${BITCOIN_CONTAINER}" bitcoin_container_running
 
-cookie="$(docker exec "$BITCOIN_CONTAINER" sh -lc "cat '${BITCOIN_COOKIE_PATH}'")"
+  wait_until "bitcoind RPC cookie ${BITCOIN_CONTAINER}:${BITCOIN_COOKIE_PATH}" \
+    docker exec "$BITCOIN_CONTAINER" sh -lc "test -s '${BITCOIN_COOKIE_PATH}'"
+
+  cookie="$(docker exec "$BITCOIN_CONTAINER" sh -lc "cat '${BITCOIN_COOKIE_PATH}'")"
+else
+  if [[ -s "$BITCOIN_COOKIE_FILE" ]]; then
+    cookie="$(cat "$BITCOIN_COOKIE_FILE")"
+  elif [[ -n "$BITCOIN_RPC_USERNAME" && -n "$BITCOIN_RPC_PASSWORD" ]]; then
+    cookie="${BITCOIN_RPC_USERNAME}:${BITCOIN_RPC_PASSWORD}"
+  else
+    echo "Neither BITCOIN_COOKIE_FILE nor BITCOIN_RPC_USERNAME/BITCOIN_RPC_PASSWORD is available" >&2
+    exit 1
+  fi
+fi
 rpc_user="${cookie%%:*}"
 rpc_pass="${cookie#*:}"
 

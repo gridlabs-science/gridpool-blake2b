@@ -208,6 +208,63 @@ public class BootProtocolStateService
         }
     }
 
+    public Sv2WorkSelectionDto GetSv2WorkSelectionResponse()
+    {
+        lock (_sync)
+        {
+            List<PayoutInfo> coinbaseOutputs = BuildCoinbaseOutputsNoLock(_state.WinnersList);
+            var serializedOutputs = new List<(ulong Value, byte[] ScriptPubKey)>(coinbaseOutputs.Count);
+            var outputDtos = new List<Sv2CoinbaseOutputDto>(coinbaseOutputs.Count);
+
+            foreach (PayoutInfo payout in coinbaseOutputs)
+            {
+                string normalizedAddress = BitcoinScript.NormalizeAddress(payout.Address);
+                byte[] scriptPubKey = BitcoinScript.AddressToScriptPubKey(normalizedAddress, _poolConfig.BitcoinNetwork);
+                byte[] serializedOutput = BitcoinTransactionSerialization.SerializeTxOutput(payout.Value, scriptPubKey);
+
+                serializedOutputs.Add((payout.Value, scriptPubKey));
+                outputDtos.Add(new Sv2CoinbaseOutputDto
+                {
+                    Value = payout.Value,
+                    Address = normalizedAddress,
+                    ScriptPubKeyHex = Convert.ToHexString(scriptPubKey).ToLowerInvariant(),
+                    OutputHex = Convert.ToHexString(serializedOutput).ToLowerInvariant(),
+                    Username = string.IsNullOrWhiteSpace(payout.Username) ? normalizedAddress : payout.Username,
+                    Difficulty = payout.Difficulty,
+                    DiffString = payout.DiffString
+                });
+            }
+
+            byte[] coinbaseTxOutputs = BitcoinTransactionSerialization.SerializeTxOutputs(serializedOutputs);
+            double minimumDifficultyToEnter = GetWorkSetAdmissionDifficultyNoLock();
+
+            return new Sv2WorkSelectionDto
+            {
+                Sequence = DateTime.UtcNow.Ticks,
+                NetworkId = _poolConfig.BootNetworkId,
+                BitcoinNetwork = _poolConfig.BitcoinNetwork,
+                ProtocolVersion = _poolConfig.BootProtocolVersion,
+                ActiveSnapshotId = _state.ActiveSnapshotId,
+                CurrentStateId = _state.CurrentStateId,
+                CandidateStateId = _state.CandidateStateId,
+                CurrentTipBlockHash = _state.CurrentTipBlockHash,
+                CurrentTipBlockHeight = _state.CurrentTipBlockHeight,
+                TotalPayoutSlotCount = _poolConfig.TotalPayoutSlotCount,
+                SharedWinnerSlotCount = _poolConfig.SharedWinnerSlotCount,
+                SupportFeeEnabled = _poolConfig.GridLabsSupportFeeEnabled,
+                CoinbaseOutputCount = coinbaseOutputs.Count,
+                CoinbaseTxOutputsBytes = coinbaseTxOutputs.Length,
+                CoinbaseTxOutputsHex = Convert.ToHexString(coinbaseTxOutputs).ToLowerInvariant(),
+                CoinbaseOutputs = outputDtos,
+                MinimumAcceptedDifficulty = 1d,
+                MinimumDifficultyToEnterReserve = minimumDifficultyToEnter,
+                MinimumDifficultyToEnterReserveDisplay = ClientHandler.FormatDifficulty(minimumDifficultyToEnter),
+                UserIdentifierRule = "Use payoutAddress or payoutAddress.worker; GridPool still attributes shares from the slot-0 coinbase output, not this metadata.",
+                Mode = "coinbase-only"
+            };
+        }
+    }
+
     public MiningShareAdviceDto GetShareAdviceResponse()
     {
         lock (_sync)

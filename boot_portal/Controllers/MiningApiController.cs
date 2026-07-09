@@ -40,6 +40,15 @@ public class MiningApiController : ControllerBase
         return Ok(_stateService.GetShareAdviceResponse());
     }
 
+    // GET: api/mining/sv2-work-selection
+    // Returns the exact GridPool payout-output commitment an SV2 Job Declarator should include.
+    [EnableRateLimiting("network-read")]
+    [HttpGet("sv2-work-selection")]
+    public IActionResult GetSv2WorkSelection()
+    {
+        return Ok(_stateService.GetSv2WorkSelectionResponse());
+    }
+
     // GET: api/mining/connect-info
     // Returns the live DATUM endpoint details miners need to configure DATUM Gateway.
     [EnableRateLimiting("network-read")]
@@ -66,6 +75,12 @@ public class MiningApiController : ControllerBase
             {
                 nativeListenerAvailable = false,
                 note = "boot-portal is not a native Stratum V1 server. Point ASICs at DATUM Gateway or a compatible gateway such as Hydrapool, then point that gateway at GridPool."
+            },
+            stratumV2 = new
+            {
+                nativeListenerAvailable = false,
+                workSelectionEndpoint = "/api/mining/sv2-work-selection",
+                note = "Experimental Stratum V2 support is planned through a pool-side Job Declaration adapter. The GridPool node exposes work-selection data, but does not yet speak SV2 directly."
             }
         });
     }
