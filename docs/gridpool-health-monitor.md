@@ -234,6 +234,13 @@ Tune these fields first:
     `dallas.gridpool.net`, and `testnet4-beta` for `test.gridpool.net`.
   - `minimumPeerCount` is checked per node, but hidden/NATed peers may still
     be visible only through another public node.
+  - Lab nodes can suppress noisy expected conditions with:
+    `suppressCoinbaseModeAlert`, `suppressTeamHashrateAlerts`, and
+    `suppressLocalDatumHashrateAlerts`. For example, the long-running
+    testnet4 firmware-compatibility endpoint intentionally serves
+    non-standard uncondensed coinbase outputs and may have intermittent test
+    hashrate, so those alert types are disabled for that node while endpoint
+    and service checks remain active.
 - `tcpEndpoints`: plain TCP endpoint checks for DATUM or other public mining
   listener ports. These checks only verify that TCP connects; they do not run a
   full DATUM handshake.

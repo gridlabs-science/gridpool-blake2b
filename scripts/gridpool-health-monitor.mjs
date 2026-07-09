@@ -339,6 +339,9 @@ async function collectGridPoolNode(node, config) {
         peerRecords: [],
         peerRelayLatency: null,
         consensusGroup: node.consensusGroup || "",
+        suppressCoinbaseModeAlert: node.suppressCoinbaseModeAlert === true,
+        suppressTeamHashrateAlerts: node.suppressTeamHashrateAlerts === true,
+        suppressLocalDatumHashrateAlerts: node.suppressLocalDatumHashrateAlerts === true,
         version: null,
         networkKey: ""
     };
@@ -775,6 +778,8 @@ function maybeAddPeerCompatibilityAlerts(alerts, node) {
 }
 
 function maybeAddCoinbaseModeAlert(alerts, node) {
+    if (node.suppressCoinbaseModeAlert === true) return;
+
     const mode = String(node.summary?.coinbaseOutputMode || "").toLowerCase();
     if (!mode || mode === "condensed") return;
     alerts.push({
@@ -916,14 +921,18 @@ function maybeAddGridPoolBlockAlerts(alerts, node, state) {
 function maybeAddHashrateAlerts(alerts, node, state, config) {
     const observed = Number(node.summary?.currentRoundObservedHashrateThs);
     const local = Number(node.summary?.localDatumHashrateThs);
-    addHashrateSample(state, `${node.name}:team`, observed);
-    addHashrateSample(state, `${node.name}:local`, local);
 
-    const teamAlert = trendAlertForSeries(state, `${node.name}:team`, config, `GridPool ${node.name} team hashrate`);
-    if (teamAlert) alerts.push(teamAlert);
+    if (node.suppressTeamHashrateAlerts !== true) {
+        addHashrateSample(state, `${node.name}:team`, observed);
+        const teamAlert = trendAlertForSeries(state, `${node.name}:team`, config, `GridPool ${node.name} team hashrate`);
+        if (teamAlert) alerts.push(teamAlert);
+    }
 
-    const localAlert = trendAlertForSeries(state, `${node.name}:local`, config, `GridPool ${node.name} local DATUM hashrate`);
-    if (localAlert) alerts.push(localAlert);
+    if (node.suppressLocalDatumHashrateAlerts !== true) {
+        addHashrateSample(state, `${node.name}:local`, local);
+        const localAlert = trendAlertForSeries(state, `${node.name}:local`, config, `GridPool ${node.name} local DATUM hashrate`);
+        if (localAlert) alerts.push(localAlert);
+    }
 }
 
 function addHashrateSample(state, key, value) {

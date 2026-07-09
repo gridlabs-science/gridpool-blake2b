@@ -57,7 +57,10 @@
       "baseUrl": "https://test.gridpool.net",
       "critical": false,
       "consensusGroup": "testnet4-beta",
-      "minimumPeerCount": 0
+      "minimumPeerCount": 0,
+      "suppressCoinbaseModeAlert": true,
+      "suppressTeamHashrateAlerts": true,
+      "suppressLocalDatumHashrateAlerts": true
     },
     {
       "name": "evomining",
