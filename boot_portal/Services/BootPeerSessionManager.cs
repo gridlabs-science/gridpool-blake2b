@@ -241,7 +241,7 @@ public sealed class BootPeerSessionManager : BackgroundService
             if (!session.IsOpen ||
                 string.IsNullOrWhiteSpace(session.RemoteEndpoint) ||
                 string.Equals(session.RemoteEndpoint, normalizedSource, StringComparison.OrdinalIgnoreCase) ||
-                !TryBuildUdpHost(session.RemoteEndpoint, out string host, out int port))
+                !TryBuildUdpHost(session.RemoteEndpoint, session.RemoteUdpHost, session.RemoteUdpPort, out string host, out int port))
             {
                 continue;
             }
@@ -390,6 +390,8 @@ public sealed class BootPeerSessionManager : BackgroundService
                 GetSessionKey(remoteEndpoint, remoteHello.NodeId),
                 remoteEndpoint,
                 remoteHello.NodeId,
+                remoteHello.UdpHost,
+                remoteHello.UdpPort,
                 socket,
                 crypto);
 
@@ -1049,10 +1051,18 @@ public sealed class BootPeerSessionManager : BackgroundService
         return builder.Uri;
     }
 
-    private bool TryBuildUdpHost(string endpoint, out string host, out int port)
+    private bool TryBuildUdpHost(string endpoint, string advertisedUdpHost, int advertisedUdpPort, out string host, out int port)
     {
         host = string.Empty;
-        port = _poolConfig.PeerUdpPort;
+        port = advertisedUdpPort is > 0 and <= 65535
+            ? advertisedUdpPort
+            : _poolConfig.PeerUdpPort;
+        if (!string.IsNullOrWhiteSpace(advertisedUdpHost))
+        {
+            host = advertisedUdpHost.Trim();
+            return true;
+        }
+
         if (!Uri.TryCreate(NormalizeEndpoint(endpoint), UriKind.Absolute, out Uri? uri) ||
             string.IsNullOrWhiteSpace(uri.Host))
         {
@@ -1166,12 +1176,16 @@ public sealed class BootPeerSessionManager : BackgroundService
             string key,
             string remoteEndpoint,
             string remoteNodeId,
+            string remoteUdpHost,
+            int remoteUdpPort,
             WebSocket socket,
             BootPeerSessionCrypto crypto)
         {
             Key = key;
             RemoteEndpoint = remoteEndpoint;
             RemoteNodeId = remoteNodeId;
+            RemoteUdpHost = remoteUdpHost?.Trim() ?? string.Empty;
+            RemoteUdpPort = remoteUdpPort is > 0 and <= 65535 ? remoteUdpPort : 0;
             Socket = socket;
             Crypto = crypto;
         }
@@ -1179,6 +1193,8 @@ public sealed class BootPeerSessionManager : BackgroundService
         public string Key { get; }
         public string RemoteEndpoint { get; }
         public string RemoteNodeId { get; }
+        public string RemoteUdpHost { get; }
+        public int RemoteUdpPort { get; }
         public WebSocket Socket { get; }
         public BootPeerSessionCrypto Crypto { get; }
         public SemaphoreSlim SendLock { get; } = new(1, 1);

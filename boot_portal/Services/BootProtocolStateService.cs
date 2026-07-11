@@ -4658,6 +4658,7 @@ public class BootProtocolStateService
             UdpRelayVersion = localVersion.UdpRelayVersion,
             EnablePeerPersistentSessions = _poolConfig.EnablePeerPersistentSessions,
             EnablePeerUdpFastRelay = _poolConfig.EnablePeerUdpFastRelay,
+            PeerUdpPublicHost = _poolConfig.PeerUdpPublicHost?.Trim() ?? string.Empty,
             PeerUdpPort = _poolConfig.PeerUdpPort,
             PeerUdpMaxDatagramBytes = _poolConfig.PeerUdpMaxDatagramBytes,
             PeerRelayLatencyProbeAllTransports = _poolConfig.PeerRelayLatencyProbeAllTransports,

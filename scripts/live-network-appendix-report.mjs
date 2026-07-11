@@ -337,6 +337,7 @@ function nodeRows(nodes) {
     peerTransportVersion: node.summary?.peerTransportVersion ?? "",
     udpRelayVersion: node.summary?.udpRelayVersion ?? "",
     udpEnabled: node.summary?.enablePeerUdpFastRelay,
+    udpPublicHost: node.summary?.peerUdpPublicHost || "",
     udpPort: node.summary?.peerUdpPort ?? "",
     udpMaxDatagramBytes: node.summary?.peerUdpMaxDatagramBytes ?? "",
     probeAllTransports: node.summary?.peerRelayLatencyProbeAllTransports,
@@ -388,7 +389,7 @@ function writeMarkdown(file, report) {
   lines.push("| --- | --- | --- | --- | --- | ---: | --- | --- | --- | --- | --- |");
   for (const row of nodeRows(report.nodes)) {
     const udpConfig = row.reachable === "yes"
-      ? `enabled=${row.udpEnabled ?? "--"}, version=${row.udpRelayVersion || "--"}, port=${row.udpPort || "--"}, max=${row.udpMaxDatagramBytes || "--"}, probeAll=${row.probeAllTransports ?? "--"}`
+      ? `enabled=${row.udpEnabled ?? "--"}, version=${row.udpRelayVersion || "--"}, host=${row.udpPublicHost || "--"}, port=${row.udpPort || "--"}, max=${row.udpMaxDatagramBytes || "--"}, probeAll=${row.probeAllTransports ?? "--"}`
       : "--";
     lines.push(`| ${markdownCell(row.node)} | ${markdownCell(row.region)} | ${markdownCell(row.role)} | ${markdownCell(row.operator)} | ${markdownCell(row.url)} | ${markdownCell(row.reachable)} | ${markdownCell(row.version || row.consensusVersion)} | ${markdownCell(shortId(row.currentStateId))} | ${markdownCell(shortId(row.candidateStateId))} | ${markdownCell(udpConfig)} | ${markdownCell(row.notes)} |`);
   }

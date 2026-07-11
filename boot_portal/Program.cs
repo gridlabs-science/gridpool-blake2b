@@ -225,6 +225,9 @@ public class PoolConfig
     [JsonPropertyName("peer_udp_port")]
     public int PeerUdpPort { get; set; } = 5001;
 
+    [JsonPropertyName("peer_udp_public_host")]
+    public string PeerUdpPublicHost { get; set; } = string.Empty;
+
     [JsonPropertyName("peer_udp_max_datagram_bytes")]
     public int PeerUdpMaxDatagramBytes { get; set; } = 1200;
 

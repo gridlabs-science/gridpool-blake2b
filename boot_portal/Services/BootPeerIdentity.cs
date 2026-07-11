@@ -38,6 +38,8 @@ public sealed class BootPeerIdentity
             ReleaseVersion = localVersion.ReleaseVersion,
             NetworkId = config.BootNetworkId,
             Endpoint = endpoint ?? string.Empty,
+            UdpHost = config.PeerUdpPublicHost?.Trim() ?? string.Empty,
+            UdpPort = config.PeerUdpPort,
             NodeId = NodeId,
             X25519PublicKey = X25519PublicKey,
             Nonce = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)),

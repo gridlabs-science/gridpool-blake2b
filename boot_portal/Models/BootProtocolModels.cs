@@ -292,6 +292,7 @@ public class BootNetworkStatusDto
     public int UdpRelayVersion { get; set; }
     public bool EnablePeerPersistentSessions { get; set; }
     public bool EnablePeerUdpFastRelay { get; set; }
+    public string PeerUdpPublicHost { get; set; } = string.Empty;
     public int PeerUdpPort { get; set; }
     public int PeerUdpMaxDatagramBytes { get; set; }
     public bool PeerRelayLatencyProbeAllTransports { get; set; }
@@ -734,6 +735,8 @@ public class BootPeerSessionHello
     public string ReleaseVersion { get; set; } = string.Empty;
     public string NetworkId { get; set; } = string.Empty;
     public string Endpoint { get; set; } = string.Empty;
+    public string UdpHost { get; set; } = string.Empty;
+    public int UdpPort { get; set; }
     public string NodeId { get; set; } = string.Empty;
     public string X25519PublicKey { get; set; } = string.Empty;
     public string Nonce { get; set; } = string.Empty;

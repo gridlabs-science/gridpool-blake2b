@@ -35,6 +35,7 @@
   "enable_peer_udp_fast_relay": true,
   "peer_udp_bind_port": 5001,
   "peer_udp_port": 5001,
+  "peer_udp_public_host": "",
   "peer_udp_max_datagram_bytes": 1200,
   "peer_udp_replay_window": 4096,
   "peer_relay_latency_probe_all_transports": true,

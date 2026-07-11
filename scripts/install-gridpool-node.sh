@@ -308,6 +308,7 @@ data.update({
     "enable_peer_udp_fast_relay": True,
     "peer_udp_bind_port": 5001,
     "peer_udp_port": 5001,
+    "peer_udp_public_host": "",
     "peer_udp_max_datagram_bytes": 1200,
     "pool_payout_script": ${GRID_POOL_PAYOUT_ADDRESS@Q},
     "coinbase_tag": ${GRID_POOL_COINBASE_TAG@Q},
