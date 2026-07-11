@@ -125,6 +125,10 @@ public class BootNetworkController : ControllerBase
         if (request.IncludeUdpProbe && request.UdpPort is > 0 and <= 65535)
         {
             result.UdpProbeAttempted = true;
+            result.UdpHost = string.IsNullOrWhiteSpace(request.UdpHost)
+                ? targetBaseUri.Host
+                : request.UdpHost.Trim();
+            result.UdpPort = request.UdpPort.Value;
             string nonce = string.IsNullOrWhiteSpace(request.UdpChallengeNonce)
                 ? Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant()
                 : request.UdpChallengeNonce.Trim();
@@ -132,7 +136,7 @@ public class BootNetworkController : ControllerBase
             _udpRelayService.RegisterReachabilityChallenge(nonce, result.TargetBaseUrl);
             string ackUrl = $"{Request.Scheme}://{Request.Host}/api/network/reachability-ack";
             result.UdpProbeSent = await _udpRelayService.SendReachabilityProbeAsync(
-                targetBaseUri.Host,
+                result.UdpHost,
                 request.UdpPort.Value,
                 nonce,
                 ackUrl,

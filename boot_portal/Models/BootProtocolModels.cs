@@ -112,6 +112,7 @@ public class BootPeerTombstoneRequest
 public class BootReachabilityProbeRequest
 {
     public string TargetBaseUrl { get; set; } = string.Empty;
+    public string UdpHost { get; set; } = string.Empty;
     public int? UdpPort { get; set; }
     public bool IncludeUdpProbe { get; set; }
     public string UdpChallengeNonce { get; set; } = string.Empty;
@@ -133,6 +134,8 @@ public class BootReachabilityProbeResult
     public bool UdpProbeAttempted { get; set; }
     public bool UdpProbeSent { get; set; }
     public bool UdpChallengeAcknowledged { get; set; }
+    public string UdpHost { get; set; } = string.Empty;
+    public int? UdpPort { get; set; }
     public string UdpChallengeNonce { get; set; } = string.Empty;
     public string ObservedRequesterIp { get; set; } = string.Empty;
     public string Summary { get; set; } = string.Empty;
