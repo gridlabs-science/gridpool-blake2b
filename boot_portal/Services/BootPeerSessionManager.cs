@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
+using System.IO.Compression;
 using System.Net;
 using System.Net.WebSockets;
 using System.Security.Cryptography;
@@ -28,6 +29,7 @@ public sealed class BootPeerUdpReceivedPayload
 
 public sealed class BootPeerSessionManager : BackgroundService
 {
+    private const string BundleEncodingGzipBase64 = "gzip+base64+json";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
@@ -62,7 +64,13 @@ public sealed class BootPeerSessionManager : BackgroundService
         }
 
         _logger.LogInformation("V2 peer persistent sessions enabled. Node id: {NodeId}", ShortNodeId(_identity.NodeId));
+        await Task.WhenAll(
+            RunSessionConnectLoopAsync(stoppingToken),
+            RunChainTipRelayLoopAsync(stoppingToken));
+    }
 
+    private async Task RunSessionConnectLoopAsync(CancellationToken stoppingToken)
+    {
         while (!stoppingToken.IsCancellationRequested)
         {
             CleanupDialTasks();
@@ -85,7 +93,48 @@ public sealed class BootPeerSessionManager : BackgroundService
                 _dialTasks[endpoint] = Task.Run(() => ConnectOutboundSessionAsync(endpoint, stoppingToken), CancellationToken.None);
             }
 
+            await BroadcastNetworkStatusAsync(stoppingToken);
             await Task.Delay(TimeSpan.FromSeconds(Math.Max(5, _poolConfig.PeerSessionConnectIntervalSeconds)), stoppingToken);
+        }
+    }
+
+    private async Task RunChainTipRelayLoopAsync(CancellationToken stoppingToken)
+    {
+        await foreach (BootChainTipAnnouncement announcement in _stateService.ChainTipAnnouncements.ReadAllAsync(stoppingToken))
+        {
+            if (_sessions.IsEmpty)
+            {
+                continue;
+            }
+
+            announcement.SenderEndpoint = _stateService.GetSelfEndpoint();
+            announcement.SenderNodeId = _identity.NodeId;
+            List<PeerSession> sessions = _sessions.Values.Where(session => session.IsOpen).ToList();
+            foreach (PeerSession session in sessions)
+            {
+                await TrySendPayloadAsync(
+                    session,
+                    new BootPeerSessionPayload
+                    {
+                        Type = "chain-tip",
+                        ChainTip = announcement
+                    },
+                    stoppingToken);
+            }
+        }
+    }
+
+    private async Task BroadcastNetworkStatusAsync(CancellationToken cancellationToken)
+    {
+        if (_sessions.IsEmpty)
+        {
+            return;
+        }
+
+        List<PeerSession> sessions = _sessions.Values.Where(session => session.IsOpen).ToList();
+        foreach (PeerSession session in sessions)
+        {
+            await SendNetworkStatusAsync(session, cancellationToken);
         }
     }
 
@@ -368,6 +417,7 @@ public sealed class BootPeerSessionManager : BackgroundService
                 },
                 cancellationToken);
 
+            await SendNetworkStatusAsync(session, cancellationToken);
             await SendPingAsync(session, cancellationToken);
 
             await ReceiveEncryptedLoopAsync(session, cancellationToken);
@@ -461,6 +511,21 @@ public sealed class BootPeerSessionManager : BackgroundService
                     _stateService.UpdatePeerSessionHeartbeat(session.RemoteEndpoint, session.RemoteNodeId, "session-gossip", DateTime.UtcNow);
                 }
                 break;
+            case "network-status":
+                await HandleNetworkStatusPayloadAsync(session, payload.NetworkStatus, cancellationToken);
+                break;
+            case "chain-tip":
+                await HandleChainTipPayloadAsync(session, payload.ChainTip, frameBytes);
+                break;
+            case "state-request":
+                await HandleStateRequestPayloadAsync(session, payload, cancellationToken);
+                break;
+            case "state-response":
+                await HandleStateResponsePayloadAsync(session, payload, cancellationToken);
+                break;
+            case "state-not-found":
+                _stateService.MarkPeerSessionFailure(session.RemoteEndpoint, session.RemoteNodeId, "session-state-not-found");
+                break;
             case "ping":
                 await TrySendPayloadAsync(
                     session,
@@ -497,6 +562,295 @@ public sealed class BootPeerSessionManager : BackgroundService
                 Text = sentUtc.ToString("O")
             },
             cancellationToken);
+    }
+
+    private Task<bool> SendNetworkStatusAsync(PeerSession session, CancellationToken cancellationToken)
+    {
+        return TrySendPayloadAsync(
+            session,
+            new BootPeerSessionPayload
+            {
+                Type = "network-status",
+                NetworkStatus = _stateService.GetNetworkStatus()
+            },
+            cancellationToken);
+    }
+
+    private async Task HandleNetworkStatusPayloadAsync(
+        PeerSession session,
+        BootNetworkStatusDto? remote,
+        CancellationToken cancellationToken)
+    {
+        if (remote == null)
+        {
+            return;
+        }
+
+        string remoteEndpoint = string.IsNullOrWhiteSpace(session.RemoteEndpoint)
+            ? remote.SelfEndpoint
+            : session.RemoteEndpoint;
+        if (!string.IsNullOrWhiteSpace(remoteEndpoint))
+        {
+            _stateService.MergeDiscoveredPeers([remoteEndpoint]);
+        }
+
+        BootVersionCompatibilityDto compatibility = _stateService.EvaluatePeerCompatibility(remote);
+        _stateService.UpdatePeerCompatibility(remoteEndpoint, compatibility, DateTime.UtcNow);
+        _stateService.UpdatePeerNetworkSnapshot(
+            string.IsNullOrWhiteSpace(remoteEndpoint) ? session.RemoteNodeId : remoteEndpoint,
+            remote.CurrentStateId,
+            remote.CandidateStateId,
+            remote.CurrentTipBlockHash);
+        if (!compatibility.CanSyncState)
+        {
+            _stateService.MarkPeerSessionFailure(session.RemoteEndpoint, session.RemoteNodeId, "session-version-mismatch");
+            return;
+        }
+
+        BootNetworkStatusDto local = _stateService.GetNetworkStatus();
+        if (!string.IsNullOrWhiteSpace(remote.CurrentStateId) &&
+            !string.Equals(remote.CurrentStateId, local.CurrentStateId, StringComparison.OrdinalIgnoreCase) &&
+            ShouldRequestRemoteCurrentState(local, remote))
+        {
+            await RequestStateBundleAsync(session, remote.CurrentStateId, "current", cancellationToken);
+            local = _stateService.GetNetworkStatus();
+        }
+
+        if (!string.IsNullOrWhiteSpace(remote.CandidateStateId) &&
+            !string.Equals(remote.CandidateStateId, local.CandidateStateId, StringComparison.OrdinalIgnoreCase) &&
+            remote.OnDeckTotalDifficulty > local.OnDeckTotalDifficulty)
+        {
+            await RequestStateBundleAsync(session, remote.CandidateStateId, "candidate", cancellationToken);
+        }
+    }
+
+    private async Task HandleChainTipPayloadAsync(
+        PeerSession session,
+        BootChainTipAnnouncement? announcement,
+        int frameBytes)
+    {
+        if (announcement == null)
+        {
+            return;
+        }
+
+        BootVersionCompatibilityDto compatibility = BootProtocolVersions.Evaluate(
+            BootProtocolVersions.Local(_poolConfig),
+            new BootNodeVersionInfo
+            {
+                ConsensusVersion = announcement.ConsensusVersion,
+                ProtocolVersion = announcement.ProtocolVersion,
+                PeerTransportVersion = announcement.PeerTransportVersion
+            },
+            _poolConfig.BootNetworkId,
+            announcement.NetworkId,
+            requireStateBundleSchema: false);
+        if (!compatibility.NetworkCompatible || !compatibility.ConsensusCompatible || !compatibility.PeerTransportCompatible)
+        {
+            _stateService.MarkPeerSessionFailure(session.RemoteEndpoint, session.RemoteNodeId, "session-tip-rejected");
+            return;
+        }
+
+        string remoteEndpoint = string.IsNullOrWhiteSpace(session.RemoteEndpoint)
+            ? announcement.SenderEndpoint
+            : session.RemoteEndpoint;
+        string remoteNodeId = string.IsNullOrWhiteSpace(session.RemoteNodeId)
+            ? announcement.SenderNodeId
+            : session.RemoteNodeId;
+        _stateService.UpdatePeerSessionHeartbeat(remoteEndpoint, remoteNodeId, "session-chain-tip", DateTime.UtcNow);
+        await _stateService.ObservePeerChainTipAsync(
+            announcement,
+            remoteEndpoint,
+            remoteNodeId,
+            "v2-session",
+            frameBytes);
+    }
+
+    private Task<bool> RequestStateBundleAsync(
+        PeerSession session,
+        string stateId,
+        string stateKind,
+        CancellationToken cancellationToken)
+    {
+        return TrySendPayloadAsync(
+            session,
+            new BootPeerSessionPayload
+            {
+                Type = "state-request",
+                StateId = stateId,
+                StateKind = stateKind
+            },
+            cancellationToken);
+    }
+
+    private async Task HandleStateRequestPayloadAsync(
+        PeerSession session,
+        BootPeerSessionPayload payload,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(payload.StateId))
+        {
+            return;
+        }
+
+        BootStateBundle? bundle = _stateService.GetStateBundle(payload.StateId);
+        if (bundle == null)
+        {
+            await TrySendPayloadAsync(
+                session,
+                new BootPeerSessionPayload
+                {
+                    Type = "state-not-found",
+                    MessageId = payload.MessageId,
+                    StateId = payload.StateId,
+                    StateKind = payload.StateKind
+                },
+                cancellationToken);
+            return;
+        }
+
+        string json = JsonSerializer.Serialize(bundle, JsonOptions);
+        string compressed = CompressToBase64(json);
+        await TrySendPayloadAsync(
+            session,
+            new BootPeerSessionPayload
+            {
+                Type = "state-response",
+                MessageId = payload.MessageId,
+                StateId = bundle.StateId,
+                StateKind = bundle.Kind,
+                BundleEncoding = BundleEncodingGzipBase64,
+                BundleData = compressed,
+                BundleUncompressedBytes = Encoding.UTF8.GetByteCount(json)
+            },
+            cancellationToken);
+        _stateService.UpdatePeerSessionHeartbeat(session.RemoteEndpoint, session.RemoteNodeId, "session-state-served", DateTime.UtcNow);
+    }
+
+    private async Task HandleStateResponsePayloadAsync(
+        PeerSession session,
+        BootPeerSessionPayload payload,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(payload.BundleEncoding, BundleEncodingGzipBase64, StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrWhiteSpace(payload.BundleData))
+        {
+            _stateService.MarkPeerSessionFailure(session.RemoteEndpoint, session.RemoteNodeId, "session-state-invalid");
+            return;
+        }
+
+        BootStateBundle? bundle;
+        try
+        {
+            string json = DecompressFromBase64(payload.BundleData);
+            bundle = JsonSerializer.Deserialize<BootStateBundle>(json, JsonOptions);
+        }
+        catch (Exception)
+        {
+            _stateService.MarkPeerSessionFailure(session.RemoteEndpoint, session.RemoteNodeId, "session-state-invalid");
+            return;
+        }
+
+        if (bundle == null)
+        {
+            return;
+        }
+
+        string source = string.IsNullOrWhiteSpace(session.RemoteEndpoint)
+            ? $"peer-session-node:{session.RemoteNodeId}"
+            : $"peer-session:{session.RemoteEndpoint}";
+        bool imported = string.Equals(bundle.Kind, "candidate", StringComparison.OrdinalIgnoreCase)
+            ? await _stateService.TryImportCandidateStateAsync(bundle, source)
+            : await ImportCurrentStateFromSessionAsync(bundle, source);
+
+        _stateService.UpdatePeerSessionHeartbeat(
+            session.RemoteEndpoint,
+            session.RemoteNodeId,
+            imported ? "session-state-imported" : "session-state-rejected",
+            DateTime.UtcNow);
+    }
+
+    private async Task<bool> ImportCurrentStateFromSessionAsync(BootStateBundle bundle, string source)
+    {
+        BootNetworkStatusDto local = _stateService.GetNetworkStatus();
+        bool bootstrapped = await _stateService.TryBootstrapCurrentStateAsync(
+            bundle,
+            bundle.LockedByBlockHash,
+            bundle.LockedByBlockHeight,
+            source);
+        if (bootstrapped)
+        {
+            return true;
+        }
+
+        if (string.Equals(bundle.StateId, local.CurrentStateId, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return await _stateService.TryAdoptCurrentStateAsync(
+            bundle,
+            bundle.LockedByBlockHash,
+            bundle.LockedByBlockHeight,
+            source);
+    }
+
+    private static string CompressToBase64(string json)
+    {
+        byte[] input = Encoding.UTF8.GetBytes(json);
+        using var output = new MemoryStream();
+        using (var gzip = new GZipStream(output, CompressionLevel.Fastest, leaveOpen: true))
+        {
+            gzip.Write(input, 0, input.Length);
+        }
+
+        return Convert.ToBase64String(output.ToArray());
+    }
+
+    private static string DecompressFromBase64(string compressedBase64)
+    {
+        byte[] compressed = Convert.FromBase64String(compressedBase64);
+        using var input = new MemoryStream(compressed);
+        using var gzip = new GZipStream(input, CompressionMode.Decompress);
+        using var output = new MemoryStream();
+        gzip.CopyTo(output);
+        return Encoding.UTF8.GetString(output.ToArray());
+    }
+
+    private static bool ShouldRequestRemoteCurrentState(BootNetworkStatusDto local, BootNetworkStatusDto remote)
+    {
+        if (local.WinnersCount == 0 || (local.WinnersCount == 1 && local.OnDeckCount == 0))
+        {
+            return true;
+        }
+
+        if (remote.CurrentRoundNumber > local.CurrentRoundNumber)
+        {
+            return true;
+        }
+
+        if (remote.CurrentRoundNumber < local.CurrentRoundNumber)
+        {
+            return false;
+        }
+
+        if (local.CurrentStateProofCount == 0 && remote.CurrentStateProofCount > 0)
+        {
+            return true;
+        }
+
+        const double epsilon = 0.0000001;
+        if (remote.CurrentStateTotalDifficulty > local.CurrentStateTotalDifficulty + epsilon)
+        {
+            return true;
+        }
+
+        if (remote.CurrentStateTotalDifficulty + epsilon < local.CurrentStateTotalDifficulty)
+        {
+            return false;
+        }
+
+        return string.CompareOrdinal(remote.CurrentStateId ?? string.Empty, local.CurrentStateId ?? string.Empty) > 0;
     }
 
     private static double? CalculateRoundTripLatencyMs(DateTime sentUtc)

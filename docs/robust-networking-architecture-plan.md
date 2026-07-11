@@ -12,7 +12,7 @@ The original V1-V3 plan focused on reachable public peer endpoints. Public beta 
 | --- | --- | --- |
 | V1 HTTP address manager | Complete | Bounded peer selection, persistent address book, endpoint validation, backoff, and address gossip are implemented. |
 | V2 encrypted persistent sessions | Initial implementation complete | WebSocket sessions, signed hello, AES-GCM encrypted frames, share relay, address gossip, and ping/pong are implemented. |
-| V2.1 hidden peer sessions and seed relay | In progress | Hidden session accounting and direct WebSocket share relay are implemented; seed relay between hidden peers is still pending. |
+| V2.1 hidden peer sessions and state sync | In progress | Hidden session accounting, direct WebSocket share relay, encrypted session state-bundle sync, optional peer-only listener support, reachability diagnostics, chain-tip telemetry, and admin-triggered PCP/NAT-PMP mapping are implemented; real-node validation remains pending. |
 | V3 UDP fast relay | Initial implementation complete | Authenticated UDP relay exists after a V2 session, with V2/HTTP fallback when packets do not fit. |
 | V3.1 compact slot-0 reconstruction | Planned | Needed for production-scale 300-output coinbases to fit fast UDP reliably. |
 | V4 Bitcoin header / compact block relay | Research only | Not started. |
@@ -77,7 +77,7 @@ Current V2 limits:
 - No explicit peer allowlist or reputation identity policy yet; self-signed node identities are useful for continuity, not Sybil prevention.
 - Session transport currently carries share relay, address gossip, and ping/pong only. State-bundle sync still uses HTTP.
 - WebSocket sessions are still TCP-based. The UDP fast-relay path remains V3.
-- Endpoint-less sessions are not yet first-class UI/address-book peers. This is the main V2.1 gap.
+- Session state-bundle sync is now implemented so endpoint-less peers can serve stronger current/candidate state over the encrypted session. Real-node validation remains required before treating outbound-only mode as beta-safe.
 
 ## V2.1: Hidden Peer Sessions And Seed Relay
 
@@ -111,21 +111,28 @@ V2.1 makes outbound-only nodes explicit first-class participants without requiri
    - Prevent loops with share IDs, source node IDs, and existing duplicate suppression.
    - Status: implemented for direct live WebSocket sessions. Seed-mediated hidden-to-hidden relay remains pending.
 
-3. Seed relay fallback
-   - Let public seeds relay encrypted share payloads between hidden sessions that cannot dial each other.
-   - Rate-limit relay by node ID and keep all proof validation unchanged.
-   - Treat seed relay as transport only: seeds never become trusted state authorities.
-   - Status: pending.
+3. Hidden session state sync
+   - Let peers request and serve current/candidate state bundles over the encrypted V2 session.
+   - Keep proof validation unchanged: every imported bundle still validates snapshot context, PoW, payout outputs, parent context, and duplicates.
+   - Status: implemented; needs real-node validation.
 
-4. Public reachability assistance
-   - Add optional UPnP/NAT-PMP/PCP port mapping to automatically set `public_base_url` when routers support it.
-   - Leave this disabled by default until common-router testing is complete.
+4. Peer-only public listener
+   - Expose a separate public peer port for peer protocol routes without exposing the local UI/admin surface.
+   - Status: implemented as optional `peer_listener_port`; disabled by default.
 
-5. NAT traversal
-   - Add UDP rendezvous through public seeds: hidden nodes exchange observed UDP addresses, punch, then use authenticated V3 UDP directly if it succeeds.
-   - Fall back to WebSocket seed relay when direct UDP fails.
+5. Public reachability assistance
+   - Add explicit PCP/NAT-PMP port mapping for the peer-only TCP port and UDP relay port.
+   - Add optional UPnP IGD later if PCP/NAT-PMP coverage is insufficient.
+   - Leave router mutation behind a clear user action.
+   - Status: seed-assisted HTTP/session route probe is implemented at `/api/network/reachability-test`; UDP challenge/ack diagnostics are implemented for reachability testing; admin-triggered PCP/NAT-PMP mapping is implemented at `/api/network/admin/port-map` and exposed by `scripts/peer-port-map.mjs`.
+   - Remaining work: validate PCP/NAT-PMP against real home routers and one CGNAT/failure case; add UPnP IGD only if PCP/NAT-PMP coverage is not good enough.
 
-6. Optional Tor mode
+6. NAT traversal and latency decision
+   - Gather real-world latency data before implementing UDP hole punching.
+   - If required, use public seeds as rendezvous so hidden nodes can exchange observed UDP addresses and punch direct authenticated V3 UDP paths.
+   - Treat seed relay as fallback only, not the preferred topology.
+
+7. Optional Tor mode
    - Add onion-service documentation and config later for users who prefer privacy/reachability over lowest latency.
 
 ### V2.1 Acceptance Criteria
@@ -133,7 +140,8 @@ V2.1 makes outbound-only nodes explicit first-class participants without requiri
 - A node with no `public_base_url` appears in `/api/network/summary` and Nerd Mode as `outbound-only` within 30 seconds of opening a persistent session. Implemented.
 - Accepted shares relay to live outbound-only sessions over WebSocket. Implemented for direct sessions.
 - Hidden peers are not returned by `/api/network/peer-addresses` as dialable endpoints. Implemented.
-- Two hidden nodes connected to the same public seed can receive each other's accepted shares through seed relay.
+- A public node can fetch current/candidate state bundles from an outbound-only peer over the encrypted V2 session.
+- A node with `peer_listener_port` configured exposes peer protocol routes on that listener while UI/admin routes return `404`.
 - Public endpoint peers continue to use V1/V2/V3 behavior unchanged.
 - Relay failures are visible as peer/session health, not as mining failures.
 
@@ -211,7 +219,7 @@ V3.1 is not implemented. It should wait until V2.1 hidden session relay is stabl
 
 ### V4 Implementation Status
 
-V4 is research only. No implementation has started.
+V4 remains research for mining behavior, but measurement-only V2 chain-tip announcements are implemented. Nodes relay observed tip hash/height/timestamp over encrypted sessions and record peer arrival latency as `peer-chain-tip` events. This is intentionally telemetry-only: it does not build templates from peer headers or change mining behavior.
 
 ## Completed V1 Acceptance Criteria
 

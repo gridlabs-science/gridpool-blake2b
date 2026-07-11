@@ -3,6 +3,7 @@
   "x25519_private_key": "",
   "enable_peer_sync": true,
   "public_base_url": "https://boot.example.com",
+  "peer_listener_port": 0,
   "datum_public_host": "datum.example.com",
   "datum_public_port": 0,
   "node_mode": "development",

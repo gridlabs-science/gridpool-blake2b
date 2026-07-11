@@ -125,27 +125,43 @@ Goal: home miners should not need to understand router internals to participate 
 
 - [x] Make outbound-only peers visible in UI/API as live sessions instead of fake dialable endpoints.
 - [x] Relay accepted shares to live outbound-only WebSocket sessions directly connected to a public node.
-- [ ] Finish seed-mediated relay between two hidden peers connected through the same public seed.
-- [ ] Decide whether seed relay is acceptable for the first packaged beta.
-- [ ] Add reachability self-test for public endpoint, peer WebSocket, and UDP relay.
-- [ ] Research and prototype UPnP, NAT-PMP, and PCP port mapping.
-- [ ] Research UDP hole punching with public seeds as rendezvous.
-- [ ] Add clear docs for direct public peer, outbound-only peer, and relay-fallback peer modes.
+- [x] Add encrypted V2 session state-bundle sync so outbound-only peers can serve stronger current/candidate state without public HTTP reachability.
+- [x] Add optional peer-only listener port so publicly mapped home nodes do not expose the UI/admin surface by default.
+- [ ] Validate outbound-only state-bundle sync across at least two real nodes after deployment.
+- [x] Add initial seed-assisted reachability self-test for peer HTTP routes and peer-session route visibility.
+- [x] Add UDP reachability challenge/ack for router/NAT diagnostics.
+- [x] Add admin-triggered PCP/NAT-PMP port mapping for the peer-only TCP port and UDP relay port.
+- [ ] Validate PCP/NAT-PMP mapping against at least one real home router and one expected-failure/CGNAT case.
+- [ ] Research optional UPnP IGD port mapping after PCP/NAT-PMP testing.
+- [x] Add measurement-only chain-tip/header relay telemetry over encrypted V2 sessions.
+- [ ] Run chain-tip latency reports during the 7-day soak and compare against local Bitcoin tip detection.
+- [ ] Add advanced, disabled-by-default optimistic peer-header mining for GridPool-controlled SV2/direct-template adapters.
+- [ ] Decide whether UDP hole punching is necessary after 7-day latency data review.
+- [ ] Add clear docs for direct public peer, outbound-only-safe peer, and relay-fallback peer modes.
 - [x] Ensure hidden peers are never advertised as dialable endpoints.
-- [ ] Add metrics for relay dependency: number of peers reached directly vs through seed relay.
+- [ ] Add metrics for relay dependency: number of peers reached directly, by outbound-only session sync, and through any relay fallback.
+- [ ] Keep seed-mediated relay as fallback only; do not treat it as the preferred launch topology.
 
 Completion criteria:
 
 - A fresh home node behind NAT appears in the peer list as outbound-only within 30 seconds.
 - That node receives shares from public peers without manual port forwarding.
+- A public node can fetch and validate current/candidate state bundles from an outbound-only peer over the encrypted V2 session.
+- If `peer_listener_port` is configured and mapped, only peer protocol endpoints are exposed on that listener.
 - If automatic port mapping succeeds, the node verifies its own public reachability.
 - If automatic port mapping fails, the UI says the node is still participating outbound-only.
+- `node scripts/peer-reachability-test.mjs <seed> <target> [udp-port]` returns peer HTTP/session reachability and UDP challenge/ack status.
+- `GRIDPOOL_ADMIN_KEY=... node scripts/peer-port-map.mjs --url <private-node-url> --tcp-port <peer-port> --udp-port <udp-port>` returns per-gateway PCP/NAT-PMP mapping results without exposing the UI/admin surface publicly.
+- `node scripts/chain-tip-latency-report.mjs --url <node> --window 7d` summarizes peer chain-tip relay latency.
+- A 7-day soak report includes share propagation latency, chain-tip observation latency, direct-vs-session reachability, and UDP first-arrival rates.
 
 Current evidence:
 
 - Implementation status is tracked in [robust-networking-architecture-plan.md](robust-networking-architecture-plan.md).
 - Hidden session accounting and direct live WebSocket share relay are implemented.
-- Seed-mediated hidden-to-hidden relay, NAT traversal, and automated port mapping remain open.
+- Encrypted V2 session bundle sync and optional peer-only listener support are implemented but need real-node validation.
+- Reachability self-test, UDP diagnostics, chain-tip latency instrumentation, and admin-triggered PCP/NAT-PMP mapping are implemented.
+- Real-router PCP/NAT-PMP validation, UPnP decision, direct-vs-session relay dependency metrics, and the 7-day latency report remain open.
 
 ## G5: Packaging And Installer Readiness
 
@@ -196,7 +212,12 @@ Goal: avoid launching a 300-slot team that silently breaks common ASIC firmware 
 - [x] Stand up the testnet full-coinbase compatibility endpoint with `coinbase_uncondensed_outputs_enabled: true`, separate state or network ID, and public `/compat` telemetry.
 - [x] Expose DATUM Stratum V1 on `stratum.test.gridpool.net:3334` for first-pass firmware and rental-provider testing.
 - [x] Complete the Stratum V2/GridPool integration review in [stratum-v2-gridpool-evaluation.md](stratum-v2-gridpool-evaluation.md).
-- [ ] Decide whether Stratum V2 standard-channel/header-only mining is the preferred long-term path for avoiding ASIC coinbase-size constraints.
+- [x] Decide whether Stratum V2 standard-channel/header-only mining is the preferred long-term path for avoiding ASIC coinbase-size constraints.
+- [x] Add GridPool node-side SV2 work-selection API and smoke test. See [stratum-v2-gridpool-integration-plan.md](stratum-v2-gridpool-integration-plan.md) and `GET /api/mining/sv2-work-selection`.
+- [x] Prove a native SV2/JDC path can submit accepted shares into GridPool on mainnet beta with a Bitaxe-class miner.
+- [ ] Move the working SRI-based SV2 sidecar/JDC changes into a maintained adapter repo or upstreamable fork.
+- [ ] Replace temporary SV2 beta keys/config with production-managed keys before broad public advertising.
+- [ ] Document public SV2 endpoint operation, monitoring, restart behavior, and upgrade process.
 
 Completion criteria:
 
@@ -212,6 +233,7 @@ Current evidence:
 - Existing DATUM `stratum.fingerprint_miners` does not solve this. Unknown miners default to a smaller Antminer-compatible coinbase class, and disabling fingerprinting makes that worse. A full 300-unique-address GridPool list likely requires DATUM's 16 KB `YUGE` class or an equivalent Stratum V2/header-only path.
 - A DATUM PR now exists for `coinbase_selection_mode = "force"` plus known-incompatible client disconnects before oversized work is served.
 - The first recommended lab endpoint shape is `test.gridpool.net/compat`, `datum.test.gridpool.net:3009` for DATUM gateways, and `stratum.test.gridpool.net:3334` for raw Stratum V1 ASICs, backed by testnet uncondensed output mode.
+- Native SV2 is now the preferred long-term path for firmware that cannot safely parse large SV1/DATUM coinbases. The current beta endpoint shape is `sv2.main.gridpool.net:34265` with an SRI-based sidecar/JDC stack translating accepted SV2 shares into GridPool HTTP proofs.
 
 ## G6: Repo And Project Architecture
 

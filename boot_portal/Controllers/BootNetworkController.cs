@@ -1,5 +1,8 @@
 using boot_portal.Services;
 using boot_portal.Models;
+using System.Diagnostics;
+using System.Net;
+using System.Security.Cryptography;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 
@@ -18,13 +21,25 @@ public class BootNetworkController : ControllerBase
     public const string PeerReleaseVersionHeader = "X-GridPool-Release-Version";
 
     private readonly BootProtocolStateService _stateService;
+    private readonly BootPeerUdpRelayService _udpRelayService;
+    private readonly BootNatPortMappingService _natPortMappingService;
     private readonly PoolConfig _poolConfig;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<BootNetworkController> _logger;
 
-    public BootNetworkController(PoolConfig poolConfig, BootProtocolStateService stateService, ILogger<BootNetworkController> logger)
+    public BootNetworkController(
+        PoolConfig poolConfig,
+        BootProtocolStateService stateService,
+        BootPeerUdpRelayService udpRelayService,
+        BootNatPortMappingService natPortMappingService,
+        IHttpClientFactory httpClientFactory,
+        ILogger<BootNetworkController> logger)
     {
         _poolConfig = poolConfig;
         _stateService = stateService;
+        _udpRelayService = udpRelayService;
+        _natPortMappingService = natPortMappingService;
+        _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
 
@@ -51,6 +66,144 @@ public class BootNetworkController : ControllerBase
         return Ok(_stateService.GetPeerAddressBook(limit));
     }
 
+    [EnableRateLimiting("network-read")]
+    [HttpPost("reachability-test")]
+    public async Task<IActionResult> RunReachabilityTest([FromBody] BootReachabilityProbeRequest? request, CancellationToken cancellationToken)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.TargetBaseUrl))
+        {
+            return BadRequest(new { status = "rejected", reason = "targetBaseUrl is required" });
+        }
+
+        if (!TryNormalizeReachabilityTarget(request.TargetBaseUrl, out Uri? targetBaseUri, out string rejectionReason) ||
+            targetBaseUri == null)
+        {
+            return BadRequest(new { status = "rejected", reason = rejectionReason });
+        }
+
+        var result = new BootReachabilityProbeResult
+        {
+            TargetBaseUrl = targetBaseUri.ToString().TrimEnd('/'),
+            TestedAtUtc = DateTime.UtcNow,
+            ObservedRequesterIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty
+        };
+
+        using HttpClient client = _httpClientFactory.CreateClient("BootPeerClient");
+        await ProbeHttpAsync(client, new Uri(targetBaseUri, "/health"), cancellationToken, (status, latency, warning) =>
+        {
+            result.HttpStatusCode = status;
+            result.HttpLatencyMs = latency;
+            result.HttpReachable = status is >= 200 and < 500;
+            if (!string.IsNullOrWhiteSpace(warning))
+            {
+                result.Warnings.Add(warning);
+            }
+        });
+
+        await ProbeHttpAsync(client, new Uri(targetBaseUri, "/api/network/summary"), cancellationToken, (status, latency, warning) =>
+        {
+            result.NetworkSummaryStatusCode = status;
+            result.NetworkSummaryLatencyMs = latency;
+            result.NetworkSummaryReachable = status is >= 200 and < 300;
+            if (!string.IsNullOrWhiteSpace(warning))
+            {
+                result.Warnings.Add(warning);
+            }
+        });
+
+        await ProbeHttpAsync(client, new Uri(targetBaseUri, "/api/peer/session"), cancellationToken, (status, latency, warning) =>
+        {
+            result.PeerSessionRouteStatusCode = status;
+            result.PeerSessionRouteLatencyMs = latency;
+            result.PeerSessionRouteReachable = status is 400 or 426 or 101 or (>= 200 and < 500);
+            if (!string.IsNullOrWhiteSpace(warning))
+            {
+                result.Warnings.Add(warning);
+            }
+        });
+
+        if (request.IncludeUdpProbe && request.UdpPort is > 0 and <= 65535)
+        {
+            result.UdpProbeAttempted = true;
+            string nonce = string.IsNullOrWhiteSpace(request.UdpChallengeNonce)
+                ? Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant()
+                : request.UdpChallengeNonce.Trim();
+            result.UdpChallengeNonce = nonce;
+            _udpRelayService.RegisterReachabilityChallenge(nonce, result.TargetBaseUrl);
+            string ackUrl = $"{Request.Scheme}://{Request.Host}/api/network/reachability-ack";
+            result.UdpProbeSent = await _udpRelayService.SendReachabilityProbeAsync(
+                targetBaseUri.Host,
+                request.UdpPort.Value,
+                nonce,
+                ackUrl,
+                result.TargetBaseUrl,
+                cancellationToken);
+            if (result.UdpProbeSent)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken);
+                result.UdpChallengeAcknowledged = _udpRelayService.WasReachabilityChallengeAcknowledged(nonce);
+            }
+
+            if (!result.UdpProbeSent)
+            {
+                result.Warnings.Add("UDP probe could not be sent. This does not prove the UDP relay is unreachable.");
+            }
+            else if (!result.UdpChallengeAcknowledged)
+            {
+                result.Warnings.Add("UDP probe was sent, but no challenge ack was observed before the short timeout.");
+            }
+        }
+
+        result.Summary = BuildReachabilitySummary(result);
+        _stateService.RecordExternalNetworkEvent(
+            "reachability-test",
+            result.TargetBaseUrl,
+            result.Summary);
+
+        return Ok(result);
+    }
+
+    [EnableRateLimiting("network-read")]
+    [HttpPost("reachability-ack")]
+    public IActionResult AckReachabilityProbe([FromBody] BootUdpReachabilityAckRequest? request)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.Nonce))
+        {
+            return BadRequest(new { status = "rejected", reason = "nonce is required" });
+        }
+
+        bool accepted = _udpRelayService.AcknowledgeReachabilityChallenge(
+            request.Nonce,
+            request.TargetBaseUrl);
+        return Ok(new { status = accepted ? "accepted" : "unknown", accepted });
+    }
+
+    [EnableRateLimiting("admin-write")]
+    [HttpPost("admin/port-map")]
+    public async Task<IActionResult> TryMapPeerPorts([FromBody] BootPortMappingRequest? request, CancellationToken cancellationToken)
+    {
+        if (!_poolConfig.EnableAdminApi)
+        {
+            return NotFound();
+        }
+
+        string? apiKey = Request.Headers["X-Boot-Admin-Key"].FirstOrDefault();
+        if (!_stateService.IsAdminAuthorized(apiKey))
+        {
+            return Unauthorized(new { status = "rejected", reason = "Missing or invalid admin key" });
+        }
+
+        BootPortMappingResponse response = await _natPortMappingService.TryMapAsync(
+            request ?? new BootPortMappingRequest(),
+            _poolConfig,
+            cancellationToken);
+        _stateService.RecordExternalNetworkEvent(
+            "port-mapping",
+            "admin",
+            response.Summary);
+        return Ok(response);
+    }
+
     private void RememberAnnouncedPeer()
     {
         if (!_poolConfig.EnablePeerSync)
@@ -73,6 +226,64 @@ public class BootNetworkController : ControllerBase
         }
 
         _stateService.AnnouncePeer(endpoint);
+    }
+
+    private static bool TryNormalizeReachabilityTarget(string target, out Uri? normalized, out string rejectionReason)
+    {
+        normalized = null;
+        rejectionReason = string.Empty;
+        if (!Uri.TryCreate(target.Trim(), UriKind.Absolute, out Uri? uri))
+        {
+            rejectionReason = "targetBaseUrl must be an absolute URL";
+            return false;
+        }
+
+        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            rejectionReason = "targetBaseUrl must use http or https";
+            return false;
+        }
+
+        normalized = new UriBuilder(uri.Scheme, uri.Host, uri.IsDefaultPort ? -1 : uri.Port).Uri;
+        return true;
+    }
+
+    private static async Task ProbeHttpAsync(
+        HttpClient client,
+        Uri uri,
+        CancellationToken cancellationToken,
+        Action<int?, double?, string?> record)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            using HttpResponseMessage response = await client.GetAsync(uri, cancellationToken);
+            stopwatch.Stop();
+            record((int)response.StatusCode, stopwatch.Elapsed.TotalMilliseconds, null);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
+        {
+            stopwatch.Stop();
+            record(null, stopwatch.Elapsed.TotalMilliseconds, $"{uri.AbsolutePath} probe failed: {ex.GetType().Name}");
+        }
+    }
+
+    private static string BuildReachabilitySummary(BootReachabilityProbeResult result)
+    {
+        if (result.NetworkSummaryReachable && result.PeerSessionRouteReachable)
+        {
+            return result.UdpProbeAttempted
+                ? $"Peer TCP reachable; UDP probe sent={result.UdpProbeSent}, ack={result.UdpChallengeAcknowledged}."
+                : "Peer TCP reachable.";
+        }
+
+        if (result.HttpReachable)
+        {
+            return "HTTP host reachable, but peer protocol routes did not pass reachability checks.";
+        }
+
+        return "Target was not reachable over HTTP from this node.";
     }
 
     [EnableRateLimiting("network-read")]

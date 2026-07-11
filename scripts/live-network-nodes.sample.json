@@ -1,0 +1,42 @@
+{
+  "reportName": "GridPool July 17 live network appendix",
+  "nodes": [
+    {
+      "label": "Main",
+      "region": "Washington D.C. area",
+      "role": "primary public node",
+      "operator": "project operator",
+      "url": "https://main.gridpool.net",
+      "enabled": true,
+      "primary": true
+    },
+    {
+      "label": "Dallas",
+      "region": "Dallas, Texas",
+      "role": "primary public node",
+      "operator": "project operator",
+      "url": "https://dallas.gridpool.net",
+      "enabled": true,
+      "primary": true
+    },
+    {
+      "label": "Detroit",
+      "region": "Detroit, Michigan",
+      "role": "planned primary public node",
+      "operator": "project operator",
+      "url": "",
+      "enabled": false,
+      "primary": true,
+      "notes": "Placeholder; set url and enabled=true when endpoint is online."
+    },
+    {
+      "label": "Evomining",
+      "region": "Texas",
+      "role": "private operator node / external sanity check",
+      "operator": "external beta operator",
+      "url": "http://evomining.farted.net",
+      "enabled": true,
+      "primary": false
+    }
+  ]
+}

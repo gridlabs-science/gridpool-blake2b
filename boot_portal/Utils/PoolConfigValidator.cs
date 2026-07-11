@@ -85,6 +85,7 @@ public static class PoolConfigValidator
         ValidateNonNegativePort(errors, config.DatumPublicPort, "datum_public_port");
         ValidateNonNegativePort(errors, config.WebUiPortHttp, "WebUI_Port_http");
         ValidateNonNegativePort(errors, config.WebUiPortHttps, "WebUI_Port_https");
+        ValidateNonNegativePort(errors, config.PeerListenerPort, "peer_listener_port");
         if (config.WebUiPortHttp == 0 && config.WebUiPortHttps == 0)
         {
             errors.Add("at least one WebUI port must be greater than 0");

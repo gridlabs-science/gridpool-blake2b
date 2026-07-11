@@ -92,11 +92,95 @@ public class BootPeerAddressDto
     public double Score { get; set; }
     public DateTime? LastSeenUtc { get; set; }
     public DateTime? LastSuccessUtc { get; set; }
+    public DateTime? LastSessionUtc { get; set; }
+    public int SessionSuccessCount { get; set; }
+    public int SessionFailureCount { get; set; }
+    public int RelaySuccessCount { get; set; }
+    public int RelayFailureCount { get; set; }
+    public int UdpRelaySuccessCount { get; set; }
+    public int UdpRelayFailureCount { get; set; }
+    public BootNodeVersionInfo RemoteVersion { get; set; } = new();
+    public string CompatibilityStatus { get; set; } = "unknown";
+    public string CompatibilityReason { get; set; } = string.Empty;
 }
 
 public class BootPeerTombstoneRequest
 {
     public string Endpoint { get; set; } = string.Empty;
+}
+
+public class BootReachabilityProbeRequest
+{
+    public string TargetBaseUrl { get; set; } = string.Empty;
+    public int? UdpPort { get; set; }
+    public bool IncludeUdpProbe { get; set; }
+    public string UdpChallengeNonce { get; set; } = string.Empty;
+}
+
+public class BootReachabilityProbeResult
+{
+    public string TargetBaseUrl { get; set; } = string.Empty;
+    public DateTime TestedAtUtc { get; set; }
+    public bool HttpReachable { get; set; }
+    public int? HttpStatusCode { get; set; }
+    public double? HttpLatencyMs { get; set; }
+    public bool NetworkSummaryReachable { get; set; }
+    public int? NetworkSummaryStatusCode { get; set; }
+    public double? NetworkSummaryLatencyMs { get; set; }
+    public bool PeerSessionRouteReachable { get; set; }
+    public int? PeerSessionRouteStatusCode { get; set; }
+    public double? PeerSessionRouteLatencyMs { get; set; }
+    public bool UdpProbeAttempted { get; set; }
+    public bool UdpProbeSent { get; set; }
+    public bool UdpChallengeAcknowledged { get; set; }
+    public string UdpChallengeNonce { get; set; } = string.Empty;
+    public string ObservedRequesterIp { get; set; } = string.Empty;
+    public string Summary { get; set; } = string.Empty;
+    public List<string> Warnings { get; set; } = [];
+}
+
+public class BootUdpReachabilityAckRequest
+{
+    public string Nonce { get; set; } = string.Empty;
+    public string TargetBaseUrl { get; set; } = string.Empty;
+}
+
+public class BootPortMappingRequest
+{
+    public int? PeerTcpPort { get; set; }
+    public int? PeerUdpPort { get; set; }
+    public int LifetimeSeconds { get; set; } = 3600;
+    public List<string> Protocols { get; set; } = ["pcp", "nat-pmp"];
+}
+
+public class BootPortMappingResponse
+{
+    public DateTime AttemptedAtUtc { get; set; } = DateTime.UtcNow;
+    public int LifetimeSeconds { get; set; }
+    public int PeerTcpPort { get; set; }
+    public int PeerUdpPort { get; set; }
+    public int GatewayCount { get; set; }
+    public bool TcpMapped => Results.Any(result => result.Success && result.Transport == "tcp");
+    public bool UdpMapped => Results.Any(result => result.Success && result.Transport == "udp");
+    public string Summary { get; set; } = string.Empty;
+    public List<BootPortMappingResult> Results { get; set; } = [];
+    public List<string> Warnings { get; set; } = [];
+}
+
+public class BootPortMappingResult
+{
+    public string Protocol { get; set; } = string.Empty;
+    public string Transport { get; set; } = string.Empty;
+    public string Gateway { get; set; } = string.Empty;
+    public string LocalAddress { get; set; } = string.Empty;
+    public int InternalPort { get; set; }
+    public int RequestedExternalPort { get; set; }
+    public int? MappedExternalPort { get; set; }
+    public string ExternalAddress { get; set; } = string.Empty;
+    public int LifetimeSeconds { get; set; }
+    public bool Success { get; set; }
+    public int? ResultCode { get; set; }
+    public string Message { get; set; } = string.Empty;
 }
 
 public class BootLaunchReadinessDto
@@ -206,6 +290,11 @@ public class BootNetworkStatusDto
     public int HttpApiVersion { get; set; }
     public int PeerTransportVersion { get; set; }
     public int UdpRelayVersion { get; set; }
+    public bool EnablePeerPersistentSessions { get; set; }
+    public bool EnablePeerUdpFastRelay { get; set; }
+    public int PeerUdpPort { get; set; }
+    public int PeerUdpMaxDatagramBytes { get; set; }
+    public bool PeerRelayLatencyProbeAllTransports { get; set; }
     public string ReleaseVersion { get; set; } = string.Empty;
     public BootNodeVersionInfo VersionInfo { get; set; } = new();
     public string NetworkId { get; set; } = string.Empty;
@@ -497,6 +586,12 @@ public class BootNetworkEvent
     public string EventType { get; set; } = string.Empty;
     public string Source { get; set; } = string.Empty;
     public string? Message { get; set; }
+    public string Transport { get; set; } = string.Empty;
+    public string RemoteEndpoint { get; set; } = string.Empty;
+    public string RemoteNodeId { get; set; } = string.Empty;
+    public DateTime? AnnouncedAtUtc { get; set; }
+    public double? RelayLatencyMs { get; set; }
+    public int PayloadBytes { get; set; }
     public string? BlockHash { get; set; }
     public long? BlockHeight { get; set; }
     public int CurrentRoundNumber { get; set; }
@@ -661,7 +756,28 @@ public class BootPeerSessionPayload
     public DateTime SentUtc { get; set; } = DateTime.UtcNow;
     public PeerShareAnnouncement? Share { get; set; }
     public BootPeerAddressBookDto? AddressBook { get; set; }
+    public BootNetworkStatusDto? NetworkStatus { get; set; }
+    public BootChainTipAnnouncement? ChainTip { get; set; }
+    public string StateId { get; set; } = string.Empty;
+    public string StateKind { get; set; } = string.Empty;
+    public string BundleEncoding { get; set; } = string.Empty;
+    public string BundleData { get; set; } = string.Empty;
+    public int BundleUncompressedBytes { get; set; }
     public string? Text { get; set; }
+}
+
+public class BootChainTipAnnouncement
+{
+    public string SenderEndpoint { get; set; } = string.Empty;
+    public string SenderNodeId { get; set; } = string.Empty;
+    public string Source { get; set; } = string.Empty;
+    public string BlockHash { get; set; } = string.Empty;
+    public long? BlockHeight { get; set; }
+    public DateTime ObservedUtc { get; set; } = DateTime.UtcNow;
+    public int ProtocolVersion { get; set; }
+    public int ConsensusVersion { get; set; }
+    public int PeerTransportVersion { get; set; }
+    public string NetworkId { get; set; } = string.Empty;
 }
 
 public class BootStateBundle

@@ -39,6 +39,8 @@ __pycache__/
 boot_portal/pool_state*.json
 boot_portal/pool_state*.json.bak
 boot_portal/pool_state copy.json
+boot.tests/pool_state*.json
+boot.tests/pool_state*.json.bak
 g2-*.json
 logs/
 scripts/deploy-nodes.local.env

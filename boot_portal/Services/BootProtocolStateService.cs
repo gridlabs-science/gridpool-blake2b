@@ -53,6 +53,7 @@ public class BootProtocolStateService
     private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
     private readonly JsonSerializerOptions _compactJsonOptions = new() { WriteIndented = false };
     private readonly Channel<BootShareProof> _acceptedShares = Channel.CreateUnbounded<BootShareProof>();
+    private readonly Channel<BootChainTipAnnouncement> _chainTipAnnouncements = Channel.CreateUnbounded<BootChainTipAnnouncement>();
     private readonly HashSet<string> _seenShareIds = [];
     private readonly Queue<string> _seenShareQueue = new();
     private readonly List<BootShareDiagnosticTelemetry> _recentShareDiagnostics = [];
@@ -104,6 +105,7 @@ public class BootProtocolStateService
     }
 
     public ChannelReader<BootShareProof> AcceptedShares => _acceptedShares.Reader;
+    public ChannelReader<BootChainTipAnnouncement> ChainTipAnnouncements => _chainTipAnnouncements.Reader;
 
     public List<PayoutInfo> GetWinnersList()
     {
@@ -1041,11 +1043,29 @@ public class BootProtocolStateService
         string? message,
         string? blockHash = null,
         long? blockHeight = null,
-        DateTime? timestampUtc = null)
+        DateTime? timestampUtc = null,
+        string transport = "",
+        string remoteEndpoint = "",
+        string remoteNodeId = "",
+        DateTime? announcedAtUtc = null,
+        double? relayLatencyMs = null,
+        int payloadBytes = 0)
     {
         lock (_sync)
         {
-            RecordNetworkEventNoLock(eventType, source, message, blockHash, blockHeight, timestampUtc);
+            RecordNetworkEventNoLock(
+                eventType,
+                source,
+                message,
+                blockHash,
+                blockHeight,
+                timestampUtc,
+                transport,
+                remoteEndpoint,
+                remoteNodeId,
+                announcedAtUtc,
+                relayLatencyMs,
+                payloadBytes);
             RequestDeferredHistorySaveNoLock();
         }
     }
@@ -1125,7 +1145,17 @@ public class BootProtocolStateService
                     Status = peer.Status,
                     Score = peer.Score,
                     LastSeenUtc = peer.LastSeenUtc,
-                    LastSuccessUtc = peer.LastSuccessUtc
+                    LastSuccessUtc = peer.LastSuccessUtc,
+                    LastSessionUtc = peer.LastSessionUtc,
+                    SessionSuccessCount = peer.SessionSuccessCount,
+                    SessionFailureCount = peer.SessionFailureCount,
+                    RelaySuccessCount = peer.RelaySuccessCount,
+                    RelayFailureCount = peer.RelayFailureCount,
+                    UdpRelaySuccessCount = peer.UdpRelaySuccessCount,
+                    UdpRelayFailureCount = peer.UdpRelayFailureCount,
+                    RemoteVersion = CloneVersionInfo(peer.RemoteVersion),
+                    CompatibilityStatus = peer.CompatibilityStatus,
+                    CompatibilityReason = peer.CompatibilityReason
                 })
                 .ToList();
 
@@ -2703,6 +2733,8 @@ public class BootProtocolStateService
         bool shouldRotateTestRound = false;
         bool metadataChanged = false;
         bool snapshotChanged = false;
+        bool shouldAnnounceTip = false;
+        DateTime observedUtc = DateTime.UtcNow;
         List<PayoutInfo> winnersSnapshot = [];
         List<PayoutInfo> onDeckSnapshot = [];
         lock (_sync)
@@ -2768,6 +2800,7 @@ public class BootProtocolStateService
 
             _state.CurrentTipBlockHash = normalizedBlockHash;
             _state.CurrentTipBlockHeight = effectiveBlockHeight;
+            shouldAnnounceTip = ShouldAnnounceChainTipSource(source);
             RememberAcceptedParentBlockHashNoLock(normalizedBlockHash);
             UpdateKnownBlockHeightNoLock(normalizedBlockHash, effectiveBlockHeight);
             snapshotChanged = ApplySnapshotFromWorkSetNoLock(
@@ -2807,7 +2840,55 @@ public class BootProtocolStateService
             await NotifyWorkTemplatesInvalidatedAsync($"chain-tip:{source}");
         }
 
+        if (shouldAnnounceTip && !string.IsNullOrWhiteSpace(normalizedBlockHash))
+        {
+            PublishChainTipAnnouncement(new BootChainTipAnnouncement
+            {
+                SenderEndpoint = GetSelfEndpoint(),
+                Source = source,
+                BlockHash = normalizedBlockHash,
+                BlockHeight = effectiveBlockHeight,
+                ObservedUtc = observedUtc,
+                ProtocolVersion = _poolConfig.BootProtocolVersion,
+                ConsensusVersion = _poolConfig.BootProtocolVersion,
+                PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
+                NetworkId = _poolConfig.BootNetworkId
+            });
+        }
+
         return status;
+    }
+
+    public async Task<BootNetworkStatusDto> ObservePeerChainTipAsync(
+        BootChainTipAnnouncement announcement,
+        string remoteEndpoint,
+        string remoteNodeId,
+        string transport,
+        int payloadBytes)
+    {
+        if (string.IsNullOrWhiteSpace(announcement.BlockHash))
+        {
+            return GetNetworkStatus();
+        }
+
+        string source = string.IsNullOrWhiteSpace(remoteEndpoint)
+            ? $"peer-tip-node:{remoteNodeId}"
+            : $"peer-tip:{remoteEndpoint}";
+        double? latencyMs = CalculateRelayLatencyMs(announcement.ObservedUtc);
+        RecordExternalNetworkEvent(
+            "peer-chain-tip",
+            source,
+            $"Received peer chain-tip announcement from {announcement.Source}; latency={FormatLatency(latencyMs)}.",
+            announcement.BlockHash,
+            announcement.BlockHeight,
+            DateTime.UtcNow,
+            transport,
+            remoteEndpoint,
+            remoteNodeId,
+            announcement.ObservedUtc,
+            latencyMs,
+            payloadBytes);
+        return await ObserveChainTipAsync(announcement.BlockHash, source, announcement.BlockHeight);
     }
 
     public async Task<bool> TryImportCandidateStateAsync(BootStateBundle bundle, string sourceEndpoint)
@@ -4575,6 +4656,11 @@ public class BootProtocolStateService
             HttpApiVersion = localVersion.HttpApiVersion,
             PeerTransportVersion = localVersion.PeerTransportVersion,
             UdpRelayVersion = localVersion.UdpRelayVersion,
+            EnablePeerPersistentSessions = _poolConfig.EnablePeerPersistentSessions,
+            EnablePeerUdpFastRelay = _poolConfig.EnablePeerUdpFastRelay,
+            PeerUdpPort = _poolConfig.PeerUdpPort,
+            PeerUdpMaxDatagramBytes = _poolConfig.PeerUdpMaxDatagramBytes,
+            PeerRelayLatencyProbeAllTransports = _poolConfig.PeerRelayLatencyProbeAllTransports,
             ReleaseVersion = localVersion.ReleaseVersion,
             VersionInfo = localVersion,
             NetworkId = _poolConfig.BootNetworkId,
@@ -5531,13 +5617,25 @@ public class BootProtocolStateService
         string? message,
         string? blockHash,
         long? blockHeight,
-        DateTime? timestampUtc = null)
+        DateTime? timestampUtc = null,
+        string transport = "",
+        string remoteEndpoint = "",
+        string remoteNodeId = "",
+        DateTime? announcedAtUtc = null,
+        double? relayLatencyMs = null,
+        int payloadBytes = 0)
     {
         _state.RecentNetworkEvents.Add(new BootNetworkEvent
         {
             EventType = string.IsNullOrWhiteSpace(eventType) ? "unknown" : eventType,
             Source = string.IsNullOrWhiteSpace(source) ? "unknown" : source,
             Message = string.IsNullOrWhiteSpace(message) ? null : message,
+            Transport = string.IsNullOrWhiteSpace(transport) ? string.Empty : transport,
+            RemoteEndpoint = string.IsNullOrWhiteSpace(remoteEndpoint) ? string.Empty : remoteEndpoint,
+            RemoteNodeId = string.IsNullOrWhiteSpace(remoteNodeId) ? string.Empty : remoteNodeId,
+            AnnouncedAtUtc = announcedAtUtc,
+            RelayLatencyMs = relayLatencyMs,
+            PayloadBytes = Math.Max(0, payloadBytes),
             BlockHash = NormalizeCanonicalBlockHash(blockHash),
             BlockHeight = blockHeight,
             CurrentRoundNumber = _state.CurrentRoundNumber,
@@ -5549,6 +5647,42 @@ public class BootProtocolStateService
         });
 
         TrimNetworkEventsNoLock(timestampUtc ?? DateTime.UtcNow);
+    }
+
+    private void PublishChainTipAnnouncement(BootChainTipAnnouncement announcement)
+    {
+        _chainTipAnnouncements.Writer.TryWrite(announcement);
+    }
+
+    private static bool ShouldAnnounceChainTipSource(string source)
+    {
+        if (string.IsNullOrWhiteSpace(source))
+        {
+            return true;
+        }
+
+        return !source.StartsWith("peer-tip", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static double? CalculateRelayLatencyMs(DateTime announcedAtUtc)
+    {
+        if (announcedAtUtc == default)
+        {
+            return null;
+        }
+
+        DateTime normalized = announcedAtUtc.Kind == DateTimeKind.Utc
+            ? announcedAtUtc
+            : DateTime.SpecifyKind(announcedAtUtc, DateTimeKind.Utc);
+        double latencyMs = (DateTime.UtcNow - normalized).TotalMilliseconds;
+        return latencyMs is >= 0 and <= 300000 ? latencyMs : null;
+    }
+
+    private static string FormatLatency(double? latencyMs)
+    {
+        return latencyMs.HasValue
+            ? $"{latencyMs.Value.ToString("F1", CultureInfo.InvariantCulture)} ms"
+            : "unknown";
     }
 
     private void RecordAcceptedShareTelemetryNoLock(BootShareProof proof)
@@ -8647,6 +8781,12 @@ public class BootProtocolStateService
             EventType = networkEvent.EventType,
             Source = networkEvent.Source,
             Message = networkEvent.Message,
+            Transport = networkEvent.Transport,
+            RemoteEndpoint = networkEvent.RemoteEndpoint,
+            RemoteNodeId = networkEvent.RemoteNodeId,
+            AnnouncedAtUtc = networkEvent.AnnouncedAtUtc,
+            RelayLatencyMs = networkEvent.RelayLatencyMs,
+            PayloadBytes = networkEvent.PayloadBytes,
             BlockHash = networkEvent.BlockHash,
             BlockHeight = networkEvent.BlockHeight,
             CurrentRoundNumber = networkEvent.CurrentRoundNumber,

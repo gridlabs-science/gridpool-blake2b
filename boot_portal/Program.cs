@@ -132,6 +132,9 @@ public class PoolConfig
     [JsonPropertyName("WebUI_Port_https")]
     public int WebUiPortHttps { get; set; } = 0;
 
+    [JsonPropertyName("peer_listener_port")]
+    public int PeerListenerPort { get; set; } = 0;
+
     [JsonPropertyName("enable_peer_sync")]
     public bool EnablePeerSync { get; set; } = true;
 
@@ -582,6 +585,13 @@ public class Program
                 listenUrls.Add($"https://0.0.0.0:{_poolConfig.WebUiPortHttps}");
             }
 
+            if (_poolConfig.PeerListenerPort > 0 &&
+                _poolConfig.PeerListenerPort != _poolConfig.WebUiPortHttp &&
+                _poolConfig.PeerListenerPort != _poolConfig.WebUiPortHttps)
+            {
+                listenUrls.Add($"http://0.0.0.0:{_poolConfig.PeerListenerPort}");
+            }
+
             if (listenUrls.Count == 0)
             {
                 throw new InvalidOperationException("At least one WebUI port must be configured.");
@@ -602,6 +612,7 @@ public class Program
             builder.Services.AddSingleton<BootProtocolStateService>();
             builder.Services.AddSingleton<BootPeerSessionManager>();
             builder.Services.AddSingleton<BootPeerUdpRelayService>();
+            builder.Services.AddSingleton<BootNatPortMappingService>();
             builder.Services.AddHttpClient("BootPeerClient", client =>
             {
                 client.Timeout = TimeSpan.FromSeconds(Math.Max(2, _poolConfig.PeerRequestTimeoutSeconds));
@@ -682,6 +693,23 @@ public class Program
             var app = builder.Build();
 
             // 2. Configure the web app
+            app.Use(async (context, next) =>
+            {
+                if (IsPeerOnlyListenerRequest(context, _poolConfig) &&
+                    !IsAllowedPeerOnlyPath(context.Request.Path))
+                {
+                    context.Response.StatusCode = StatusCodes.Status404NotFound;
+                    await context.Response.WriteAsJsonAsync(new
+                    {
+                        status = "not_found",
+                        reason = "This listener exposes GridPool peer protocol endpoints only."
+                    });
+                    return;
+                }
+
+                await next();
+            });
+
             app.UseStaticFiles(); // Serve static files like CSS, JS, images
             app.UseWebSockets();
             app.UseRouting();
@@ -704,6 +732,26 @@ public class Program
         }, ed25519PrivateKeyOption, x25519PrivateKeyOption);
 
         await rootCommand.InvokeAsync(args);
+    }
+
+    private static bool IsPeerOnlyListenerRequest(HttpContext context, PoolConfig config)
+    {
+        return config.PeerListenerPort > 0 &&
+            context.Connection.LocalPort == config.PeerListenerPort &&
+            config.PeerListenerPort != config.WebUiPortHttp &&
+            config.PeerListenerPort != config.WebUiPortHttps;
+    }
+
+    private static bool IsAllowedPeerOnlyPath(PathString path)
+    {
+        string value = path.Value ?? string.Empty;
+        return value.Equals("/health", StringComparison.OrdinalIgnoreCase) ||
+            value.StartsWith("/api/peer/", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("/api/network/summary", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("/api/network/peer-addresses", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("/api/network/reachability-test", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("/api/network/reachability-ack", StringComparison.OrdinalIgnoreCase) ||
+            value.StartsWith("/api/network/state/", StringComparison.OrdinalIgnoreCase);
     }
 
     private static PoolConfig LoadPoolConfig(string configPath, string? localConfigPath = null)
@@ -833,6 +881,7 @@ public class Program
         config.PeerSessionIdleTimeoutSeconds = Math.Clamp(config.PeerSessionIdleTimeoutSeconds, 30, 3600);
         config.PeerSessionMaxFrameBytes = Math.Clamp(config.PeerSessionMaxFrameBytes, 4096, Math.Max(4096, config.MaxShareRequestBytes));
         config.PeerSessionClockSkewSeconds = Math.Clamp(config.PeerSessionClockSkewSeconds, 60, 86400);
+        config.PeerListenerPort = Math.Clamp(config.PeerListenerPort, 0, 65535);
         config.PeerUdpBindPort = Math.Clamp(config.PeerUdpBindPort, 0, 65535);
         config.PeerUdpPort = Math.Clamp(config.PeerUdpPort, 1, 65535);
         config.PeerUdpMaxDatagramBytes = Math.Clamp(config.PeerUdpMaxDatagramBytes, 512, 65507);
