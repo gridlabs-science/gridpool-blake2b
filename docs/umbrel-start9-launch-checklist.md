@@ -123,6 +123,20 @@ Current evidence:
 
 Goal: home miners should not need to understand router internals to participate safely.
 
+Short-term beta posture:
+
+- Public nodes with manually configured DNS and ports are acceptable for early beta.
+- Private/Umbrel/Start9 nodes may participate as outbound-only peers as long as this is visible, safe, and well documented.
+- The launch-critical goal is not perfect peer-to-peer censorship resistance on day one; it is a low-friction setup where users can mine, verify state, and relay shares without router knowledge.
+- This is sufficient for the near-term value proposition of lower fees, sovereign template construction, and open participation, provided there are several independent public nodes.
+
+Long-term censorship-resistance posture:
+
+- Public seed nodes should become bootstrap/rendezvous helpers, not central relay dependencies.
+- Outbound-only home nodes should eventually attempt automatic reachability and direct encrypted peer paths.
+- UDP hole punching, Tor/I2P transports, and more diverse peer discovery should be evaluated as censorship-resistance upgrades even if short-term latency data looks acceptable.
+- Route-dependency metrics should make centralization visible: direct public peers, outbound-only session peers, UDP-direct peers, and relay-fallback paths should be counted separately.
+
 - [x] Make outbound-only peers visible in UI/API as live sessions instead of fake dialable endpoints.
 - [x] Relay accepted shares to live outbound-only WebSocket sessions directly connected to a public node.
 - [x] Add encrypted V2 session state-bundle sync so outbound-only peers can serve stronger current/candidate state without public HTTP reachability.
@@ -136,11 +150,14 @@ Goal: home miners should not need to understand router internals to participate 
 - [x] Add measurement-only chain-tip/header relay telemetry over encrypted V2 sessions.
 - [ ] Run chain-tip latency reports during the 7-day soak and compare against local Bitcoin tip detection.
 - [ ] Add advanced, disabled-by-default optimistic peer-header mining for GridPool-controlled SV2/direct-template adapters.
-- [ ] Decide whether UDP hole punching is necessary after 7-day latency data review.
+- [ ] Decide whether UDP hole punching is necessary for beta performance after 7-day latency data review.
+- [ ] Separately decide the censorship-resistance roadmap priority for UDP hole punching even if beta performance is acceptable.
+- [ ] Add NAT traversal status fields: none/manual/pcp/nat-pmp/upnp/failed, observed external UDP endpoint, and mapping stability.
 - [ ] Add clear docs for direct public peer, outbound-only-safe peer, and relay-fallback peer modes.
 - [x] Ensure hidden peers are never advertised as dialable endpoints.
 - [ ] Add metrics for relay dependency: number of peers reached directly, by outbound-only session sync, and through any relay fallback.
 - [ ] Keep seed-mediated relay as fallback only; do not treat it as the preferred launch topology.
+- [ ] Document Tor/I2P as future optional privacy/reachability transports for censorship-resistant mode.
 
 Completion criteria:
 
@@ -162,6 +179,7 @@ Current evidence:
 - Encrypted V2 session bundle sync and optional peer-only listener support are implemented but need real-node validation.
 - Reachability self-test, UDP diagnostics, chain-tip latency instrumentation, and admin-triggered PCP/NAT-PMP mapping are implemented.
 - Real-router PCP/NAT-PMP validation, UPnP decision, direct-vs-session relay dependency metrics, and the 7-day latency report remain open.
+- Current production-like topology is acceptable for public beta if enough independent public nodes stay reachable, but it is not the final censorship-resistance topology.
 
 ## G5: Packaging And Installer Readiness
 

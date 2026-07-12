@@ -6,6 +6,8 @@ GridPool needs peer networking that is easy for home miners to join, but robust 
 
 The original V1-V3 plan focused on reachable public peer endpoints. Public beta testing showed the missing pleb-miner requirement: most home nodes will not have public IPs or router ports configured. The next phase is therefore **V2.1 Hidden Peer Mode**, which treats outbound-only WebSocket sessions as first-class peers and uses public seeds as rendezvous/relay fallback without changing trust assumptions.
 
+For short-term public beta, a network of several independent public nodes plus outbound-only private nodes is acceptable. This is enough to support the near-term value proposition: lower fees, sovereign template construction, and open participation without requiring every miner to understand router configuration. For the longer-term "pool for cypherpunks" goal, this is not sufficient. Public seeds must become bootstrap/rendezvous helpers rather than structural chokepoints, and hidden home nodes should increasingly be able to discover and connect to each other through direct encrypted paths.
+
 ## Implementation Status At A Glance
 
 | Phase | Status | Notes |
@@ -16,6 +18,49 @@ The original V1-V3 plan focused on reachable public peer endpoints. Public beta 
 | V3 UDP fast relay | Initial implementation complete | Authenticated UDP relay exists after a V2 session, with V2/HTTP fallback when packets do not fit. |
 | V3.1 compact slot-0 reconstruction | Planned | Needed for production-scale 300-output coinbases to fit fast UDP reliably. |
 | V4 Bitcoin header / compact block relay | Research only | Not started. |
+| Censorship-resistant hidden-node connectivity | Roadmap | NAT status metrics, automatic mapping, STUN-style discovery, UDP hole punching, Tor/I2P, and alternate peer discovery remain future work. |
+
+## Strategic Networking Posture
+
+GridPool has two distinct networking goals:
+
+1. **Public beta practicality.** Make installation boring. A home miner should be able to enter a payout address, connect outbound to public peers, verify state, relay shares, and mine without opening router ports. Public nodes with manual DNS/port configuration can carry early network availability.
+2. **Censorship-resistance hardening.** Make public operators non-critical. If public nodes, DNS names, or VPS providers are pressured, already-running home nodes should preserve as much peer connectivity and share relay as possible.
+
+These goals lead to different priorities. The beta launch should not block on UDP hole punching, Tor, or I2P. But the architecture should avoid choices that make those upgrades hard later.
+
+### Short-Term Acceptable Topology
+
+- A small set of public nodes advertise HTTPS/WebSocket and UDP endpoints.
+- Private nodes connect outbound to multiple public nodes.
+- Public nodes provide bootstrap, address gossip, and fallback relay.
+- Outbound-only nodes are visible in peer tables and health monitoring.
+- Nodes remain trustless: every imported proof and state bundle is validated locally.
+
+This topology is not maximally censorship-resistant, but it is good enough for public beta if route dependency is visible and multiple independent public nodes exist.
+
+### Long-Term Target Topology
+
+- Public seeds are bootstrap/rendezvous hints, not permanent relay hubs.
+- Private nodes attempt automatic reachability using PCP, NAT-PMP, UPnP IGD, and later UDP hole punching.
+- Nodes maintain direct encrypted sessions wherever possible.
+- Relay fallback exists, but the monitor can show when a node depends on relays.
+- Optional Tor/I2P transports provide reachability and privacy for users willing to accept higher latency.
+- Peer discovery is diversified beyond DNS seeds, potentially including signed seed lists, peer exchange, onion/I2P addresses, and pubkey-based announcement channels.
+
+### Data Needed Before UDP Hole Punching
+
+UDP hole punching is strategically attractive for censorship resistance, but it should be prioritized with data:
+
+- Real-router PCP/NAT-PMP/UPnP success rate.
+- Fraction of home nodes that remain outbound-only after automatic mapping attempts.
+- Observed external UDP endpoint stability over time.
+- Per-proof route type: UDP-direct, WebSocket session, HTTP JSON, relay fallback.
+- Hidden-node relay dependency: how many peers are direct versus seed-mediated.
+- Snapshot-boundary misses by route type.
+- Public-node bandwidth and relay load under realistic pulse/share rates.
+
+If automatic mapping succeeds often and outbound-only sessions converge quickly, hole punching can remain a post-beta hardening task. If most home nodes stay hidden and public nodes become relay chokepoints, UDP hole punching moves up the priority list.
 
 ## V1: HTTP Address Manager
 
@@ -123,17 +168,21 @@ V2.1 makes outbound-only nodes explicit first-class participants without requiri
 5. Public reachability assistance
    - Add explicit PCP/NAT-PMP port mapping for the peer-only TCP port and UDP relay port.
    - Add optional UPnP IGD later if PCP/NAT-PMP coverage is insufficient.
+   - Add STUN-style observed endpoint reporting so nodes can learn whether their UDP mapping is stable.
+   - Record mapping method and stability in `/api/network/summary` for monitoring and installer UX.
    - Leave router mutation behind a clear user action.
    - Status: seed-assisted HTTP/session route probe is implemented at `/api/network/reachability-test`; UDP challenge/ack diagnostics are implemented for reachability testing; admin-triggered PCP/NAT-PMP mapping is implemented at `/api/network/admin/port-map` and exposed by `scripts/peer-port-map.mjs`.
-   - Remaining work: validate PCP/NAT-PMP against real home routers and one CGNAT/failure case; add UPnP IGD only if PCP/NAT-PMP coverage is not good enough.
+   - Remaining work: validate PCP/NAT-PMP against real home routers and one CGNAT/failure case; add UPnP IGD if PCP/NAT-PMP coverage is not good enough; add boot-time automatic attempts and status reporting.
 
 6. NAT traversal and latency decision
-   - Gather real-world latency data before implementing UDP hole punching.
+   - Gather real-world latency and route-dependency data before implementing UDP hole punching for beta.
+   - Keep the longer-term censorship-resistance case separate: hole punching may still be worth building even if public-relay latency is acceptable.
    - If required, use public seeds as rendezvous so hidden nodes can exchange observed UDP addresses and punch direct authenticated V3 UDP paths.
    - Treat seed relay as fallback only, not the preferred topology.
 
 7. Optional Tor mode
    - Add onion-service documentation and config later for users who prefer privacy/reachability over lowest latency.
+   - Evaluate I2P for the same purpose, especially because Bitcoin Core already has I2P support patterns that sovereign miners may recognize.
 
 ### V2.1 Acceptance Criteria
 
@@ -233,4 +282,13 @@ V4 remains research for mining behavior, but measurement-only V2 chain-tip annou
 
 ## Current Priority
 
-Implement V2.1 before adding more UDP sophistication. The current network can move shares between public nodes well enough, but the beta usability bottleneck is that normal home miners are likely to be outbound-only. Making those nodes visible, bidirectional, and relay-capable is the fastest route toward a less centralized practical topology.
+For the public beta and Umbrel/Start9 launch path, keep the practical topology simple:
+
+1. Run several independent public nodes with manually configured DNS, HTTPS/WebSocket, DATUM/SV2 where applicable, and UDP relay.
+2. Make private home nodes work well as outbound-only participants.
+3. Validate encrypted V2 session state-bundle sync and share relay across real public/private nodes.
+4. Add NAT traversal status metrics and boot-time PCP/NAT-PMP attempts.
+5. Add UPnP IGD if PCP/NAT-PMP coverage is poor.
+6. Use the 7-day telemetry window to quantify UDP/public-relay latency, route dependency, and snapshot-boundary misses.
+
+Do not block public beta on UDP hole punching. Treat it as the likely next censorship-resistance hardening layer if route-dependency metrics show public nodes acting as central relay chokepoints, or if the project shifts from low-fee public beta toward adversarial anti-censorship deployment.
