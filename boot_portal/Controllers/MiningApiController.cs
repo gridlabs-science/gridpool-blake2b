@@ -91,6 +91,7 @@ public class MiningApiController : ControllerBase
     [HttpPost("share")]
     public async Task<IActionResult> SubmitShare([FromBody] ShareSubmissionDto? share)
     {
+        DateTime transportReceivedUtc = DateTime.UtcNow;
         if (share == null)
         {
             return BadRequest(new { status = "rejected", reason = "Missing share payload" });
@@ -120,6 +121,7 @@ public class MiningApiController : ControllerBase
                 PayoutSnapshotId = share.PayoutSnapshotId,
                 PrevBlockHash = share.PrevBlockHash,
                 Difficulty = share.Difficulty,
+                TransportReceivedUtc = transportReceivedUtc,
                 Source = "http"
             }, "http-block");
 
@@ -129,6 +131,10 @@ public class MiningApiController : ControllerBase
                 {
                     status = result.Accepted ? "accepted" : "duplicate",
                     difficulty = result.ComputedDifficulty,
+                    proofClass = result.ProofClass,
+                    relayStage = result.RelayStage,
+                    pulseAccepted = result.PulseAccepted,
+                    affectedConsensusState = result.AffectedConsensusState,
                     isBlock = result.IsBlock,
                     blockHash = result.BlockHash,
                     stateId = result.IsBlock

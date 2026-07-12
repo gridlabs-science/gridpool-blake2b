@@ -17,7 +17,7 @@ function parseArgs(argv) {
 }
 
 function usage() {
-    console.error("Usage: node scripts/peer-relay-latency-report.mjs --url <base-url> [--window 12h] [--limit 500] [--transport udp] [--remote-endpoint <url>]");
+    console.error("Usage: node scripts/peer-relay-latency-report.mjs --url <base-url> [--window 12h] [--limit 500] [--transport udp] [--remote-endpoint <url>] [--proof-class work|pulse] [--relay-stage optimistic|validated]");
     process.exit(1);
 }
 
@@ -58,7 +58,9 @@ function printReport(payload) {
     }
 
     for (const transport of transports) {
-        console.log(`  ${transport.transport || "unknown"}: arrivals=${transport.arrivalCount ?? 0} first=${transport.firstArrivalCount ?? 0} accepted=${transport.acceptedCount ?? 0} duplicates=${transport.duplicateCount ?? 0}`);
+        const proofClass = transport.proofClass ? ` proof=${transport.proofClass}` : "";
+        const relayStage = transport.relayStage ? ` stage=${transport.relayStage}` : "";
+        console.log(`  ${transport.transport || "unknown"}${proofClass}${relayStage}: arrivals=${transport.arrivalCount ?? 0} first=${transport.firstArrivalCount ?? 0} accepted=${transport.acceptedCount ?? 0} duplicates=${transport.duplicateCount ?? 0}`);
         console.log(`    delta avg/median/p95: ${formatMs(transport.averageDeltaFromFirstMs)} / ${formatMs(transport.medianDeltaFromFirstMs)} / ${formatMs(transport.p95DeltaFromFirstMs)}`);
         console.log(`    payload avg/min/max: ${formatBytes(transport.averagePayloadBytes)} / ${formatBytes(transport.minPayloadBytes)} / ${formatBytes(transport.maxPayloadBytes)}`);
     }
@@ -73,7 +75,9 @@ const payload = await fetchJson(args.url, "/api/network/peer-relay-latency", {
     window: args.window || "12h",
     limit: args.limit || 500,
     transport: args.transport,
-    remoteEndpoint: args["remote-endpoint"]
+    remoteEndpoint: args["remote-endpoint"],
+    proofClass: args["proof-class"],
+    relayStage: args["relay-stage"]
 });
 
 printReport(payload);

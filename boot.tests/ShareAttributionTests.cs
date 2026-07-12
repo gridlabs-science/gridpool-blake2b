@@ -512,6 +512,95 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public async Task PulseProofDoesNotMutateWorkSetButRelaysTelemetryProofAsync()
+    {
+        BootShareProof higherDifficultyProof = CreateFakeProof("seed-high-proof", 1_000_000_000d);
+        using var harness = TestHarness.Create(
+            currentTipBlockHash: SamplePrevBlockHash,
+            sharedWinnerSlotCount: 1,
+            workSetReserveMultiplier: 1,
+            onDeckProofs: [higherDifficultyProof]);
+        harness.Config.EnablePulseProofs = true;
+        harness.Config.PulseMinDifficulty = 1;
+        harness.Config.PulseRelayTtl = 1;
+
+        BootNetworkStatusDto before = harness.StateService.GetNetworkStatus();
+        ShareRecordingResult result = await harness.StateService.SubmitShareAsync(new RecordedShareSubmission
+        {
+            MinerAddress = AlternateAddress,
+            Username = string.Empty,
+            HeaderHex = SampleHeaderHex,
+            CoinbaseHex = SampleCoinbaseHex,
+            MerklePath = SampleMerklePath.ToList(),
+            PrevBlockHash = SamplePrevBlockHash,
+            Source = "datum"
+        }, "datum-block");
+        BootNetworkStatusDto after = harness.StateService.GetNetworkStatus();
+
+        Assert.IsTrue(result.Accepted, result.RejectionReason);
+        Assert.IsTrue(result.PulseAccepted);
+        Assert.AreEqual(BootProofClasses.Pulse, result.ProofClass);
+        Assert.IsFalse(result.AffectedConsensusState);
+        Assert.IsFalse(result.AffectedOnDeck);
+        Assert.AreEqual(before.CandidateStateId, after.CandidateStateId);
+        Assert.AreEqual(before.WorkSetCount, after.WorkSetCount);
+        Assert.AreEqual(higherDifficultyProof.ShareId, harness.StateService.GetStateBundle(after.CandidateStateId)!.WorkSetProofs[0].ShareId);
+        Assert.IsTrue(harness.StateService.AcceptedShares.TryRead(out BootShareProof? relayProof));
+        Assert.AreEqual(BootProofClasses.Pulse, relayProof!.ProofClass);
+        Assert.AreEqual(BootRelayStages.Validated, relayProof.RelayStage);
+        Assert.AreEqual(1, relayProof.RelayTtl);
+    }
+
+    [TestMethod]
+    public async Task OptimisticRelayEmitsBeforeValidatedRelayWhenEnabledAsync()
+    {
+        using var harness = TestHarness.Create(currentTipBlockHash: SamplePrevBlockHash);
+        harness.Config.EnableOptimisticShareRelay = true;
+        harness.Config.MinOptimisticRelayDifficulty = 1;
+
+        ShareRecordingResult result = await harness.StateService.SubmitShareAsync(new RecordedShareSubmission
+        {
+            MinerAddress = AlternateAddress,
+            Username = string.Empty,
+            HeaderHex = SampleHeaderHex,
+            CoinbaseHex = SampleCoinbaseHex,
+            MerklePath = SampleMerklePath.ToList(),
+            PrevBlockHash = SamplePrevBlockHash,
+            Source = "datum"
+        }, "datum-block");
+
+        Assert.IsTrue(result.Accepted, result.RejectionReason);
+        Assert.IsTrue(result.AffectedOnDeck);
+        Assert.IsTrue(harness.StateService.AcceptedShares.TryRead(out BootShareProof? optimisticProof));
+        Assert.IsTrue(harness.StateService.AcceptedShares.TryRead(out BootShareProof? validatedProof));
+        Assert.AreEqual(BootRelayStages.Optimistic, optimisticProof!.RelayStage);
+        Assert.AreEqual(BootRelayStages.Validated, validatedProof!.RelayStage);
+        Assert.AreEqual(optimisticProof.ShareId, validatedProof.ShareId);
+        Assert.IsTrue(optimisticProof.DifficultyCheckedUtc.HasValue);
+        Assert.IsTrue(validatedProof.ValidationCompletedUtc.HasValue);
+    }
+
+    [TestMethod]
+    public void UdpShareCodecPreservesPulseProofMetadata()
+    {
+        BootShareProof proof = CreateValidatedProof(SampleHeaderHex, SamplePrevBlockHash, "seed-current");
+        proof.ProofClass = BootProofClasses.Pulse;
+        proof.RelayStage = BootRelayStages.Optimistic;
+        proof.RelayTtl = 2;
+
+        bool encoded = BootPeerUdpShareCodec.TryEncode(proof, new PoolConfig(), out byte[] payload, out string encodeReason);
+        Assert.IsTrue(encoded, encodeReason);
+
+        bool decoded = BootPeerUdpShareCodec.TryDecode(payload, new PoolConfig(), out RecordedShareSubmission share, out string decodeReason);
+        Assert.IsTrue(decoded, decodeReason);
+        Assert.AreEqual(BootProofClasses.Pulse, share.ProofClass);
+        Assert.AreEqual(BootRelayStages.Optimistic, share.RelayStage);
+        Assert.AreEqual(2, share.RelayTtl);
+        Assert.AreEqual(proof.HeaderHex, share.HeaderHex);
+        Assert.AreEqual(proof.CoinbaseHex, share.CoinbaseHex);
+    }
+
+    [TestMethod]
     public async Task DatumShareOnFreshParentWithInvalidCoinbaseReportsRetryFailureAsync()
     {
         using var harness = TestHarness.Create(currentTipBlockHash: OlderTipBlockHash);

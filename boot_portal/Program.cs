@@ -237,6 +237,48 @@ public class PoolConfig
     [JsonPropertyName("peer_relay_latency_probe_all_transports")]
     public bool PeerRelayLatencyProbeAllTransports { get; set; } = false;
 
+    [JsonPropertyName("enable_pulse_proofs")]
+    public bool EnablePulseProofs { get; set; } = false;
+
+    [JsonPropertyName("pulse_min_difficulty")]
+    public double PulseMinDifficulty { get; set; } = 1d;
+
+    [JsonPropertyName("pulse_target_interval_seconds")]
+    public int PulseTargetIntervalSeconds { get; set; } = 60;
+
+    [JsonPropertyName("pulse_relay_ttl")]
+    public int PulseRelayTtl { get; set; } = 1;
+
+    [JsonPropertyName("pulse_max_per_peer_per_minute")]
+    public int PulseMaxPerPeerPerMinute { get; set; } = 2;
+
+    [JsonPropertyName("pulse_max_per_source_address_per_minute")]
+    public int PulseMaxPerSourceAddressPerMinute { get; set; } = 2;
+
+    [JsonPropertyName("enable_optimistic_share_relay")]
+    public bool EnableOptimisticShareRelay { get; set; } = false;
+
+    [JsonPropertyName("min_optimistic_relay_difficulty")]
+    public double MinOptimisticRelayDifficulty { get; set; } = 1d;
+
+    [JsonPropertyName("public_telemetry_opt_in")]
+    public bool PublicTelemetryOptIn { get; set; } = false;
+
+    [JsonPropertyName("public_node_display_name")]
+    public string PublicNodeDisplayName { get; set; } = string.Empty;
+
+    [JsonPropertyName("public_node_region")]
+    public string PublicNodeRegion { get; set; } = string.Empty;
+
+    [JsonPropertyName("public_node_role")]
+    public string PublicNodeRole { get; set; } = string.Empty;
+
+    [JsonPropertyName("public_node_approx_lat")]
+    public double? PublicNodeApproxLatitude { get; set; }
+
+    [JsonPropertyName("public_node_approx_lon")]
+    public double? PublicNodeApproxLongitude { get; set; }
+
     [JsonPropertyName("mining_api_share_rate_limit_per_minute")]
     public int MiningApiShareRateLimitPerMinute { get; set; } = 120;
 
@@ -2929,6 +2971,7 @@ public class ClientHandler
             PayoutSnapshotId = powSubmit.PayoutSnapshotId,
             PrevBlockHash = powSubmit.PrevBlockHash == null ? null : BitcoinHashes.ToDisplayHashHex(powSubmit.PrevBlockHash),
             Difficulty = achievedDifficulty,
+            TransportReceivedUtc = startedUtc,
             Source = "datum"
         }, "datum-block");
         validationDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
@@ -3044,6 +3087,11 @@ public class ClientHandler
 
         double admissionDifficulty = _stateService.GetWorkSetAdmissionDifficulty();
         if (achievedDifficulty >= admissionDifficulty)
+        {
+            return false;
+        }
+
+        if (_poolConfig.EnablePulseProofs && achievedDifficulty >= Math.Max(1d, _poolConfig.PulseMinDifficulty))
         {
             return false;
         }

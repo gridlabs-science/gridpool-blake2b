@@ -46,6 +46,14 @@ public class MiningShareAdviceDto
     public double MinimumDifficultyToEnterOnDeck { get; set; } = 1;
     public string MinimumDifficultyToEnterOnDeckDisplay { get; set; } = "1";
     public bool RequiresStrictlyGreaterThanFloor { get; set; }
+    public bool PulseProofsEnabled { get; set; }
+    public double MinimumPulseDifficulty { get; set; } = 1;
+    public string MinimumPulseDifficultyDisplay { get; set; } = "1";
+    public int PulseTargetIntervalSeconds { get; set; } = 60;
+    public int PulseRelayTtl { get; set; } = 1;
+    public bool OptimisticRelayEnabled { get; set; }
+    public double MinimumOptimisticRelayDifficulty { get; set; } = 1;
+    public string MinimumOptimisticRelayDifficultyDisplay { get; set; } = "1";
     public double? BestOnDeckDifficulty { get; set; }
     public string BestOnDeckDifficultyDisplay { get; set; } = "--";
     public string SubmitRule { get; set; } = string.Empty;

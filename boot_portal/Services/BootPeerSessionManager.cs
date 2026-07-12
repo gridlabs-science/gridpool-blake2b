@@ -181,6 +181,9 @@ public sealed class BootPeerSessionManager : BackgroundService
             UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
             ReleaseVersion = BootProtocolVersions.Local(_poolConfig).ReleaseVersion,
             NetworkId = _poolConfig.BootNetworkId,
+            ProofClass = proof.ProofClass,
+            RelayStage = proof.RelayStage,
+            RelayTtl = proof.RelayTtl,
             Share = proof
         };
 
@@ -923,6 +926,10 @@ public sealed class BootPeerSessionManager : BackgroundService
             PrevBlockHash = announcement.Share.PrevBlockHash,
             Difficulty = announcement.Share.Difficulty,
             PayloadBytes = Math.Max(0, frameBytes),
+            TransportReceivedUtc = DateTime.UtcNow,
+            ProofClass = string.IsNullOrWhiteSpace(announcement.Share.ProofClass) ? announcement.ProofClass : announcement.Share.ProofClass,
+            RelayStage = string.IsNullOrWhiteSpace(announcement.Share.RelayStage) ? announcement.RelayStage : announcement.Share.RelayStage,
+            RelayTtl = announcement.Share.RelayTtl != 0 ? announcement.Share.RelayTtl : announcement.RelayTtl,
             Source = string.IsNullOrWhiteSpace(senderEndpoint)
                 ? $"peer-session-node:{session.RemoteNodeId}"
                 : $"peer-session:{senderEndpoint}"

@@ -24,6 +24,19 @@ public sealed class BootShareValidationResult
     public bool IsBlock { get; init; }
 }
 
+public sealed class BootShareHeaderEvaluationResult
+{
+    public bool IsValid { get; init; }
+    public string? RejectionReason { get; init; }
+    public string ShareId { get; init; } = string.Empty;
+    public string HeaderHex { get; init; } = string.Empty;
+    public string CoinbaseHex { get; init; } = string.Empty;
+    public string PrevBlockHash { get; init; } = string.Empty;
+    public string BlockHash { get; init; } = string.Empty;
+    public double Difficulty { get; init; }
+    public bool IsBlock { get; init; }
+}
+
 public class BootShareVerifier
 {
     private static readonly BigInteger DifficultyOneTarget = DecodeCompactTarget(0x1d00ffff);
@@ -96,6 +109,64 @@ public class BootShareVerifier
             expectedWinners,
             expectedPrevBlockHashes,
             proof.ShareId);
+    }
+
+    public BootShareHeaderEvaluationResult EvaluateHeaderDifficulty(RecordedShareSubmission share)
+    {
+        try
+        {
+            string normalizedHeaderHex = BitcoinHashes.NormalizeHex(share.HeaderHex);
+            if (normalizedHeaderHex.Length != 160)
+            {
+                return InvalidHeader("Header must be exactly 80 bytes.");
+            }
+
+            string normalizedCoinbaseHex = BitcoinHashes.NormalizeHex(share.CoinbaseHex);
+            if (string.IsNullOrWhiteSpace(normalizedCoinbaseHex) || normalizedCoinbaseHex.Length % 2 != 0)
+            {
+                return InvalidHeader("Coinbase transaction hex is invalid.");
+            }
+
+            byte[] headerBytes = Convert.FromHexString(normalizedHeaderHex);
+            byte[] headerPrevBlockHash = headerBytes.AsSpan(4, 32).ToArray();
+            string actualPrevBlockHash = BitcoinHashes.ToDisplayHashHex(headerPrevBlockHash);
+            if (!string.IsNullOrWhiteSpace(share.PrevBlockHash) &&
+                !BitcoinHashes.AreEquivalent(share.PrevBlockHash, actualPrevBlockHash))
+            {
+                return InvalidHeader("Prev block hash does not match the submitted header.");
+            }
+
+            byte[] headerHash = DoubleSha256(headerBytes);
+            string blockHash = BitcoinHashes.ToDisplayHashHex(headerHash);
+            uint compactTarget = BinaryPrimitives.ReadUInt32LittleEndian(headerBytes.AsSpan(72, 4));
+            BigInteger target = DecodeCompactTarget(compactTarget);
+            if (target <= BigInteger.Zero)
+            {
+                return InvalidHeader("Header target is invalid.");
+            }
+
+            BigInteger hashValue = ToPositiveBigInteger(headerHash);
+            double difficulty = hashValue.IsZero ? double.MaxValue : (double)DifficultyOneTarget / (double)hashValue;
+            return new BootShareHeaderEvaluationResult
+            {
+                IsValid = true,
+                ShareId = ComputeShareId(normalizedHeaderHex, normalizedCoinbaseHex),
+                HeaderHex = normalizedHeaderHex,
+                CoinbaseHex = normalizedCoinbaseHex,
+                PrevBlockHash = actualPrevBlockHash,
+                BlockHash = blockHash,
+                Difficulty = difficulty,
+                IsBlock = hashValue <= target
+            };
+        }
+        catch (FormatException)
+        {
+            return InvalidHeader("Share payload is not valid hex.");
+        }
+        catch (Exception ex)
+        {
+            return InvalidHeader(ex.Message);
+        }
     }
 
     private BootShareValidationResult ValidateCore(
@@ -598,6 +669,15 @@ public class BootShareVerifier
     private static BootShareValidationResult Invalid(string reason)
     {
         return new BootShareValidationResult
+        {
+            IsValid = false,
+            RejectionReason = reason
+        };
+    }
+
+    private static BootShareHeaderEvaluationResult InvalidHeader(string reason)
+    {
+        return new BootShareHeaderEvaluationResult
         {
             IsValid = false,
             RejectionReason = reason

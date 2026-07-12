@@ -12,6 +12,10 @@ public class RecordedShareSubmission
     public double Difficulty { get; set; }
     public string Source { get; set; } = "unknown";
     public int PayloadBytes { get; set; }
+    public DateTime? TransportReceivedUtc { get; set; }
+    public string ProofClass { get; set; } = BootProofClasses.Work;
+    public string RelayStage { get; set; } = BootRelayStages.Validated;
+    public int RelayTtl { get; set; }
 }
 
 public class BootShareProof
@@ -29,6 +33,26 @@ public class BootShareProof
     public string DiffString { get; set; } = "0";
     public string Source { get; set; } = "unknown";
     public DateTime Timestamp { get; set; }
+    public string ProofClass { get; set; } = BootProofClasses.Work;
+    public string RelayStage { get; set; } = BootRelayStages.Validated;
+    public int RelayTtl { get; set; }
+    public DateTime? TransportReceivedUtc { get; set; }
+    public DateTime? StateServiceReceivedUtc { get; set; }
+    public DateTime? DifficultyCheckedUtc { get; set; }
+    public DateTime? ValidationCompletedUtc { get; set; }
+    public DateTime? StateMutationCompletedUtc { get; set; }
+}
+
+public static class BootProofClasses
+{
+    public const string Work = "work";
+    public const string Pulse = "pulse";
+}
+
+public static class BootRelayStages
+{
+    public const string Optimistic = "optimistic";
+    public const string Validated = "validated";
 }
 
 public class BootCommitmentInfo
@@ -299,6 +323,18 @@ public class BootNetworkStatusDto
     public int PeerUdpPort { get; set; }
     public int PeerUdpMaxDatagramBytes { get; set; }
     public bool PeerRelayLatencyProbeAllTransports { get; set; }
+    public bool PulseProofsEnabled { get; set; }
+    public double MinimumPulseDifficulty { get; set; }
+    public int PulseTargetIntervalSeconds { get; set; }
+    public int PulseRelayTtl { get; set; }
+    public bool OptimisticShareRelayEnabled { get; set; }
+    public double MinimumOptimisticRelayDifficulty { get; set; }
+    public bool PublicTelemetryOptIn { get; set; }
+    public string PublicNodeDisplayName { get; set; } = string.Empty;
+    public string PublicNodeRegion { get; set; } = string.Empty;
+    public string PublicNodeRole { get; set; } = string.Empty;
+    public double? PublicNodeApproxLatitude { get; set; }
+    public double? PublicNodeApproxLongitude { get; set; }
     public string ReleaseVersion { get; set; } = string.Empty;
     public BootNodeVersionInfo VersionInfo { get; set; } = new();
     public string NetworkId { get; set; } = string.Empty;
@@ -383,6 +419,8 @@ public class BootShareDiagnosticTelemetry
 public class BootPeerRelayObservation
 {
     public string ShareId { get; set; } = string.Empty;
+    public string ProofClass { get; set; } = BootProofClasses.Work;
+    public string RelayStage { get; set; } = BootRelayStages.Validated;
     public string Transport { get; set; } = string.Empty;
     public string Source { get; set; } = string.Empty;
     public string RemoteEndpoint { get; set; } = string.Empty;
@@ -397,6 +435,15 @@ public class BootPeerRelayObservation
     public double DeltaFromFirstMs { get; set; }
     public int PayloadBytes { get; set; }
     public double ValidationDurationMs { get; set; }
+    public DateTime? TransportReceivedUtc { get; set; }
+    public DateTime? StateServiceReceivedUtc { get; set; }
+    public DateTime? DifficultyCheckedUtc { get; set; }
+    public DateTime? ValidationCompletedUtc { get; set; }
+    public DateTime? StateMutationCompletedUtc { get; set; }
+    public double? TransportToStateServiceMs { get; set; }
+    public double? StateServiceToDifficultyMs { get; set; }
+    public double? DifficultyToValidationMs { get; set; }
+    public double? ValidationToMutationMs { get; set; }
     public int CurrentRoundNumber { get; set; }
     public string CurrentStateId { get; set; } = string.Empty;
     public string CandidateStateId { get; set; } = string.Empty;
@@ -408,6 +455,8 @@ public class BootPeerRelayObservation
 public class BootPeerRelayTransportSummaryDto
 {
     public string Transport { get; set; } = string.Empty;
+    public string ProofClass { get; set; } = string.Empty;
+    public string RelayStage { get; set; } = string.Empty;
     public int ArrivalCount { get; set; }
     public int FirstArrivalCount { get; set; }
     public int AcceptedCount { get; set; }
@@ -723,6 +772,9 @@ public class PeerShareAnnouncement
     public int UdpRelayVersion { get; set; }
     public string ReleaseVersion { get; set; } = string.Empty;
     public string NetworkId { get; set; } = string.Empty;
+    public string ProofClass { get; set; } = BootProofClasses.Work;
+    public string RelayStage { get; set; } = BootRelayStages.Validated;
+    public int RelayTtl { get; set; }
     public BootShareProof Share { get; set; } = new();
 }
 
@@ -841,6 +893,10 @@ public class ShareRecordingResult
 {
     public bool Accepted { get; set; }
     public string? RejectionReason { get; set; }
+    public string ProofClass { get; set; } = BootProofClasses.Work;
+    public string RelayStage { get; set; } = BootRelayStages.Validated;
+    public bool PulseAccepted { get; set; }
+    public bool AffectedConsensusState { get; set; }
     public bool NewRecord { get; set; }
     public bool AffectedOnDeck { get; set; }
     public double ComputedDifficulty { get; set; }
@@ -858,6 +914,11 @@ public class ShareRecordingResult
     public double StateMutationDurationMs { get; set; }
     public double StateMutationLockWaitDurationMs { get; set; }
     public double StateMutationLockBodyDurationMs { get; set; }
+    public DateTime? TransportReceivedUtc { get; set; }
+    public DateTime? StateServiceReceivedUtc { get; set; }
+    public DateTime? DifficultyCheckedUtc { get; set; }
+    public DateTime? ValidationCompletedUtc { get; set; }
+    public DateTime? StateMutationCompletedUtc { get; set; }
 }
 
 public class RoundRotationResult

@@ -8,7 +8,7 @@ public static class BootProtocolVersions
     public const int StateBundleSchemaVersion = 2;
     public const int HttpApiVersion = 1;
     public const int PeerTransportVersion = 2;
-    public const int UdpRelayVersion = 3;
+    public const int UdpRelayVersion = 4;
 
     private static readonly Lazy<string> ReleaseVersion = new(() =>
     {

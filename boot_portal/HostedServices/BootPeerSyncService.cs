@@ -374,6 +374,9 @@ public class BootPeerSyncService : BackgroundService
             UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
             ReleaseVersion = BootProtocolVersions.Local(_poolConfig).ReleaseVersion,
             NetworkId = _poolConfig.BootNetworkId,
+            ProofClass = proof.ProofClass,
+            RelayStage = proof.RelayStage,
+            RelayTtl = proof.RelayTtl,
             Share = proof
         };
 

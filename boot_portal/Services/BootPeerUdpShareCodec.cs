@@ -7,7 +7,9 @@ namespace boot_portal.Services;
 
 public static class BootPeerUdpShareCodec
 {
-    private const byte Version = 2;
+    private const byte Version = 3;
+    private const byte FlagPulseProof = 1 << 0;
+    private const byte FlagOptimisticRelay = 1 << 1;
     private const int MaxUsernameBytes = 255;
     private const int MaxSnapshotIdBytes = 255;
 
@@ -47,6 +49,7 @@ public static class BootPeerUdpShareCodec
             int size =
                 1 + // version
                 1 + // flags
+                1 + // relay TTL
                 80 +
                 2 + coinbase.Length +
                 1 + (proof.MerklePath.Count * 32) +
@@ -56,7 +59,18 @@ public static class BootPeerUdpShareCodec
             int offset = 0;
 
             payload[offset++] = Version;
-            payload[offset++] = 0;
+            byte flags = 0;
+            if (string.Equals(proof.ProofClass, BootProofClasses.Pulse, StringComparison.OrdinalIgnoreCase))
+            {
+                flags |= FlagPulseProof;
+            }
+            if (string.Equals(proof.RelayStage, BootRelayStages.Optimistic, StringComparison.OrdinalIgnoreCase))
+            {
+                flags |= FlagOptimisticRelay;
+            }
+
+            payload[offset++] = flags;
+            payload[offset++] = checked((byte)Math.Clamp(proof.RelayTtl, 0, byte.MaxValue));
             Buffer.BlockCopy(header, 0, payload, offset, header.Length);
             offset += header.Length;
 
@@ -97,7 +111,7 @@ public static class BootPeerUdpShareCodec
         try
         {
             int offset = 0;
-            if (payload.Length < 1 + 1 + 80 + 2 + 1 + 1)
+            if (payload.Length < 1 + 1 + 1 + 80 + 2 + 1 + 1)
             {
                 reason = "payload-too-short";
                 return false;
@@ -110,7 +124,8 @@ public static class BootPeerUdpShareCodec
                 return false;
             }
 
-            offset++; // flags, reserved
+            byte flags = payload[offset++];
+            int relayTtl = payload[offset++];
 
             string headerHex = Convert.ToHexString(payload.Slice(offset, 80)).ToLowerInvariant();
             offset += 80;
@@ -184,6 +199,9 @@ public static class BootPeerUdpShareCodec
                 MerklePath = merklePath,
                 PayoutSnapshotId = snapshotId,
                 PayloadBytes = payload.Length,
+                ProofClass = (flags & FlagPulseProof) != 0 ? BootProofClasses.Pulse : BootProofClasses.Work,
+                RelayStage = (flags & FlagOptimisticRelay) != 0 ? BootRelayStages.Optimistic : BootRelayStages.Validated,
+                RelayTtl = relayTtl,
                 Source = "peer-udp"
             };
             return true;

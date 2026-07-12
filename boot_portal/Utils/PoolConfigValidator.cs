@@ -127,6 +127,12 @@ public static class PoolConfigValidator
         {
             errors.Add("peer_udp_max_datagram_bytes must be at least 512");
         }
+        ValidatePositive(errors, config.PulseMinDifficulty, "pulse_min_difficulty");
+        ValidatePositive(errors, config.PulseTargetIntervalSeconds, "pulse_target_interval_seconds");
+        ValidatePositive(errors, config.PulseRelayTtl, "pulse_relay_ttl");
+        ValidatePositive(errors, config.PulseMaxPerPeerPerMinute, "pulse_max_per_peer_per_minute");
+        ValidatePositive(errors, config.PulseMaxPerSourceAddressPerMinute, "pulse_max_per_source_address_per_minute");
+        ValidatePositive(errors, config.MinOptimisticRelayDifficulty, "min_optimistic_relay_difficulty");
         ValidatePositive(errors, config.MiningApiShareRateLimitPerMinute, "mining_api_share_rate_limit_per_minute");
         ValidatePositive(errors, config.AdminRateLimitPerMinute, "admin_rate_limit_per_minute");
         ValidatePositive(errors, config.MaxShareRequestBytes, "max_share_request_bytes");
@@ -207,6 +213,14 @@ public static class PoolConfigValidator
         if (value <= 0)
         {
             errors.Add($"{name} must be greater than 0");
+        }
+    }
+
+    private static void ValidatePositive(List<string> errors, double value, string name)
+    {
+        if (value <= 0 || double.IsNaN(value) || double.IsInfinity(value))
+        {
+            errors.Add($"{name} must be a finite value greater than 0");
         }
     }
 

@@ -222,6 +222,7 @@ public sealed class BootPeerUdpRelayService : BackgroundService
             return;
         }
 
+        DateTime transportReceivedUtc = DateTime.UtcNow;
         if (!BootPeerUdpShareCodec.TryDecode(received.Payload, _poolConfig, out RecordedShareSubmission share, out string decodeReason))
         {
             _logger.LogDebug("Rejected invalid V3 UDP share payload from {Peer}: {Reason}", received.RemoteEndpoint, decodeReason);
@@ -233,6 +234,7 @@ public sealed class BootPeerUdpRelayService : BackgroundService
             ? "peer-udp"
             : $"peer-udp:{received.RemoteEndpoint}";
         share.PayloadBytes = datagram.Length;
+        share.TransportReceivedUtc = transportReceivedUtc;
 
         var result = await _stateService.SubmitShareAsync(share, "peer-block");
         if (result.Accepted || string.Equals(result.RejectionReason, "Duplicate share", StringComparison.Ordinal))

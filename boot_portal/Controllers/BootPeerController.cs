@@ -53,6 +53,7 @@ public class BootPeerController : ControllerBase
     [HttpPost("share")]
     public async Task<IActionResult> SubmitPeerShare([FromBody] PeerShareAnnouncement? announcement)
     {
+        DateTime transportReceivedUtc = DateTime.UtcNow;
         if (announcement?.Share == null)
         {
             return BadRequest(new { status = "rejected", reason = "Missing share payload" });
@@ -103,6 +104,10 @@ public class BootPeerController : ControllerBase
             PayloadBytes = Request.ContentLength.HasValue
                 ? (int)Math.Min(int.MaxValue, Request.ContentLength.Value)
                 : 0,
+            TransportReceivedUtc = transportReceivedUtc,
+            ProofClass = string.IsNullOrWhiteSpace(announcement.Share.ProofClass) ? announcement.ProofClass : announcement.Share.ProofClass,
+            RelayStage = string.IsNullOrWhiteSpace(announcement.Share.RelayStage) ? announcement.RelayStage : announcement.Share.RelayStage,
+            RelayTtl = announcement.Share.RelayTtl != 0 ? announcement.Share.RelayTtl : announcement.RelayTtl,
             Source = string.IsNullOrWhiteSpace(senderEndpoint) ? "peer-http" : $"peer-http:{senderEndpoint}"
         }, "peer-block");
 
@@ -116,6 +121,8 @@ public class BootPeerController : ControllerBase
         {
             status = result.Accepted ? "accepted" : "duplicate",
             reason = result.RejectionReason,
+            proofClass = result.ProofClass,
+            relayStage = result.RelayStage,
             stateId = result.IsBlock
                 ? result.NetworkStatus.CurrentStateId
                 : result.NetworkStatus.CandidateStateId,

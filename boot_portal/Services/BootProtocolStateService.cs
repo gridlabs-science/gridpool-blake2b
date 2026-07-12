@@ -63,6 +63,9 @@ public class BootProtocolStateService
     private readonly Dictionary<string, LocalDatumAddressHashrateTracker> _localDatumHashrateByAddress = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _lastLocalDatumHashrateRollupByAddress = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<BootStateBundle> _recentCandidateBundles = [];
+    private readonly Dictionary<string, Queue<DateTime>> _recentPulseByPeer = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Queue<DateTime>> _recentPulseByAddress = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _optimisticRelayedShareIds = new(StringComparer.OrdinalIgnoreCase);
     private Task? _deferredSaveTask;
     private bool _deferredSavePending;
     private Task? _deferredHistorySaveTask;
@@ -294,6 +297,8 @@ public class BootProtocolStateService
             double minimumDifficultyToEnter = requiresStrictlyGreaterThanFloor
                 ? Math.Max(1d, Math.BitIncrement(workSetFloorDifficulty!.Value))
                 : 1d;
+            double minimumPulseDifficulty = Math.Max(1d, _poolConfig.PulseMinDifficulty);
+            double minimumOptimisticRelayDifficulty = Math.Max(minimumDifficultyToEnter, _poolConfig.MinOptimisticRelayDifficulty);
             string submitRule = requiresStrictlyGreaterThanFloor
                 ? $"Submit only shares with computed difficulty greater than {ClientHandler.FormatDifficulty(workSetFloorDifficulty!.Value)}."
                 : "Submit any share with computed difficulty at least 1; open work-set reserve slots remain.";
@@ -321,6 +326,14 @@ public class BootProtocolStateService
                 MinimumDifficultyToEnterOnDeck = minimumDifficultyToEnter,
                 MinimumDifficultyToEnterOnDeckDisplay = ClientHandler.FormatDifficulty(minimumDifficultyToEnter),
                 RequiresStrictlyGreaterThanFloor = requiresStrictlyGreaterThanFloor,
+                PulseProofsEnabled = _poolConfig.EnablePulseProofs,
+                MinimumPulseDifficulty = minimumPulseDifficulty,
+                MinimumPulseDifficultyDisplay = ClientHandler.FormatDifficulty(minimumPulseDifficulty),
+                PulseTargetIntervalSeconds = Math.Max(1, _poolConfig.PulseTargetIntervalSeconds),
+                PulseRelayTtl = Math.Max(1, _poolConfig.PulseRelayTtl),
+                OptimisticRelayEnabled = _poolConfig.EnableOptimisticShareRelay,
+                MinimumOptimisticRelayDifficulty = minimumOptimisticRelayDifficulty,
+                MinimumOptimisticRelayDifficultyDisplay = ClientHandler.FormatDifficulty(minimumOptimisticRelayDifficulty),
                 BestOnDeckDifficulty = bestDifficulty,
                 BestOnDeckDifficultyDisplay = bestDifficulty.HasValue ? ClientHandler.FormatDifficulty(bestDifficulty.Value) : "--",
                 SubmitRule = submitRule
@@ -614,11 +627,13 @@ public class BootProtocolStateService
         string? windowKey = "12h",
         int limit = 500,
         string? remoteEndpoint = null,
-        string? transport = null)
+        string? transport = null,
+        string? proofClass = null,
+        string? relayStage = null)
     {
         lock (_sync)
         {
-            return BuildPeerRelayLatencySeriesNoLock(windowKey, limit, remoteEndpoint, transport);
+            return BuildPeerRelayLatencySeriesNoLock(windowKey, limit, remoteEndpoint, transport, proofClass, relayStage);
         }
     }
 
@@ -875,6 +890,10 @@ public class BootProtocolStateService
             result = new ShareRecordingResult
             {
                 Accepted = true,
+                ProofClass = BootProofClasses.Pulse,
+                RelayStage = BootRelayStages.Validated,
+                PulseAccepted = true,
+                AffectedConsensusState = false,
                 AffectedOnDeck = false,
                 NewRecord = newRecord,
                 ComputedDifficulty = difficulty,
@@ -1738,6 +1757,7 @@ public class BootProtocolStateService
     public async Task<ShareRecordingResult> RecordShareAsync(RecordedShareSubmission share)
     {
         DateTime arrivalUtc = DateTime.UtcNow;
+        DateTime transportReceivedUtc = share.TransportReceivedUtc ?? arrivalUtc;
         var validationStopwatch = Stopwatch.StartNew();
         var stageStopwatch = Stopwatch.StartNew();
         double snapshotReadDurationMs;
@@ -1765,6 +1785,13 @@ public class BootProtocolStateService
             snapshotReadLockBodyDurationMs = snapshotLockBodyStopwatch.Elapsed.TotalMilliseconds;
         }
         snapshotReadDurationMs = snapshotReadLockWaitDurationMs + snapshotReadLockBodyDurationMs;
+
+        BootShareHeaderEvaluationResult headerEvaluation = _shareVerifier.EvaluateHeaderDifficulty(share);
+        DateTime difficultyCheckedUtc = DateTime.UtcNow;
+        if (headerEvaluation.IsValid)
+        {
+            MaybeRelayOptimisticShare(share, headerEvaluation, transportReceivedUtc, arrivalUtc, difficultyCheckedUtc);
+        }
 
         stageStopwatch.Restart();
         SnapshotValidationResult snapshotValidation = ValidateShareAgainstKnownSnapshots(
@@ -1840,6 +1867,7 @@ public class BootProtocolStateService
             }
         }
         shareCoreValidationDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+        DateTime validationCompletedUtc = DateTime.UtcNow;
 
         validationStopwatch.Stop();
         double validationDurationMs = validationStopwatch.Elapsed.TotalMilliseconds;
@@ -1853,6 +1881,10 @@ public class BootProtocolStateService
             result.StateMutationDurationMs = stateMutationDurationMs;
             result.StateMutationLockWaitDurationMs = stateMutationLockWaitDurationMs;
             result.StateMutationLockBodyDurationMs = stateMutationLockBodyDurationMs;
+            result.TransportReceivedUtc = transportReceivedUtc;
+            result.StateServiceReceivedUtc = arrivalUtc;
+            result.DifficultyCheckedUtc = difficultyCheckedUtc;
+            result.ValidationCompletedUtc = validationCompletedUtc;
             return result;
         }
 
@@ -1887,7 +1919,14 @@ public class BootProtocolStateService
                     difficulty: validation.Difficulty,
                     payloadBytes: share.PayloadBytes,
                     validationDurationMs: validationDurationMs,
-                    timestampUtc: arrivalUtc);
+                    timestampUtc: arrivalUtc,
+                    proofClass: ResolveProofClass(share.ProofClass),
+                    relayStage: ResolveRelayStage(share.RelayStage),
+                    transportReceivedUtc: transportReceivedUtc,
+                    stateServiceReceivedUtc: arrivalUtc,
+                    difficultyCheckedUtc: difficultyCheckedUtc,
+                    validationCompletedUtc: validationCompletedUtc,
+                    stateMutationCompletedUtc: DateTime.UtcNow);
                 RequestDeferredHistorySaveNoLock();
                 networkStatus = BuildNetworkStatusNoLock();
                 mutationLockBodyStopwatch.Stop();
@@ -1941,7 +1980,14 @@ public class BootProtocolStateService
                     difficulty: validation.Difficulty,
                     payloadBytes: share.PayloadBytes,
                     validationDurationMs: validationDurationMs,
-                    timestampUtc: arrivalUtc);
+                    timestampUtc: arrivalUtc,
+                    proofClass: ResolveProofClass(share.ProofClass),
+                    relayStage: ResolveRelayStage(share.RelayStage),
+                    transportReceivedUtc: transportReceivedUtc,
+                    stateServiceReceivedUtc: arrivalUtc,
+                    difficultyCheckedUtc: difficultyCheckedUtc,
+                    validationCompletedUtc: validationCompletedUtc,
+                    stateMutationCompletedUtc: DateTime.UtcNow);
                 RequestDeferredHistorySaveNoLock();
                 networkStatus = BuildNetworkStatusNoLock();
                 mutationLockBodyStopwatch.Stop();
@@ -2057,6 +2103,121 @@ public class BootProtocolStateService
             proof.PayoutSnapshotId = string.IsNullOrWhiteSpace(matchedSnapshotId)
                 ? _state.ActiveSnapshotId
                 : matchedSnapshotId;
+            proof.TransportReceivedUtc = transportReceivedUtc;
+            proof.StateServiceReceivedUtc = arrivalUtc;
+            proof.DifficultyCheckedUtc = difficultyCheckedUtc;
+            proof.ValidationCompletedUtc = validationCompletedUtc;
+
+            int insertIndex = 0;
+
+            while (insertIndex < _state.OnDeckProofs.Count &&
+                   _state.OnDeckProofs[insertIndex].Difficulty >= proof.Difficulty)
+            {
+                insertIndex++;
+            }
+
+            bool affectedOnDeck = insertIndex < _poolConfig.WorkSetReserveLimit;
+            bool pulseAccepted = !affectedOnDeck && _poolConfig.EnablePulseProofs;
+            string proofClass = pulseAccepted ? BootProofClasses.Pulse : BootProofClasses.Work;
+            proof.ProofClass = proofClass;
+            proof.RelayStage = BootRelayStages.Validated;
+            bool peerSource = BootPeerSource.TryParsePeerSource(share.Source, out _, out _);
+            proof.RelayTtl = pulseAccepted
+                ? peerSource
+                    ? Math.Max(0, share.RelayTtl - 1)
+                    : Math.Max(1, _poolConfig.PulseRelayTtl)
+                : 0;
+
+            if (pulseAccepted && proof.Difficulty < Math.Max(1d, _poolConfig.PulseMinDifficulty))
+            {
+                RecordShareDiagnosticNoLock(
+                    share.Source,
+                    proof.MinerAddress,
+                    string.IsNullOrWhiteSpace(proof.Username) ? proof.MinerAddress : proof.Username,
+                    accepted: false,
+                    affectedOnDeck: false,
+                    "Below pulse floor",
+                    validation.Difficulty,
+                    proof.Timestamp);
+                RecordPeerRelayObservationNoLock(
+                    share.Source,
+                    proof.ShareId,
+                    proof.MinerAddress,
+                    string.IsNullOrWhiteSpace(proof.Username) ? proof.MinerAddress : proof.Username,
+                    accepted: false,
+                    affectedOnDeck: false,
+                    rejectionReason: "Below pulse floor",
+                    difficulty: validation.Difficulty,
+                    payloadBytes: share.PayloadBytes,
+                    validationDurationMs: validationDurationMs,
+                    timestampUtc: arrivalUtc,
+                    proofClass: BootProofClasses.Pulse,
+                    relayStage: BootRelayStages.Validated,
+                    transportReceivedUtc: transportReceivedUtc,
+                    stateServiceReceivedUtc: arrivalUtc,
+                    difficultyCheckedUtc: difficultyCheckedUtc,
+                    validationCompletedUtc: validationCompletedUtc,
+                    stateMutationCompletedUtc: DateTime.UtcNow);
+                RequestDeferredHistorySaveNoLock();
+                stateMutationDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+                return AttachTimings(new ShareRecordingResult
+                {
+                    Accepted = false,
+                    RejectionReason = "Below pulse floor",
+                    ProofClass = BootProofClasses.Pulse,
+                    RelayStage = BootRelayStages.Validated,
+                    ComputedDifficulty = validation.Difficulty,
+                    BestShare = CloneBestShare(_state.BestShare),
+                    OnDeckList = ClonePayouts(_state.OnDeckList),
+                    NetworkStatus = BuildNetworkStatusNoLock()
+                });
+            }
+
+            if (pulseAccepted && !TryConsumePulseRateLimitNoLock(share.Source, proof.MinerAddress, proof.Timestamp, out string pulseLimitReason))
+            {
+                RecordShareDiagnosticNoLock(
+                    share.Source,
+                    proof.MinerAddress,
+                    string.IsNullOrWhiteSpace(proof.Username) ? proof.MinerAddress : proof.Username,
+                    accepted: false,
+                    affectedOnDeck: false,
+                    pulseLimitReason,
+                    validation.Difficulty,
+                    proof.Timestamp);
+                RecordPeerRelayObservationNoLock(
+                    share.Source,
+                    proof.ShareId,
+                    proof.MinerAddress,
+                    string.IsNullOrWhiteSpace(proof.Username) ? proof.MinerAddress : proof.Username,
+                    accepted: false,
+                    affectedOnDeck: false,
+                    rejectionReason: pulseLimitReason,
+                    difficulty: validation.Difficulty,
+                    payloadBytes: share.PayloadBytes,
+                    validationDurationMs: validationDurationMs,
+                    timestampUtc: arrivalUtc,
+                    proofClass: BootProofClasses.Pulse,
+                    relayStage: BootRelayStages.Validated,
+                    transportReceivedUtc: transportReceivedUtc,
+                    stateServiceReceivedUtc: arrivalUtc,
+                    difficultyCheckedUtc: difficultyCheckedUtc,
+                    validationCompletedUtc: validationCompletedUtc,
+                    stateMutationCompletedUtc: DateTime.UtcNow);
+                RequestDeferredHistorySaveNoLock();
+                stateMutationDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+                return AttachTimings(new ShareRecordingResult
+                {
+                    Accepted = false,
+                    RejectionReason = pulseLimitReason,
+                    ProofClass = BootProofClasses.Pulse,
+                    RelayStage = BootRelayStages.Validated,
+                    ComputedDifficulty = validation.Difficulty,
+                    BestShare = CloneBestShare(_state.BestShare),
+                    OnDeckList = ClonePayouts(_state.OnDeckList),
+                    NetworkStatus = BuildNetworkStatusNoLock()
+                });
+            }
+
             if (!RememberShareIdNoLock(proof.ShareId))
             {
                 RecordShareDiagnosticNoLock(
@@ -2079,13 +2240,22 @@ public class BootProtocolStateService
                     difficulty: validation.Difficulty,
                     payloadBytes: share.PayloadBytes,
                     validationDurationMs: validationDurationMs,
-                    timestampUtc: arrivalUtc);
+                    timestampUtc: arrivalUtc,
+                    proofClass: proofClass,
+                    relayStage: BootRelayStages.Validated,
+                    transportReceivedUtc: transportReceivedUtc,
+                    stateServiceReceivedUtc: arrivalUtc,
+                    difficultyCheckedUtc: difficultyCheckedUtc,
+                    validationCompletedUtc: validationCompletedUtc,
+                    stateMutationCompletedUtc: DateTime.UtcNow);
                 RequestDeferredHistorySaveNoLock();
                 stateMutationDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
                 return AttachTimings(new ShareRecordingResult
                 {
                     Accepted = false,
                     RejectionReason = "Duplicate share",
+                    ProofClass = proofClass,
+                    RelayStage = BootRelayStages.Validated,
                     ComputedDifficulty = validation.Difficulty,
                     IsBlock = validation.IsBlock,
                     BlockHash = validation.BlockHash,
@@ -2095,15 +2265,6 @@ public class BootProtocolStateService
                 });
             }
 
-            int insertIndex = 0;
-
-            while (insertIndex < _state.OnDeckProofs.Count &&
-                   _state.OnDeckProofs[insertIndex].Difficulty >= proof.Difficulty)
-            {
-                insertIndex++;
-            }
-
-            bool affectedOnDeck = insertIndex < _poolConfig.WorkSetReserveLimit;
             if (affectedOnDeck)
             {
                 _state.OnDeckProofs.Insert(insertIndex, proof);
@@ -2122,7 +2283,7 @@ public class BootProtocolStateService
             }
 
             bool newRecord = false;
-            if (proof.Difficulty > _state.BestShare.Difficulty)
+            if (!pulseAccepted && proof.Difficulty > _state.BestShare.Difficulty)
             {
                 _state.BestShare = new BestShareRecord
                 {
@@ -2133,7 +2294,10 @@ public class BootProtocolStateService
                 newRecord = true;
             }
 
-            RecordAcceptedShareTelemetryNoLock(proof);
+            if (!pulseAccepted)
+            {
+                RecordAcceptedShareTelemetryNoLock(proof);
+            }
             RecordShareDiagnosticNoLock(
                 share.Source,
                 proof.MinerAddress,
@@ -2143,6 +2307,8 @@ public class BootProtocolStateService
                 rejectionReason: null,
                 difficulty: validation.Difficulty,
                 timestampUtc: proof.Timestamp);
+            DateTime stateMutationCompletedUtc = DateTime.UtcNow;
+            proof.StateMutationCompletedUtc = stateMutationCompletedUtc;
             RecordPeerRelayObservationNoLock(
                 share.Source,
                 proof.ShareId,
@@ -2154,8 +2320,15 @@ public class BootProtocolStateService
                 difficulty: validation.Difficulty,
                 payloadBytes: share.PayloadBytes,
                 validationDurationMs: validationDurationMs,
-                timestampUtc: arrivalUtc);
-            bool capturedHashrateSample = MaybeCaptureHashrateSampleNoLock(proof.Timestamp, force: false);
+                timestampUtc: arrivalUtc,
+                proofClass: proofClass,
+                relayStage: BootRelayStages.Validated,
+                transportReceivedUtc: transportReceivedUtc,
+                stateServiceReceivedUtc: arrivalUtc,
+                difficultyCheckedUtc: difficultyCheckedUtc,
+                validationCompletedUtc: validationCompletedUtc,
+                stateMutationCompletedUtc: stateMutationCompletedUtc);
+            bool capturedHashrateSample = !pulseAccepted && MaybeCaptureHashrateSampleNoLock(proof.Timestamp, force: false);
             if (affectedOnDeck)
             {
                 _state.CandidateStateId = ComputeCandidateStateIdNoLock();
@@ -2169,6 +2342,10 @@ public class BootProtocolStateService
             result = new ShareRecordingResult
             {
                 Accepted = true,
+                ProofClass = proofClass,
+                RelayStage = BootRelayStages.Validated,
+                PulseAccepted = pulseAccepted,
+                AffectedConsensusState = affectedOnDeck,
                 AffectedOnDeck = affectedOnDeck,
                 NewRecord = newRecord,
                 ComputedDifficulty = validation.Difficulty,
@@ -2177,10 +2354,15 @@ public class BootProtocolStateService
                 BestShare = newRecord ? CloneBestShare(_state.BestShare) : new BestShareRecord(),
                 OnDeckList = affectedOnDeck ? ClonePayouts(_state.OnDeckList) : [],
                 NetworkStatus = notifyNetwork ? BuildNetworkStatusNoLock() : new BootNetworkStatusDto(),
-                AcceptedProof = CloneProof(proof)
+                AcceptedProof = CloneProof(proof),
+                TransportReceivedUtc = transportReceivedUtc,
+                StateServiceReceivedUtc = arrivalUtc,
+                DifficultyCheckedUtc = difficultyCheckedUtc,
+                ValidationCompletedUtc = validationCompletedUtc,
+                StateMutationCompletedUtc = stateMutationCompletedUtc
             };
 
-            shouldRelay = affectedOnDeck;
+            shouldRelay = affectedOnDeck || (pulseAccepted && proof.RelayTtl > 0);
             shouldNotifyNetwork = notifyNetwork;
             acceptedMutationLockBodyStopwatch.Stop();
             stateMutationLockBodyDurationMs += acceptedMutationLockBodyStopwatch.Elapsed.TotalMilliseconds;
@@ -2207,6 +2389,134 @@ public class BootProtocolStateService
             await _acceptedShares.Writer.WriteAsync(result.AcceptedProof);
         }
         return result;
+    }
+
+    private void MaybeRelayOptimisticShare(
+        RecordedShareSubmission share,
+        BootShareHeaderEvaluationResult headerEvaluation,
+        DateTime transportReceivedUtc,
+        DateTime stateServiceReceivedUtc,
+        DateTime difficultyCheckedUtc)
+    {
+        if (!_poolConfig.EnableOptimisticShareRelay ||
+            !headerEvaluation.IsValid ||
+            !string.Equals(ResolveProofClass(share.ProofClass), BootProofClasses.Work, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(ResolveRelayStage(share.RelayStage), BootRelayStages.Optimistic, StringComparison.OrdinalIgnoreCase) ||
+            BootPeerSource.TryParsePeerSource(share.Source, out _, out _))
+        {
+            return;
+        }
+
+        double minimumDifficulty;
+        lock (_sync)
+        {
+            if (!IsAcceptedParentBlockHashNoLock(headerEvaluation.PrevBlockHash))
+            {
+                return;
+            }
+
+            minimumDifficulty = Math.Max(GetWorkSetAdmissionDifficultyNoLock(), _poolConfig.MinOptimisticRelayDifficulty);
+            if (headerEvaluation.Difficulty < minimumDifficulty)
+            {
+                return;
+            }
+
+            if (!_optimisticRelayedShareIds.Add(headerEvaluation.ShareId))
+            {
+                return;
+            }
+
+            if (_optimisticRelayedShareIds.Count > MaxSeenShareIds)
+            {
+                _optimisticRelayedShareIds.Clear();
+                _optimisticRelayedShareIds.Add(headerEvaluation.ShareId);
+            }
+        }
+
+        var proof = new BootShareProof
+        {
+            ShareId = headerEvaluation.ShareId,
+            MinerAddress = share.MinerAddress,
+            Username = string.IsNullOrWhiteSpace(share.Username) ? share.MinerAddress : share.Username,
+            HeaderHex = headerEvaluation.HeaderHex,
+            CoinbaseHex = headerEvaluation.CoinbaseHex,
+            MerklePath = share.MerklePath.ToList(),
+            PayoutSnapshotId = share.PayoutSnapshotId,
+            PrevBlockHash = headerEvaluation.PrevBlockHash,
+            Difficulty = headerEvaluation.Difficulty,
+            DiffString = ClientHandler.FormatDifficulty(headerEvaluation.Difficulty),
+            Source = share.Source,
+            Timestamp = stateServiceReceivedUtc,
+            ProofClass = BootProofClasses.Work,
+            RelayStage = BootRelayStages.Optimistic,
+            TransportReceivedUtc = transportReceivedUtc,
+            StateServiceReceivedUtc = stateServiceReceivedUtc,
+            DifficultyCheckedUtc = difficultyCheckedUtc
+        };
+
+        _acceptedShares.Writer.TryWrite(proof);
+    }
+
+    private bool TryConsumePulseRateLimitNoLock(string source, string minerAddress, DateTime nowUtc, out string reason)
+    {
+        reason = string.Empty;
+        if (!_poolConfig.EnablePulseProofs)
+        {
+            return false;
+        }
+
+        DateTime cutoffUtc = nowUtc.AddMinutes(-1);
+        string peerKey = ResolvePulsePeerKey(source);
+        if (!string.IsNullOrWhiteSpace(peerKey) &&
+            !TryConsumePulseBucketNoLock(_recentPulseByPeer, peerKey, cutoffUtc, nowUtc, Math.Max(1, _poolConfig.PulseMaxPerPeerPerMinute)))
+        {
+            reason = "Pulse rate limited";
+            return false;
+        }
+
+        string addressKey = BitcoinScript.NormalizeAddress(minerAddress);
+        if (!string.IsNullOrWhiteSpace(addressKey) &&
+            !TryConsumePulseBucketNoLock(_recentPulseByAddress, addressKey, cutoffUtc, nowUtc, Math.Max(1, _poolConfig.PulseMaxPerSourceAddressPerMinute)))
+        {
+            reason = "Pulse rate limited";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryConsumePulseBucketNoLock(
+        Dictionary<string, Queue<DateTime>> buckets,
+        string key,
+        DateTime cutoffUtc,
+        DateTime nowUtc,
+        int limit)
+    {
+        if (!buckets.TryGetValue(key, out Queue<DateTime>? bucket))
+        {
+            bucket = new Queue<DateTime>();
+            buckets[key] = bucket;
+        }
+
+        while (bucket.Count > 0 && bucket.Peek() < cutoffUtc)
+        {
+            bucket.Dequeue();
+        }
+
+        if (bucket.Count >= limit)
+        {
+            return false;
+        }
+
+        bucket.Enqueue(nowUtc);
+        return true;
+    }
+
+    private static string ResolvePulsePeerKey(string source)
+    {
+        return BootPeerSource.TryParsePeerSource(source, out _, out string endpoint, out string nodeId)
+            ? string.IsNullOrWhiteSpace(endpoint) ? nodeId : NormalizePeerEndpoint(endpoint)
+            : source.Trim();
     }
 
     private SnapshotValidationResult ValidateShareAgainstKnownSnapshots(
@@ -4662,6 +4972,18 @@ public class BootProtocolStateService
             PeerUdpPort = _poolConfig.PeerUdpPort,
             PeerUdpMaxDatagramBytes = _poolConfig.PeerUdpMaxDatagramBytes,
             PeerRelayLatencyProbeAllTransports = _poolConfig.PeerRelayLatencyProbeAllTransports,
+            PulseProofsEnabled = _poolConfig.EnablePulseProofs,
+            MinimumPulseDifficulty = Math.Max(1d, _poolConfig.PulseMinDifficulty),
+            PulseTargetIntervalSeconds = Math.Max(1, _poolConfig.PulseTargetIntervalSeconds),
+            PulseRelayTtl = Math.Max(1, _poolConfig.PulseRelayTtl),
+            OptimisticShareRelayEnabled = _poolConfig.EnableOptimisticShareRelay,
+            MinimumOptimisticRelayDifficulty = Math.Max(GetWorkSetAdmissionDifficultyNoLock(), _poolConfig.MinOptimisticRelayDifficulty),
+            PublicTelemetryOptIn = _poolConfig.PublicTelemetryOptIn,
+            PublicNodeDisplayName = _poolConfig.PublicTelemetryOptIn ? _poolConfig.PublicNodeDisplayName.Trim() : string.Empty,
+            PublicNodeRegion = _poolConfig.PublicTelemetryOptIn ? _poolConfig.PublicNodeRegion.Trim() : string.Empty,
+            PublicNodeRole = _poolConfig.PublicTelemetryOptIn ? _poolConfig.PublicNodeRole.Trim() : string.Empty,
+            PublicNodeApproxLatitude = _poolConfig.PublicTelemetryOptIn ? _poolConfig.PublicNodeApproxLatitude : null,
+            PublicNodeApproxLongitude = _poolConfig.PublicTelemetryOptIn ? _poolConfig.PublicNodeApproxLongitude : null,
             ReleaseVersion = localVersion.ReleaseVersion,
             VersionInfo = localVersion,
             NetworkId = _poolConfig.BootNetworkId,
@@ -5021,7 +5343,9 @@ public class BootProtocolStateService
         string? windowKey,
         int limit,
         string? remoteEndpoint,
-        string? transport)
+        string? transport,
+        string? proofClass,
+        string? relayStage)
     {
         DateTime nowUtc = DateTime.UtcNow;
         TrimPeerRelayObservationsNoLock(nowUtc);
@@ -5030,6 +5354,12 @@ public class BootProtocolStateService
         string normalizedTransport = string.IsNullOrWhiteSpace(transport)
             ? string.Empty
             : transport.Trim();
+        string normalizedProofClass = string.IsNullOrWhiteSpace(proofClass)
+            ? string.Empty
+            : ResolveProofClass(proofClass);
+        string normalizedRelayStage = string.IsNullOrWhiteSpace(relayStage)
+            ? string.Empty
+            : ResolveRelayStage(relayStage);
 
         IEnumerable<BootPeerRelayObservation> query = _state.RecentPeerRelayObservations
             .Where(item => item.TimestampUtc >= cutoffUtc);
@@ -5050,11 +5380,33 @@ public class BootProtocolStateService
                 StringComparison.OrdinalIgnoreCase));
         }
 
+        if (!string.IsNullOrWhiteSpace(normalizedProofClass))
+        {
+            query = query.Where(item => string.Equals(
+                ResolveProofClass(item.ProofClass),
+                normalizedProofClass,
+                StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(normalizedRelayStage))
+        {
+            query = query.Where(item => string.Equals(
+                ResolveRelayStage(item.RelayStage),
+                normalizedRelayStage,
+                StringComparison.OrdinalIgnoreCase));
+        }
+
         List<BootPeerRelayObservation> matching = query
             .OrderBy(item => item.TimestampUtc)
             .ToList();
         List<BootPeerRelayTransportSummaryDto> summaries = matching
-            .GroupBy(item => item.Transport, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(
+                item => new
+                {
+                    Transport = item.Transport,
+                    ProofClass = ResolveProofClass(item.ProofClass),
+                    RelayStage = ResolveRelayStage(item.RelayStage)
+                })
             .Select(group =>
             {
                 List<double> deltas = group
@@ -5070,7 +5422,9 @@ public class BootProtocolStateService
 
                 return new BootPeerRelayTransportSummaryDto
                 {
-                    Transport = group.Key,
+                    Transport = group.Key.Transport,
+                    ProofClass = group.Key.ProofClass,
+                    RelayStage = group.Key.RelayStage,
                     ArrivalCount = group.Count(),
                     FirstArrivalCount = group.Count(item => item.IsFirstArrival),
                     AcceptedCount = group.Count(item => item.Accepted),
@@ -5562,7 +5916,14 @@ public class BootProtocolStateService
         double difficulty,
         int payloadBytes,
         double validationDurationMs,
-        DateTime timestampUtc)
+        DateTime timestampUtc,
+        string? proofClass = null,
+        string? relayStage = null,
+        DateTime? transportReceivedUtc = null,
+        DateTime? stateServiceReceivedUtc = null,
+        DateTime? difficultyCheckedUtc = null,
+        DateTime? validationCompletedUtc = null,
+        DateTime? stateMutationCompletedUtc = null)
     {
         if (string.IsNullOrWhiteSpace(shareId) ||
             !BootPeerSource.TryParsePeerSource(source, out string transport, out string remoteEndpoint))
@@ -5586,6 +5947,8 @@ public class BootProtocolStateService
         _state.RecentPeerRelayObservations.Add(new BootPeerRelayObservation
         {
             ShareId = normalizedShareId,
+            ProofClass = ResolveProofClass(proofClass),
+            RelayStage = ResolveRelayStage(relayStage),
             Transport = transport,
             Source = source,
             RemoteEndpoint = NormalizePeerEndpoint(remoteEndpoint),
@@ -5601,6 +5964,15 @@ public class BootProtocolStateService
             DeltaFromFirstMs = Math.Max(0, (timestampUtc - firstArrival.TimestampUtc).TotalMilliseconds),
             PayloadBytes = Math.Max(0, payloadBytes),
             ValidationDurationMs = Math.Max(0, validationDurationMs),
+            TransportReceivedUtc = transportReceivedUtc,
+            StateServiceReceivedUtc = stateServiceReceivedUtc,
+            DifficultyCheckedUtc = difficultyCheckedUtc,
+            ValidationCompletedUtc = validationCompletedUtc,
+            StateMutationCompletedUtc = stateMutationCompletedUtc,
+            TransportToStateServiceMs = MillisecondsBetween(transportReceivedUtc, stateServiceReceivedUtc),
+            StateServiceToDifficultyMs = MillisecondsBetween(stateServiceReceivedUtc, difficultyCheckedUtc),
+            DifficultyToValidationMs = MillisecondsBetween(difficultyCheckedUtc, validationCompletedUtc),
+            ValidationToMutationMs = MillisecondsBetween(validationCompletedUtc, stateMutationCompletedUtc),
             CurrentRoundNumber = _state.CurrentRoundNumber,
             CurrentStateId = _state.CurrentStateId,
             CandidateStateId = _state.CandidateStateId,
@@ -5610,6 +5982,36 @@ public class BootProtocolStateService
         });
 
         TrimPeerRelayObservationsNoLock(timestampUtc);
+    }
+
+    private static string ResolveProofClass(string? proofClass)
+    {
+        return string.Equals(proofClass, BootProofClasses.Pulse, StringComparison.OrdinalIgnoreCase)
+            ? BootProofClasses.Pulse
+            : BootProofClasses.Work;
+    }
+
+    private static string ResolveRelayStage(string? relayStage)
+    {
+        return string.Equals(relayStage, BootRelayStages.Optimistic, StringComparison.OrdinalIgnoreCase)
+            ? BootRelayStages.Optimistic
+            : BootRelayStages.Validated;
+    }
+
+    private static double? MillisecondsBetween(DateTime? startUtc, DateTime? endUtc)
+    {
+        if (!startUtc.HasValue || !endUtc.HasValue)
+        {
+            return null;
+        }
+
+        double value = (NormalizeUtc(endUtc.Value) - NormalizeUtc(startUtc.Value)).TotalMilliseconds;
+        return value >= 0 && value <= 300000 ? value : null;
+    }
+
+    private static DateTime NormalizeUtc(DateTime value)
+    {
+        return value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
     }
 
     private void RecordNetworkEventNoLock(
@@ -8484,7 +8886,15 @@ public class BootProtocolStateService
             Difficulty = proof.Difficulty,
             DiffString = proof.DiffString,
             Source = proof.Source,
-            Timestamp = proof.Timestamp
+            Timestamp = proof.Timestamp,
+            ProofClass = ResolveProofClass(proof.ProofClass),
+            RelayStage = ResolveRelayStage(proof.RelayStage),
+            RelayTtl = proof.RelayTtl,
+            TransportReceivedUtc = proof.TransportReceivedUtc,
+            StateServiceReceivedUtc = proof.StateServiceReceivedUtc,
+            DifficultyCheckedUtc = proof.DifficultyCheckedUtc,
+            ValidationCompletedUtc = proof.ValidationCompletedUtc,
+            StateMutationCompletedUtc = proof.StateMutationCompletedUtc
         };
     }
 
@@ -8804,6 +9214,8 @@ public class BootProtocolStateService
         return new BootPeerRelayObservation
         {
             ShareId = observation.ShareId,
+            ProofClass = ResolveProofClass(observation.ProofClass),
+            RelayStage = ResolveRelayStage(observation.RelayStage),
             Transport = observation.Transport,
             Source = observation.Source,
             RemoteEndpoint = observation.RemoteEndpoint,
@@ -8818,6 +9230,15 @@ public class BootProtocolStateService
             DeltaFromFirstMs = observation.DeltaFromFirstMs,
             PayloadBytes = observation.PayloadBytes,
             ValidationDurationMs = observation.ValidationDurationMs,
+            TransportReceivedUtc = observation.TransportReceivedUtc,
+            StateServiceReceivedUtc = observation.StateServiceReceivedUtc,
+            DifficultyCheckedUtc = observation.DifficultyCheckedUtc,
+            ValidationCompletedUtc = observation.ValidationCompletedUtc,
+            StateMutationCompletedUtc = observation.StateMutationCompletedUtc,
+            TransportToStateServiceMs = observation.TransportToStateServiceMs,
+            StateServiceToDifficultyMs = observation.StateServiceToDifficultyMs,
+            DifficultyToValidationMs = observation.DifficultyToValidationMs,
+            ValidationToMutationMs = observation.ValidationToMutationMs,
             CurrentRoundNumber = observation.CurrentRoundNumber,
             CurrentStateId = observation.CurrentStateId,
             CandidateStateId = observation.CandidateStateId,

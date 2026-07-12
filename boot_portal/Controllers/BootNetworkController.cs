@@ -360,9 +360,11 @@ public class BootNetworkController : ControllerBase
         [FromQuery] string? window = "12h",
         [FromQuery] int limit = 500,
         [FromQuery] string? remoteEndpoint = null,
-        [FromQuery] string? transport = null)
+        [FromQuery] string? transport = null,
+        [FromQuery] string? proofClass = null,
+        [FromQuery] string? relayStage = null)
     {
-        return Ok(_stateService.GetPeerRelayLatency(window, limit, remoteEndpoint, transport));
+        return Ok(_stateService.GetPeerRelayLatency(window, limit, remoteEndpoint, transport, proofClass, relayStage));
     }
 
     [EnableRateLimiting("network-read")]
