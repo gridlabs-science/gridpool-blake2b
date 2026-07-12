@@ -2122,13 +2122,15 @@ public class BootProtocolStateService
             proof.ProofClass = proofClass;
             proof.RelayStage = BootRelayStages.Validated;
             bool peerSource = BootPeerSource.TryParsePeerSource(share.Source, out _, out _);
+            bool localDatumSource = string.Equals(share.Source, "datum", StringComparison.OrdinalIgnoreCase);
             proof.RelayTtl = pulseAccepted
                 ? peerSource
                     ? Math.Max(0, share.RelayTtl - 1)
                     : Math.Max(1, _poolConfig.PulseRelayTtl)
                 : 0;
 
-            if (pulseAccepted && proof.Difficulty < Math.Max(1d, _poolConfig.PulseMinDifficulty))
+            bool pulseBelowFloor = pulseAccepted && proof.Difficulty < Math.Max(1d, _poolConfig.PulseMinDifficulty);
+            if (pulseBelowFloor && !localDatumSource)
             {
                 RecordShareDiagnosticNoLock(
                     share.Source,
@@ -2172,8 +2174,15 @@ public class BootProtocolStateService
                     NetworkStatus = BuildNetworkStatusNoLock()
                 });
             }
+            if (pulseBelowFloor)
+            {
+                proof.RelayTtl = 0;
+            }
 
-            if (pulseAccepted && !TryConsumePulseRateLimitNoLock(share.Source, proof.MinerAddress, proof.Timestamp, out string pulseLimitReason))
+            string pulseLimitReason = string.Empty;
+            bool pulseRelayRateLimited = pulseAccepted &&
+                !TryConsumePulseRateLimitNoLock(share.Source, proof.MinerAddress, proof.Timestamp, out pulseLimitReason);
+            if (pulseRelayRateLimited && !localDatumSource)
             {
                 RecordShareDiagnosticNoLock(
                     share.Source,
@@ -2216,6 +2225,10 @@ public class BootProtocolStateService
                     OnDeckList = ClonePayouts(_state.OnDeckList),
                     NetworkStatus = BuildNetworkStatusNoLock()
                 });
+            }
+            if (pulseRelayRateLimited)
+            {
+                proof.RelayTtl = 0;
             }
 
             if (!RememberShareIdNoLock(proof.ShareId))

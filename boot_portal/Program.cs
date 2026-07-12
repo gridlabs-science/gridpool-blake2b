@@ -3091,11 +3091,6 @@ public class ClientHandler
             return false;
         }
 
-        if (_poolConfig.EnablePulseProofs && achievedDifficulty >= Math.Max(1d, _poolConfig.PulseMinDifficulty))
-        {
-            return false;
-        }
-
         int courtesyEvery = Math.Clamp(_poolConfig.DatumLowDiffCourtesyValidateEvery, 1, 1_000_000);
         int courtesySeconds = Math.Clamp(_poolConfig.DatumLowDiffCourtesyValidateSeconds, 1, 3600);
         bool countDue = _lowDiffFastAcceptedSinceCourtesy >= courtesyEvery;

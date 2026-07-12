@@ -552,6 +552,75 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public async Task LocalDatumPulseRateLimitDoesNotRejectMinerShareAsync()
+    {
+        BootShareProof higherDifficultyProof = CreateFakeProof("seed-high-proof", 1_000_000_000d);
+        using var harness = TestHarness.Create(
+            currentTipBlockHash: SamplePrevBlockHash,
+            sharedWinnerSlotCount: 1,
+            workSetReserveMultiplier: 1,
+            onDeckProofs: [higherDifficultyProof]);
+        harness.Config.EnablePulseProofs = true;
+        harness.Config.PulseMinDifficulty = 1;
+        harness.Config.PulseRelayTtl = 1;
+        harness.Config.PulseMaxPerPeerPerMinute = 1;
+        harness.Config.PulseMaxPerSourceAddressPerMinute = 1;
+
+        var submission = new RecordedShareSubmission
+        {
+            MinerAddress = AlternateAddress,
+            Username = string.Empty,
+            HeaderHex = SampleHeaderHex,
+            CoinbaseHex = SampleCoinbaseHex,
+            MerklePath = SampleMerklePath.ToList(),
+            PrevBlockHash = SamplePrevBlockHash,
+            Source = "datum"
+        };
+
+        ShareRecordingResult first = await harness.StateService.SubmitShareAsync(submission, "datum-block");
+        ShareRecordingResult second = await harness.StateService.SubmitShareAsync(submission, "datum-block");
+
+        Assert.IsTrue(first.Accepted, first.RejectionReason);
+        Assert.IsFalse(second.Accepted);
+        Assert.AreEqual("Duplicate share", second.RejectionReason);
+    }
+
+    [TestMethod]
+    public async Task PeerPulseRateLimitStillRejectsExcessRelayProofsAsync()
+    {
+        BootShareProof higherDifficultyProof = CreateFakeProof("seed-high-proof", 1_000_000_000d);
+        using var harness = TestHarness.Create(
+            currentTipBlockHash: SamplePrevBlockHash,
+            sharedWinnerSlotCount: 1,
+            workSetReserveMultiplier: 1,
+            onDeckProofs: [higherDifficultyProof]);
+        harness.Config.EnablePulseProofs = true;
+        harness.Config.PulseMinDifficulty = 1;
+        harness.Config.PulseRelayTtl = 1;
+        harness.Config.PulseMaxPerPeerPerMinute = 1;
+        harness.Config.PulseMaxPerSourceAddressPerMinute = 1;
+
+        var submission = new RecordedShareSubmission
+        {
+            MinerAddress = AlternateAddress,
+            Username = string.Empty,
+            HeaderHex = SampleHeaderHex,
+            CoinbaseHex = SampleCoinbaseHex,
+            MerklePath = SampleMerklePath.ToList(),
+            PrevBlockHash = SamplePrevBlockHash,
+            Source = "peer:test-node:websocket",
+            RelayTtl = 1
+        };
+
+        ShareRecordingResult first = await harness.StateService.SubmitShareAsync(submission, "peer-block");
+        ShareRecordingResult second = await harness.StateService.SubmitShareAsync(submission, "peer-block");
+
+        Assert.IsTrue(first.Accepted, first.RejectionReason);
+        Assert.IsFalse(second.Accepted);
+        Assert.AreEqual("Pulse rate limited", second.RejectionReason);
+    }
+
+    [TestMethod]
     public async Task OptimisticRelayEmitsBeforeValidatedRelayWhenEnabledAsync()
     {
         using var harness = TestHarness.Create(currentTipBlockHash: SamplePrevBlockHash);
