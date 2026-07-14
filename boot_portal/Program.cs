@@ -336,6 +336,9 @@ public class PoolConfig
     [JsonPropertyName("share_diagnostic_retention_hours")]
     public int ShareDiagnosticRetentionHours { get; set; } = 12;
 
+    [JsonPropertyName("network_event_retention_hours")]
+    public int NetworkEventRetentionHours { get; set; } = 168;
+
     [JsonPropertyName("datum_share_response_slow_ms")]
     public int DatumShareResponseSlowMs { get; set; } = 500;
 
@@ -374,6 +377,9 @@ public class PoolConfig
 
     [JsonPropertyName("bitcoin_zmq_endpoint")]
     public string BitcoinZmqEndpoint { get; set; } = "tcp://127.0.0.1:28332";
+
+    [JsonPropertyName("bitcoin_zmq_rawblock_endpoint")]
+    public string BitcoinZmqRawBlockEndpoint { get; set; } = "tcp://127.0.0.1:28333";
 
     [JsonPropertyName("stratum_v1_proxy_host")]
     public string StratumV1ProxyHost { get; set; } = string.Empty;

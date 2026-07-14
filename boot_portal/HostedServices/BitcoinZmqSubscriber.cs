@@ -10,7 +10,8 @@ namespace boot_portal.HostedServices;
 public class BitcoinZmqSubscriber : BackgroundService
 {
     private SubscriberSocket? _subscriber;
-    private const string TOPIC = "hashblock"; // Subscribe to block hashes
+    private const string HashBlockTopic = "hashblock";
+    private const string RawBlockTopic = "rawblock";
     private readonly PoolConfig _poolConfig;
     private readonly ILogger<BitcoinZmqSubscriber> _logger;
     private readonly IHubContext<PoolStatsHub> _hubContext;
@@ -36,17 +37,31 @@ public class BitcoinZmqSubscriber : BackgroundService
         using (_subscriber = new SubscriberSocket())
         using (var poller = new NetMQPoller { _subscriber }) // Add the socket to the poller
         {
-            string zmqEndpoint = string.IsNullOrWhiteSpace(_poolConfig.BitcoinZmqEndpoint)
+            string hashBlockEndpoint = string.IsNullOrWhiteSpace(_poolConfig.BitcoinZmqEndpoint)
                 ? "tcp://127.0.0.1:28332"
                 : _poolConfig.BitcoinZmqEndpoint.Trim();
-            _subscriber.Connect(zmqEndpoint);
-            _subscriber.Subscribe(TOPIC);
-            _logger.LogInformation("Subscribed to ZMQ at {ZmqEndpoint} for topic '{Topic}'", zmqEndpoint, TOPIC);
+            string rawBlockEndpoint = _poolConfig.BitcoinZmqRawBlockEndpoint?.Trim() ?? string.Empty;
+            _subscriber.Connect(hashBlockEndpoint);
+            if (!string.IsNullOrWhiteSpace(rawBlockEndpoint) &&
+                !string.Equals(rawBlockEndpoint, hashBlockEndpoint, StringComparison.OrdinalIgnoreCase))
+            {
+                _subscriber.Connect(rawBlockEndpoint);
+            }
+            _subscriber.Subscribe(HashBlockTopic);
+            if (!string.IsNullOrWhiteSpace(rawBlockEndpoint))
+            {
+                _subscriber.Subscribe(RawBlockTopic);
+            }
+            _logger.LogInformation(
+                "Subscribed to Bitcoin ZMQ hashblock={HashBlockEndpoint}, rawblock={RawBlockEndpoint}",
+                hashBlockEndpoint,
+                string.IsNullOrWhiteSpace(rawBlockEndpoint) ? "disabled" : rawBlockEndpoint);
 
             // 3. Attach to the ReceiveReady event.
             // This event will fire on the Poller's dedicated thread when a message arrives.
             _subscriber.ReceiveReady += (s, e) =>
             {
+                DateTime transportReceivedUtc = DateTime.UtcNow;
                 try
                 {
                     // We are inside the poller thread, so we can safely use
@@ -57,8 +72,8 @@ public class BitcoinZmqSubscriber : BackgroundService
                     var topicBytes = e.Socket.ReceiveFrameBytes(out bool more);
                     if (!more || topicBytes == null) return; 
                     
-                    var blockHash = e.Socket.ReceiveFrameBytes(out more);
-                    if (!more || blockHash == null) return;
+                    var messageBytes = e.Socket.ReceiveFrameBytes(out more);
+                    if (!more || messageBytes == null) return;
                     
                     var sequenceBytes = e.Socket.ReceiveFrameBytes(out more);
                     // We don't care about 'more' on the last frame
@@ -66,9 +81,9 @@ public class BitcoinZmqSubscriber : BackgroundService
                     // Now, process the message
                     var topic = Encoding.UTF8.GetString(topicBytes);
 
-                    if (topic == TOPIC && blockHash.Length == 32)
+                    if (topic == HashBlockTopic && messageBytes.Length == 32)
                     {
-                        var hashHex = BitcoinHashes.ToLikelyDisplayHashHex(blockHash);
+                        var hashHex = BitcoinHashes.ToLikelyDisplayHashHex(messageBytes);
                         _logger.LogInformation("New block detected: {HashHex}", hashHex);
 
                         // *** CRITICAL ***
@@ -85,6 +100,28 @@ public class BitcoinZmqSubscriber : BackgroundService
                             catch (Exception taskEx)
                             {
                                 _logger.LogError(taskEx, "Error processing new block {HashHex}", hashHex);
+                            }
+                        }, stoppingToken);
+                    }
+                    else if (topic == RawBlockTopic && messageBytes.Length >= 80)
+                    {
+                        string headerHex = Convert.ToHexString(messageBytes.AsSpan(0, 80)).ToLowerInvariant();
+                        string hashHex = BitcoinHashes.ComputeBlockHashFromHeader(headerHex);
+                        _logger.LogInformation("New raw block header detected: {HashHex}", hashHex);
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                _stateService.ObserveLocalChainTipHeader(
+                                    headerHex,
+                                    "zmq-rawblock",
+                                    transportReceivedUtc,
+                                    blockHeight: null);
+                                await OnNewBlockAsync(hashHex, stoppingToken);
+                            }
+                            catch (Exception taskEx)
+                            {
+                                _logger.LogError(taskEx, "Error processing raw block header {HashHex}", hashHex);
                             }
                         }, stoppingToken);
                     }

@@ -147,7 +147,7 @@ Long-term censorship-resistance posture:
 - [x] Add admin-triggered PCP/NAT-PMP port mapping for the peer-only TCP port and UDP relay port.
 - [ ] Validate PCP/NAT-PMP mapping against at least one real home router and one expected-failure/CGNAT case.
 - [ ] Research optional UPnP IGD port mapping after PCP/NAT-PMP testing.
-- [x] Add measurement-only chain-tip/header relay telemetry over encrypted V2 sessions.
+- [x] Add measurement-only full-header relay telemetry over encrypted V2 sessions and compact encrypted UDP, paired against receiver-local Bitcoin rawblock ZMQ arrival.
 - [ ] Run chain-tip latency reports during the 7-day soak and compare against local Bitcoin tip detection.
 - [ ] Add advanced, disabled-by-default optimistic peer-header mining for GridPool-controlled SV2/direct-template adapters.
 - [ ] Decide whether UDP hole punching is necessary for beta performance after 7-day latency data review.

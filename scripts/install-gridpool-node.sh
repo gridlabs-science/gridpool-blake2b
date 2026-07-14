@@ -8,6 +8,7 @@ GRID_TESTNET_PAYOUT_ADDRESS="${GRID_TESTNET_PAYOUT_ADDRESS:-mxt9bYPtfBdzoTeZcHr2
 GRID_POOL_PAYOUT_ADDRESS="${GRID_POOL_PAYOUT_ADDRESS:-}"
 BITCOIN_NETWORK="${BITCOIN_NETWORK:-mainnet}"
 BITCOIN_ZMQ_ENDPOINT="${BITCOIN_ZMQ_ENDPOINT:-auto}"
+BITCOIN_ZMQ_RAWBLOCK_ENDPOINT="${BITCOIN_ZMQ_RAWBLOCK_ENDPOINT:-tcp://127.0.0.1:28333}"
 BOOT_WEB_PORT="${BOOT_WEB_PORT:-5000}"
 BOOT_DATUM_PORT="${BOOT_DATUM_PORT:-3008}"
 BOOT_DATUM_PUBLIC_PORT_WAS_SET=0
@@ -37,6 +38,7 @@ Options:
   --payout-address ADDRESS      Slot-0 fallback payout address for this node
   --network mainnet|testnet4    Bitcoin network (default: $BITCOIN_NETWORK)
   --bitcoin-zmq ENDPOINT        Bitcoin ZMQ endpoint, such as tcp://127.0.0.1:28332
+  --bitcoin-zmq-rawblock ENDPOINT  Bitcoin rawblock ZMQ endpoint (default: tcp://127.0.0.1:28333)
   --no-bitcoin-zmq              Use MempoolSpace notifications instead of local ZMQ
   --web-port PORT               Local WebUI port (default: $BOOT_WEB_PORT)
   --datum-port PORT             Local DATUM listener port (default: $BOOT_DATUM_PORT)
@@ -54,7 +56,7 @@ Options:
 
 Environment overrides mirror the option names:
   GRID_HOME, GRID_BOOT_IMAGE, GRID_POOL_PAYOUT_ADDRESS, BITCOIN_NETWORK,
-  BITCOIN_ZMQ_ENDPOINT, BOOT_WEB_PORT, BOOT_DATUM_PORT,
+  BITCOIN_ZMQ_ENDPOINT, BITCOIN_ZMQ_RAWBLOCK_ENDPOINT, BOOT_WEB_PORT, BOOT_DATUM_PORT,
   BOOT_DATUM_PUBLIC_HOST, BOOT_DATUM_PUBLIC_PORT, BOOT_PUBLIC_BASE_URL,
   GRID_BOOT_BOOTSTRAP_PEERS, GRID_BOOT_NETWORK_ID, GRID_BOOT_STATE_FILE
 EOF
@@ -101,8 +103,14 @@ parse_args() {
                 BITCOIN_ZMQ_ENDPOINT="$2"
                 shift 2
                 ;;
+            --bitcoin-zmq-rawblock)
+                [[ $# -ge 2 ]] || fail "--bitcoin-zmq-rawblock requires a value"
+                BITCOIN_ZMQ_RAWBLOCK_ENDPOINT="$2"
+                shift 2
+                ;;
             --no-bitcoin-zmq)
                 BITCOIN_ZMQ_ENDPOINT=""
+                BITCOIN_ZMQ_RAWBLOCK_ENDPOINT=""
                 shift
                 ;;
             --web-port)
@@ -313,7 +321,8 @@ data.update({
     "pool_payout_script": ${GRID_POOL_PAYOUT_ADDRESS@Q},
     "coinbase_tag": ${GRID_POOL_COINBASE_TAG@Q},
     "min_diff": 300,
-    "bitcoin_zmq_endpoint": zmq_endpoint,
+    "bitcoin_zmq_endpoint": ${zmq_endpoint@Q},
+    "bitcoin_zmq_rawblock_endpoint": ${BITCOIN_ZMQ_RAWBLOCK_ENDPOINT@Q},
 })
 
 path.write_text(json.dumps(data, indent=2) + "\\n")

@@ -829,6 +829,7 @@ public class BootChainTipAnnouncement
     public string SenderEndpoint { get; set; } = string.Empty;
     public string SenderNodeId { get; set; } = string.Empty;
     public string Source { get; set; } = string.Empty;
+    public string HeaderHex { get; set; } = string.Empty;
     public string BlockHash { get; set; } = string.Empty;
     public long? BlockHeight { get; set; }
     public DateTime ObservedUtc { get; set; } = DateTime.UtcNow;

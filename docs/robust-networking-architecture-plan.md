@@ -268,7 +268,9 @@ V3.1 is not implemented. It should wait until V2.1 hidden session relay is stabl
 
 ### V4 Implementation Status
 
-V4 remains research for mining behavior, but measurement-only V2 chain-tip announcements are implemented. Nodes relay observed tip hash/height/timestamp over encrypted sessions and record peer arrival latency as `peer-chain-tip` events. This is intentionally telemetry-only: it does not build templates from peer headers or change mining behavior.
+Measurement-only header relay is implemented over encrypted WebSocket sessions and compact encrypted UDP datagrams. Nodes relay the full 80-byte header, record receiver-local transport arrival, and compare it with independent local Bitcoin `rawblock` ZMQ arrival for the exact same hash. Peer announcements do not advance the chain tip, rotate snapshots, invalidate work, or build templates. See `docs/fast-chain-tip-telemetry.md`.
+
+Mining behavior remains research. Header arrival alone does not provide the full block or prove that optimistic empty-block mining is safe.
 
 ## Completed V1 Acceptance Criteria
 

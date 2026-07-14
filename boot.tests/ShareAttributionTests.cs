@@ -670,6 +670,99 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public void UdpChainTipCodecRoundTripsRawHeaderAndHeight()
+    {
+        string blockHash = BitcoinHashes.ComputeBlockHashFromHeader(SampleHeaderHex);
+        var announcement = new BootChainTipAnnouncement
+        {
+            HeaderHex = SampleHeaderHex,
+            BlockHash = blockHash,
+            BlockHeight = 945123
+        };
+
+        bool encoded = BootPeerUdpChainTipCodec.TryEncode(announcement, out byte[] payload, out string encodeReason);
+        Assert.IsTrue(encoded, encodeReason);
+        Assert.IsTrue(BootPeerUdpChainTipCodec.LooksLikeChainTip(payload));
+
+        bool decoded = BootPeerUdpChainTipCodec.TryDecode(payload, out BootChainTipAnnouncement decodedAnnouncement, out string decodeReason);
+        Assert.IsTrue(decoded, decodeReason);
+        Assert.AreEqual(SampleHeaderHex, decodedAnnouncement.HeaderHex);
+        Assert.AreEqual(blockHash, decodedAnnouncement.BlockHash);
+        Assert.AreEqual(945123, decodedAnnouncement.BlockHeight);
+    }
+
+    [TestMethod]
+    public void UdpChainTipCodecRejectsHeaderHashMismatch()
+    {
+        bool encoded = BootPeerUdpChainTipCodec.TryEncode(new BootChainTipAnnouncement
+        {
+            HeaderHex = SampleHeaderHex,
+            BlockHash = new string('0', 64)
+        }, out _, out string reason);
+
+        Assert.IsFalse(encoded);
+        Assert.AreEqual("header-hash-mismatch", reason);
+    }
+
+    [TestMethod]
+    public void LocalRawHeaderObservationPublishesBothTransportsAndTelemetry()
+    {
+        using var harness = TestHarness.Create();
+        DateTime observedUtc = DateTime.UtcNow.AddMilliseconds(-25);
+
+        bool accepted = harness.StateService.ObserveLocalChainTipHeader(
+            SampleHeaderHex,
+            "test-rawblock",
+            observedUtc,
+            945123);
+
+        Assert.IsTrue(accepted);
+        Assert.IsTrue(harness.StateService.ChainTipAnnouncements.TryRead(out BootChainTipAnnouncement? sessionAnnouncement));
+        Assert.IsTrue(harness.StateService.UdpChainTipAnnouncements.TryRead(out BootChainTipAnnouncement? udpAnnouncement));
+        Assert.AreEqual(SampleHeaderHex, sessionAnnouncement!.HeaderHex);
+        Assert.AreEqual(sessionAnnouncement.BlockHash, udpAnnouncement!.BlockHash);
+
+        BootNetworkEventSeriesDto events = harness.StateService.GetNetworkEvents(eventType: "local-chain-tip-header");
+        Assert.AreEqual(1, events.Events.Count);
+        Assert.AreEqual(observedUtc, events.Events[0].TimestampUtc);
+        Assert.AreEqual("bitcoin-zmq-rawblock", events.Events[0].Transport);
+        Assert.AreEqual(80, events.Events[0].PayloadBytes);
+    }
+
+    [TestMethod]
+    public async Task PeerHeaderObservationIsMeasurementOnlyAndDoesNotAdvanceTipAsync()
+    {
+        using var harness = TestHarness.Create(currentTipBlockHash: OlderTipBlockHash);
+        BootNetworkStatusDto before = harness.StateService.GetNetworkStatus();
+        string announcedHash = BitcoinHashes.ComputeBlockHashFromHeader(SampleHeaderHex);
+
+        await harness.StateService.ObservePeerChainTipAsync(
+            new BootChainTipAnnouncement
+            {
+                HeaderHex = SampleHeaderHex,
+                BlockHash = announcedHash,
+                BlockHeight = 945123,
+                Source = "remote-zmq"
+            },
+            "https://peer.example",
+            "peer-node",
+            "udp",
+            138,
+            DateTime.UtcNow);
+
+        BootNetworkStatusDto after = harness.StateService.GetNetworkStatus();
+        Assert.AreEqual(before.CurrentTipBlockHash, after.CurrentTipBlockHash);
+        Assert.AreEqual(before.CurrentStateId, after.CurrentStateId);
+        Assert.AreEqual(before.CandidateStateId, after.CandidateStateId);
+
+        BootNetworkEventSeriesDto events = harness.StateService.GetNetworkEvents(eventType: "peer-chain-tip");
+        Assert.AreEqual(1, events.Events.Count);
+        Assert.AreEqual(announcedHash, events.Events[0].BlockHash);
+        Assert.AreEqual("udp", events.Events[0].Transport);
+        Assert.IsNull(events.Events[0].RelayLatencyMs);
+    }
+
+    [TestMethod]
     public async Task DatumShareOnFreshParentWithInvalidCoinbaseReportsRetryFailureAsync()
     {
         using var harness = TestHarness.Create(currentTipBlockHash: OlderTipBlockHash);

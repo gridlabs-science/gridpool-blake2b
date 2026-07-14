@@ -393,8 +393,8 @@ public sealed class BootPeerSessionManager : BackgroundService
                 GetSessionKey(remoteEndpoint, remoteHello.NodeId),
                 remoteEndpoint,
                 remoteHello.NodeId,
-                remoteHello.UdpHost,
-                remoteHello.UdpPort,
+                compatibility.UdpRelayCompatible ? remoteHello.UdpHost : string.Empty,
+                compatibility.UdpRelayCompatible ? remoteHello.UdpPort : 0,
                 socket,
                 crypto);
 
@@ -477,6 +477,7 @@ public sealed class BootPeerSessionManager : BackgroundService
             {
                 return;
             }
+            DateTime transportReceivedUtc = DateTime.UtcNow;
 
             int frameBytes = Encoding.UTF8.GetByteCount(frameJson);
             BootPeerSessionEncryptedFrame? frame = JsonSerializer.Deserialize<BootPeerSessionEncryptedFrame>(frameJson, JsonOptions);
@@ -496,12 +497,17 @@ public sealed class BootPeerSessionManager : BackgroundService
             BootPeerSessionPayload? payload = JsonSerializer.Deserialize<BootPeerSessionPayload>(payloadJson, JsonOptions);
             if (payload != null)
             {
-                await HandlePayloadAsync(session, payload, frameBytes, cancellationToken);
+                await HandlePayloadAsync(session, payload, frameBytes, transportReceivedUtc, cancellationToken);
             }
         }
     }
 
-    private async Task HandlePayloadAsync(PeerSession session, BootPeerSessionPayload payload, int frameBytes, CancellationToken cancellationToken)
+    private async Task HandlePayloadAsync(
+        PeerSession session,
+        BootPeerSessionPayload payload,
+        int frameBytes,
+        DateTime transportReceivedUtc,
+        CancellationToken cancellationToken)
     {
         string type = payload.Type.Trim().ToLowerInvariant();
         switch (type)
@@ -520,7 +526,7 @@ public sealed class BootPeerSessionManager : BackgroundService
                 await HandleNetworkStatusPayloadAsync(session, payload.NetworkStatus, cancellationToken);
                 break;
             case "chain-tip":
-                await HandleChainTipPayloadAsync(session, payload.ChainTip, frameBytes);
+                await HandleChainTipPayloadAsync(session, payload.ChainTip, frameBytes, transportReceivedUtc);
                 break;
             case "state-request":
                 await HandleStateRequestPayloadAsync(session, payload, cancellationToken);
@@ -632,7 +638,8 @@ public sealed class BootPeerSessionManager : BackgroundService
     private async Task HandleChainTipPayloadAsync(
         PeerSession session,
         BootChainTipAnnouncement? announcement,
-        int frameBytes)
+        int frameBytes,
+        DateTime transportReceivedUtc)
     {
         if (announcement == null)
         {
@@ -668,7 +675,8 @@ public sealed class BootPeerSessionManager : BackgroundService
             remoteEndpoint,
             remoteNodeId,
             "v2-session",
-            frameBytes);
+            frameBytes,
+            transportReceivedUtc);
     }
 
     private Task<bool> RequestStateBundleAsync(

@@ -54,6 +54,7 @@ public class BootProtocolStateService
     private readonly JsonSerializerOptions _compactJsonOptions = new() { WriteIndented = false };
     private readonly Channel<BootShareProof> _acceptedShares = Channel.CreateUnbounded<BootShareProof>();
     private readonly Channel<BootChainTipAnnouncement> _chainTipAnnouncements = Channel.CreateUnbounded<BootChainTipAnnouncement>();
+    private readonly Channel<BootChainTipAnnouncement> _udpChainTipAnnouncements = Channel.CreateUnbounded<BootChainTipAnnouncement>();
     private readonly HashSet<string> _seenShareIds = [];
     private readonly Queue<string> _seenShareQueue = new();
     private readonly List<BootShareDiagnosticTelemetry> _recentShareDiagnostics = [];
@@ -81,7 +82,7 @@ public class BootProtocolStateService
     private const int MaxRecentDatumShareResponses = 2000;
     private const int MaxRecentDatumSessions = 5000;
     private const int MaxRecentDatumProtocolEvents = 25000;
-    private const int MaxRecentNetworkEvents = 5000;
+    private const int MaxRecentNetworkEvents = 20000;
     private const int MaxRecentPeerRelayObservations = 10000;
     private const int MaxRecentCandidateBundles = 512;
     private const int MinLocalDatumMinerDisplaySamples = 8;
@@ -109,6 +110,7 @@ public class BootProtocolStateService
 
     public ChannelReader<BootShareProof> AcceptedShares => _acceptedShares.Reader;
     public ChannelReader<BootChainTipAnnouncement> ChainTipAnnouncements => _chainTipAnnouncements.Reader;
+    public ChannelReader<BootChainTipAnnouncement> UdpChainTipAnnouncements => _udpChainTipAnnouncements.Reader;
 
     public List<PayoutInfo> GetWinnersList()
     {
@@ -3048,6 +3050,50 @@ public class BootProtocolStateService
         return networkStatus;
     }
 
+    public bool ObserveLocalChainTipHeader(
+        string headerHex,
+        string source,
+        DateTime transportReceivedUtc,
+        long? blockHeight = null)
+    {
+        string normalizedHeader = BitcoinHashes.NormalizeHex(headerHex);
+        string blockHash;
+        try
+        {
+            blockHash = BitcoinHashes.ComputeBlockHashFromHeader(normalizedHeader);
+        }
+        catch (ArgumentException ex)
+        {
+            _logger.LogWarning(ex, "Ignored invalid local Bitcoin block header from {Source}.", source);
+            return false;
+        }
+
+        RecordExternalNetworkEvent(
+            "local-chain-tip-header",
+            source,
+            "Local Bitcoin source delivered a raw block header.",
+            blockHash,
+            blockHeight,
+            transportReceivedUtc,
+            "bitcoin-zmq-rawblock",
+            payloadBytes: 80);
+
+        PublishChainTipAnnouncement(new BootChainTipAnnouncement
+        {
+            SenderEndpoint = GetSelfEndpoint(),
+            Source = source,
+            HeaderHex = normalizedHeader,
+            BlockHash = blockHash,
+            BlockHeight = blockHeight,
+            ObservedUtc = transportReceivedUtc,
+            ProtocolVersion = _poolConfig.BootProtocolVersion,
+            ConsensusVersion = _poolConfig.BootProtocolVersion,
+            PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
+            NetworkId = _poolConfig.BootNetworkId
+        });
+        return true;
+    }
+
     public async Task<BootNetworkStatusDto> ObserveChainTipAsync(string blockHash, string source, long? blockHeight = null)
     {
         BootNetworkStatusDto status;
@@ -3056,8 +3102,6 @@ public class BootProtocolStateService
         bool shouldRotateTestRound = false;
         bool metadataChanged = false;
         bool snapshotChanged = false;
-        bool shouldAnnounceTip = false;
-        DateTime observedUtc = DateTime.UtcNow;
         List<PayoutInfo> winnersSnapshot = [];
         List<PayoutInfo> onDeckSnapshot = [];
         lock (_sync)
@@ -3123,7 +3167,6 @@ public class BootProtocolStateService
 
             _state.CurrentTipBlockHash = normalizedBlockHash;
             _state.CurrentTipBlockHeight = effectiveBlockHeight;
-            shouldAnnounceTip = ShouldAnnounceChainTipSource(source);
             RememberAcceptedParentBlockHashNoLock(normalizedBlockHash);
             UpdateKnownBlockHeightNoLock(normalizedBlockHash, effectiveBlockHeight);
             snapshotChanged = ApplySnapshotFromWorkSetNoLock(
@@ -3163,22 +3206,6 @@ public class BootProtocolStateService
             await NotifyWorkTemplatesInvalidatedAsync($"chain-tip:{source}");
         }
 
-        if (shouldAnnounceTip && !string.IsNullOrWhiteSpace(normalizedBlockHash))
-        {
-            PublishChainTipAnnouncement(new BootChainTipAnnouncement
-            {
-                SenderEndpoint = GetSelfEndpoint(),
-                Source = source,
-                BlockHash = normalizedBlockHash,
-                BlockHeight = effectiveBlockHeight,
-                ObservedUtc = observedUtc,
-                ProtocolVersion = _poolConfig.BootProtocolVersion,
-                ConsensusVersion = _poolConfig.BootProtocolVersion,
-                PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
-                NetworkId = _poolConfig.BootNetworkId
-            });
-        }
-
         return status;
     }
 
@@ -3187,31 +3214,68 @@ public class BootProtocolStateService
         string remoteEndpoint,
         string remoteNodeId,
         string transport,
-        int payloadBytes)
+        int payloadBytes,
+        DateTime? transportReceivedUtc = null)
     {
-        if (string.IsNullOrWhiteSpace(announcement.BlockHash))
+        DateTime receivedUtc = transportReceivedUtc ?? DateTime.UtcNow;
+        string normalizedHeader = BitcoinHashes.NormalizeHex(announcement.HeaderHex);
+        string computedBlockHash;
+        try
         {
+            computedBlockHash = BitcoinHashes.ComputeBlockHashFromHeader(normalizedHeader);
+        }
+        catch (ArgumentException)
+        {
+            RecordExternalNetworkEvent(
+                "peer-chain-tip-rejected",
+                string.IsNullOrWhiteSpace(remoteEndpoint) ? $"peer-tip-node:{remoteNodeId}" : $"peer-tip:{remoteEndpoint}",
+                "Rejected measurement-only chain-tip announcement with an invalid 80-byte header.",
+                announcement.BlockHash,
+                announcement.BlockHeight,
+                receivedUtc,
+                transport,
+                remoteEndpoint,
+                remoteNodeId,
+                announcement.ObservedUtc,
+                payloadBytes: payloadBytes);
+            return GetNetworkStatus();
+        }
+
+        if (!string.IsNullOrWhiteSpace(announcement.BlockHash) &&
+            !BitcoinHashes.AreEquivalent(computedBlockHash, announcement.BlockHash))
+        {
+            RecordExternalNetworkEvent(
+                "peer-chain-tip-rejected",
+                string.IsNullOrWhiteSpace(remoteEndpoint) ? $"peer-tip-node:{remoteNodeId}" : $"peer-tip:{remoteEndpoint}",
+                "Rejected measurement-only chain-tip announcement because its header hash did not match.",
+                computedBlockHash,
+                announcement.BlockHeight,
+                receivedUtc,
+                transport,
+                remoteEndpoint,
+                remoteNodeId,
+                announcement.ObservedUtc,
+                payloadBytes: payloadBytes);
             return GetNetworkStatus();
         }
 
         string source = string.IsNullOrWhiteSpace(remoteEndpoint)
             ? $"peer-tip-node:{remoteNodeId}"
             : $"peer-tip:{remoteEndpoint}";
-        double? latencyMs = CalculateRelayLatencyMs(announcement.ObservedUtc);
         RecordExternalNetworkEvent(
             "peer-chain-tip",
             source,
-            $"Received peer chain-tip announcement from {announcement.Source}; latency={FormatLatency(latencyMs)}.",
-            announcement.BlockHash,
+            $"Received measurement-only peer block header from {announcement.Source}; awaiting independent local Bitcoin confirmation.",
+            computedBlockHash,
             announcement.BlockHeight,
-            DateTime.UtcNow,
+            receivedUtc,
             transport,
             remoteEndpoint,
             remoteNodeId,
             announcement.ObservedUtc,
-            latencyMs,
+            relayLatencyMs: null,
             payloadBytes);
-        return await ObserveChainTipAsync(announcement.BlockHash, source, announcement.BlockHeight);
+        return await Task.FromResult(GetNetworkStatus());
     }
 
     public async Task<bool> TryImportCandidateStateAsync(BootStateBundle bundle, string sourceEndpoint)
@@ -5323,7 +5387,7 @@ public class BootProtocolStateService
     {
         DateTime nowUtc = DateTime.UtcNow;
         TrimNetworkEventsNoLock(nowUtc);
-        DateTime cutoffUtc = ResolveTelemetryCutoffUtc(windowKey, nowUtc, GetShareDiagnosticRetentionHours());
+        DateTime cutoffUtc = ResolveTelemetryCutoffUtc(windowKey, nowUtc, GetNetworkEventRetentionHours());
 
         IEnumerable<BootNetworkEvent> query = _state.RecentNetworkEvents
             .Where(item => item.TimestampUtc >= cutoffUtc);
@@ -6068,37 +6132,20 @@ public class BootProtocolStateService
     private void PublishChainTipAnnouncement(BootChainTipAnnouncement announcement)
     {
         _chainTipAnnouncements.Writer.TryWrite(announcement);
-    }
-
-    private static bool ShouldAnnounceChainTipSource(string source)
-    {
-        if (string.IsNullOrWhiteSpace(source))
+        _udpChainTipAnnouncements.Writer.TryWrite(new BootChainTipAnnouncement
         {
-            return true;
-        }
-
-        return !source.StartsWith("peer-tip", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static double? CalculateRelayLatencyMs(DateTime announcedAtUtc)
-    {
-        if (announcedAtUtc == default)
-        {
-            return null;
-        }
-
-        DateTime normalized = announcedAtUtc.Kind == DateTimeKind.Utc
-            ? announcedAtUtc
-            : DateTime.SpecifyKind(announcedAtUtc, DateTimeKind.Utc);
-        double latencyMs = (DateTime.UtcNow - normalized).TotalMilliseconds;
-        return latencyMs is >= 0 and <= 300000 ? latencyMs : null;
-    }
-
-    private static string FormatLatency(double? latencyMs)
-    {
-        return latencyMs.HasValue
-            ? $"{latencyMs.Value.ToString("F1", CultureInfo.InvariantCulture)} ms"
-            : "unknown";
+            SenderEndpoint = announcement.SenderEndpoint,
+            SenderNodeId = announcement.SenderNodeId,
+            Source = announcement.Source,
+            HeaderHex = announcement.HeaderHex,
+            BlockHash = announcement.BlockHash,
+            BlockHeight = announcement.BlockHeight,
+            ObservedUtc = announcement.ObservedUtc,
+            ProtocolVersion = announcement.ProtocolVersion,
+            ConsensusVersion = announcement.ConsensusVersion,
+            PeerTransportVersion = announcement.PeerTransportVersion,
+            NetworkId = announcement.NetworkId
+        });
     }
 
     private void RecordAcceptedShareTelemetryNoLock(BootShareProof proof)
@@ -6554,7 +6601,7 @@ public class BootProtocolStateService
 
     private void TrimNetworkEventsNoLock(DateTime nowUtc)
     {
-        DateTime cutoffUtc = nowUtc.AddHours(-GetShareDiagnosticRetentionHours());
+        DateTime cutoffUtc = nowUtc.AddHours(-GetNetworkEventRetentionHours());
         _state.RecentNetworkEvents = _state.RecentNetworkEvents
             .Where(item => item.TimestampUtc >= cutoffUtc)
             .OrderBy(item => item.TimestampUtc)
@@ -6708,6 +6755,8 @@ public class BootProtocolStateService
     private int GetAcceptedShareTelemetryRetentionHours() => Math.Clamp(_poolConfig.AcceptedShareTelemetryRetentionHours, 1, 168);
 
     private int GetShareDiagnosticRetentionHours() => Math.Clamp(_poolConfig.ShareDiagnosticRetentionHours, 1, 168);
+
+    private int GetNetworkEventRetentionHours() => Math.Clamp(_poolConfig.NetworkEventRetentionHours, 1, 24 * 30);
 
     private int GetDatumShareResponseSlowMs() => Math.Clamp(_poolConfig.DatumShareResponseSlowMs, 50, 30000);
 

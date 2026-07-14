@@ -247,16 +247,6 @@ public class BootPeerSyncService : BackgroundService
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(remote.CurrentTipBlockHash) &&
-            (!BitcoinHashes.AreEquivalent(remote.CurrentTipBlockHash, local.CurrentTipBlockHash) ||
-             (remote.CurrentTipBlockHeight.HasValue && remote.CurrentTipBlockHeight != local.CurrentTipBlockHeight)))
-        {
-            local = await _stateService.ObserveChainTipAsync(
-                remote.CurrentTipBlockHash,
-                $"peer-tip:{remoteEndpoint}",
-                remote.CurrentTipBlockHeight);
-        }
-
         if (!string.Equals(remote.CurrentStateId, local.CurrentStateId, StringComparison.OrdinalIgnoreCase))
         {
             return;

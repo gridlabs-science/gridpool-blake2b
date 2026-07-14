@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+
 namespace boot_portal.Utils;
 
 public static class BitcoinHashes
@@ -99,5 +101,19 @@ public static class BitcoinHashes
         return left.Length == 64 &&
                right.Length == 64 &&
                string.Equals(ReverseHexByteOrder(left), right, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static string ComputeBlockHashFromHeader(string? headerHex)
+    {
+        string normalized = NormalizeHex(headerHex);
+        if (normalized.Length != 160)
+        {
+            throw new ArgumentException("Bitcoin block header must be exactly 80 bytes.", nameof(headerHex));
+        }
+
+        byte[] header = Convert.FromHexString(normalized);
+        byte[] first = SHA256.HashData(header);
+        byte[] second = SHA256.HashData(first);
+        return ToDisplayHashHex(second);
     }
 }

@@ -147,6 +147,7 @@ public static class PoolConfigValidator
         ValidatePositive(errors, config.HashrateSampleRetentionDays, "hashrate_sample_retention_days");
         ValidatePositive(errors, config.AcceptedShareTelemetryRetentionHours, "accepted_share_telemetry_retention_hours");
         ValidatePositive(errors, config.ShareDiagnosticRetentionHours, "share_diagnostic_retention_hours");
+        ValidatePositive(errors, config.NetworkEventRetentionHours, "network_event_retention_hours");
         ValidatePositive(errors, config.DatumShareResponseSlowMs, "datum_share_response_slow_ms");
         ValidatePositive(errors, config.DatumShareResponseAcceptedSampleEvery, "datum_share_response_accepted_sample_every");
         ValidatePositive(errors, config.DatumLowDiffCourtesyValidateEvery, "datum_low_diff_courtesy_validate_every");

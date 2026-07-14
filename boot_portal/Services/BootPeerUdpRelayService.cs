@@ -50,12 +50,26 @@ public sealed class BootPeerUdpRelayService : BackgroundService
             _poolConfig.PeerUdpBindPort,
             _poolConfig.PeerUdpMaxDatagramBytes);
 
+        Task receiveLoop = RunReceiveLoopAsync(stoppingToken);
+        Task chainTipRelayLoop = RunChainTipRelayLoopAsync(stoppingToken);
+        await Task.WhenAll(receiveLoop, chainTipRelayLoop);
+    }
+
+    private async Task RunReceiveLoopAsync(CancellationToken stoppingToken)
+    {
+        UdpClient? udpClient = _udpClient;
+        if (udpClient == null)
+        {
+            return;
+        }
+
         try
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                UdpReceiveResult received = await _udpClient.ReceiveAsync(stoppingToken);
-                await HandleDatagramAsync(received.Buffer, received.RemoteEndPoint, stoppingToken);
+                UdpReceiveResult received = await udpClient.ReceiveAsync(stoppingToken);
+                DateTime transportReceivedUtc = DateTime.UtcNow;
+                await HandleDatagramAsync(received.Buffer, received.RemoteEndPoint, transportReceivedUtc, stoppingToken);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -64,6 +78,14 @@ public sealed class BootPeerUdpRelayService : BackgroundService
         catch (SocketException ex)
         {
             _logger.LogWarning(ex, "V3 UDP fast relay listener stopped by socket error.");
+        }
+    }
+
+    private async Task RunChainTipRelayLoopAsync(CancellationToken stoppingToken)
+    {
+        await foreach (BootChainTipAnnouncement announcement in _stateService.UdpChainTipAnnouncements.ReadAllAsync(stoppingToken))
+        {
+            await RelayChainTipAsync(announcement, stoppingToken);
         }
     }
 
@@ -106,6 +128,48 @@ public sealed class BootPeerUdpRelayService : BackgroundService
             {
                 _logger.LogDebug(ex, "Failed V3 UDP relay to {Peer}.", target.RemoteEndpoint);
                 _stateService.UpdatePeerUdpHeartbeat(target.RemoteEndpoint, target.RemoteNodeId, "udp-error", success: false, DateTime.UtcNow);
+            }
+        }
+    }
+
+    private async Task RelayChainTipAsync(BootChainTipAnnouncement announcement, CancellationToken cancellationToken)
+    {
+        if (_udpClient == null)
+        {
+            return;
+        }
+
+        if (!BootPeerUdpChainTipCodec.TryEncode(announcement, out byte[] payload, out string reason))
+        {
+            _logger.LogDebug("Skipped UDP chain-tip relay for {BlockHash}: {Reason}", announcement.BlockHash, reason);
+            return;
+        }
+
+        List<BootPeerUdpDatagramTarget> targets = _sessionManager.BuildUdpDatagramTargets(
+            payload,
+            sourceEndpoint: null,
+            maxDatagramBytes: _poolConfig.PeerUdpMaxDatagramBytes);
+        foreach (BootPeerUdpDatagramTarget target in targets)
+        {
+            try
+            {
+                await _udpClient.SendAsync(target.Datagram, target.Datagram.Length, target.Host, target.Port);
+                _stateService.UpdatePeerUdpHeartbeat(
+                    target.RemoteEndpoint,
+                    target.RemoteNodeId,
+                    "udp-chain-tip-relayed",
+                    success: true,
+                    DateTime.UtcNow);
+            }
+            catch (Exception ex) when (ex is SocketException or ObjectDisposedException)
+            {
+                _logger.LogDebug(ex, "Failed UDP chain-tip relay to {Peer}.", target.RemoteEndpoint);
+                _stateService.UpdatePeerUdpHeartbeat(
+                    target.RemoteEndpoint,
+                    target.RemoteNodeId,
+                    "udp-chain-tip-error",
+                    success: false,
+                    DateTime.UtcNow);
             }
         }
     }
@@ -200,7 +264,11 @@ public sealed class BootPeerUdpRelayService : BackgroundService
             challenge.AcknowledgedAtUtc.HasValue;
     }
 
-    private async Task HandleDatagramAsync(byte[] datagram, IPEndPoint remoteEndPoint, CancellationToken cancellationToken)
+    private async Task HandleDatagramAsync(
+        byte[] datagram,
+        IPEndPoint remoteEndPoint,
+        DateTime transportReceivedUtc,
+        CancellationToken cancellationToken)
     {
         if (datagram.Length > _poolConfig.PeerUdpMaxDatagramBytes)
         {
@@ -222,7 +290,34 @@ public sealed class BootPeerUdpRelayService : BackgroundService
             return;
         }
 
-        DateTime transportReceivedUtc = DateTime.UtcNow;
+        if (BootPeerUdpChainTipCodec.LooksLikeChainTip(received.Payload))
+        {
+            if (!BootPeerUdpChainTipCodec.TryDecode(received.Payload, out BootChainTipAnnouncement announcement, out string tipDecodeReason))
+            {
+                _logger.LogDebug("Rejected invalid UDP chain-tip payload from {Peer}: {Reason}", received.RemoteEndpoint, tipDecodeReason);
+                _stateService.UpdatePeerUdpHeartbeat(received.RemoteEndpoint, received.RemoteNodeId, "udp-chain-tip-invalid", success: false, DateTime.UtcNow);
+                return;
+            }
+
+            announcement.SenderEndpoint = received.RemoteEndpoint;
+            announcement.SenderNodeId = received.RemoteNodeId;
+            announcement.Source = "peer-udp";
+            announcement.ObservedUtc = default;
+            announcement.ProtocolVersion = _poolConfig.BootProtocolVersion;
+            announcement.ConsensusVersion = _poolConfig.BootProtocolVersion;
+            announcement.PeerTransportVersion = BootProtocolVersions.PeerTransportVersion;
+            announcement.NetworkId = _poolConfig.BootNetworkId;
+            await _stateService.ObservePeerChainTipAsync(
+                announcement,
+                received.RemoteEndpoint,
+                received.RemoteNodeId,
+                "udp",
+                datagram.Length,
+                transportReceivedUtc);
+            _stateService.UpdatePeerUdpHeartbeat(received.RemoteEndpoint, received.RemoteNodeId, "udp-chain-tip", success: true, DateTime.UtcNow);
+            return;
+        }
+
         if (!BootPeerUdpShareCodec.TryDecode(received.Payload, _poolConfig, out RecordedShareSubmission share, out string decodeReason))
         {
             _logger.LogDebug("Rejected invalid V3 UDP share payload from {Peer}: {Reason}", received.RemoteEndpoint, decodeReason);

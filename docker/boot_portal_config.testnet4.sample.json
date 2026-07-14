@@ -81,8 +81,10 @@
   "local_datum_hashrate_per_address_max_samples": 512,
   "local_datum_hashrate_max_addresses": 5000,
   "max_accepted_share_telemetry_entries": 20000,
+  "network_event_retention_hours": 168,
   "datum_keepalive_interval_seconds": 30,
   "bitcoin_zmq_endpoint": "tcp://127.0.0.1:28332",
+  "bitcoin_zmq_rawblock_endpoint": "tcp://127.0.0.1:28333",
   "stratum_v1_proxy_host": "",
   "stratum_v1_proxy_port": 0
 }
