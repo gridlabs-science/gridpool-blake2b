@@ -16,6 +16,7 @@ public class MiningApiController : ControllerBase
     private readonly LocalMiningAdapterAuth? _localAdapterAuth;
     private readonly ILogger<MiningApiController> _logger;
 
+    [Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructor]
     public MiningApiController(
         PoolConfig poolConfig,
         BootProtocolStateService stateService,
