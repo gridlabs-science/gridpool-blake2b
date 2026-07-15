@@ -705,7 +705,7 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
-    public void LocalRawHeaderObservationPublishesBothTransportsAndTelemetry()
+    public void LocalRawHeaderObservationPublishesOneCoordinatedRelayAndTelemetry()
     {
         using var harness = TestHarness.Create();
         DateTime observedUtc = DateTime.UtcNow.AddMilliseconds(-25);
@@ -718,9 +718,8 @@ public sealed class ShareAttributionTests
 
         Assert.IsTrue(accepted);
         Assert.IsTrue(harness.StateService.ChainTipAnnouncements.TryRead(out BootChainTipAnnouncement? sessionAnnouncement));
-        Assert.IsTrue(harness.StateService.UdpChainTipAnnouncements.TryRead(out BootChainTipAnnouncement? udpAnnouncement));
         Assert.AreEqual(SampleHeaderHex, sessionAnnouncement!.HeaderHex);
-        Assert.AreEqual(sessionAnnouncement.BlockHash, udpAnnouncement!.BlockHash);
+        Assert.IsTrue(sessionAnnouncement.RelayQueuedUtc >= observedUtc);
 
         BootNetworkEventSeriesDto events = harness.StateService.GetNetworkEvents(eventType: "local-chain-tip-header");
         Assert.AreEqual(1, events.Events.Count);

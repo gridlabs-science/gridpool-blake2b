@@ -74,6 +74,21 @@ function summarize(items) {
   };
 }
 
+function summarizeDurations(values) {
+  const finite = values
+    .filter(value => value !== null && value !== undefined && value !== "")
+    .map(Number)
+    .filter(Number.isFinite);
+  return {
+    count: finite.length,
+    averageMs: average(finite),
+    p50Ms: percentile(finite, 50),
+    p95Ms: percentile(finite, 95),
+    minMs: finite.length > 0 ? Math.min(...finite) : null,
+    maxMs: finite.length > 0 ? Math.max(...finite) : null
+  };
+}
+
 function groupBy(items, selector) {
   const groups = new Map();
   for (const item of items) {
@@ -92,13 +107,17 @@ const query = {
   window: args.window || "24h",
   limit: args.limit || 5000
 };
-const [localPayload, peerPayload] = await Promise.all([
+const [localPayload, peerPayload, dispatchPayload, sendPayload] = await Promise.all([
   fetchJson(args.url, "/api/network/events", { ...query, eventType: "local-chain-tip-header" }),
-  fetchJson(args.url, "/api/network/events", { ...query, eventType: "peer-chain-tip" })
+  fetchJson(args.url, "/api/network/events", { ...query, eventType: "peer-chain-tip" }),
+  fetchJson(args.url, "/api/network/events", { ...query, eventType: "chain-tip-relay-dispatch" }),
+  fetchJson(args.url, "/api/network/events", { ...query, eventType: "chain-tip-send-complete" })
 ]);
 
 const localEvents = Array.isArray(localPayload.events) ? localPayload.events : [];
 const peerEvents = Array.isArray(peerPayload.events) ? peerPayload.events : [];
+const dispatchEvents = Array.isArray(dispatchPayload.events) ? dispatchPayload.events : [];
+const sendEvents = Array.isArray(sendPayload.events) ? sendPayload.events : [];
 const localByHash = new Map();
 for (const event of localEvents) {
   const hash = normalizeHash(event.blockHash);
@@ -145,6 +164,19 @@ const report = {
   overall: summarize(matched),
   transports: Object.fromEntries([...groupBy(matched, item => item.transport)].map(([key, values]) => [key, summarize(values)])),
   sources: Object.fromEntries([...groupBy(matched, item => item.source)].map(([key, values]) => [key, summarize(values)])),
+  senderDispatch: {
+    queueToDispatch: summarizeDurations(dispatchEvents.map(event => event.relayLatencyMs)),
+    transports: Object.fromEntries(
+      [...groupBy(sendEvents, event => event.transport)].map(([key, values]) => [key, {
+        sendDuration: summarizeDurations(values.map(event => event.relayLatencyMs)),
+        queueToCompletion: summarizeDurations(values.map(event => {
+          const completedMs = eventTimestampMs(event);
+          const queuedMs = Date.parse(event.announcedAtUtc || "");
+          return completedMs !== null && Number.isFinite(queuedMs) ? completedMs - queuedMs : null;
+        }))
+      }])
+    )
+  },
   observations: matched
 };
 
@@ -155,6 +187,13 @@ for (const [transport, summary] of Object.entries(report.transports)) {
 }
 for (const [source, summary] of Object.entries(report.sources)) {
   console.log(`  source ${source}: count=${summary.count} faster=${summary.fasterThanLocalCount} p50=${formatMs(summary.leadP50Ms)} p95=${formatMs(summary.leadP95Ms)}`);
+}
+if (report.senderDispatch.queueToDispatch.count > 0) {
+  const queue = report.senderDispatch.queueToDispatch;
+  console.log(`  sender queue->dispatch: count=${queue.count} p50=${formatMs(queue.p50Ms)} p95=${formatMs(queue.p95Ms)}`);
+}
+for (const [transport, summary] of Object.entries(report.senderDispatch.transports)) {
+  console.log(`  sender ${transport}: send p50=${formatMs(summary.sendDuration.p50Ms)} p95=${formatMs(summary.sendDuration.p95Ms)} queue->complete p50=${formatMs(summary.queueToCompletion.p50Ms)} p95=${formatMs(summary.queueToCompletion.p95Ms)}`);
 }
 
 if (args.json && args.json !== "true") {

@@ -54,7 +54,6 @@ public class BootProtocolStateService
     private readonly JsonSerializerOptions _compactJsonOptions = new() { WriteIndented = false };
     private readonly Channel<BootShareProof> _acceptedShares = Channel.CreateUnbounded<BootShareProof>();
     private readonly Channel<BootChainTipAnnouncement> _chainTipAnnouncements = Channel.CreateUnbounded<BootChainTipAnnouncement>();
-    private readonly Channel<BootChainTipAnnouncement> _udpChainTipAnnouncements = Channel.CreateUnbounded<BootChainTipAnnouncement>();
     private readonly HashSet<string> _seenShareIds = [];
     private readonly Queue<string> _seenShareQueue = new();
     private readonly List<BootShareDiagnosticTelemetry> _recentShareDiagnostics = [];
@@ -110,7 +109,6 @@ public class BootProtocolStateService
 
     public ChannelReader<BootShareProof> AcceptedShares => _acceptedShares.Reader;
     public ChannelReader<BootChainTipAnnouncement> ChainTipAnnouncements => _chainTipAnnouncements.Reader;
-    public ChannelReader<BootChainTipAnnouncement> UdpChainTipAnnouncements => _udpChainTipAnnouncements.Reader;
 
     public List<PayoutInfo> GetWinnersList()
     {
@@ -6219,21 +6217,8 @@ public class BootProtocolStateService
 
     private void PublishChainTipAnnouncement(BootChainTipAnnouncement announcement)
     {
+        announcement.RelayQueuedUtc = DateTime.UtcNow;
         _chainTipAnnouncements.Writer.TryWrite(announcement);
-        _udpChainTipAnnouncements.Writer.TryWrite(new BootChainTipAnnouncement
-        {
-            SenderEndpoint = announcement.SenderEndpoint,
-            SenderNodeId = announcement.SenderNodeId,
-            Source = announcement.Source,
-            HeaderHex = announcement.HeaderHex,
-            BlockHash = announcement.BlockHash,
-            BlockHeight = announcement.BlockHeight,
-            ObservedUtc = announcement.ObservedUtc,
-            ProtocolVersion = announcement.ProtocolVersion,
-            ConsensusVersion = announcement.ConsensusVersion,
-            PeerTransportVersion = announcement.PeerTransportVersion,
-            NetworkId = announcement.NetworkId
-        });
     }
 
     private void RecordAcceptedShareTelemetryNoLock(BootShareProof proof)

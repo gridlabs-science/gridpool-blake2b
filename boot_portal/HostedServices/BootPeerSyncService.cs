@@ -50,7 +50,8 @@ public class BootPeerSyncService : BackgroundService
 
         Task syncLoop = RunPeerSyncLoopAsync(stoppingToken);
         Task relayLoop = RunShareRelayLoopAsync(stoppingToken);
-        await Task.WhenAll(syncLoop, relayLoop);
+        Task chainTipRelayLoop = RunChainTipRelayLoopAsync(stoppingToken);
+        await Task.WhenAll(syncLoop, relayLoop, chainTipRelayLoop);
     }
 
     private async Task RunPeerSyncLoopAsync(CancellationToken stoppingToken)
@@ -121,12 +122,14 @@ public class BootPeerSyncService : BackgroundService
             string? sourceEndpoint = hasPeerSource
                 ? parsedSourceEndpoint
                 : null;
-            await _udpRelayService.RelayShareAsync(proof, sourceEndpoint, stoppingToken);
-            HashSet<string> sessionRelayedEndpoints = await _sessionManager.RelayToConnectedSessionsAsync(
+            Task udpRelayTask = _udpRelayService.RelayShareAsync(proof, sourceEndpoint, stoppingToken);
+            Task<HashSet<string>> sessionRelayTask = _sessionManager.RelayToConnectedSessionsAsync(
                 proof,
                 sourceEndpoint,
                 parsedSourceNodeId,
                 stoppingToken);
+            await Task.WhenAll(udpRelayTask, sessionRelayTask);
+            HashSet<string> sessionRelayedEndpoints = await sessionRelayTask;
             List<string> peers = _stateService.GetPeerEndpointsForShareRelay(sourceEndpoint);
             if (sessionRelayedEndpoints.Count > 0 && !_poolConfig.PeerRelayLatencyProbeAllTransports)
             {
@@ -139,6 +142,31 @@ public class BootPeerSyncService : BackgroundService
 
             var relayTasks = peers.Select(peer => RelayShareWithLimitAsync(peer, proof, semaphore, stoppingToken)).ToArray();
             await Task.WhenAll(relayTasks);
+        }
+    }
+
+    private async Task RunChainTipRelayLoopAsync(CancellationToken stoppingToken)
+    {
+        await foreach (BootChainTipAnnouncement announcement in _stateService.ChainTipAnnouncements.ReadAllAsync(stoppingToken))
+        {
+            DateTime dispatchUtc = DateTime.UtcNow;
+            _stateService.RecordExternalNetworkEvent(
+                "chain-tip-relay-dispatch",
+                "local-chain-tip-relay",
+                "Launching UDP and WebSocket chain-tip relays concurrently.",
+                announcement.BlockHash,
+                announcement.BlockHeight,
+                dispatchUtc,
+                "concurrent",
+                announcedAtUtc: announcement.RelayQueuedUtc == default ? null : announcement.RelayQueuedUtc,
+                relayLatencyMs: announcement.RelayQueuedUtc == default
+                    ? null
+                    : (dispatchUtc - announcement.RelayQueuedUtc).TotalMilliseconds,
+                payloadBytes: 80);
+
+            Task udpRelayTask = _udpRelayService.RelayChainTipAsync(announcement, stoppingToken);
+            Task sessionRelayTask = _sessionManager.RelayChainTipToConnectedSessionsAsync(announcement, stoppingToken);
+            await Task.WhenAll(udpRelayTask, sessionRelayTask);
         }
     }
 

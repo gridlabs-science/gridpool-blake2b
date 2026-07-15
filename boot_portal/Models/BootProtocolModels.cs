@@ -834,6 +834,7 @@ public class BootChainTipAnnouncement
     public string BlockHash { get; set; } = string.Empty;
     public long? BlockHeight { get; set; }
     public DateTime ObservedUtc { get; set; } = DateTime.UtcNow;
+    public DateTime RelayQueuedUtc { get; set; }
     public int ProtocolVersion { get; set; }
     public int ConsensusVersion { get; set; }
     public int PeerTransportVersion { get; set; }

@@ -50,9 +50,7 @@ public sealed class BootPeerUdpRelayService : BackgroundService
             _poolConfig.PeerUdpBindPort,
             _poolConfig.PeerUdpMaxDatagramBytes);
 
-        Task receiveLoop = RunReceiveLoopAsync(stoppingToken);
-        Task chainTipRelayLoop = RunChainTipRelayLoopAsync(stoppingToken);
-        await Task.WhenAll(receiveLoop, chainTipRelayLoop);
+        await RunReceiveLoopAsync(stoppingToken);
     }
 
     private async Task RunReceiveLoopAsync(CancellationToken stoppingToken)
@@ -78,14 +76,6 @@ public sealed class BootPeerUdpRelayService : BackgroundService
         catch (SocketException ex)
         {
             _logger.LogWarning(ex, "V3 UDP fast relay listener stopped by socket error.");
-        }
-    }
-
-    private async Task RunChainTipRelayLoopAsync(CancellationToken stoppingToken)
-    {
-        await foreach (BootChainTipAnnouncement announcement in _stateService.UdpChainTipAnnouncements.ReadAllAsync(stoppingToken))
-        {
-            await RelayChainTipAsync(announcement, stoppingToken);
         }
     }
 
@@ -121,7 +111,7 @@ public sealed class BootPeerUdpRelayService : BackgroundService
                     continue;
                 }
 
-                await _udpClient.SendAsync(target.Datagram, target.Datagram.Length, target.Host, target.Port);
+                await _udpClient.SendAsync(target.Datagram, target.Datagram.Length, target.EndPoint);
                 _stateService.UpdatePeerUdpHeartbeat(target.RemoteEndpoint, target.RemoteNodeId, "udp-relayed", success: true, DateTime.UtcNow);
             }
             catch (Exception ex) when (ex is SocketException or ObjectDisposedException)
@@ -132,7 +122,7 @@ public sealed class BootPeerUdpRelayService : BackgroundService
         }
     }
 
-    private async Task RelayChainTipAsync(BootChainTipAnnouncement announcement, CancellationToken cancellationToken)
+    public async Task RelayChainTipAsync(BootChainTipAnnouncement announcement, CancellationToken cancellationToken)
     {
         if (_udpClient == null)
         {
@@ -151,15 +141,17 @@ public sealed class BootPeerUdpRelayService : BackgroundService
             maxDatagramBytes: _poolConfig.PeerUdpMaxDatagramBytes);
         foreach (BootPeerUdpDatagramTarget target in targets)
         {
+            DateTime sendStartedUtc = DateTime.UtcNow;
             try
             {
-                await _udpClient.SendAsync(target.Datagram, target.Datagram.Length, target.Host, target.Port);
+                await _udpClient.SendAsync(target.Datagram, target.Datagram.Length, target.EndPoint);
                 _stateService.UpdatePeerUdpHeartbeat(
                     target.RemoteEndpoint,
                     target.RemoteNodeId,
                     "udp-chain-tip-relayed",
                     success: true,
                     DateTime.UtcNow);
+                RecordChainTipSendTelemetry(announcement, target, sendStartedUtc, success: true);
             }
             catch (Exception ex) when (ex is SocketException or ObjectDisposedException)
             {
@@ -170,8 +162,31 @@ public sealed class BootPeerUdpRelayService : BackgroundService
                     "udp-chain-tip-error",
                     success: false,
                     DateTime.UtcNow);
+                RecordChainTipSendTelemetry(announcement, target, sendStartedUtc, success: false);
             }
         }
+    }
+
+    private void RecordChainTipSendTelemetry(
+        BootChainTipAnnouncement announcement,
+        BootPeerUdpDatagramTarget target,
+        DateTime sendStartedUtc,
+        bool success)
+    {
+        DateTime completedUtc = DateTime.UtcNow;
+        _stateService.RecordExternalNetworkEvent(
+            success ? "chain-tip-send-complete" : "chain-tip-send-failed",
+            "local-chain-tip-relay",
+            success ? "Chain-tip relay send completed." : "Chain-tip relay send failed.",
+            announcement.BlockHash,
+            announcement.BlockHeight,
+            completedUtc,
+            "udp",
+            target.RemoteEndpoint,
+            target.RemoteNodeId,
+            announcement.RelayQueuedUtc == default ? null : announcement.RelayQueuedUtc,
+            (completedUtc - sendStartedUtc).TotalMilliseconds,
+            target.Datagram.Length);
     }
 
     public async Task<bool> SendReachabilityProbeAsync(

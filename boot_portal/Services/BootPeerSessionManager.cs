@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.IO.Compression;
 using System.Net;
+using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -15,8 +16,7 @@ public sealed class BootPeerUdpDatagramTarget
 {
     public string RemoteEndpoint { get; init; } = string.Empty;
     public string RemoteNodeId { get; init; } = string.Empty;
-    public string Host { get; init; } = string.Empty;
-    public int Port { get; init; }
+    public IPEndPoint EndPoint { get; init; } = new(IPAddress.None, 0);
     public byte[] Datagram { get; init; } = [];
 }
 
@@ -64,9 +64,7 @@ public sealed class BootPeerSessionManager : BackgroundService
         }
 
         _logger.LogInformation("V2 peer persistent sessions enabled. Node id: {NodeId}", ShortNodeId(_identity.NodeId));
-        await Task.WhenAll(
-            RunSessionConnectLoopAsync(stoppingToken),
-            RunChainTipRelayLoopAsync(stoppingToken));
+        await RunSessionConnectLoopAsync(stoppingToken);
     }
 
     private async Task RunSessionConnectLoopAsync(CancellationToken stoppingToken)
@@ -98,30 +96,40 @@ public sealed class BootPeerSessionManager : BackgroundService
         }
     }
 
-    private async Task RunChainTipRelayLoopAsync(CancellationToken stoppingToken)
+    public async Task RelayChainTipToConnectedSessionsAsync(
+        BootChainTipAnnouncement announcement,
+        CancellationToken cancellationToken)
     {
-        await foreach (BootChainTipAnnouncement announcement in _stateService.ChainTipAnnouncements.ReadAllAsync(stoppingToken))
+        if (_sessions.IsEmpty)
         {
-            if (_sessions.IsEmpty)
-            {
-                continue;
-            }
+            return;
+        }
 
-            announcement.SenderEndpoint = _stateService.GetSelfEndpoint();
-            announcement.SenderNodeId = _identity.NodeId;
-            List<PeerSession> sessions = _sessions.Values.Where(session => session.IsOpen).ToList();
-            foreach (PeerSession session in sessions)
+        var outbound = CloneChainTipAnnouncement(announcement);
+        outbound.SenderEndpoint = _stateService.GetSelfEndpoint();
+        outbound.SenderNodeId = _identity.NodeId;
+        List<PeerSession> sessions = _sessions.Values.Where(session => session.IsOpen).ToList();
+        await Parallel.ForEachAsync(
+            sessions,
+            new ParallelOptions
             {
-                await TrySendPayloadAsync(
+                CancellationToken = cancellationToken,
+                MaxDegreeOfParallelism = Math.Max(1, _stateService.GetPeerRelayParallelism())
+            },
+            async (session, token) =>
+            {
+                DateTime sendStartedUtc = DateTime.UtcNow;
+                bool sent = await TrySendPayloadAsync(
                     session,
                     new BootPeerSessionPayload
                     {
                         Type = "chain-tip",
-                        ChainTip = announcement
+                        SentUtc = sendStartedUtc,
+                        ChainTip = outbound
                     },
-                    stoppingToken);
-            }
-        }
+                    token);
+                RecordChainTipSendTelemetry(outbound, session.RemoteEndpoint, session.RemoteNodeId, "websocket", sendStartedUtc, sent);
+            });
     }
 
     private async Task BroadcastNetworkStatusAsync(CancellationToken cancellationToken)
@@ -244,7 +252,7 @@ public sealed class BootPeerSessionManager : BackgroundService
             if (!session.IsOpen ||
                 string.IsNullOrWhiteSpace(session.RemoteEndpoint) ||
                 string.Equals(session.RemoteEndpoint, normalizedSource, StringComparison.OrdinalIgnoreCase) ||
-                !TryBuildUdpHost(session.RemoteEndpoint, session.RemoteUdpHost, session.RemoteUdpPort, out string host, out int port))
+                session.RemoteUdpEndPoint == null)
             {
                 continue;
             }
@@ -260,8 +268,7 @@ public sealed class BootPeerSessionManager : BackgroundService
             {
                 RemoteEndpoint = session.RemoteEndpoint,
                 RemoteNodeId = session.RemoteNodeId,
-                Host = host,
-                Port = port,
+                EndPoint = session.RemoteUdpEndPoint,
                 Datagram = datagram
             });
         }
@@ -389,12 +396,16 @@ public sealed class BootPeerSessionManager : BackgroundService
                 localIsInitiator ? remoteHello.Nonce : localHello.Nonce,
                 localIsInitiator);
 
+            IPEndPoint? remoteUdpEndPoint = compatibility.UdpRelayCompatible
+                ? await ResolveUdpEndPointAsync(remoteEndpoint, remoteHello.UdpHost, remoteHello.UdpPort, cancellationToken)
+                : null;
             session = new PeerSession(
                 GetSessionKey(remoteEndpoint, remoteHello.NodeId),
                 remoteEndpoint,
                 remoteHello.NodeId,
                 compatibility.UdpRelayCompatible ? remoteHello.UdpHost : string.Empty,
                 compatibility.UdpRelayCompatible ? remoteHello.UdpPort : 0,
+                remoteUdpEndPoint,
                 socket,
                 crypto);
 
@@ -1066,27 +1077,88 @@ public sealed class BootPeerSessionManager : BackgroundService
         return builder.Uri;
     }
 
-    private bool TryBuildUdpHost(string endpoint, string advertisedUdpHost, int advertisedUdpPort, out string host, out int port)
+    private async Task<IPEndPoint?> ResolveUdpEndPointAsync(
+        string endpoint,
+        string advertisedUdpHost,
+        int advertisedUdpPort,
+        CancellationToken cancellationToken)
     {
-        host = string.Empty;
-        port = advertisedUdpPort is > 0 and <= 65535
+        int port = advertisedUdpPort is > 0 and <= 65535
             ? advertisedUdpPort
             : _poolConfig.PeerUdpPort;
-        if (!string.IsNullOrWhiteSpace(advertisedUdpHost))
+        string host = advertisedUdpHost.Trim();
+        if (string.IsNullOrWhiteSpace(host))
         {
-            host = advertisedUdpHost.Trim();
-            return true;
+            if (!Uri.TryCreate(NormalizeEndpoint(endpoint), UriKind.Absolute, out Uri? uri) ||
+                string.IsNullOrWhiteSpace(uri.Host))
+            {
+                return null;
+            }
+
+            host = uri.Host;
         }
 
-        if (!Uri.TryCreate(NormalizeEndpoint(endpoint), UriKind.Absolute, out Uri? uri) ||
-            string.IsNullOrWhiteSpace(uri.Host))
+        if (IPAddress.TryParse(host, out IPAddress? literalAddress) && literalAddress.AddressFamily == AddressFamily.InterNetwork)
         {
-            return false;
+            return new IPEndPoint(literalAddress, port);
         }
 
-        host = uri.Host;
-        return true;
+        try
+        {
+            IPAddress[] addresses = await Dns.GetHostAddressesAsync(host, cancellationToken);
+            IPAddress? address = addresses.FirstOrDefault(candidate => candidate.AddressFamily == AddressFamily.InterNetwork);
+            return address == null ? null : new IPEndPoint(address, port);
+        }
+        catch (Exception ex) when (ex is SocketException or OperationCanceledException)
+        {
+            if (ex is OperationCanceledException && cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+
+            _logger.LogDebug(ex, "Unable to resolve UDP relay endpoint {Host}:{Port} for {Peer}.", host, port, endpoint);
+            return null;
+        }
     }
+
+    private void RecordChainTipSendTelemetry(
+        BootChainTipAnnouncement announcement,
+        string remoteEndpoint,
+        string remoteNodeId,
+        string transport,
+        DateTime sendStartedUtc,
+        bool success)
+    {
+        _stateService.RecordExternalNetworkEvent(
+            success ? "chain-tip-send-complete" : "chain-tip-send-failed",
+            "local-chain-tip-relay",
+            success ? "Chain-tip relay send completed." : "Chain-tip relay send failed.",
+            announcement.BlockHash,
+            announcement.BlockHeight,
+            DateTime.UtcNow,
+            transport,
+            remoteEndpoint,
+            remoteNodeId,
+            announcement.RelayQueuedUtc == default ? null : announcement.RelayQueuedUtc,
+            (DateTime.UtcNow - sendStartedUtc).TotalMilliseconds,
+            0);
+    }
+
+    private static BootChainTipAnnouncement CloneChainTipAnnouncement(BootChainTipAnnouncement source) => new()
+    {
+        SenderEndpoint = source.SenderEndpoint,
+        SenderNodeId = source.SenderNodeId,
+        Source = source.Source,
+        HeaderHex = source.HeaderHex,
+        BlockHash = source.BlockHash,
+        BlockHeight = source.BlockHeight,
+        ObservedUtc = source.ObservedUtc,
+        RelayQueuedUtc = source.RelayQueuedUtc,
+        ProtocolVersion = source.ProtocolVersion,
+        ConsensusVersion = source.ConsensusVersion,
+        PeerTransportVersion = source.PeerTransportVersion,
+        NetworkId = source.NetworkId
+    };
 
     private async Task<T?> ReceivePlainJsonAsync<T>(WebSocket socket, CancellationToken cancellationToken)
     {
@@ -1193,6 +1265,7 @@ public sealed class BootPeerSessionManager : BackgroundService
             string remoteNodeId,
             string remoteUdpHost,
             int remoteUdpPort,
+            IPEndPoint? remoteUdpEndPoint,
             WebSocket socket,
             BootPeerSessionCrypto crypto)
         {
@@ -1201,6 +1274,7 @@ public sealed class BootPeerSessionManager : BackgroundService
             RemoteNodeId = remoteNodeId;
             RemoteUdpHost = remoteUdpHost?.Trim() ?? string.Empty;
             RemoteUdpPort = remoteUdpPort is > 0 and <= 65535 ? remoteUdpPort : 0;
+            RemoteUdpEndPoint = remoteUdpEndPoint;
             Socket = socket;
             Crypto = crypto;
         }
@@ -1210,6 +1284,7 @@ public sealed class BootPeerSessionManager : BackgroundService
         public string RemoteNodeId { get; }
         public string RemoteUdpHost { get; }
         public int RemoteUdpPort { get; }
+        public IPEndPoint? RemoteUdpEndPoint { get; }
         public WebSocket Socket { get; }
         public BootPeerSessionCrypto Crypto { get; }
         public SemaphoreSlim SendLock { get; } = new(1, 1);
