@@ -1622,7 +1622,7 @@
             <div>Candidate State: <span class="accent-value" id="candidate-state-id">Loading...</span></div>
             <div>Snapshot Age: <span class="accent-value" id="current-round-age">--</span></div>
             <div>Estimated Hashrate: <span class="accent-value" id="current-round-hashrate">--</span></div>
-            <div>Local DATUM Hashrate: <span class="accent-value" id="local-datum-hashrate">--</span></div>
+            <div>Local Mining Hashrate: <span class="accent-value" id="local-datum-hashrate">--</span></div>
             <h3 style="margin-top: 10px;">Local DATUM Diagnostics</h3>
             <div>Window: <span class="accent-value" id="datum-diagnostic-window">--</span></div>
             <div>Accepted: <span class="accent-value" id="datum-accepted-count">--</span></div>
@@ -1637,7 +1637,7 @@
             <div class="search-results" id="commitment-note"></div>
             <div class="search-results" id="testing-trigger-note"></div>
             <div class="search-results" id="launch-readiness-note"></div>
-            <div class="search-results" id="round-hashrate-note">Team estimate uses the current unpaid Work Set share window. Local DATUM estimate uses a rolling window of directly connected DATUM shares.</div>
+            <div class="search-results" id="round-hashrate-note">Team estimate uses the current unpaid Work Set share window. Local mining uses rolling accounting from directly connected DATUM and SV2 gateways.</div>
             <div class="search-results" id="datum-rejection-note"></div>
         </div>
     </div>
@@ -2623,7 +2623,7 @@
         container.hidden = false;
         container.innerHTML = miners.map(miner => `
             <button type="button" class="shortcut-chip${selected?.address === miner.address ? " active" : ""}" data-miner-address="${escapeHtml(miner.address)}" title="${escapeHtml(miner.address)}">
-                <span class="shortcut-chip-label">Local DATUM Miner</span>
+                <span class="shortcut-chip-label">Local Miner</span>
                 <span class="shortcut-chip-value">${escapeHtml(formatMinerLabel(miner.address))}</span>
                 <span class="shortcut-chip-note">${escapeHtml(miner.currentHashrateDisplay || "--")} · best this round ${escapeHtml(miner.currentRoundBestDifficultyDisplay || "--")}</span>
             </button>
@@ -2952,7 +2952,7 @@
                         ? "You Made The Queue"
                         : "Still Chasing A Slot";
             const heroCopy = !search.hasSearch
-                ? "Search a payout address or tap one of your directly connected DATUM miners to turn on personal odds and queue tracking."
+                ? "Search a payout address or tap one of your directly connected miners to turn on personal odds and queue tracking."
                 : search.winnerSlots > 0
                     ? `Your share is locked into the active payout snapshot. Average wait to be paid is about ${formatDurationLong(quantileTimeForPoissonEvent(teamBlockRate, 0.5))}.`
                     : search.onDeckSlots > 0
@@ -3050,7 +3050,7 @@
                     ]),
                     search.hasSearch
                         ? `Last paid appearance: ${latestPaidRound ? formatRoundReference(latestPaidRound.entry) : "none in the visible recent window"}.`
-                        : "Search or click a local DATUM address to turn the payout forecast into an address-specific view.",
+                        : "Search or click a local mining address to turn the payout forecast into an address-specific view.",
                     search.hasSearch ? recentPaidLines : []
                 )
             ];
@@ -3081,11 +3081,11 @@
                     "Hashrate",
                     teamHashrateDisplay,
                     [
-                        buildFocusMetric("Local DATUM", localHashrateDisplay),
+                        buildFocusMetric("Local Mining", localHashrateDisplay),
                         buildFocusMetric("Local/team share", localSharePercent),
                         buildFocusMetric("Round age", currentRoundAge)
                     ].join(""),
-                    "Team estimate comes from the unpaid Work Set. Local DATUM uses the direct-share rolling window."
+                    "Team estimate comes from the unpaid Work Set. Local mining uses direct DATUM/SV2 accounting."
                 ),
                 buildFocusCard(
                     "Connection Target",
@@ -3216,7 +3216,7 @@
                         ? "YOU ARE ON DECK"
                         : "STILL CHASING";
             const inDetail = !search.hasSearch
-                ? "The page will auto-focus one directly connected DATUM miner if this node only has one."
+                ? "The page will auto-focus one directly connected miner if this node only has one."
                 : search.winnerSlots > 0
                     ? `Estimated locked payout ${formatBtcFromSats(search.winnerValue)} BTC`
                     : search.onDeckSlots > 0
@@ -3752,7 +3752,7 @@
 
         if (hasLocalDatumLine) {
             datasets.push({
-                label: "Local DATUM",
+                label: "Local Mining",
                 data: localDatumData,
                 borderColor: localColor,
                 backgroundColor: `${localColor}22`,
@@ -3815,8 +3815,8 @@
                                 if (context.dataset.label?.startsWith("Team")) {
                                     return `Team: ${point?.smoothedTeamDisplay || point?.teamDisplay || formatHashrateFromThs(context.raw?.y)}`;
                                 }
-                                if (context.dataset.label?.startsWith("Local DATUM")) {
-                                    return `Local DATUM: ${point?.localDisplay || formatHashrateFromThs(context.raw?.y)}`;
+                                if (context.dataset.label?.startsWith("Local Mining")) {
+                                    return `Local Mining: ${point?.localDisplay || formatHashrateFromThs(context.raw?.y)}`;
                                 }
                                 return `Selected miner: ${point?.hashrateDisplay || formatHashrateFromThs(context.raw?.y)}`;
                             }
@@ -3860,11 +3860,11 @@
         const localWindowMinutes = Math.round((globalHashrateSeries?.localWindowSeconds || 1800) / 60);
         const scaleText = hashrateScaleMode === "log" ? "Log scale emphasizes relative swings and prevents one lucky spike from flattening the rest of the series." : "Linear scale shows absolute swings in estimated hashrate.";
         const localDatumText = hasLocalDatumLine
-            ? "Green line is aggregate local DATUM hashrate sampled over the full selected chart window."
-            : "Local DATUM history appears once this node has sampled direct-share hashrate.";
+            ? "Green line is aggregate local mining hashrate sampled over the full selected chart window."
+            : "Local mining history appears once this node has sampled direct-share hashrate.";
         const selectedMinerText = hasSelectedMinerLine
             ? `Orange dashed line is the selected payout address over the rolling ${localWindowMinutes}-minute direct-share window.`
-            : "Search or click an active local DATUM payout address to add its individual miner hashrate line.";
+            : "Search or click an active local payout address to add its individual miner hashrate line.";
         if (activeUiMode === "lottery") {
             note.innerText = currentPoint?.isCurrent && averageHashrateThs != null
                 ? `Team line is smoothed over the last 30 minutes to suppress reset spikes. Recent average: ${formatHashrateFromThs(averageHashrateThs)}. ${localDatumText} ${selectedMinerText} ${scaleText}`

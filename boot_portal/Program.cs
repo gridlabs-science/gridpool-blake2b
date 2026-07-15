@@ -282,6 +282,12 @@ public class PoolConfig
     [JsonPropertyName("mining_api_share_rate_limit_per_minute")]
     public int MiningApiShareRateLimitPerMinute { get; set; } = 120;
 
+    [JsonPropertyName("local_adapter_token_file")]
+    public string LocalAdapterTokenFile { get; set; } = "data/local-adapter.token";
+
+    [JsonPropertyName("local_adapter_telemetry_max_batch_size")]
+    public int LocalAdapterTelemetryMaxBatchSize { get; set; } = 1000;
+
     [JsonPropertyName("admin_rate_limit_per_minute")]
     public int AdminRateLimitPerMinute { get; set; } = 12;
 
@@ -661,6 +667,7 @@ public class Program
             builder.Services.AddSingleton(new BootPeerIdentity(ed25519Key, x25519Key));
             builder.Services.AddSingleton<BootShareVerifier>();
             builder.Services.AddSingleton<BootProtocolStateService>();
+            builder.Services.AddSingleton<LocalMiningAdapterAuth>();
             builder.Services.AddSingleton<BootPeerSessionManager>();
             builder.Services.AddSingleton<BootPeerUdpRelayService>();
             builder.Services.AddSingleton<BootNatPortMappingService>();
@@ -742,6 +749,7 @@ public class Program
             builder.Services.AddHostedService<BootPeerSyncService>();
 
             var app = builder.Build();
+            _ = app.Services.GetRequiredService<LocalMiningAdapterAuth>();
 
             // 2. Configure the web app
             app.Use(async (context, next) =>

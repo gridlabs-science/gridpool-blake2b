@@ -233,7 +233,9 @@ Goal: avoid launching a 300-slot team that silently breaks common ASIC firmware 
 - [x] Decide whether Stratum V2 standard-channel/header-only mining is the preferred long-term path for avoiding ASIC coinbase-size constraints.
 - [x] Add GridPool node-side SV2 work-selection API and smoke test. See [stratum-v2-gridpool-integration-plan.md](stratum-v2-gridpool-integration-plan.md) and `GET /api/mining/sv2-work-selection`.
 - [x] Prove a native SV2/JDC path can submit accepted shares into GridPool on mainnet beta with a Bitaxe-class miner.
-- [ ] Move the working SRI-based SV2 sidecar/JDC changes into a maintained adapter repo or upstreamable fork.
+- [x] Replace the overbuilt JDC/JDS experiment with a maintained SRI Pool fork that talks directly to Bitcoin Core and the local GridPool node.
+- [x] Support per-channel slot-0 attribution, a global fallback payout address, batched vardiff telemetry, pulse/reserve proofs, and durable proof retry in the fork.
+- [ ] Run a sustained native-SV2 miner soak against the new `gridpool-sv2-pool` fork and verify slot-0 attribution plus block submission end to end.
 - [ ] Replace temporary SV2 beta keys/config with production-managed keys before broad public advertising.
 - [ ] Document public SV2 endpoint operation, monitoring, restart behavior, and upgrade process.
 
@@ -251,7 +253,7 @@ Current evidence:
 - Existing DATUM `stratum.fingerprint_miners` does not solve this. Unknown miners default to a smaller Antminer-compatible coinbase class, and disabling fingerprinting makes that worse. A full 300-unique-address GridPool list likely requires DATUM's 16 KB `YUGE` class or an equivalent Stratum V2/header-only path.
 - A DATUM PR now exists for `coinbase_selection_mode = "force"` plus known-incompatible client disconnects before oversized work is served.
 - The first recommended lab endpoint shape is `test.gridpool.net/compat`, `datum.test.gridpool.net:3009` for DATUM gateways, and `stratum.test.gridpool.net:3334` for raw Stratum V1 ASICs, backed by testnet uncondensed output mode.
-- Native SV2 is now the preferred long-term path for firmware that cannot safely parse large SV1/DATUM coinbases. The current beta endpoint shape is `sv2.main.gridpool.net:34265` with an SRI-based sidecar/JDC stack translating accepted SV2 shares into GridPool HTTP proofs.
+- Native SV2 is now the preferred long-term path for firmware that cannot safely parse large SV1/DATUM coinbases. The maintained implementation is the `gridpool-sv2-pool` fork: SV2 miners connect directly to the fork, which uses Bitcoin Core IPC and authenticated local GridPool APIs without JDC/JDS.
 
 ## G6: Repo And Project Architecture
 

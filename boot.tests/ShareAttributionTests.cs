@@ -1119,6 +1119,64 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public async Task CandidateImportRejectsCurrentParentProofFromDifferentActiveSnapshotAsync()
+    {
+        string currentTip = "0000000000000000000000000000000000000000000000000000000000f00d03";
+
+        string exclusionaryCoinbase = RewriteSlotZeroAddress(SampleCoinbaseHex, AlternateAddress);
+        exclusionaryCoinbase = BuildCoinbaseWithWinnerPrefix(exclusionaryCoinbase, positiveWinnerCount: 1);
+        exclusionaryCoinbase = BuildCoinbaseWithMutatedFirstWinnerScript(exclusionaryCoinbase);
+        IReadOnlyList<PayoutInfo> exclusionaryWinners = BuildExpectedWinners(exclusionaryCoinbase);
+        Assert.AreEqual(1, exclusionaryWinners.Count);
+        Assert.AreEqual(AlternateAddress, BitcoinScript.NormalizeAddress(exclusionaryWinners[0].Address));
+
+        string exclusionaryHeader = RewriteHeaderMerkleRoot(SampleHeaderHex, exclusionaryCoinbase);
+        exclusionaryHeader = RewriteHeaderPrevBlockHash(exclusionaryHeader, currentTip);
+        BootShareProof attackerProof = CreateValidatedProofForSnapshot(
+            exclusionaryHeader,
+            exclusionaryCoinbase,
+            currentTip,
+            "attacker-exclusionary-snapshot",
+            exclusionaryWinners);
+        Assert.AreEqual(AlternateAddress, attackerProof.MinerAddress);
+
+        BootPayoutSnapshotContext attackerContext = CreateSnapshotContext(
+            "attacker-exclusionary-snapshot",
+            exclusionaryWinners,
+            currentTip);
+        using var attackerHarness = TestHarness.Create(
+            currentTipBlockHash: currentTip,
+            winnersList: exclusionaryWinners,
+            onDeckProofs: [attackerProof],
+            snapshotContexts: [attackerContext],
+            activeSnapshotId: attackerContext.SnapshotId,
+            workSetReserveMultiplier: 1);
+        BootNetworkStatusDto attackerStatus = attackerHarness.StateService.GetNetworkStatus();
+        BootStateBundle attackerCandidate = attackerHarness.StateService.GetStateBundle(attackerStatus.CandidateStateId)!;
+
+        BootPayoutSnapshotContext inclusiveContext = CreateSnapshotContext(
+            "inclusive-snapshot",
+            SampleExpectedWinners,
+            currentTip);
+        using var inclusiveHarness = TestHarness.Create(
+            currentTipBlockHash: currentTip,
+            currentStateId: inclusiveContext.SnapshotId,
+            winnersList: SampleExpectedWinners,
+            snapshotContexts: [inclusiveContext],
+            activeSnapshotId: inclusiveContext.SnapshotId,
+            workSetReserveMultiplier: 1);
+
+        bool imported = await inclusiveHarness.StateService.TryImportCandidateStateAsync(
+            attackerCandidate,
+            "https://selective-peer.example");
+
+        Assert.IsFalse(imported, "Candidate state IDs are anchored to the active snapshot and must prevent cross-active-state credit.");
+        BootNetworkStatusDto unchangedStatus = inclusiveHarness.StateService.GetNetworkStatus();
+        Assert.AreEqual(inclusiveContext.SnapshotId, unchangedStatus.ActiveSnapshotId);
+        Assert.AreEqual(0, unchangedStatus.WorkSetCount);
+    }
+
+    [TestMethod]
     public void WorkSetAdmissionDifficultyUsesReserveFloorWhenFull()
     {
         BootShareProof[] seedProofs =
@@ -1846,6 +1904,21 @@ public sealed class ShareAttributionTests
         string prevBlockHash,
         string? payoutSnapshotId = null)
     {
+        return CreateValidatedProofForSnapshot(
+            headerHex,
+            SampleCoinbaseHex,
+            prevBlockHash,
+            payoutSnapshotId,
+            SampleExpectedWinners);
+    }
+
+    private static BootShareProof CreateValidatedProofForSnapshot(
+        string headerHex,
+        string coinbaseHex,
+        string prevBlockHash,
+        string? payoutSnapshotId,
+        IReadOnlyList<PayoutInfo> expectedWinners)
+    {
         var verifier = new BootShareVerifier();
         BootShareValidationResult validation = verifier.ValidateShare(
             new RecordedShareSubmission
@@ -1853,12 +1926,12 @@ public sealed class ShareAttributionTests
                 MinerAddress = SampleSlotZeroAddress,
                 Username = SampleSlotZeroAddress,
                 HeaderHex = headerHex,
-                CoinbaseHex = SampleCoinbaseHex,
+                CoinbaseHex = coinbaseHex,
                 MerklePath = SampleMerklePath.ToList(),
                 PrevBlockHash = prevBlockHash,
                 Source = "test"
             },
-            SampleExpectedWinners,
+            expectedWinners,
             prevBlockHash);
         Assert.IsTrue(validation.IsValid, validation.RejectionReason);
         return new BootShareProof

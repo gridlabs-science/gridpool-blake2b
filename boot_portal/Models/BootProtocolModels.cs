@@ -269,6 +269,7 @@ public class BootLocalDatumMinerSummaryDto
 {
     public string Address { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
+    public string Source { get; set; } = string.Empty;
     public long TotalAcceptedShareCount { get; set; }
     public int RecentAcceptedShareCount { get; set; }
     public int HashrateSampleCount { get; set; }

@@ -134,6 +134,11 @@ public static class PoolConfigValidator
         ValidatePositive(errors, config.PulseMaxPerSourceAddressPerMinute, "pulse_max_per_source_address_per_minute");
         ValidatePositive(errors, config.MinOptimisticRelayDifficulty, "min_optimistic_relay_difficulty");
         ValidatePositive(errors, config.MiningApiShareRateLimitPerMinute, "mining_api_share_rate_limit_per_minute");
+        ValidatePositive(errors, config.LocalAdapterTelemetryMaxBatchSize, "local_adapter_telemetry_max_batch_size");
+        if (string.IsNullOrWhiteSpace(config.LocalAdapterTokenFile))
+        {
+            errors.Add("local_adapter_token_file must not be empty");
+        }
         ValidatePositive(errors, config.AdminRateLimitPerMinute, "admin_rate_limit_per_minute");
         ValidatePositive(errors, config.MaxShareRequestBytes, "max_share_request_bytes");
         ValidatePositive(errors, config.MaxCoinbaseHexChars, "max_coinbase_hex_chars");

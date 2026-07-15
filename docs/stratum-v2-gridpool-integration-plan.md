@@ -1,5 +1,10 @@
 # Stratum V2 GridPool Integration Plan
 
+> **Status update (2026-07-15):** The JDC/JDS adapter architecture below has been superseded by
+> the smaller `gridpool-sv2-pool` SRI Pool fork. The fork retains SRI's Bitcoin Core IPC, SV2
+> channel, vardiff, validation, and block-submission paths while adding a modular GridPool payout
+> and share-observer layer. This document remains as design history.
+
 Status: implementation plan, MVP path selected.
 
 ## Goal
@@ -150,10 +155,10 @@ target is a controlled mainnet-beta smoke test using low-risk hashrate after the
 GridPool node exposes `/api/mining/sv2-work-selection` and the SV2 adapter is
 available.
 
-Stock SRI JDC cannot connect directly to the existing GridPool HTTP node. It
-expects an SV2 Pool Service plus Job Declarator Server upstream. The GridPool
-sidecar adapter must provide those upstream SV2 endpoints and translate accepted
-shares into `POST /api/mining/share`.
+The implemented path no longer uses stock JDC/JDS. `gridpool-sv2-pool` connects
+directly to Bitcoin Core through SRI IPC and to boot-portal through
+`GET /api/mining/sv2-work-selection`, `POST /api/mining/local/share`, and
+`POST /api/mining/local/share-telemetry`.
 
 The current SRI application repo requires Rust 1.88 and `capnp` from
 Cap'n Proto. On Ubuntu:

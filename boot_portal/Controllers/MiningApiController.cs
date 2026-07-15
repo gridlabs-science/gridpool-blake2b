@@ -13,9 +13,26 @@ public class MiningApiController : ControllerBase
 {
     private readonly PoolConfig _poolConfig;
     private readonly BootProtocolStateService _stateService;
+    private readonly LocalMiningAdapterAuth? _localAdapterAuth;
     private readonly ILogger<MiningApiController> _logger;
 
-    public MiningApiController(PoolConfig poolConfig, BootProtocolStateService stateService, ILogger<MiningApiController> logger)
+    public MiningApiController(
+        PoolConfig poolConfig,
+        BootProtocolStateService stateService,
+        LocalMiningAdapterAuth localAdapterAuth,
+        ILogger<MiningApiController> logger)
+    {
+        _poolConfig = poolConfig;
+        _stateService = stateService;
+        _localAdapterAuth = localAdapterAuth;
+        _logger = logger;
+    }
+
+    // Retained for controller-level tests and embedders that do not expose local adapter routes.
+    public MiningApiController(
+        PoolConfig poolConfig,
+        BootProtocolStateService stateService,
+        ILogger<MiningApiController> logger)
     {
         _poolConfig = poolConfig;
         _stateService = stateService;
@@ -80,7 +97,9 @@ public class MiningApiController : ControllerBase
             {
                 nativeListenerAvailable = false,
                 workSelectionEndpoint = "/api/mining/sv2-work-selection",
-                note = "Experimental Stratum V2 support is planned through a pool-side Job Declaration adapter. The GridPool node exposes work-selection data, but does not yet speak SV2 directly."
+                localProofEndpoint = "/api/mining/local/share",
+                localTelemetryEndpoint = "/api/mining/local/share-telemetry",
+                note = "Run the gridpool-sv2-pool SRI fork beside this node for native SV2 Standard or Extended channels. The adapter endpoints require the local token and are not public miner endpoints."
             }
         });
     }
@@ -90,6 +109,58 @@ public class MiningApiController : ControllerBase
     [EnableRateLimiting("mining-write")]
     [HttpPost("share")]
     public async Task<IActionResult> SubmitShare([FromBody] ShareSubmissionDto? share)
+    {
+        return await SubmitShareCore(share, "http", "http-block");
+    }
+
+    // POST: api/mining/local/share
+    // Trusted loopback/sidecar path. Full GridPool proof validation still applies.
+    [HttpPost("local/share")]
+    public async Task<IActionResult> SubmitLocalShare([FromBody] ShareSubmissionDto? share)
+    {
+        if (!IsLocalAdapterAuthorized())
+        {
+            return Unauthorized(new { status = "rejected", reason = "Invalid local adapter token" });
+        }
+
+        return await SubmitShareCore(share, "sv2", "sv2-block");
+    }
+
+    // POST: api/mining/local/share-telemetry
+    // Batches non-consensus vardiff accounting without submitting incomplete proofs.
+    [HttpPost("local/share-telemetry")]
+    public IActionResult SubmitLocalShareTelemetry([FromBody] LocalMiningTelemetryBatchDto? batch)
+    {
+        if (!IsLocalAdapterAuthorized())
+        {
+            return Unauthorized(new { status = "rejected", reason = "Invalid local adapter token" });
+        }
+
+        if (batch == null)
+        {
+            return BadRequest(new { status = "rejected", reason = "Missing telemetry payload" });
+        }
+
+        if (batch.Entries.Count > _poolConfig.LocalAdapterTelemetryMaxBatchSize)
+        {
+            return BadRequest(new
+            {
+                status = "rejected",
+                reason = $"Telemetry batch exceeds {_poolConfig.LocalAdapterTelemetryMaxBatchSize} entries"
+            });
+        }
+
+        try
+        {
+            return Ok(_stateService.RecordLocalMiningTelemetryBatch(batch, "sv2"));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { status = "rejected", reason = ex.Message });
+        }
+    }
+
+    private async Task<IActionResult> SubmitShareCore(ShareSubmissionDto? share, string source, string blockSource)
     {
         DateTime transportReceivedUtc = DateTime.UtcNow;
         if (share == null)
@@ -122,8 +193,8 @@ public class MiningApiController : ControllerBase
                 PrevBlockHash = share.PrevBlockHash,
                 Difficulty = share.Difficulty,
                 TransportReceivedUtc = transportReceivedUtc,
-                Source = "http"
-            }, "http-block");
+                Source = source
+            }, blockSource);
 
             if (result.Accepted || string.Equals(result.RejectionReason, "Duplicate share", StringComparison.Ordinal))
             {
@@ -153,6 +224,13 @@ public class MiningApiController : ControllerBase
             _logger.LogError(ex, "Error processing API share");
             return StatusCode(500, "Internal Server Error");
         }
+    }
+
+    private bool IsLocalAdapterAuthorized()
+    {
+        return _localAdapterAuth != null &&
+            Request.Headers.TryGetValue(LocalMiningAdapterAuth.HeaderName, out var values) &&
+            _localAdapterAuth.IsAuthorized(values.FirstOrDefault());
     }
 
     private string ResolveDatumHost()

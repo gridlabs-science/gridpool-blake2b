@@ -2124,7 +2124,9 @@ public class BootProtocolStateService
             proof.ProofClass = proofClass;
             proof.RelayStage = BootRelayStages.Validated;
             bool peerSource = BootPeerSource.TryParsePeerSource(share.Source, out _, out _);
-            bool localDatumSource = string.Equals(share.Source, "datum", StringComparison.OrdinalIgnoreCase);
+            bool localGatewaySource =
+                string.Equals(share.Source, "datum", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(share.Source, "sv2", StringComparison.OrdinalIgnoreCase);
             proof.RelayTtl = pulseAccepted
                 ? peerSource
                     ? Math.Max(0, share.RelayTtl - 1)
@@ -2132,7 +2134,7 @@ public class BootProtocolStateService
                 : 0;
 
             bool pulseBelowFloor = pulseAccepted && proof.Difficulty < Math.Max(1d, _poolConfig.PulseMinDifficulty);
-            if (pulseBelowFloor && !localDatumSource)
+            if (pulseBelowFloor && !localGatewaySource)
             {
                 RecordShareDiagnosticNoLock(
                     share.Source,
@@ -2184,7 +2186,7 @@ public class BootProtocolStateService
             string pulseLimitReason = string.Empty;
             bool pulseRelayRateLimited = pulseAccepted &&
                 !TryConsumePulseRateLimitNoLock(share.Source, proof.MinerAddress, proof.Timestamp, out pulseLimitReason);
-            if (pulseRelayRateLimited && !localDatumSource)
+            if (pulseRelayRateLimited && !localGatewaySource)
             {
                 RecordShareDiagnosticNoLock(
                     share.Source,
@@ -2845,6 +2847,92 @@ public class BootProtocolStateService
         result.OnDeckList = rotation.OnDeckList;
         return result;
     }
+
+    public LocalMiningTelemetryResultDto RecordLocalMiningTelemetryBatch(
+        LocalMiningTelemetryBatchDto batch,
+        string source)
+    {
+        if (batch.Entries == null)
+        {
+            throw new ArgumentException("Telemetry entries are required.");
+        }
+
+        string normalizedSource = string.IsNullOrWhiteSpace(source) ? "adapter" : source.Trim().ToLowerInvariant();
+        var result = new LocalMiningTelemetryResultDto();
+        lock (_sync)
+        {
+            foreach (LocalMiningTelemetryEntryDto entry in batch.Entries)
+            {
+                ValidateLocalMiningTelemetryEntry(entry);
+                string address = BitcoinScript.NormalizeAddress(entry.PayoutAddress);
+                if (!_localDatumHashrateByAddress.TryGetValue(address, out LocalDatumAddressHashrateTracker? tracker))
+                {
+                    tracker = new LocalDatumAddressHashrateTracker { Address = address };
+                    _localDatumHashrateByAddress[address] = tracker;
+                }
+
+                NormalizeLocalDatumTrackerRoundNoLock(tracker);
+                tracker.Sources.Add(normalizedSource);
+                tracker.Username = string.IsNullOrWhiteSpace(entry.Username) ? address : entry.Username.Trim();
+                tracker.TotalAcceptedShareCount += entry.AcceptedShareCount;
+                if (!_state.LastRotationUtc.HasValue || entry.WindowEndUtc >= _state.LastRotationUtc.Value)
+                {
+                    tracker.CurrentRoundAcceptedShareCount = (int)Math.Min(
+                        int.MaxValue,
+                        (long)tracker.CurrentRoundAcceptedShareCount + entry.AcceptedShareCount);
+                    tracker.CurrentRoundBestDifficulty = Math.Max(tracker.CurrentRoundBestDifficulty, entry.BestDifficulty);
+                }
+                tracker.LastShareUtc = !tracker.LastShareUtc.HasValue || entry.WindowEndUtc > tracker.LastShareUtc.Value
+                    ? entry.WindowEndUtc
+                    : tracker.LastShareUtc;
+                tracker.WorkSamples.Add(new LocalMiningWorkSample
+                {
+                    WindowStartUtc = entry.WindowStartUtc,
+                    WindowEndUtc = entry.WindowEndUtc,
+                    AcceptedShareCount = entry.AcceptedShareCount,
+                    AcceptedWorkDifficulty = entry.AcceptedWorkDifficulty,
+                    FeeWorkDifficulty = entry.FeeWorkDifficulty,
+                    BestDifficulty = entry.BestDifficulty
+                });
+
+                result.AcceptedEntries++;
+                result.AcceptedShares += entry.AcceptedShareCount;
+                result.AcceptedWorkDifficulty += entry.AcceptedWorkDifficulty;
+                TrimLocalDatumAddressTrackerNoLock(tracker, entry.WindowEndUtc);
+            }
+
+            if (batch.Entries.Count > 0)
+            {
+                MaybeCaptureHashrateSampleNoLock(DateTime.UtcNow, force: false);
+            }
+        }
+
+        return result;
+    }
+
+    private void ValidateLocalMiningTelemetryEntry(LocalMiningTelemetryEntryDto entry)
+    {
+        string address = BitcoinScript.NormalizeAddress(entry.PayoutAddress);
+        if (!BitcoinScript.TryAddressToScriptPubKey(address, _poolConfig.BitcoinNetwork, out _))
+        {
+            throw new ArgumentException($"Invalid {_poolConfig.BitcoinNetwork} payout address in telemetry entry.");
+        }
+
+        if (entry.WindowStartUtc == default || entry.WindowEndUtc == default || entry.WindowEndUtc < entry.WindowStartUtc)
+        {
+            throw new ArgumentException("Telemetry window must contain valid increasing UTC timestamps.");
+        }
+
+        if (entry.AcceptedShareCount < 0 || entry.RejectedShareCount < 0 ||
+            !IsFiniteNonNegative(entry.AcceptedWorkDifficulty) ||
+            !IsFiniteNonNegative(entry.FeeWorkDifficulty) ||
+            !IsFiniteNonNegative(entry.BestDifficulty))
+        {
+            throw new ArgumentException("Telemetry counts and difficulty values must be finite and non-negative.");
+        }
+    }
+
+    private static bool IsFiniteNonNegative(double value) => double.IsFinite(value) && value >= 0;
 
     public async Task<RoundRotationResult> RotateToNextRoundAsync(string blockHash, string source, bool manual, long? blockHeight = null)
     {
@@ -6185,6 +6273,7 @@ public class BootProtocolStateService
         }
 
         NormalizeLocalDatumTrackerRoundNoLock(tracker);
+        tracker.Sources.Add("datum");
         tracker.Username = string.IsNullOrWhiteSpace(share.Username) ? address : share.Username;
         tracker.TotalAcceptedShareCount += 1;
         if (!_state.LastRotationUtc.HasValue || share.TimestampUtc >= _state.LastRotationUtc.Value)
@@ -6357,6 +6446,10 @@ public class BootProtocolStateService
                     .Where(sample => sample.TimestampUtc >= windowStartUtc && sample.Difficulty > 0)
                     .OrderBy(share => share.TimestampUtc)
                     .ToList();
+                List<LocalMiningWorkSample> workSamples = tracker.WorkSamples
+                    .Where(sample => sample.WindowEndUtc >= windowStartUtc && sample.AcceptedWorkDifficulty > 0)
+                    .OrderBy(sample => sample.WindowEndUtc)
+                    .ToList();
 
                 DateTime? firstRateShareUtc = samples.Count > 0 ? samples[0].TimestampUtc : null;
                 DateTime effectiveRateStartUtc = firstRateShareUtc.HasValue && firstRateShareUtc.Value > windowStartUtc
@@ -6365,17 +6458,32 @@ public class BootProtocolStateService
                 long? rateElapsedSeconds = samples.Count > 0
                     ? GetElapsedSeconds(effectiveRateStartUtc, nowUtc)
                     : null;
-                double? hashrateThs = samples.Count > 0
+                double? datumHashrateThs = samples.Count > 0
                     ? EstimateRankAdjustedHashrateThs(samples.Select(share => share.Difficulty), rateElapsedSeconds)
                     : null;
+                double workDifficulty = workSamples.Sum(sample => sample.AcceptedWorkDifficulty);
+                DateTime workStartUtc = workSamples.Count > 0 && workSamples[0].WindowStartUtc > windowStartUtc
+                    ? workSamples[0].WindowStartUtc
+                    : windowStartUtc;
+                long? workElapsedSeconds = workSamples.Count > 0 ? GetElapsedSeconds(workStartUtc, nowUtc) : null;
+                double? adapterHashrateThs = workElapsedSeconds.HasValue && workElapsedSeconds.Value > 0 && workDifficulty > 0
+                    ? workDifficulty * 4294967296d / workElapsedSeconds.Value / 1_000_000_000_000d
+                    : null;
+                double combinedHashrateThs = (datumHashrateThs ?? 0) + (adapterHashrateThs ?? 0);
+                double? hashrateThs = combinedHashrateThs > 0 ? combinedHashrateThs : null;
+                long telemetryAcceptedShares = workSamples.Sum(sample => sample.AcceptedShareCount);
+                int recentAcceptedShares = (int)Math.Min(int.MaxValue, (long)samples.Count + telemetryAcceptedShares);
 
                 return new BootLocalDatumMinerSummaryDto
                 {
                     Address = tracker.Address,
                     Username = string.IsNullOrWhiteSpace(tracker.Username) ? tracker.Address : tracker.Username,
+                    Source = tracker.Sources.Count == 0
+                        ? "unknown"
+                        : string.Join(",", tracker.Sources.OrderBy(value => value, StringComparer.OrdinalIgnoreCase)),
                     TotalAcceptedShareCount = tracker.TotalAcceptedShareCount,
-                    RecentAcceptedShareCount = samples.Count,
-                    HashrateSampleCount = samples.Count,
+                    RecentAcceptedShareCount = recentAcceptedShares,
+                    HashrateSampleCount = recentAcceptedShares,
                     CurrentRoundAcceptedShareCount = tracker.CurrentRoundAcceptedShareCount,
                     CurrentHashrateThs = hashrateThs,
                     CurrentHashrateDisplay = FormatObservedHashrate(hashrateThs),
@@ -6682,10 +6790,16 @@ public class BootProtocolStateService
         DateTime cutoffUtc = nowUtc.AddSeconds(-GetHashrateLocalWindowSeconds());
         int maxSamples = GetLocalDatumHashratePerAddressMaxSamples();
         tracker.Samples.RemoveAll(sample => sample.TimestampUtc < cutoffUtc);
+        tracker.WorkSamples.RemoveAll(sample => sample.WindowEndUtc < cutoffUtc);
         int overflow = tracker.Samples.Count - maxSamples;
         if (overflow > 0)
         {
             tracker.Samples.RemoveRange(0, overflow);
+        }
+        int workOverflow = tracker.WorkSamples.Count - maxSamples;
+        if (workOverflow > 0)
+        {
+            tracker.WorkSamples.RemoveRange(0, workOverflow);
         }
     }
 
@@ -9398,12 +9512,24 @@ public class BootProtocolStateService
         public int CurrentRoundAcceptedShareCount { get; set; }
         public double CurrentRoundBestDifficulty { get; set; }
         public DateTime? LastShareUtc { get; set; }
+        public HashSet<string> Sources { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public List<LocalDatumShareSample> Samples { get; set; } = [];
+        public List<LocalMiningWorkSample> WorkSamples { get; set; } = [];
     }
 
     private sealed class LocalDatumShareSample
     {
         public double Difficulty { get; set; }
         public DateTime TimestampUtc { get; set; }
+    }
+
+    private sealed class LocalMiningWorkSample
+    {
+        public DateTime WindowStartUtc { get; set; }
+        public DateTime WindowEndUtc { get; set; }
+        public long AcceptedShareCount { get; set; }
+        public double AcceptedWorkDifficulty { get; set; }
+        public double FeeWorkDifficulty { get; set; }
+        public double BestDifficulty { get; set; }
     }
 }
