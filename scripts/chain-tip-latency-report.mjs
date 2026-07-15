@@ -107,56 +107,70 @@ const query = {
   window: args.window || "24h",
   limit: args.limit || 5000
 };
-const [localPayload, peerPayload, dispatchPayload, sendPayload] = await Promise.all([
+const [localPayload, mempoolPayload, peerPayload, dispatchPayload, sendPayload] = await Promise.all([
   fetchJson(args.url, "/api/network/events", { ...query, eventType: "local-chain-tip-header" }),
+  fetchJson(args.url, "/api/network/events", { ...query, eventType: "mempool-chain-tip-notification" }),
   fetchJson(args.url, "/api/network/events", { ...query, eventType: "peer-chain-tip" }),
   fetchJson(args.url, "/api/network/events", { ...query, eventType: "chain-tip-relay-dispatch" }),
   fetchJson(args.url, "/api/network/events", { ...query, eventType: "chain-tip-send-complete" })
 ]);
 
 const localEvents = Array.isArray(localPayload.events) ? localPayload.events : [];
+const mempoolEvents = Array.isArray(mempoolPayload.events) ? mempoolPayload.events : [];
 const peerEvents = Array.isArray(peerPayload.events) ? peerPayload.events : [];
 const dispatchEvents = Array.isArray(dispatchPayload.events) ? dispatchPayload.events : [];
 const sendEvents = Array.isArray(sendPayload.events) ? sendPayload.events : [];
-const localByHash = new Map();
-for (const event of localEvents) {
-  const hash = normalizeHash(event.blockHash);
-  const timestampMs = eventTimestampMs(event);
-  if (!hash || timestampMs === null) continue;
-  const existing = localByHash.get(hash);
-  if (!existing || timestampMs < existing.timestampMs) {
-    localByHash.set(hash, { event, timestampMs });
+function earliestByHash(events) {
+  const byHash = new Map();
+  for (const event of events) {
+    const hash = normalizeHash(event.blockHash);
+    const timestampMs = eventTimestampMs(event);
+    if (!hash || timestampMs === null) continue;
+    const existing = byHash.get(hash);
+    if (!existing || timestampMs < existing.timestampMs) {
+      byHash.set(hash, { event, timestampMs });
+    }
   }
+  return byHash;
 }
 
-const matched = [];
-const unconfirmed = [];
-for (const event of peerEvents) {
-  const hash = normalizeHash(event.blockHash);
-  const peerTimestampMs = eventTimestampMs(event);
-  const local = localByHash.get(hash);
-  if (!hash || peerTimestampMs === null || !local) {
-    unconfirmed.push(event);
-    continue;
-  }
+function matchPeerEvents(peerObservations, baselineByHash, baselineLabel) {
+  const matched = [];
+  for (const event of peerObservations) {
+    const hash = normalizeHash(event.blockHash);
+    const peerTimestampMs = eventTimestampMs(event);
+    const baseline = baselineByHash.get(hash);
+    if (!hash || peerTimestampMs === null || !baseline) continue;
 
-  matched.push({
-    blockHash: hash,
-    blockHeight: event.blockHeight ?? local.event.blockHeight ?? null,
-    transport: event.transport || "unknown",
-    source: event.remoteEndpoint || event.remoteNodeId || event.source || "unknown",
-    peerReceivedUtc: event.timestampUtc,
-    localReceivedUtc: local.event.timestampUtc,
-    leadMs: local.timestampMs - peerTimestampMs,
-    payloadBytes: event.payloadBytes || 0
-  });
+    matched.push({
+      blockHash: hash,
+      blockHeight: event.blockHeight ?? baseline.event.blockHeight ?? null,
+      transport: event.transport || "unknown",
+      source: event.remoteEndpoint || event.remoteNodeId || event.source || "unknown",
+      peerReceivedUtc: event.timestampUtc,
+      baseline: baselineLabel,
+      baselineReceivedUtc: baseline.event.timestampUtc,
+      localReceivedUtc: baseline.event.timestampUtc,
+      leadMs: baseline.timestampMs - peerTimestampMs,
+      payloadBytes: event.payloadBytes || 0
+    });
+  }
+  return matched;
 }
+
+const localByHash = earliestByHash(localEvents);
+const mempoolByHash = earliestByHash(mempoolEvents);
+const matched = matchPeerEvents(peerEvents, localByHash, "local-bitcoin-zmq");
+const mempoolMatched = matchPeerEvents(peerEvents, mempoolByHash, "mempool.space");
+const confirmedHashes = new Set([...localByHash.keys(), ...mempoolByHash.keys()]);
+const unconfirmed = peerEvents.filter(event => !confirmedHashes.has(normalizeHash(event.blockHash)));
 
 const report = {
   generatedUtc: new Date().toISOString(),
   url: args.url.replace(/\/+$/, ""),
   windowSeconds: localPayload.windowSeconds ?? peerPayload.windowSeconds ?? null,
   localHeaderCount: localEvents.length,
+  mempoolNotificationCount: mempoolEvents.length,
   peerObservationCount: peerEvents.length,
   matchedObservationCount: matched.length,
   unconfirmedObservationCount: unconfirmed.length,
@@ -164,6 +178,14 @@ const report = {
   overall: summarize(matched),
   transports: Object.fromEntries([...groupBy(matched, item => item.transport)].map(([key, values]) => [key, summarize(values)])),
   sources: Object.fromEntries([...groupBy(matched, item => item.source)].map(([key, values]) => [key, summarize(values)])),
+  mempool: {
+    matchedObservationCount: mempoolMatched.length,
+    uniqueMatchedBlocks: new Set(mempoolMatched.map(item => item.blockHash)).size,
+    overall: summarize(mempoolMatched),
+    transports: Object.fromEntries([...groupBy(mempoolMatched, item => item.transport)].map(([key, values]) => [key, summarize(values)])),
+    sources: Object.fromEntries([...groupBy(mempoolMatched, item => item.source)].map(([key, values]) => [key, summarize(values)])),
+    observations: mempoolMatched
+  },
   senderDispatch: {
     queueToDispatch: summarizeDurations(dispatchEvents.map(event => event.relayLatencyMs)),
     transports: Object.fromEntries(
@@ -180,13 +202,19 @@ const report = {
   observations: matched
 };
 
-console.log(`Chain-tip header telemetry: local=${report.localHeaderCount} peer=${report.peerObservationCount} matched=${report.matchedObservationCount} unconfirmed=${report.unconfirmedObservationCount} uniqueBlocks=${report.uniqueMatchedBlocks}`);
-console.log("Positive lead means the peer transport reached this GridPool node before its local Bitcoin rawblock ZMQ notification.");
+console.log(`Chain-tip header telemetry: localZmq=${report.localHeaderCount} mempool=${report.mempoolNotificationCount} peer=${report.peerObservationCount} zmqMatched=${report.matchedObservationCount} mempoolMatched=${report.mempool.matchedObservationCount} unconfirmed=${report.unconfirmedObservationCount}`);
+console.log("Positive lead means the peer transport reached this GridPool node before the named independent notification source.");
 for (const [transport, summary] of Object.entries(report.transports)) {
   console.log(`  ${transport}: count=${summary.count} faster=${summary.fasterThanLocalCount} p50=${formatMs(summary.leadP50Ms)} p95=${formatMs(summary.leadP95Ms)} avg=${formatMs(summary.leadAverageMs)} range=${formatMs(summary.leadMinMs)}..${formatMs(summary.leadMaxMs)} payload=${Number.isFinite(summary.averagePayloadBytes) ? summary.averagePayloadBytes.toFixed(1) : "--"} B`);
 }
 for (const [source, summary] of Object.entries(report.sources)) {
   console.log(`  source ${source}: count=${summary.count} faster=${summary.fasterThanLocalCount} p50=${formatMs(summary.leadP50Ms)} p95=${formatMs(summary.leadP95Ms)}`);
+}
+for (const [transport, summary] of Object.entries(report.mempool.transports)) {
+  console.log(`  vs mempool.space ${transport}: count=${summary.count} faster=${summary.fasterThanLocalCount} p50=${formatMs(summary.leadP50Ms)} p95=${formatMs(summary.leadP95Ms)} avg=${formatMs(summary.leadAverageMs)} range=${formatMs(summary.leadMinMs)}..${formatMs(summary.leadMaxMs)} payload=${Number.isFinite(summary.averagePayloadBytes) ? summary.averagePayloadBytes.toFixed(1) : "--"} B`);
+}
+for (const [source, summary] of Object.entries(report.mempool.sources)) {
+  console.log(`  vs mempool.space source ${source}: count=${summary.count} faster=${summary.fasterThanLocalCount} p50=${formatMs(summary.leadP50Ms)} p95=${formatMs(summary.leadP95Ms)}`);
 }
 if (report.senderDispatch.queueToDispatch.count > 0) {
   const queue = report.senderDispatch.queueToDispatch;

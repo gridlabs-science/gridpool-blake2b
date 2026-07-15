@@ -81,7 +81,8 @@ public class MempoolSpaceSocketSubscriber : BackgroundService
                     if (result.MessageType == WebSocketMessageType.Text)
                     {
                         var message = Encoding.UTF8.GetString(ms.ToArray());
-                        await ProcessMessageAsync(message, stoppingToken);
+                        DateTime transportReceivedUtc = DateTime.UtcNow;
+                        await ProcessMessageAsync(message, transportReceivedUtc, stoppingToken);
                     }
                 }
             }
@@ -105,7 +106,10 @@ public class MempoolSpaceSocketSubscriber : BackgroundService
         _logger.LogInformation("Mempool.space WebSocket subscriber stopped.");
     }
 
-    private async Task ProcessMessageAsync(string message, CancellationToken stoppingToken)
+    private async Task ProcessMessageAsync(
+        string message,
+        DateTime transportReceivedUtc,
+        CancellationToken stoppingToken)
     {
         try
         {
@@ -117,7 +121,7 @@ public class MempoolSpaceSocketSubscriber : BackgroundService
                 foreach (var block in SelectRelevantStartupBlocks(startupBlocks))
                 {
                     _logger.LogInformation("New block from mempool.space backlog: {HashHex}", block.Hash);
-                    await OnNewBlockAsync(block.Hash, block.Height, stoppingToken);
+                    await OnNewBlockAsync(block.Hash, block.Height, null, 0, stoppingToken);
                 }
             }
 
@@ -125,7 +129,12 @@ public class MempoolSpaceSocketSubscriber : BackgroundService
             if (!string.IsNullOrWhiteSpace(liveBlock.Hash))
             {
                 _logger.LogInformation("New live block from mempool.space: {HashHex}", liveBlock.Hash);
-                await OnNewBlockAsync(liveBlock.Hash, liveBlock.Height, stoppingToken);
+                await OnNewBlockAsync(
+                    liveBlock.Hash,
+                    liveBlock.Height,
+                    transportReceivedUtc,
+                    Encoding.UTF8.GetByteCount(message),
+                    stoppingToken);
             }
         }
         catch (Exception ex)
@@ -138,8 +147,26 @@ public class MempoolSpaceSocketSubscriber : BackgroundService
     // Note: For a cleaner design, this logic should be moved to a
     // new, shared service (e.g., INewBlockProcessor) and injected
     // into BOTH of your subscriber classes.
-    private async Task OnNewBlockAsync(string blockHash, long? blockHeight, CancellationToken stoppingToken)
+    private async Task OnNewBlockAsync(
+        string blockHash,
+        long? blockHeight,
+        DateTime? transportReceivedUtc,
+        int payloadBytes,
+        CancellationToken stoppingToken)
     {
+        if (transportReceivedUtc.HasValue)
+        {
+            _stateService.RecordExternalNetworkEvent(
+                "mempool-chain-tip-notification",
+                "mempool.space",
+                "Mempool.Space WebSocket delivered a live block notification.",
+                blockHash,
+                blockHeight,
+                transportReceivedUtc,
+                "mempool-space-websocket",
+                payloadBytes: payloadBytes);
+        }
+
         _logger.LogInformation("Processing block {BlockHash}...", blockHash);
         await _stateService.ObserveChainTipAsync(blockHash, "mempool.space", blockHeight);
     }
