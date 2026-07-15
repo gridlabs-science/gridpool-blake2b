@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace boot.tests;
 
 [TestClass]
+[DoNotParallelize]
 public sealed class PeerPruningTests
 {
     private const string SelfEndpoint = "http://127.0.0.1:5000";
