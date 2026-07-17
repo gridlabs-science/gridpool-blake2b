@@ -1968,7 +1968,7 @@
             if (deckMatches.length > 0) {
                 const deckIndices = deckMatches.map(x => '#' + x.index).join(', ');
                 const deckBtc = (deckTotal / 100000000.0).toFixed(8);
-                msg += `<div><span class="result-highlight">${labels.ondeck}:</span> ${deckIndices}. Potential payout: ${deckBtc} BTC</div>`;
+                msg += `<div><span class="result-highlight">${labels.ondeck}:</span> ${deckIndices}. Currently ranked, provisional value if selected: ${deckBtc} BTC</div>`;
             }
             if (winnerMatches.length > 0) {
                 const winIndices = winnerMatches.map(x => '#' + x.index).join(', ');
@@ -2396,12 +2396,6 @@
         return formatDifficultyDisplay(getSelectedMinerBestDifficulty(search, localMiner));
     }
 
-    function getAverageRoundDurationSeconds() {
-        const rounds = getCanonicalRoundHistory().filter(entry => Number(entry?.roundElapsedSeconds) > 0);
-        if (rounds.length === 0) return null;
-        return rounds.reduce((sum, entry) => sum + Number(entry.roundElapsedSeconds), 0) / rounds.length;
-    }
-
     function getLatestMatchingRound(rounds, recipientSelector) {
         const entries = rounds || [];
         for (const entry of entries) {
@@ -2429,14 +2423,6 @@
         }
 
         return lines;
-    }
-
-    function getRoundsInLastHours(hours) {
-        const cutoff = Date.now() - (hours * 60 * 60 * 1000);
-        return getCanonicalRoundHistory().filter(entry => {
-            const timestamp = entry?.lockedAtUtc ? new Date(entry.lockedAtUtc).getTime() : Number.NaN;
-            return !Number.isNaN(timestamp) && timestamp >= cutoff;
-        }).length;
     }
 
     function currentTeamHashrateThs() {
@@ -2625,7 +2611,7 @@
             <button type="button" class="shortcut-chip${selected?.address === miner.address ? " active" : ""}" data-miner-address="${escapeHtml(miner.address)}" title="${escapeHtml(miner.address)}">
                 <span class="shortcut-chip-label">Local Miner</span>
                 <span class="shortcut-chip-value">${escapeHtml(formatMinerLabel(miner.address))}</span>
-                <span class="shortcut-chip-note">${escapeHtml(miner.currentHashrateDisplay || "--")} · best this round ${escapeHtml(miner.currentRoundBestDifficultyDisplay || "--")}</span>
+                <span class="shortcut-chip-note">${escapeHtml(miner.currentHashrateDisplay || "--")} · best since snapshot ${escapeHtml(miner.currentRoundBestDifficultyDisplay || "--")}</span>
             </button>
         `).join("");
     }
@@ -2745,6 +2731,22 @@
         return hashrateHps / (difficulty * 4294967296);
     }
 
+    function getSharedSlotModel(localHashrateThs, teamHashrateThs) {
+        const slotCount = Number(latestNetworkState?.sharedWinnerSlotCount ?? 299);
+        if (!Number.isFinite(localHashrateThs) || localHashrateThs <= 0
+            || !Number.isFinite(teamHashrateThs) || teamHashrateThs <= 0
+            || !Number.isFinite(slotCount) || slotCount <= 0) {
+            return null;
+        }
+
+        const hashrateShare = Math.max(0, Math.min(1, localHashrateThs / teamHashrateThs));
+        return {
+            slotCount,
+            expectedSlots: slotCount * hashrateShare,
+            probabilityAtLeastOneSlot: 1 - Math.pow(1 - hashrateShare, slotCount)
+        };
+    }
+
     function getCurrentOnDeckThresholdDifficulty() {
         const difficulties = (globalOnDeckList || [])
             .map(item => Number(item.difficulty) || 0)
@@ -2820,8 +2822,8 @@
                 "--",
                 buildMetricList([
                     { label: "Need to beat now", value: "--" },
-                    { label: "Your best this round", value: "--" },
-                    { label: "Team best this round", value: "--" }
+                    { label: "Your best since snapshot", value: "--" },
+                    { label: "Team reserve best", value: "--" }
                 ]),
                 "The live threshold appears once the unpaid Work Set has difficulty data."
             );
@@ -2848,12 +2850,12 @@
                     </div>
                     <div class="gauge-labels">
                         <div class="gauge-label"><span><span class="gauge-chip mine"></span>Your best hit</span><strong>${formatDifficultyDisplay(myBest)}</strong></div>
-                        <div class="gauge-label"><span><span class="gauge-chip threshold"></span>Need to make the queue now</span><strong>${getCurrentOnDeckThresholdDisplay()}</strong></div>
+                        <div class="gauge-label"><span><span class="gauge-chip threshold"></span>Current reserve floor</span><strong>${getCurrentOnDeckThresholdDisplay()}</strong></div>
                         <div class="gauge-label"><span><span class="gauge-chip team"></span>Best share on the team</span><strong>${formatDifficultyDisplay(teamBest)}</strong></div>
                         <div class="gauge-label"><span><span class="gauge-chip network"></span>Bitcoin network difficulty</span><strong>${formatDifficultyDisplay(networkDifficulty)}</strong></div>
                     </div>
                 </div>
-                <div class="mode-focus-note">Log-scale view. The left side is “make the queue.” The far right is “hit a real block.”</div>
+                <div class="mode-focus-note">Log-scale view. Clearing the reserve floor is provisional; reaching Bitcoin network difficulty finds a real block.</div>
             </div>
         `;
     }
@@ -2912,13 +2914,12 @@
         const heading = document.getElementById("mode-focus-heading");
         const container = document.getElementById("mode-focus-grid");
         const search = getSearchContext();
-        const averageRoundSeconds = getAverageRoundDurationSeconds();
         const teamHashrateThs = currentTeamHashrateThs();
         const teamHashrateDisplay = currentTeamHashrateDisplay();
         const localMiner = getSelectedLocalMinerSummary();
         const localHashrateThs = localMiner?.currentHashrateThs ?? latestNetworkState?.localDatumHashrateThs ?? null;
         const localHashrateDisplay = formatHashrateFromThs(localHashrateThs);
-        const currentRoundAge = formatElapsedSeconds(getCurrentRoundElapsedSeconds() ?? latestNetworkState?.currentRoundElapsedSeconds);
+        const currentSnapshotAge = formatElapsedSeconds(getCurrentRoundElapsedSeconds() ?? latestNetworkState?.currentRoundElapsedSeconds);
         const connection = getConnectionSummary();
         const localDiagnostics = latestNetworkState?.localDatumDiagnostics || {};
         const acceptanceRate = formatAcceptanceRate(localDiagnostics.acceptedCount ?? 0, localDiagnostics.totalSubmissions ?? 0);
@@ -2927,20 +2928,19 @@
             : "--";
         const health = describeHealthAssessment(localDiagnostics);
         const thresholdDifficulty = getCurrentOnDeckThresholdDifficulty();
-        const teamBestDifficulty = getCurrentTeamBestDifficulty();
         const teamBlockRate = getTeamBlockFindRatePerSecond(teamHashrateThs);
-        const localQueueRate = getShareThresholdHitRatePerSecond(localMiner?.currentHashrateThs ?? null, thresholdDifficulty);
+        const localReserveHitRate = getShareThresholdHitRatePerSecond(localMiner?.currentHashrateThs ?? null, thresholdDifficulty);
         const blocksUntilHalving = getBlocksUntilNextHalving();
         const timeToHalvingSeconds = blocksUntilHalving != null ? blocksUntilHalving * 600 : null;
         const latestPaidRound = getLatestMatchingRound(search.recentCanonicalRounds, entry => computeRecipientShare(entry.paidRecipients, entry.paidTotalValue));
-        const latestNextRound = getLatestMatchingRound(search.recentCanonicalRounds, entry => computeRecipientShare(entry.nextRecipients, entry.nextWinnerTotalValue));
         const recentPaidLines = summarizeRecentMatchingRounds(search.recentCanonicalRounds, entry => computeRecipientShare(entry.paidRecipients, entry.paidTotalValue));
-        const localPayoutProbabilityPerTeamBlock = teamHashrateThs && localHashrateThs
-            ? 1 - Math.exp(-((localHashrateThs / teamHashrateThs) * (latestNetworkState?.sharedWinnerSlotCount ?? 299)))
-            : null;
+        const localNodeSlotModel = getSharedSlotModel(localHashrateThs, teamHashrateThs);
+        const selectedAddressSlotModel = getSharedSlotModel(localMiner?.currentHashrateThs ?? null, teamHashrateThs);
+        const localPayoutProbabilityPerTeamBlock = selectedAddressSlotModel?.probabilityAtLeastOneSlot ?? null;
         const localPayoutRate = teamBlockRate && localPayoutProbabilityPerTeamBlock != null
             ? teamBlockRate * localPayoutProbabilityPerTeamBlock
             : null;
+        const displayedPayoutRate = search.winnerSlots > 0 ? teamBlockRate : localPayoutRate;
         let cards = [];
 
         if (activeUiMode === "lottery") {
@@ -2949,21 +2949,21 @@
                 : search.winnerSlots > 0
                     ? "Locked For Payout"
                     : search.onDeckSlots > 0
-                        ? "You Made The Queue"
+                        ? "Currently Ranked In Reserve"
                         : "Still Chasing A Slot";
             const heroCopy = !search.hasSearch
-                ? "Search a payout address or tap one of your directly connected miners to turn on personal odds and queue tracking."
+                ? "Search a payout address or tap one of your directly connected miners to turn on personal odds and reserve tracking."
                 : search.winnerSlots > 0
-                    ? `Your share is locked into the active payout snapshot. Average wait to be paid is about ${formatDurationLong(quantileTimeForPoissonEvent(teamBlockRate, 0.5))}.`
+                    ? `Your address is locked into the active payout snapshot used in current block templates. Median time to a paying GridPool block is about ${formatDurationLong(quantileTimeForPoissonEvent(teamBlockRate, 0.5))}.`
                     : search.onDeckSlots > 0
-                        ? `You are in the live unpaid Work Set. This position is temporary until a Bitcoin-block snapshot locks it into the active payout snapshot, and then it still needs a team-found GridPool block to pay.`
-                        : `You are not on the queue yet. The live target right now is ${getCurrentOnDeckThresholdDisplay()}.`;
+                        ? `You are currently ranked in the unpaid Work Set. This is provisional: stronger proofs can displace it before a Bitcoin-block snapshot selects the next active payout snapshot.`
+                        : `You are not in the unpaid reserve yet. The current floor is ${getCurrentOnDeckThresholdDisplay()}.`;
 
             heading.innerText = "Lottery View";
             cards = [
                 buildHeroPanel(lotteryStatus, heroCopy, [
                     {
-                        kicker: search.winnerSlots > 0 ? "Locked payout" : "Potential payout",
+                        kicker: search.winnerSlots > 0 ? "Locked snapshot payout" : "Provisional value",
                         value: search.hasSearch ? `${formatBtcFromSats(search.winnerSlots > 0 ? search.winnerValue : search.onDeckValue)} BTC` : "--"
                     },
                     {
@@ -2971,8 +2971,8 @@
                         value: teamBlockRate ? formatDurationLong(1 / teamBlockRate) : "--"
                     },
                     {
-                        kicker: "Round age",
-                        value: currentRoundAge
+                        kicker: "Snapshot age",
+                        value: currentSnapshotAge
                     }
                 ]),
                 buildFocusCard(
@@ -2988,18 +2988,16 @@
                     `Average time between team blocks at the current estimate: ${teamBlockRate ? formatDurationLong(1 / teamBlockRate) : "--"}.`
                 ),
                 buildFocusCard(
-                    "Make The Queue",
+                    "Reach The Reserve Floor",
                     localMiner?.currentHashrateDisplay || "--",
-                    buildWindowChanceRows(localQueueRate, [
+                    buildWindowChanceRows(localReserveHitRate, [
                         { label: "Next 10 minutes", seconds: 600 },
                         { label: "Next day", seconds: 86400 },
-                        { label: "Next week", seconds: 604800 },
-                        { label: "Next year", seconds: 31557600 },
-                        { label: "Before the next halving", seconds: timeToHalvingSeconds }
+                        { label: "Next week", seconds: 604800 }
                     ]),
                     localMiner
-                        ? `Expected time between queue-quality hits at the current threshold: ${localQueueRate ? formatDurationLong(1 / localQueueRate) : "--"}.`
-                        : "Connect your miner through this node to estimate personal queue odds."
+                        ? `Expected time between proofs that beat today's reserve floor: ${localReserveHitRate ? formatDurationLong(1 / localReserveHitRate) : "--"}. Beating the floor does not guarantee retention or payout.`
+                        : "Connect your miner through this node to estimate how often it may beat the current reserve floor."
                 ),
                 buildDifficultyGaugeCard(localMiner)
             ];
@@ -3013,20 +3011,20 @@
                         { label: "Local acceptance", value: acceptanceRate },
                         { label: "Peers", value: (latestNetworkState?.peerCount ?? 0).toLocaleString() },
                         { label: "Tip block", value: latestNetworkState?.currentTipBlockHeight?.toLocaleString() || "--" },
-                        { label: "Round age", value: currentRoundAge }
+                        { label: "Snapshot age", value: currentSnapshotAge }
                     ]),
                     health.note
                 ),
                 buildFocusCard(
-                    "Team Cadence",
+                    "Team Block Cadence",
                     teamBlockRate ? formatDurationLong(1 / teamBlockRate) : "--",
                     buildMetricList([
-                        { label: "Median next team payout", value: teamBlockRate ? formatDurationLong(quantileTimeForPoissonEvent(teamBlockRate, 0.5)) : "--" },
+                        { label: "Median next GridPool block", value: teamBlockRate ? formatDurationLong(quantileTimeForPoissonEvent(teamBlockRate, 0.5)) : "--" },
                         { label: "75% confidence", value: teamBlockRate ? formatDurationLong(quantileTimeForPoissonEvent(teamBlockRate, 0.75)) : "--" },
                         { label: "90% confidence", value: teamBlockRate ? formatDurationLong(quantileTimeForPoissonEvent(teamBlockRate, 0.90)) : "--" },
-                        { label: "Historical round average", value: averageRoundSeconds != null ? formatDurationLong(averageRoundSeconds) : "--" }
+                        { label: "Chance in next 24h", value: formatChanceDetail(poissonProbabilityAtLeastOne(teamBlockRate, 86400)) }
                     ]),
-                    "Use this to think in payout cadence rather than per-block lottery odds."
+                    "This is the team's estimated GridPool block timing. It is also the next-payout timing for every address already locked in the active snapshot."
                 ),
                 buildFocusCard(
                     "Local vs Team",
@@ -3034,23 +3032,25 @@
                     buildMetricList([
                         { label: "Local hashrate", value: localHashrateDisplay },
                         { label: "Team hashrate", value: teamHashrateDisplay },
-                        { label: "Expected slots per team block", value: teamHashrateThs && localHashrateThs ? `${((localHashrateThs / teamHashrateThs) * (latestNetworkState?.sharedWinnerSlotCount ?? 299)).toFixed(1)}` : "--" },
-                        { label: "Approx monthly shared BTC", value: teamBlockRate && teamHashrateThs && localHashrateThs ? `${formatBtcFromSats((localHashrateThs / teamHashrateThs) * (299 / 300) * 312500000 * ((30 * 24 * 3600) * teamBlockRate))} BTC` : "--" }
+                        { label: "Expected local slots per block", value: localNodeSlotModel ? localNodeSlotModel.expectedSlots.toFixed(1) : "--" },
+                        { label: "Chance local mining earns 1+ slots", value: formatChanceDetail(localNodeSlotModel?.probabilityAtLeastOneSlot) }
                     ]),
-                    `Local view uses directly connected DATUM shares. Team view uses the live next-winner queue.`
+                    "Local means mining directly connected to this node. The long-run model uses local/team hashrate share and the configured shared-slot count."
                 ),
                 buildFocusCard(
-                    "Forecasted Local Payouts",
-                    localPayoutRate ? formatDurationLong(1 / localPayoutRate) : "--",
+                    search.winnerSlots > 0 ? "Active Snapshot Payout Timing" : "Long-Run Address Payout Cadence",
+                    displayedPayoutRate ? formatDurationLong(1 / displayedPayoutRate) : "--",
                     buildMetricList([
-                        { label: "Median next local payout", value: localPayoutRate ? formatDurationLong(quantileTimeForPoissonEvent(localPayoutRate, 0.5)) : "--" },
-                        { label: "75% confidence", value: localPayoutRate ? formatDurationLong(quantileTimeForPoissonEvent(localPayoutRate, 0.75)) : "--" },
-                        { label: "90% confidence", value: localPayoutRate ? formatDurationLong(quantileTimeForPoissonEvent(localPayoutRate, 0.90)) : "--" },
-                        { label: "Chance to appear in a team block", value: formatChanceDetail(localPayoutProbabilityPerTeamBlock) }
+                        { label: "Median modeled payout event", value: displayedPayoutRate ? formatDurationLong(quantileTimeForPoissonEvent(displayedPayoutRate, 0.5)) : "--" },
+                        { label: "75% confidence", value: displayedPayoutRate ? formatDurationLong(quantileTimeForPoissonEvent(displayedPayoutRate, 0.75)) : "--" },
+                        { label: "90% confidence", value: displayedPayoutRate ? formatDurationLong(quantileTimeForPoissonEvent(displayedPayoutRate, 0.90)) : "--" },
+                        { label: "Chance per team block", value: search.winnerSlots > 0 ? "100% while active" : formatChanceDetail(localPayoutProbabilityPerTeamBlock) }
                     ]),
-                    search.hasSearch
-                        ? `Last paid appearance: ${latestPaidRound ? formatRoundReference(latestPaidRound.entry) : "none in the visible recent window"}.`
-                        : "Search or click a local mining address to turn the payout forecast into an address-specific view.",
+                    search.winnerSlots > 0
+                        ? "This address is in the active snapshot, so its next payout event is the next GridPool block."
+                        : localMiner
+                            ? `Long-run estimate for this directly connected address; it is not the survival probability of a specific reserve proof. Last paid appearance: ${latestPaidRound ? formatRoundReference(latestPaidRound.entry) : "none in the visible recent window"}.`
+                            : "Search or click a directly connected mining address to estimate its long-run payout cadence.",
                     search.hasSearch ? recentPaidLines : []
                 )
             ];
@@ -3083,7 +3083,7 @@
                     [
                         buildFocusMetric("Local Mining", localHashrateDisplay),
                         buildFocusMetric("Local/team share", localSharePercent),
-                        buildFocusMetric("Round age", currentRoundAge)
+                        buildFocusMetric("Snapshot age", currentSnapshotAge)
                     ].join(""),
                     "Team estimate comes from the unpaid Work Set. Local mining uses direct DATUM/SV2 accounting."
                 ),
@@ -3121,13 +3121,13 @@
         document.getElementById("ondeck-heading").childNodes[0].textContent = labels.ondeck;
 
         if (activeUiMode === "lottery") {
-            intro.innerHTML = "<strong>Lottery mode</strong> is the fun view: team block odds, your live chance to make the queue, and a clearer sense of how close your best share is to something that matters.";
+            intro.innerHTML = "<strong>Lottery mode</strong> is the fun view: team block odds, how often your miner may beat the current reserve floor, and whether your address is provisionally ranked or locked in the active payout snapshot.";
             document.getElementById("round-history-heading").innerText = "Recent Payout Timeline";
             document.getElementById("mode-focus-heading").innerText = "Lottery View";
             document.getElementById("list-disclosure-title").innerText = "Show Full Snapshot Lists";
             document.getElementById("list-disclosure-summary-note").innerText = "Active payout snapshot and live unpaid Work Set.";
         } else if (activeUiMode === "business") {
-            intro.innerHTML = "<strong>Business mode</strong> focuses on operational health, local-vs-team contribution, and payout cadence with approximate confidence bands for planning.";
+            intro.innerHTML = "<strong>Business mode</strong> separates team block timing from long-run address payout cadence, with approximate confidence bands for planning.";
             document.getElementById("round-history-heading").innerText = "Recent Payout Timeline";
             document.getElementById("mode-focus-heading").innerText = "Business View";
             document.getElementById("list-disclosure-title").innerText = "Show Full Snapshot Lists";
@@ -3195,7 +3195,6 @@
 
     function renderModeSummaryCards() {
         const search = getSearchContext();
-        const averageRoundSeconds = getAverageRoundDurationSeconds();
         const teamHashrateThs = currentTeamHashrateThs();
         const localMiner = getSelectedLocalMinerSummary();
         const localHashrateThs = localMiner?.currentHashrateThs ?? latestNetworkState?.localDatumHashrateThs ?? null;
@@ -3203,7 +3202,7 @@
         const acceptanceRate = formatAcceptanceRate(localDiagnostics.acceptedCount ?? 0, localDiagnostics.totalSubmissions ?? 0);
         const health = describeHealthAssessment(localDiagnostics);
         const teamBlockRate = getTeamBlockFindRatePerSecond(teamHashrateThs);
-        const localQueueRate = getShareThresholdHitRatePerSecond(localMiner?.currentHashrateThs ?? null, getCurrentOnDeckThresholdDifficulty());
+        const localReserveHitRate = getShareThresholdHitRatePerSecond(localMiner?.currentHashrateThs ?? null, getCurrentOnDeckThresholdDifficulty());
         const blocksUntilHalving = getBlocksUntilNextHalving();
         const timeToHalvingSeconds = blocksUntilHalving != null ? blocksUntilHalving * 600 : null;
 
@@ -3213,22 +3212,22 @@
                 : search.winnerSlots > 0
                     ? "LOCKED FOR PAYOUT"
                     : search.onDeckSlots > 0
-                        ? "YOU ARE ON DECK"
+                        ? "CURRENTLY RANKED IN RESERVE"
                         : "STILL CHASING";
             const inDetail = !search.hasSearch
                 ? "The page will auto-focus one directly connected miner if this node only has one."
                 : search.winnerSlots > 0
                     ? `Estimated locked payout ${formatBtcFromSats(search.winnerValue)} BTC`
                     : search.onDeckSlots > 0
-                        ? `Potential next payout ${formatBtcFromSats(search.onDeckValue)} BTC`
+                        ? `Provisional value if selected ${formatBtcFromSats(search.onDeckValue)} BTC`
                         : `Current live threshold ${getCurrentOnDeckThresholdDisplay()}`;
             const inNote = !search.hasSearch
                 ? "Use a local miner shortcut for live personal odds."
                 : search.winnerSlots > 0
                     ? `Average wait to be paid: ${teamBlockRate ? formatDurationLong(1 / teamBlockRate) : "--"}.`
                     : search.onDeckSlots > 0
-                        ? "You still need this queue to survive until lock."
-                        : `Your best hit this round: ${getSelectedMinerBestDifficultyDisplay(search, localMiner)}.`;
+                        ? "Stronger proofs can displace this position before the next snapshot."
+                        : `Your best hit since the snapshot: ${getSelectedMinerBestDifficultyDisplay(search, localMiner)}.`;
 
             setModeCard(
                 1,
@@ -3250,14 +3249,14 @@
 
             setModeCard(
                 3,
-                "Your Queue Odds",
-                "Make The List",
-                localMiner ? formatChanceDetail(poissonProbabilityAtLeastOne(localQueueRate, 86400)) : "--",
+                "Your Reserve-Floor Odds",
+                "Beat The Current Floor",
+                localMiner ? formatChanceDetail(poissonProbabilityAtLeastOne(localReserveHitRate, 86400)) : "--",
                 localMiner
-                    ? `Next 10m ${formatChanceDetail(poissonProbabilityAtLeastOne(localQueueRate, 600))} · week ${formatChanceDetail(poissonProbabilityAtLeastOne(localQueueRate, 604800))}`
-                    : "Connect through this node to estimate your personal queue odds.",
+                    ? `Next 10m ${formatChanceDetail(poissonProbabilityAtLeastOne(localReserveHitRate, 600))} · week ${formatChanceDetail(poissonProbabilityAtLeastOne(localReserveHitRate, 604800))}`
+                    : "Connect through this node to estimate your chance of beating the current reserve floor.",
                 localMiner
-                    ? `Average time between queue-quality hits: ${localQueueRate ? formatDurationLong(1 / localQueueRate) : "--"}`
+                    ? `Average time between floor-beating proofs: ${localReserveHitRate ? formatDurationLong(1 / localReserveHitRate) : "--"}. This is not a retention guarantee.`
                     : "Uses your directly connected DATUM share stream."
             );
             return;
@@ -3267,18 +3266,18 @@
             const localSharePercent = teamHashrateThs && localHashrateThs
                 ? `${((localHashrateThs / teamHashrateThs) * 100).toFixed(1)}% of team`
                 : "--";
-            const localPayoutProbabilityPerTeamBlock = teamHashrateThs && localHashrateThs
-                ? 1 - Math.exp(-((localHashrateThs / teamHashrateThs) * (latestNetworkState?.sharedWinnerSlotCount ?? 299)))
-                : null;
+            const selectedAddressSlotModel = getSharedSlotModel(localMiner?.currentHashrateThs ?? null, teamHashrateThs);
+            const localPayoutProbabilityPerTeamBlock = selectedAddressSlotModel?.probabilityAtLeastOneSlot ?? null;
             const localPayoutRate = teamBlockRate && localPayoutProbabilityPerTeamBlock != null
                 ? teamBlockRate * localPayoutProbabilityPerTeamBlock
                 : null;
+            const displayedPayoutRate = search.winnerSlots > 0 ? teamBlockRate : localPayoutRate;
             setModeCard(
                 1,
                 "Operational Summary",
                 "Network Health",
                 health.label,
-                `Round ${latestNetworkState?.currentRoundNumber ?? "--"} · ${latestNetworkState?.peerCount ?? 0} peers · tip ${latestNetworkState?.currentTipBlockHeight ?? "--"}`,
+                `Snapshot ${latestNetworkState?.currentRoundNumber ?? "--"} · ${latestNetworkState?.peerCount ?? 0} peers · tip ${latestNetworkState?.currentTipBlockHeight ?? "--"}`,
                 `${acceptanceRate} local acceptance · ${health.note}`
             );
 
@@ -3294,12 +3293,12 @@
             setModeCard(
                 3,
                 "Cadence",
-                "Forecasted Payout Pace",
-                localPayoutRate ? formatDurationLong(1 / localPayoutRate) : "--",
-                `75% by ${localPayoutRate ? formatDurationLong(quantileTimeForPoissonEvent(localPayoutRate, 0.75)) : "--"} · 90% by ${localPayoutRate ? formatDurationLong(quantileTimeForPoissonEvent(localPayoutRate, 0.90)) : "--"}`,
-                averageRoundSeconds != null
-                    ? `Historical round average ${formatDurationLong(averageRoundSeconds)}.`
-                    : "Historical cadence appears after more completed rounds accumulate."
+                search.winnerSlots > 0 ? "Active Snapshot Payout Timing" : "Long-Run Address Payout Cadence",
+                displayedPayoutRate ? formatDurationLong(1 / displayedPayoutRate) : "--",
+                `75% by ${displayedPayoutRate ? formatDurationLong(quantileTimeForPoissonEvent(displayedPayoutRate, 0.75)) : "--"} · 90% by ${displayedPayoutRate ? formatDurationLong(quantileTimeForPoissonEvent(displayedPayoutRate, 0.90)) : "--"}`,
+                search.winnerSlots > 0
+                    ? "This address is locked in the active snapshot; its payout event is the next GridPool block."
+                    : `Modeled chance of 1+ shared slots per GridPool block: ${formatChanceDetail(localPayoutProbabilityPerTeamBlock)}. Requires a directly connected address; not a reserve-proof survival estimate.`
             );
             return;
         }
