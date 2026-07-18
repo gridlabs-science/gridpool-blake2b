@@ -5,6 +5,11 @@ GridPool is a decentralized reward-sharing protocol for sovereign Bitcoin miners
 - It is not a traditional pool. It is closer to shared lottery mining: smaller payouts, better odds, and local block-template control.
 - This reference implementation works with DATUM today. Hydrapool and other HTTP share submitters can integrate through the documented HTTP API.
 
+For cross-project architecture, decisions, research findings, and agent-ready
+context, see the [GridPool handbook](https://github.com/gridlabs-science/gridpool-handbook).
+This repository remains canonical for reference-node implementation and
+operator documentation.
+
 ## Naming Note
 GridPool was originally developed under the working name "Boot Protocol." Some internal code, repository names, API headers, config keys, service names, and scripts still use `boot` for compatibility during the beta transition. Public docs, UI, and operator-facing language should use **GridPool**. When precision is needed, use **GridPool protocol** for the reward-sharing rules and **GridPool internode protocol** for peer-to-peer state synchronization and share relay.
 

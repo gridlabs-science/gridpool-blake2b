@@ -11,6 +11,10 @@ Archived files may contain outdated terminology, old V1 assumptions, or
 machine-specific test context. Treat them as history unless a current document
 links to a specific section.
 
+Project-wide documents moved here during the handbook migration retain their
+last runtime-repository version. Follow the redirect stub at the former path for
+the current canonical source.
+
 Current archived files:
 
 - `launch-checklist.md`: superseded by `../umbrel-start9-launch-checklist.md`
@@ -18,3 +22,7 @@ Current archived files:
 - `session-handoff-2026-04-25.md`: old session handoff
 - `datum-session-churn-investigation.md`: completed DATUM churn investigation
 - `datum-upstream-pr-draft.md`: completed DATUM PR draft context
+- `critic-faq.md`: pre-handbook project-wide FAQ
+- `project-architecture-map.md`: pre-handbook cross-repository map
+- `modeling-and-simulation-roadmap.md`: pre-separation research roadmap
+- `simulation-findings-2026-06.md`: June 2026 research snapshot

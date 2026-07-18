@@ -3,19 +3,22 @@
 This directory contains implementation, operator, and launch-readiness docs for
 the GridPool reference node.
 
-For normative protocol specifications and cross-implementation test vectors,
-use the future `gridpool-spec` repo once populated. Until then, the files below
-are the best current references.
+Project-wide concepts, decisions, research interpretation, and repository maps
+live in the [GridPool handbook](https://github.com/gridlabs-science/gridpool-handbook).
+Draft protocol documents live in
+[`gridpool-spec`](https://github.com/gridlabs-science/gridpool-spec). This
+directory owns reference-node implementation, operator, and launch-readiness
+documentation.
 
 ## Start Here
 
 - [Umbrel And Start9 Launch Checklist](umbrel-start9-launch-checklist.md):
   primary launch gate before one-click packages.
-- [Project Architecture Map](project-architecture-map.md): repo boundaries,
-  adapter policy, and cleanup rules.
+- [Project Architecture Map](project-architecture-map.md): redirect to the
+  handbook-owned cross-project map.
 - [Consensus Selection Audit](consensus-selection-audit.md): V2.1 snapshot
   boundary, merge-forward rule, and fork-choice reasoning.
-- [Critic FAQ](critic-faq.md): concise answers to common technical objections.
+- [Technical FAQ](critic-faq.md): redirect to the handbook-owned FAQ.
 - [Release Process](release-process.md): branch, tag, Docker image, and
   coordinated-upgrade policy.
 
@@ -41,8 +44,10 @@ are the best current references.
 
 ## Research And Testing
 
-- [Modeling And Simulation Roadmap](modeling-and-simulation-roadmap.md)
-- [Simulation Findings, June 2026](simulation-findings-2026-06.md)
+- [Modeling And Simulation Roadmap](modeling-and-simulation-roadmap.md): redirect
+  to the research repository.
+- [Simulation Findings](simulation-findings-2026-06.md): redirect to current
+  research and the archived June snapshot.
 - [Stress-Test Plan](stress-test-plan.md)
 - [2500 DATUM Client Stress Architecture](datum-2500-stress-architecture.md)
 - [V3 Branch Market Examples](v3-branch-market-examples.md)
