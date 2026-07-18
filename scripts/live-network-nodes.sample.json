@@ -22,12 +22,11 @@
     {
       "label": "Detroit",
       "region": "Detroit, Michigan",
-      "role": "planned primary public node",
+      "role": "primary public node",
       "operator": "project operator",
-      "url": "",
-      "enabled": false,
-      "primary": true,
-      "notes": "Placeholder; set url and enabled=true when endpoint is online."
+      "url": "https://detroit.gridpool.net",
+      "enabled": true,
+      "primary": true
     },
     {
       "label": "Evomining",

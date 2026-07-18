@@ -24,8 +24,8 @@ Current V2.1 posture:
 
 - Work Set and active snapshot proofs must remain fully validated before import.
 - Incompatible consensus or state-bundle schema versions must fail visibly and safely.
-- Established nodes merge valid current-parent proofs from retained divergent snapshot contexts instead of replacing active snapshots wholesale.
-- A node must not rewrite an already-observed Bitcoin-block payout snapshot using proofs that first arrive after that node's local snapshot boundary. Late previous-parent proofs should be rejected or quarantined from the canonical future reserve. Valid current-parent proofs from divergent retained snapshot contexts should merge forward into the unpaid reserve.
+- Established nodes merge different subsets of valid current-parent proofs only when they share a compatible active payout state; they do not replace active snapshots wholesale.
+- A node must not rewrite an already-observed Bitcoin-block payout snapshot using proofs that first arrive after that node's local snapshot boundary. Late previous-parent proofs should be rejected or quarantined from the canonical future reserve. Proofs committing to genuinely different active payout states cannot be cross-credited.
 - "Heaviest state" adoption is limited to bootstrap/proofless recovery and future explicit consensus-version changes, not ordinary same-round active snapshot replacement.
 - Any deeper change to fork choice, boundary finality, or multi-branch markets must be a coordinated future consensus-version bump.
 
@@ -44,16 +44,23 @@ Short-term V2.1 checklist:
 - [x] Add visible UI/API/monitor visibility for version mismatch.
 - [x] Add compact V2.1 state-convergence regression coverage for the two important cases: reject late previous-parent proofs and merge valid current-parent divergent proofs.
 - [x] Add a delayed-snapshot regression fixture: after a local node observes a Bitcoin block and activates a snapshot, a peer bundle with extra stale-parent proofs from the previous parent must not replace the active snapshot or enter the canonical future reserve.
-- [x] Add a split-recovery regression fixture: two nodes on the same current Bitcoin parent but different payout snapshot contexts should merge fully valid current-parent proofs into the unpaid reserve and converge at the next snapshot.
+- [x] Add a same-active-state merge regression fixture: two nodes on the same current Bitcoin parent and compatible active payout state should merge fully valid current-parent proofs into the unpaid reserve.
+- [ ] Specify and test recovery from a genuine active-snapshot split. Do not describe same-parent merge-forward as automatic cross-snapshot reconciliation; candidate IDs bind work to the active payout state, and the current tested import path rejects cross-state candidates.
 - [ ] Run a multi-node public beta soak and confirm current/candidate state IDs converge without manual state wipes.
 - [x] Decide whether V2.1 state selection plus non-retroactive snapshot boundaries is "good enough for beta" or whether package launch waits for a coordinated V3 rule.
 - [x] Coordinate V2.1 rollout: heal current public-node state first, then deploy code and config with `boot_protocol_version: 21` together on all participating nodes.
+- [ ] Revisit the Grid Labs support-fee construction before declaring the packaged payout format stable. Compare the current optional canonical `1/300` support slot with cleaner alternatives, document their incentive and coinbase implications, and decide whether any change belongs in V2.1 or requires a coordinated consensus-version bump. Do not make custom fee addresses consensus-valid.
+- [ ] Model and evaluate delayed snapshot activation: build the payout snapshot at a Bitcoin boundary but make it applicable one or more Bitcoin blocks later. Determine whether the added propagation window materially reduces latency-driven snapshot disagreement, and quantify the costs in payout freshness, state retention, work attribution, reorg handling, and implementation complexity before considering a consensus change.
+- [ ] Specify and regression-test GridPool behavior across ordinary one- and two-block Bitcoin reorgs. Define how active snapshots, retained contexts, unpaid Work Set proofs, paid-proof lineage, candidate/current state IDs, and any observed GridPool payment transition roll back or reconcile without double-paying or losing valid unpaid work.
+- [ ] Analyze a sustained Bitcoin ruleset split, including a BIP110-driven chain split scenario. Define how GridPool network IDs, parent validation, peer discovery, state bundles, payout snapshots, and operator-visible warnings prevent proofs from incompatible Bitcoin branches from being merged silently; decide whether branch choice is strictly inherited from each node's attached Bitcoin node or needs explicit GridPool configuration/version separation.
 
 Completion criteria:
 
 - A packaged node rejects incompatible consensus/schema versions instead of silently importing them.
 - Two live V2.1 nodes converge after temporary divergence without manual state wipes.
 - A late stale-parent branch cannot pull an established node back to a different active snapshot for a Bitcoin block it already observed.
+- One- and two-block Bitcoin reorg behavior is deterministic, tested, and preserves paid-once lineage and valid unpaid work.
+- Nodes attached to incompatible Bitcoin consensus branches fail visibly and do not merge proofs or state bundles across the split.
 - Public nodes advertise consensus/protocol version `21` after the coordinated V2.1 cutover.
 - No V3 or experimental fork-choice rule is required for the short-term development-mode beta.
 - Any later fork-choice redesign is documented as a future consensus-version bump, not as an implicit beta behavior change.
@@ -149,6 +156,9 @@ Long-term censorship-resistance posture:
 - [ ] Research optional UPnP IGD port mapping after PCP/NAT-PMP testing.
 - [x] Add measurement-only full-header relay telemetry over encrypted V2 sessions and compact encrypted UDP, paired against receiver-local Bitcoin rawblock ZMQ arrival.
 - [ ] Run chain-tip latency reports during the 7-day soak and compare against local Bitcoin tip detection.
+- [ ] Track Bitcoin ZMQ topic sequence numbers instead of discarding the third message frame. Expose per-topic last sequence, gaps, duplicates, reconnects, and reset/wrap handling in API/monitor telemetry so delayed or missing notifications can be distinguished from a lagging Bitcoin node.
+- [ ] Investigate and choose a redundant attached-node notification strategy for packaged installs. Evaluate ZMQ `rawblock`/`hashblock`/`sequence`, Bitcoin Core mining IPC `waitTipChanged`, GBT long polling, `blocknotify`, and periodic RPC best-tip reconciliation; document the preferred and fallback matrix for Core, Knots, Docker, Umbrel, and Start9.
+- [ ] Decide whether peer-relayed chain-tip headers remain measurement/early-warning signals or may eventually trigger provisional or consensus snapshot behavior. Any activation must specify header PoW and parent validation, freshness/replay protection, reorg handling, local-node confirmation, failure behavior, and whether it requires a coordinated consensus-version bump.
 - [ ] Add advanced, disabled-by-default optimistic peer-header mining for GridPool-controlled SV2/direct-template adapters.
 - [ ] Decide whether UDP hole punching is necessary for beta performance after 7-day latency data review.
 - [ ] Separately decide the censorship-resistance roadmap priority for UDP hole punching even if beta performance is acceptable.
@@ -178,6 +188,8 @@ Current evidence:
 - Hidden session accounting and direct live WebSocket share relay are implemented.
 - Encrypted V2 session bundle sync and optional peer-only listener support are implemented but need real-node validation.
 - Reachability self-test, UDP diagnostics, chain-tip latency instrumentation, and admin-triggered PCP/NAT-PMP mapping are implemented.
+- Current ZMQ telemetry records arrival timestamps but discards Bitcoin Core's per-topic sequence frame; this prevents direct diagnosis of message gaps and duplicates. Evomining has also exhibited intermittent multi-block catch-up batches and duplicate rawblock observations that should be resolved during the soak.
+- Peer-relayed headers remain measurement-only: they do not currently advance the chain tip, rotate snapshots, invalidate work, or build mining templates.
 - Real-router PCP/NAT-PMP validation, UPnP decision, direct-vs-session relay dependency metrics, and the 7-day latency report remain open.
 - Current production-like topology is acceptable for public beta if enough independent public nodes stay reachable, but it is not the final censorship-resistance topology.
 

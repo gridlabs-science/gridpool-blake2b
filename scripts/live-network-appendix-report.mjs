@@ -291,6 +291,8 @@ function relayRows(nodes) {
     if (transports.length === 0) {
       rows.push({
         node: node.label,
+        proofClass: "--",
+        relayStage: "--",
         transport: "--",
         observations: 0,
         firstArrivals: 0,
@@ -308,6 +310,8 @@ function relayRows(nodes) {
     for (const transport of transports) {
       rows.push({
         node: node.label,
+        proofClass: transport.proofClass || "unknown",
+        relayStage: transport.relayStage || "unknown",
         transport: transport.transport || "unknown",
         observations: transport.arrivalCount ?? 0,
         firstArrivals: transport.firstArrivalCount ?? 0,
@@ -412,11 +416,13 @@ function writeMarkdown(file, report) {
 
   lines.push("## Relay Telemetry");
   lines.push("");
-  lines.push("| Node | Transport | Observations | First Arrivals | Accepted | Duplicates | Rejected/Stale | Median Delta | P95 Delta | Avg Payload | UDP Present |");
-  lines.push("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
+  lines.push("| Node | Proof Class | Relay Stage | Transport | Observations | First Arrivals | Accepted | Duplicates | Not Accepted | Median Delta | P95 Delta | Avg Payload | UDP Present |");
+  lines.push("| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
   for (const row of relayRows(report.nodes)) {
-    lines.push(`| ${markdownCell(row.node)} | ${markdownCell(row.transport)} | ${row.observations} | ${row.firstArrivals} | ${row.accepted} | ${row.duplicates} | ${row.rejectedOrStale} | ${markdownCell(formatMs(row.medianDeltaMs))} | ${markdownCell(formatMs(row.p95DeltaMs))} | ${markdownCell(formatBytes(row.averagePayloadBytes))} | ${row.udpPresent ? "yes" : "no"} |`);
+    lines.push(`| ${markdownCell(row.node)} | ${markdownCell(row.proofClass)} | ${markdownCell(row.relayStage)} | ${markdownCell(row.transport)} | ${row.observations} | ${row.firstArrivals} | ${row.accepted} | ${row.duplicates} | ${row.rejectedOrStale} | ${markdownCell(formatMs(row.medianDeltaMs))} | ${markdownCell(formatMs(row.p95DeltaMs))} | ${markdownCell(formatBytes(row.averagePayloadBytes))} | ${row.udpPresent ? "yes" : "no"} |`);
   }
+  lines.push("");
+  lines.push("`Not Accepted` includes duplicate observations, so it overlaps the duplicate column and must not be added to it.");
   lines.push("");
 
   lines.push("## V2.1-Specific Signals");
@@ -480,6 +486,51 @@ function buildDataQualityNotes(report) {
   return notes;
 }
 
+function compactJsonReport(report) {
+  return {
+    reportName: report.reportName,
+    configPath: report.configPath,
+    startedAtUtc: report.startedAtUtc,
+    endedAtUtc: report.endedAtUtc,
+    durationSeconds: report.durationSeconds,
+    window: report.window,
+    limit: report.limit,
+    requestTimeoutMs: report.requestTimeoutMs,
+    stateAgreement: report.stateAgreement,
+    nodes: report.nodes.map(node => ({
+      label: node.label,
+      region: node.region,
+      role: node.role,
+      operator: node.operator,
+      url: node.url,
+      enabled: node.enabled,
+      primary: node.primary,
+      queriedAtUtc: node.queriedAtUtc,
+      reachable: node.reachable,
+      summaryLatencyMs: node.summaryLatencyMs ?? null,
+      summary: node.summary ?? null,
+      peers: node.peers ?? null,
+      relay: node.relay ? {
+        window: node.relay.window,
+        requestedLimit: node.relay.requestedLimit,
+        totalObservations: node.relay.totalObservations,
+        returnedObservations: node.relay.returnedObservations,
+        transports: node.relay.transports ?? []
+      } : null,
+      events: node.events ? {
+        window: node.events.window,
+        requestedLimit: node.events.requestedLimit,
+        totalEvents: node.events.totalEvents,
+        returnedEvents: node.events.returnedEvents,
+        eventTypes: eventCounts(node.events)
+      } : null,
+      v21Signals: node.v21Signals,
+      notes: node.notes,
+      errors: node.errors
+    }))
+  };
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help === "true") {
@@ -520,7 +571,7 @@ async function main() {
   };
 
   ensureDir(outDir);
-  writeJson(path.join(outDir, "live-network-appendix.json"), report);
+  writeJson(path.join(outDir, "live-network-appendix.json"), compactJsonReport(report));
   writeCsv(path.join(outDir, "node-summary.csv"), nodeRows(nodes));
   writeCsv(path.join(outDir, "relay-telemetry.csv"), relayRows(nodes));
   writeCsv(path.join(outDir, "event-counts.csv"), eventRows(nodes));

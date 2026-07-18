@@ -117,12 +117,15 @@ against its header, merkle root, parent block, slot-0 attribution, and retained
 payout snapshot context.
 
 V2.1 uses merge-forward recovery rather than ordinary same-round "heaviest
-branch" replacement. If a peer presents valid proofs on the current Bitcoin
-parent but against a divergent retained payout snapshot, those proofs can be
-merged into the unpaid Work Set for future snapshots. If a peer presents late
+branch" replacement. If peers share the same active payout state, their
+different subsets of valid current-parent proofs can be unioned, deduplicated,
+sorted, and trimmed. Proofs whose coinbases commit to genuinely different
+active payout states cannot be cross-credited. If a peer presents late
 proofs on the previous Bitcoin parent after the local node already observed the
 new block, those proofs are rejected or quarantined from the canonical reserve.
-This keeps accidental split recovery possible without trusting peer clocks.
+This prevents retroactive boundary rewrites without trusting peer clocks, but
+complete automatic recovery from a genuine active-snapshot split remains
+future consensus work.
 
 ## Why Not Use A Sharechain Like P2Pool?
 
