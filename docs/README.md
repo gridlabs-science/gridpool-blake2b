@@ -18,6 +18,11 @@ documentation.
   handbook-owned cross-project map.
 - [Consensus Selection Audit](consensus-selection-audit.md): V2.1 snapshot
   boundary, merge-forward rule, and fork-choice reasoning.
+- [V2.2 Monotonic Snapshot Reconciliation Draft](gridpool-v2.2-monotonic-snapshot-reconciliation-draft.md):
+  consensus-version-22 design and implementation status for deterministic
+  recovery from active-snapshot splits.
+- [V2.2 Coordinated Cutover](v2.2-cutover.md): shipped consensus changes,
+  compatibility behavior, deferred work, and operator rollout notes.
 - [Technical FAQ](critic-faq.md): redirect to the handbook-owned FAQ.
 - [Release Process](release-process.md): branch, tag, Docker image, and
   coordinated-upgrade policy.
