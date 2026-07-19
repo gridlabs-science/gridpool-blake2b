@@ -1199,6 +1199,146 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    [DataRow(21)]
+    [DataRow(22)]
+    public async Task DirectIngressRejectsNewPreviousParentProofAfterFinalizedBoundaryAsync(int protocolVersion)
+    {
+        using var harness = TestHarness.Create(protocolVersion: protocolVersion);
+        await harness.StateService.ObserveChainTipAsync(
+            "0000000000000000000000000000000000000000000000000000000000d1ec71",
+            "local-bitcoin",
+            945001);
+
+        ShareRecordingResult result = await harness.StateService.SubmitShareAsync(
+            CreateSampleRecordedShare("http"),
+            "test");
+
+        Assert.IsFalse(result.Accepted);
+        Assert.AreEqual("New previous-parent proof rejected after the local snapshot boundary.", result.RejectionReason);
+        Assert.AreEqual(0, harness.StateService.GetNetworkStatus().WorkSetCount);
+    }
+
+    [TestMethod]
+    public async Task DirectIngressPreservesAlreadyKnownPreBoundaryLineageAsync()
+    {
+        BootShareProof known = CreateValidatedProof(SampleHeaderHex, SamplePrevBlockHash, "seed-current");
+        using var harness = TestHarness.Create(onDeckProofs: [known]);
+        await harness.StateService.ObserveChainTipAsync(
+            "0000000000000000000000000000000000000000000000000000000000d1ec72",
+            "local-bitcoin",
+            945001);
+
+        ShareRecordingResult result = await harness.StateService.SubmitShareAsync(
+            CreateSampleRecordedShare("http", "seed-current"),
+            "test");
+
+        Assert.IsFalse(result.Accepted);
+        Assert.AreEqual("Duplicate share", result.RejectionReason);
+        Assert.AreEqual(1, harness.StateService.GetNetworkStatus().WorkSetCount);
+    }
+
+    [TestMethod]
+    public async Task V22SiblingBoundaryRaceConvergesWithoutBranchVotingAndV21DoesNotAutoUnionAsync()
+    {
+        (BootShareProof low, BootShareProof high) = CreateNonceRankedProofPair("seed-current");
+        string boundary = "0000000000000000000000000000000000000000000000000000000000b02201";
+        BootPayoutSnapshotContext predecessor = CreateSnapshotContext("seed-current", SampleExpectedWinners);
+
+        using var alice = TestHarness.Create(
+            sharedWinnerSlotCount: 1,
+            onDeckProofs: [low],
+            snapshotContexts: [predecessor]);
+        using var bob = TestHarness.Create(
+            sharedWinnerSlotCount: 1,
+            onDeckProofs: [low, high],
+            snapshotContexts: [predecessor]);
+        await alice.StateService.ObserveChainTipAsync(boundary, "local-bitcoin", 945001);
+        await bob.StateService.ObserveChainTipAsync(boundary, "local-bitcoin", 945001);
+        BootStateBundle aliceSibling = alice.StateService.GetStateBundle(alice.StateService.GetNetworkStatus().CurrentStateId)!;
+        BootStateBundle bobSibling = bob.StateService.GetStateBundle(bob.StateService.GetNetworkStatus().CurrentStateId)!;
+
+        Assert.IsTrue(await alice.StateService.TryAdoptCurrentStateAsync(bobSibling, boundary, 945001, "bob"));
+        Assert.IsTrue(await bob.StateService.TryAdoptCurrentStateAsync(aliceSibling, boundary, 945001, "alice"));
+        CollectionAssert.AreEqual(
+            alice.StateService.GetWinnersList().Select(payout => payout.Address).ToArray(),
+            bob.StateService.GetWinnersList().Select(payout => payout.Address).ToArray());
+        Assert.AreEqual(high.ShareId, alice.StateService.GetStateBundle(alice.StateService.GetNetworkStatus().CurrentStateId)!.ActiveSnapshotProofIds.Single());
+        Assert.IsTrue(alice.StateService.GetNetworkStatus().ReconciliationCounters.PayoutChanges > 0);
+
+        using var v21Alice = TestHarness.Create(
+            protocolVersion: 21,
+            sharedWinnerSlotCount: 1,
+            onDeckProofs: [low],
+            snapshotContexts: [predecessor]);
+        using var v21Bob = TestHarness.Create(
+            protocolVersion: 21,
+            sharedWinnerSlotCount: 1,
+            onDeckProofs: [low, high],
+            snapshotContexts: [predecessor]);
+        await v21Alice.StateService.ObserveChainTipAsync(boundary, "local-bitcoin", 945001);
+        await v21Bob.StateService.ObserveChainTipAsync(boundary, "local-bitcoin", 945001);
+        BootStateBundle v21Sibling = v21Bob.StateService.GetStateBundle(v21Bob.StateService.GetNetworkStatus().CurrentStateId)!;
+        Assert.IsFalse(await v21Alice.StateService.TryAdoptCurrentStateAsync(v21Sibling, boundary, 945001, "v21-bob"));
+        Assert.AreNotEqual(v21Alice.StateService.GetNetworkStatus().ActiveSnapshotId, v21Bob.StateService.GetNetworkStatus().ActiveSnapshotId);
+    }
+
+    [TestMethod]
+    public async Task V22OneBlockReorgCreatesIsolatedReplacementFamilyAndRestoresLineageAsync()
+    {
+        BootShareProof proof = CreateValidatedProof(SampleHeaderHex, SamplePrevBlockHash, "seed-current");
+        BootPayoutSnapshotContext predecessor = CreateSnapshotContext("seed-current", SampleExpectedWinners);
+        using var harness = TestHarness.Create(
+            sharedWinnerSlotCount: 1,
+            onDeckProofs: [proof],
+            snapshotContexts: [predecessor]);
+        string removedBoundary = "0000000000000000000000000000000000000000000000000000000000a00501";
+        string replacementBoundary = "0000000000000000000000000000000000000000000000000000000000b00501";
+
+        BootNetworkStatusDto removed = await harness.StateService.ObserveChainTipAsync(
+            removedBoundary,
+            "local-bitcoin",
+            945001);
+        BootNetworkStatusDto replacement = await harness.StateService.ObserveChainTipAsync(
+            replacementBoundary,
+            "local-bitcoin-reorg",
+            945001);
+
+        Assert.AreNotEqual(removed.ActiveSnapshotFamilyId, replacement.ActiveSnapshotFamilyId);
+        Assert.AreNotEqual(removed.ActiveSnapshotId, replacement.ActiveSnapshotId);
+        Assert.AreEqual(replacementBoundary, replacement.CurrentTipBlockHash);
+        Assert.AreEqual(1, replacement.WorkSetCount);
+        Assert.AreEqual(2, replacement.CurrentRoundNumber);
+    }
+
+    [TestMethod]
+    public async Task V22ReserveOnlySiblingAdditionDoesNotChangeActivePayoutSnapshotAsync()
+    {
+        (BootShareProof low, BootShareProof high) = CreateNonceRankedProofPair("seed-current");
+        string boundary = "0000000000000000000000000000000000000000000000000000000000b02203";
+        BootPayoutSnapshotContext predecessor = CreateSnapshotContext("seed-current", SampleExpectedWinners);
+        using var local = TestHarness.Create(
+            sharedWinnerSlotCount: 1,
+            onDeckProofs: [high],
+            snapshotContexts: [predecessor]);
+        using var remote = TestHarness.Create(
+            sharedWinnerSlotCount: 1,
+            onDeckProofs: [high, low],
+            snapshotContexts: [predecessor]);
+        await local.StateService.ObserveChainTipAsync(boundary, "local-bitcoin", 945001);
+        await remote.StateService.ObserveChainTipAsync(boundary, "local-bitcoin", 945001);
+        string activeBefore = local.StateService.GetNetworkStatus().ActiveSnapshotId;
+        BootStateBundle sibling = remote.StateService.GetStateBundle(remote.StateService.GetNetworkStatus().CurrentStateId)!;
+
+        Assert.IsTrue(await local.StateService.TryAdoptCurrentStateAsync(sibling, boundary, 945001, "remote"));
+
+        BootNetworkStatusDto after = local.StateService.GetNetworkStatus();
+        Assert.AreEqual(activeBefore, after.ActiveSnapshotId);
+        Assert.AreEqual(2, after.SnapshotFamilyUnionProofCount);
+        Assert.AreEqual(1L, after.ReconciliationCounters.UnionAdditions);
+        Assert.AreEqual(0L, after.ReconciliationCounters.PayoutChanges);
+    }
+
+    [TestMethod]
     public async Task CandidateImportMergesCurrentParentDivergentSnapshotProofsAsync()
     {
         string newTip = "0000000000000000000000000000000000000000000000000000000000f00d02";
@@ -1429,6 +1569,36 @@ public sealed class ShareAttributionTests
             new[] { "proof-b", "proof-c" },
             rotation.LockedStateBundle.WorkSetProofs.Select(proof => proof.ShareId).ToArray());
         Assert.AreEqual(AlternateAddress, harness.StateService.GetWinnersList()[0].Address);
+    }
+
+    [TestMethod]
+    public async Task GridPoolPaymentUsesCoinbaseProvenSiblingSnapshotInsteadOfCurrentActiveSnapshotAsync()
+    {
+        BootShareProof proofA = CreateFakeProof("proof-a", 100, SampleSlotZeroAddress, "snapshot-a");
+        BootShareProof proofB = CreateFakeProof("proof-b", 90, AlternateAddress, "snapshot-b");
+        BootPayoutSnapshotContext contextA = CreateSnapshotContext("snapshot-a", [ClonePayout(SampleExpectedWinners[0])]);
+        contextA.ProofIds = [proofA.ShareId];
+        BootPayoutSnapshotContext contextB = CreateSnapshotContext("snapshot-b", [ClonePayout(SampleExpectedWinners[0])]);
+        contextB.ProofIds = [proofB.ShareId];
+
+        using var harness = TestHarness.Create(
+            sharedWinnerSlotCount: 1,
+            winnersList: contextB.WinnersList,
+            onDeckProofs: [proofA, proofB],
+            snapshotContexts: [contextA, contextB],
+            activeSnapshotId: contextB.SnapshotId,
+            activeSnapshotProofIds: contextB.ProofIds);
+
+        RoundRotationResult rotation = await harness.StateService.RotateToNextRoundAsync(
+            "0000000000000000000000000000000000000000000000000000000000c02202",
+            "validated-gridpool-block",
+            manual: false,
+            blockHeight: 945001,
+            provenSnapshotId: contextA.SnapshotId);
+
+        Assert.AreEqual(contextA.SnapshotId, rotation.LockedStateBundle!.PaidSnapshotId);
+        CollectionAssert.AreEqual(new[] { proofA.ShareId }, rotation.LockedStateBundle.PaidSnapshotProofIds.ToArray());
+        CollectionAssert.AreEqual(new[] { proofB.ShareId }, rotation.LockedStateBundle.WorkSetProofs.Select(proof => proof.ShareId).ToArray());
     }
 
     [TestMethod]
@@ -1959,6 +2129,41 @@ public sealed class ShareAttributionTests
         };
     }
 
+    private static RecordedShareSubmission CreateSampleRecordedShare(string source, string? payoutSnapshotId = null)
+    {
+        return new RecordedShareSubmission
+        {
+            MinerAddress = AlternateAddress,
+            Username = string.Empty,
+            HeaderHex = SampleHeaderHex,
+            CoinbaseHex = SampleCoinbaseHex,
+            MerklePath = SampleMerklePath.ToList(),
+            PayoutSnapshotId = payoutSnapshotId,
+            PrevBlockHash = SamplePrevBlockHash,
+            Source = source
+        };
+    }
+
+    private static (BootShareProof Low, BootShareProof High) CreateNonceRankedProofPair(string payoutSnapshotId)
+    {
+        var proofs = new List<BootShareProof>();
+        byte[] header = Convert.FromHexString(SampleHeaderHex);
+        for (uint nonce = 0; nonce < 256; nonce++)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(76, 4), nonce);
+            proofs.Add(CreateValidatedProof(
+                Convert.ToHexString(header).ToLowerInvariant(),
+                SamplePrevBlockHash,
+                payoutSnapshotId));
+        }
+
+        BootShareProof low = proofs.OrderBy(proof => proof.Difficulty).ThenBy(proof => proof.ShareId, StringComparer.Ordinal).First();
+        BootShareProof high = proofs.OrderByDescending(proof => proof.Difficulty).ThenBy(proof => proof.ShareId, StringComparer.Ordinal).First();
+        Assert.AreNotEqual(low.ShareId, high.ShareId);
+        Assert.IsTrue(high.Difficulty > low.Difficulty);
+        return (low, high);
+    }
+
     private static PeerShareAnnouncement CreateSamplePeerAnnouncement(
         PoolConfig config,
         int? protocolVersion = null,
@@ -2459,6 +2664,7 @@ public sealed class ShareAttributionTests
             IReadOnlyList<BootPayoutSnapshotContext>? snapshotContexts = null,
             string? activeSnapshotId = null,
             IReadOnlyList<string>? activeSnapshotProofIds = null,
+            int? protocolVersion = null,
             int? seedMetadataProtocolVersion = null,
             bool enablePeerTipStaleProtection = false,
             int peerTipGraceSeconds = 3)
@@ -2475,7 +2681,7 @@ public sealed class ShareAttributionTests
             var config = new PoolConfig
             {
                 BootNetworkId = "testnet",
-                BootProtocolVersion = BootProtocolVersions.ConsensusVersion,
+                BootProtocolVersion = protocolVersion ?? BootProtocolVersions.ConsensusVersion,
                 WinnersListSize = sharedWinnerSlotCount ?? Math.Max(8, SampleExpectedWinners.Count),
                 PoolPayoutScript = SampleSlotZeroAddress,
                 GridLabsSupportFeeEnabled = supportFeeEnabled,
@@ -2577,6 +2783,7 @@ public sealed class ShareAttributionTests
             return new BootPayoutSnapshotContext
             {
                 SnapshotId = context.SnapshotId,
+                FamilyId = context.FamilyId,
                 PreviousSnapshotId = context.PreviousSnapshotId,
                 CurrentRoundNumber = context.CurrentRoundNumber,
                 LockedByBlockHash = context.LockedByBlockHash,
