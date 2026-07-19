@@ -5131,6 +5131,24 @@ public class BootProtocolStateService
             EnsureRoundMetadataNoLock();
             UpdateKnownBlockHeightNoLock(_state.CurrentTipBlockHash, _state.CurrentTipBlockHeight);
             UpdateKnownBlockHeightNoLock(_state.LastTestingTriggerBlockHash, _state.LastTestingTriggerBlockHeight);
+            // Seed trusted local tip from the persisted current tip so height-gated
+            // consensus activation can count down immediately after restart. Fail-closed
+            // behavior still applies when no tip height is known.
+            _state.TrustedLocalTipBlockHash = NormalizeCanonicalBlockHash(_state.TrustedLocalTipBlockHash);
+            if (string.IsNullOrWhiteSpace(_state.TrustedLocalTipBlockHash) &&
+                !string.IsNullOrWhiteSpace(_state.CurrentTipBlockHash) &&
+                _state.CurrentTipBlockHeight.HasValue)
+            {
+                _state.TrustedLocalTipBlockHash = _state.CurrentTipBlockHash;
+                _state.TrustedLocalTipBlockHeight = _state.CurrentTipBlockHeight;
+            }
+            else if (!string.IsNullOrWhiteSpace(_state.TrustedLocalTipBlockHash) &&
+                     !_state.TrustedLocalTipBlockHeight.HasValue &&
+                     BitcoinHashes.AreEquivalent(_state.TrustedLocalTipBlockHash, _state.CurrentTipBlockHash) &&
+                     _state.CurrentTipBlockHeight.HasValue)
+            {
+                _state.TrustedLocalTipBlockHeight = _state.CurrentTipBlockHeight;
+            }
             _state.AcceptedParentBlockHashes = GetAcceptedParentBlockHashesNoLock();
             TrimAcceptedShareTelemetryNoLock(DateTime.UtcNow);
             TrimShareDiagnosticsNoLock(DateTime.UtcNow);

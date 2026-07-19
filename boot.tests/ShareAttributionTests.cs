@@ -1317,19 +1317,26 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
-    public void V22ActivationHeightZeroIsImmediateAndUnknownTipFailsClosedOtherwise()
+    public void V22ActivationHeightZeroIsImmediateAndMissingTipHeightFailsClosedOtherwise()
     {
         using var immediate = TestHarness.Create(seedUnknownTipHeight: true, v22ActivationBlockHeight: 0);
-        using var unknown = TestHarness.Create(
-            currentTipBlockHeight: 959500,
+        using var missingHeight = TestHarness.Create(
+            seedUnknownTipHeight: true,
+            v22ActivationBlockHeight: 959500);
+        using var persistedCurrentTipSeedsTrusted = TestHarness.Create(
+            currentTipBlockHeight: 959499,
             seedUnknownTrustedTip: true,
             v22ActivationBlockHeight: 959500);
 
         Assert.AreEqual(22, immediate.StateService.GetNetworkStatus().ConsensusVersion);
-        Assert.AreEqual(21, unknown.StateService.GetNetworkStatus().ConsensusVersion);
-        Assert.AreEqual(959500L, unknown.StateService.GetNetworkStatus().CurrentTipBlockHeight);
-        Assert.IsNull(unknown.StateService.GetNetworkStatus().V22ActivationTipBlockHeight);
-        Assert.IsNull(unknown.StateService.GetNetworkStatus().BlocksToV22Activation);
+        Assert.AreEqual(21, missingHeight.StateService.GetNetworkStatus().ConsensusVersion);
+        Assert.IsNull(missingHeight.StateService.GetNetworkStatus().CurrentTipBlockHeight);
+        Assert.IsNull(missingHeight.StateService.GetNetworkStatus().BlocksToV22Activation);
+        // After restart, a persisted current tip with height is treated as the trusted local tip so
+        // activation countdown/activation can proceed without waiting for the next ZMQ block.
+        Assert.AreEqual(21, persistedCurrentTipSeedsTrusted.StateService.GetNetworkStatus().ConsensusVersion);
+        Assert.AreEqual(959499L, persistedCurrentTipSeedsTrusted.StateService.GetNetworkStatus().V22ActivationTipBlockHeight);
+        Assert.AreEqual(1L, persistedCurrentTipSeedsTrusted.StateService.GetNetworkStatus().BlocksToV22Activation);
     }
 
     [TestMethod]
