@@ -312,8 +312,12 @@ public class BootLocalDatumMinerHashrateRollupPoint
 public class BootNetworkStatusDto
 {
     public string SelfEndpoint { get; set; } = string.Empty;
+    public int SoftwareConsensusVersion { get; set; }
     public int ProtocolVersion { get; set; }
     public int ConsensusVersion { get; set; }
+    public long V22ActivationBlockHeight { get; set; }
+    public long? V22ActivationTipBlockHeight { get; set; }
+    public long? BlocksToV22Activation { get; set; }
     public int StateBundleSchemaVersion { get; set; }
     public int HttpApiVersion { get; set; }
     public int PeerTransportVersion { get; set; }

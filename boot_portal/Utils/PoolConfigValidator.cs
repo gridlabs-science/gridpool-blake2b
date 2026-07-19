@@ -76,6 +76,16 @@ public static class PoolConfigValidator
 
         ValidatePositive(errors, config.WorkSetReserveMultiplier, "work_set_reserve_multiplier");
 
+        if (config.BootProtocolVersion is < 21 or > 22)
+        {
+            errors.Add("boot_protocol_version must be 21 or 22");
+        }
+
+        if (config.V22ActivationBlockHeight < 0)
+        {
+            errors.Add("v22_activation_block_height must be greater than or equal to 0");
+        }
+
         if (config.MinDiff == 0)
         {
             errors.Add("min_diff must be greater than 0");
@@ -198,6 +208,13 @@ public static class PoolConfigValidator
             if (config.EnableAdminApi && !HasStrongAdminKey(config.AdminApiKey))
             {
                 errors.Add("admin_api_key must be a strong non-placeholder value when enable_admin_api is true in production");
+            }
+
+            if (string.Equals(bitcoinNetwork, BitcoinScript.Mainnet, StringComparison.OrdinalIgnoreCase) &&
+                config.BootProtocolVersion >= 22 &&
+                config.V22ActivationBlockHeight == 0)
+            {
+                errors.Add("v22_activation_block_height must be non-zero for a production mainnet V2.2 node");
             }
         }
 

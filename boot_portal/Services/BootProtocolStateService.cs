@@ -147,6 +147,20 @@ public class BootProtocolStateService
     public ChannelReader<BootShareProof> AcceptedShares => _acceptedShares.Reader;
     public ChannelReader<BootChainTipAnnouncement> ChainTipAnnouncements => _chainTipAnnouncements.Reader;
 
+    public int GetActiveConsensusVersion()
+    {
+        lock (_sync)
+        {
+            return GetActiveConsensusVersionNoLock();
+        }
+    }
+
+    private int GetActiveConsensusVersionNoLock() =>
+        BootProtocolVersions.GetActiveConsensusVersion(_poolConfig, _state.TrustedLocalTipBlockHeight);
+
+    private BootNodeVersionInfo GetLocalVersionInfoNoLock() =>
+        BootProtocolVersions.Local(_poolConfig, GetActiveConsensusVersionNoLock());
+
     public List<PayoutInfo> GetWinnersList()
     {
         var waitStopwatch = Stopwatch.StartNew();
@@ -300,7 +314,7 @@ public class BootProtocolStateService
                 Sequence = DateTime.UtcNow.Ticks,
                 NetworkId = _poolConfig.BootNetworkId,
                 BitcoinNetwork = _poolConfig.BitcoinNetwork,
-                ProtocolVersion = _poolConfig.BootProtocolVersion,
+                ProtocolVersion = GetActiveConsensusVersionNoLock(),
                 ActiveSnapshotId = _state.ActiveSnapshotId,
                 CurrentStateId = _state.CurrentStateId,
                 CandidateStateId = _state.CandidateStateId,
@@ -480,15 +494,39 @@ public class BootProtocolStateService
 
     private void StampBundleVersionNoLock(BootStateBundle bundle)
     {
-        BootNodeVersionInfo localVersion = BootProtocolVersions.Local(_poolConfig);
-        bundle.ProtocolVersion = _poolConfig.BootProtocolVersion;
-        bundle.ConsensusVersion = _poolConfig.BootProtocolVersion;
-        bundle.StateBundleSchemaVersion = localVersion.StateBundleSchemaVersion;
-        bundle.HttpApiVersion = localVersion.HttpApiVersion;
-        bundle.PeerTransportVersion = localVersion.PeerTransportVersion;
-        bundle.UdpRelayVersion = localVersion.UdpRelayVersion;
-        bundle.ReleaseVersion = localVersion.ReleaseVersion;
-        bundle.VersionInfo = localVersion;
+        BootNodeVersionInfo localVersion = GetLocalVersionInfoNoLock();
+        int bundleConsensusVersion = bundle.ConsensusVersion != 0
+            ? bundle.ConsensusVersion
+            : bundle.ProtocolVersion != 0
+                ? bundle.ProtocolVersion
+                : localVersion.ConsensusVersion;
+        bundle.ProtocolVersion = bundle.ProtocolVersion != 0 ? bundle.ProtocolVersion : bundleConsensusVersion;
+        bundle.ConsensusVersion = bundleConsensusVersion;
+        bundle.StateBundleSchemaVersion = bundle.StateBundleSchemaVersion != 0
+            ? bundle.StateBundleSchemaVersion
+            : BootProtocolVersions.GetStateBundleSchemaVersion(bundleConsensusVersion);
+        bundle.HttpApiVersion = bundle.HttpApiVersion != 0 ? bundle.HttpApiVersion : localVersion.HttpApiVersion;
+        bundle.PeerTransportVersion = bundle.PeerTransportVersion != 0
+            ? bundle.PeerTransportVersion
+            : localVersion.PeerTransportVersion;
+        bundle.UdpRelayVersion = bundle.UdpRelayVersion != 0 ? bundle.UdpRelayVersion : localVersion.UdpRelayVersion;
+        bundle.ReleaseVersion = string.IsNullOrWhiteSpace(bundle.ReleaseVersion)
+            ? localVersion.ReleaseVersion
+            : bundle.ReleaseVersion;
+        int bundleSoftwareConsensusVersion = bundle.VersionInfo?.SoftwareConsensusVersion ?? 0;
+        bundle.VersionInfo = new BootNodeVersionInfo
+        {
+            SoftwareConsensusVersion = bundleSoftwareConsensusVersion != 0
+                ? bundleSoftwareConsensusVersion
+                : localVersion.SoftwareConsensusVersion,
+            ConsensusVersion = bundle.ConsensusVersion,
+            ProtocolVersion = bundle.ProtocolVersion,
+            StateBundleSchemaVersion = bundle.StateBundleSchemaVersion,
+            HttpApiVersion = bundle.HttpApiVersion,
+            PeerTransportVersion = bundle.PeerTransportVersion,
+            UdpRelayVersion = bundle.UdpRelayVersion,
+            ReleaseVersion = bundle.ReleaseVersion
+        };
         bundle.NetworkId = string.IsNullOrWhiteSpace(bundle.NetworkId)
             ? _poolConfig.BootNetworkId
             : bundle.NetworkId;
@@ -1322,13 +1360,19 @@ public class BootProtocolStateService
 
     public bool IsCompatiblePeerNetwork(int protocolVersion, string networkId)
     {
-        return protocolVersion == _poolConfig.BootProtocolVersion &&
-               string.Equals(networkId, _poolConfig.BootNetworkId, StringComparison.OrdinalIgnoreCase);
+        lock (_sync)
+        {
+            return protocolVersion == GetActiveConsensusVersionNoLock() &&
+                   string.Equals(networkId, _poolConfig.BootNetworkId, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     public BootNodeVersionInfo GetLocalVersionInfo()
     {
-        return BootProtocolVersions.Local(_poolConfig);
+        lock (_sync)
+        {
+            return GetLocalVersionInfoNoLock();
+        }
     }
 
     public BootVersionCompatibilityDto EvaluatePeerCompatibility(BootNetworkStatusDto remote, bool requireStateBundleSchema = true)
@@ -1360,12 +1404,15 @@ public class BootProtocolStateService
         string? remoteNetworkId,
         bool requireStateBundleSchema)
     {
-        return BootProtocolVersions.Evaluate(
-            BootProtocolVersions.Local(_poolConfig),
-            remoteVersion,
-            _poolConfig.BootNetworkId,
-            remoteNetworkId,
-            requireStateBundleSchema);
+        lock (_sync)
+        {
+            return BootProtocolVersions.Evaluate(
+                GetLocalVersionInfoNoLock(),
+                remoteVersion,
+                _poolConfig.BootNetworkId,
+                remoteNetworkId,
+                requireStateBundleSchema);
+        }
     }
 
     public void SeedPeers(IEnumerable<string> endpoints)
@@ -3060,7 +3107,8 @@ public class BootProtocolStateService
 
             if (!manual &&
                 !string.IsNullOrWhiteSpace(effectiveBlockHash) &&
-                BitcoinHashes.AreEquivalent(effectiveBlockHash, previousTipBlockHash))
+                BitcoinHashes.AreEquivalent(effectiveBlockHash, previousTipBlockHash) &&
+                BitcoinHashes.AreEquivalent(effectiveBlockHash, _state.TrustedLocalTipBlockHash))
             {
                 return new RoundRotationResult
                 {
@@ -3071,6 +3119,12 @@ public class BootProtocolStateService
                     OnDeckList = ClonePayouts(_state.OnDeckList),
                     NetworkStatus = BuildNetworkStatusNoLock()
                 };
+            }
+
+            if (!manual && effectiveBlockHeight.HasValue)
+            {
+                _state.TrustedLocalTipBlockHash = effectiveBlockHash;
+                _state.TrustedLocalTipBlockHeight = effectiveBlockHeight;
             }
 
             DateTime nowUtc = DateTime.UtcNow;
@@ -3183,6 +3237,8 @@ public class BootProtocolStateService
             BestShareRecord bestShare = CloneBestShare(_state.BestShare);
             string? currentTipBlockHash = _state.CurrentTipBlockHash;
             long? currentTipBlockHeight = _state.CurrentTipBlockHeight;
+            string? trustedLocalTipBlockHash = _state.TrustedLocalTipBlockHash;
+            long? trustedLocalTipBlockHeight = _state.TrustedLocalTipBlockHeight;
 
             InitializeDefaultsNoLock();
             _state.Peers = peers;
@@ -3190,6 +3246,8 @@ public class BootProtocolStateService
             _state.BestShare = bestShare;
             _state.CurrentTipBlockHash = currentTipBlockHash;
             _state.CurrentTipBlockHeight = currentTipBlockHeight;
+            _state.TrustedLocalTipBlockHash = trustedLocalTipBlockHash;
+            _state.TrustedLocalTipBlockHeight = trustedLocalTipBlockHeight;
             _state.LastRotationUtc = DateTime.UtcNow;
             _state.LastTestingTriggerBlockHash = null;
             _state.LastTestingTriggerBlockHeight = null;
@@ -3277,6 +3335,7 @@ public class BootProtocolStateService
             "bitcoin-zmq-rawblock",
             payloadBytes: 80);
 
+        int activeConsensusVersion = GetActiveConsensusVersion();
         PublishChainTipAnnouncement(new BootChainTipAnnouncement
         {
             SenderEndpoint = GetSelfEndpoint(),
@@ -3285,8 +3344,8 @@ public class BootProtocolStateService
             BlockHash = evaluation.BlockHash,
             BlockHeight = blockHeight,
             ObservedUtc = transportReceivedUtc,
-            ProtocolVersion = _poolConfig.BootProtocolVersion,
-            ConsensusVersion = _poolConfig.BootProtocolVersion,
+            ProtocolVersion = activeConsensusVersion,
+            ConsensusVersion = activeConsensusVersion,
             PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
             NetworkId = _poolConfig.BootNetworkId
         });
@@ -3302,6 +3361,7 @@ public class BootProtocolStateService
         bool metadataChanged = false;
         bool snapshotChanged = false;
         bool provisionalResolved = false;
+        bool activationAtExistingTip = false;
         double? provisionalLeadMs = null;
         List<PayoutInfo> winnersSnapshot = [];
         List<PayoutInfo> onDeckSnapshot = [];
@@ -3325,20 +3385,40 @@ public class BootProtocolStateService
                 // from a later peer/backlog update to overwrite it if needed.
                 effectiveBlockHeight = _state.CurrentTipBlockHeight.Value + 1;
             }
+            long? trustedEffectiveBlockHeight = blockHeight;
+            if (!trustedEffectiveBlockHeight.HasValue &&
+                !string.IsNullOrWhiteSpace(_state.CurrentTipBlockHash) &&
+                !BitcoinHashes.AreEquivalent(normalizedBlockHash, _state.CurrentTipBlockHash) &&
+                _state.TrustedLocalTipBlockHeight.HasValue)
+            {
+                trustedEffectiveBlockHeight = _state.TrustedLocalTipBlockHeight.Value + 1;
+            }
 
             if (BitcoinHashes.AreEquivalent(normalizedBlockHash, _state.CurrentTipBlockHash))
             {
+                int previousActiveConsensusVersion = GetActiveConsensusVersionNoLock();
                 metadataChanged = UpdateKnownBlockHeightNoLock(normalizedBlockHash, effectiveBlockHeight);
+                if (blockHeight.HasValue)
+                {
+                    _state.TrustedLocalTipBlockHash = normalizedBlockHash;
+                    _state.TrustedLocalTipBlockHeight = blockHeight;
+                    metadataChanged = true;
+                }
                 if (_localChainTipHeaders.TryGetValue(normalizedBlockHash, out BitcoinHeaderEvaluation? duplicateHeader))
                 {
                     _state.CurrentTipCompactTarget = duplicateHeader.CompactTarget;
                     metadataChanged = true;
                 }
-                if (metadataChanged)
+                activationAtExistingTip = previousActiveConsensusVersion < BootProtocolVersions.ConsensusVersion &&
+                                          GetActiveConsensusVersionNoLock() >= BootProtocolVersions.ConsensusVersion;
+                if (metadataChanged && !activationAtExistingTip)
                 {
                     RequestDeferredSaveNoLock();
                 }
-                return BuildNetworkStatusNoLock();
+                if (!activationAtExistingTip)
+                {
+                    return BuildNetworkStatusNoLock();
+                }
             }
 
             if (IsStaleTipObservationNoLock(
@@ -3358,7 +3438,7 @@ public class BootProtocolStateService
                 return BuildNetworkStatusNoLock();
             }
 
-            bool oneBlockReorg = _poolConfig.BootProtocolVersion >= 22 &&
+            bool oneBlockReorg = GetActiveConsensusVersionNoLock() >= BootProtocolVersions.ConsensusVersion &&
                 effectiveBlockHeight.HasValue &&
                 _state.CurrentTipBlockHeight == effectiveBlockHeight &&
                 !BitcoinHashes.AreEquivalent(normalizedBlockHash, _state.CurrentTipBlockHash);
@@ -3412,6 +3492,11 @@ public class BootProtocolStateService
 
             _state.CurrentTipBlockHash = normalizedBlockHash;
             _state.CurrentTipBlockHeight = effectiveBlockHeight;
+            if (trustedEffectiveBlockHeight.HasValue)
+            {
+                _state.TrustedLocalTipBlockHash = normalizedBlockHash;
+                _state.TrustedLocalTipBlockHeight = trustedEffectiveBlockHeight;
+            }
             if (_localChainTipHeaders.TryGetValue(normalizedBlockHash, out BitcoinHeaderEvaluation? localHeader))
             {
                 _state.CurrentTipCompactTarget = localHeader.CompactTarget;
@@ -3423,7 +3508,7 @@ public class BootProtocolStateService
                 effectiveBlockHeight,
                 $"chain-tip:{source}",
                 DateTime.UtcNow,
-                advanceRound: true,
+                advanceRound: !activationAtExistingTip,
                 frozenProofs);
             RequestDeferredSaveNoLock();
             RequestDeferredHistorySaveNoLock();
@@ -3975,7 +4060,7 @@ public class BootProtocolStateService
         {
             hasLocalActiveFamily = GetActiveSnapshotFamilyNoLock() != null;
         }
-        if (_poolConfig.BootProtocolVersion >= 22 &&
+        if (GetActiveConsensusVersion() >= BootProtocolVersions.ConsensusVersion &&
             bundle.SnapshotFamilyMember != null &&
             hasLocalActiveFamily)
         {
@@ -4671,7 +4756,7 @@ public class BootProtocolStateService
             Metadata = new BootProtocolMetadata
             {
                 NetworkId = _poolConfig.BootNetworkId,
-                ProtocolVersion = _poolConfig.BootProtocolVersion
+                ProtocolVersion = GetActiveConsensusVersionNoLock()
             },
             BestShare = new BestShareRecord(),
             CurrentRoundNumber = 0,
@@ -4840,13 +4925,14 @@ public class BootProtocolStateService
     private StateFileSnapshot<PoolState> CaptureCoreStateSnapshotNoLock()
     {
         _state.Metadata.NetworkId = _poolConfig.BootNetworkId;
-        _state.Metadata.ProtocolVersion = _poolConfig.BootProtocolVersion;
-        _state.Metadata.ConsensusVersion = _poolConfig.BootProtocolVersion;
-        _state.Metadata.StateBundleSchemaVersion = BootProtocolVersions.StateBundleSchemaVersion;
+        BootNodeVersionInfo localVersion = GetLocalVersionInfoNoLock();
+        _state.Metadata.ProtocolVersion = localVersion.ProtocolVersion;
+        _state.Metadata.ConsensusVersion = localVersion.ConsensusVersion;
+        _state.Metadata.StateBundleSchemaVersion = localVersion.StateBundleSchemaVersion;
         _state.Metadata.HttpApiVersion = BootProtocolVersions.HttpApiVersion;
         _state.Metadata.PeerTransportVersion = BootProtocolVersions.PeerTransportVersion;
         _state.Metadata.UdpRelayVersion = BootProtocolVersions.UdpRelayVersion;
-        _state.Metadata.ReleaseVersion = BootProtocolVersions.Local(_poolConfig).ReleaseVersion;
+        _state.Metadata.ReleaseVersion = localVersion.ReleaseVersion;
 
         return new StateFileSnapshot<PoolState>
         {
@@ -4915,19 +5001,21 @@ public class BootProtocolStateService
             Metadata = new BootProtocolMetadata
             {
                 NetworkId = _poolConfig.BootNetworkId,
-                ProtocolVersion = _poolConfig.BootProtocolVersion,
-                ConsensusVersion = _poolConfig.BootProtocolVersion,
-                StateBundleSchemaVersion = BootProtocolVersions.StateBundleSchemaVersion,
+                ProtocolVersion = GetActiveConsensusVersionNoLock(),
+                ConsensusVersion = GetActiveConsensusVersionNoLock(),
+                StateBundleSchemaVersion = BootProtocolVersions.GetStateBundleSchemaVersion(GetActiveConsensusVersionNoLock()),
                 HttpApiVersion = BootProtocolVersions.HttpApiVersion,
                 PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
                 UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
-                ReleaseVersion = BootProtocolVersions.Local(_poolConfig).ReleaseVersion
+                ReleaseVersion = GetLocalVersionInfoNoLock().ReleaseVersion
             },
             CurrentStateId = _state.CurrentStateId,
             CandidateStateId = _state.CandidateStateId,
             CurrentRoundNumber = _state.CurrentRoundNumber,
             CurrentTipBlockHash = _state.CurrentTipBlockHash,
             CurrentTipBlockHeight = _state.CurrentTipBlockHeight,
+            TrustedLocalTipBlockHash = _state.TrustedLocalTipBlockHash,
+            TrustedLocalTipBlockHeight = _state.TrustedLocalTipBlockHeight,
             CurrentTipCompactTarget = _state.CurrentTipCompactTarget,
             ProvisionalTip = CloneProvisionalTip(_state.ProvisionalTip),
             LastTestingTriggerBlockHash = _state.LastTestingTriggerBlockHash,
@@ -5001,13 +5089,14 @@ public class BootProtocolStateService
             _state.Metadata.NetworkId = string.IsNullOrWhiteSpace(_state.Metadata.NetworkId)
                 ? _poolConfig.BootNetworkId
                 : _state.Metadata.NetworkId;
-            _state.Metadata.ProtocolVersion = _poolConfig.BootProtocolVersion;
-            _state.Metadata.ConsensusVersion = _poolConfig.BootProtocolVersion;
-            _state.Metadata.StateBundleSchemaVersion = BootProtocolVersions.StateBundleSchemaVersion;
+            BootNodeVersionInfo localVersion = GetLocalVersionInfoNoLock();
+            _state.Metadata.ProtocolVersion = localVersion.ProtocolVersion;
+            _state.Metadata.ConsensusVersion = localVersion.ConsensusVersion;
+            _state.Metadata.StateBundleSchemaVersion = localVersion.StateBundleSchemaVersion;
             _state.Metadata.HttpApiVersion = BootProtocolVersions.HttpApiVersion;
             _state.Metadata.PeerTransportVersion = BootProtocolVersions.PeerTransportVersion;
             _state.Metadata.UdpRelayVersion = BootProtocolVersions.UdpRelayVersion;
-            _state.Metadata.ReleaseVersion = BootProtocolVersions.Local(_poolConfig).ReleaseVersion;
+            _state.Metadata.ReleaseVersion = localVersion.ReleaseVersion;
             string? loadedTip = NormalizeCanonicalBlockHash(_state.CurrentTipBlockHash);
             if (!string.IsNullOrWhiteSpace(_state.CurrentTipBlockHash) && string.IsNullOrWhiteSpace(loadedTip))
             {
@@ -5209,7 +5298,7 @@ public class BootProtocolStateService
         BootPayoutSnapshotContext context,
         IEnumerable<BootShareProof> boundaryReserveProofs)
     {
-        if (_poolConfig.BootProtocolVersion < 22 || string.IsNullOrWhiteSpace(context.FamilyId))
+        if (GetActiveConsensusVersionNoLock() < BootProtocolVersions.ConsensusVersion || string.IsNullOrWhiteSpace(context.FamilyId))
         {
             return;
         }
@@ -5221,7 +5310,7 @@ public class BootProtocolStateService
             family = new BootSnapshotFamilyState
             {
                 FamilyId = context.FamilyId,
-                ConsensusVersion = _poolConfig.BootProtocolVersion,
+                ConsensusVersion = GetActiveConsensusVersionNoLock(),
                 NetworkId = BuildSnapshotFamilyNetworkIdNoLock(),
                 PredecessorSnapshotId = context.PreviousSnapshotId,
                 BoundaryBlockHash = NormalizeCanonicalBlockHash(context.LockedByBlockHash) ?? string.Empty,
@@ -5440,12 +5529,12 @@ public class BootProtocolStateService
                 createdUtc,
                 nextRoundNumber);
 
-        if (_poolConfig.BootProtocolVersion >= 22 &&
+        if (GetActiveConsensusVersionNoLock() >= BootProtocolVersions.ConsensusVersion &&
             !string.IsNullOrWhiteSpace(normalizedBlockHash) &&
             blockHeight.HasValue)
         {
             context.FamilyId = BootSnapshotReconciliation.ComputeFamilyId(
-                _poolConfig.BootProtocolVersion,
+                GetActiveConsensusVersionNoLock(),
                 BuildSnapshotFamilyNetworkIdNoLock(),
                 context.PreviousSnapshotId,
                 normalizedBlockHash,
@@ -5821,7 +5910,7 @@ public class BootProtocolStateService
     private string BuildPayoutVariantNoLock()
     {
         string baseVariant = _poolConfig.GridLabsSupportFeeEnabled ? "gridlabs-support-v1" : "fee-free";
-        return _poolConfig.BootProtocolVersion >= 22
+        return GetActiveConsensusVersionNoLock() >= BootProtocolVersions.ConsensusVersion
             ? $"{baseVariant}:shared={_poolConfig.SharedWinnerSlotCount}:snapshot={_poolConfig.SnapshotProofSlotCount}:reserve={_poolConfig.WorkSetReserveLimit}"
             : baseVariant;
     }
@@ -5952,14 +6041,26 @@ public class BootProtocolStateService
         double? localDatumHashrateThs = EstimateLocalDatumHashrateThsNoLock(activeNonTemporaryLocalDatumMiners);
         BootCoinbaserDiagnosticsSummaryDto coinbaserDiagnostics = BuildCoinbaserDiagnosticsSummaryNoLock(nowUtc);
         List<BootPeerStatus> peers = CloneExternalPeersNoLock();
-        BootNodeVersionInfo localVersion = BootProtocolVersions.Local(_poolConfig);
+        BootNodeVersionInfo localVersion = GetLocalVersionInfoNoLock();
         BootSnapshotFamilyState? activeFamily = GetActiveSnapshotFamilyNoLock();
 
         return new BootNetworkStatusDto
         {
             SelfEndpoint = NormalizePeerEndpoint(_poolConfig.PublicBaseUrl),
-            ProtocolVersion = _poolConfig.BootProtocolVersion,
+            SoftwareConsensusVersion = localVersion.SoftwareConsensusVersion,
+            ProtocolVersion = localVersion.ProtocolVersion,
             ConsensusVersion = localVersion.ConsensusVersion,
+            V22ActivationBlockHeight = _poolConfig.V22ActivationBlockHeight,
+            V22ActivationTipBlockHeight = _state.TrustedLocalTipBlockHeight,
+            BlocksToV22Activation = _poolConfig.V22ActivationBlockHeight > 0 &&
+                                    _state.TrustedLocalTipBlockHeight.HasValue &&
+                                    _state.TrustedLocalTipBlockHeight.Value < _poolConfig.V22ActivationBlockHeight
+                ? _poolConfig.V22ActivationBlockHeight - _state.TrustedLocalTipBlockHeight.Value
+                : _poolConfig.V22ActivationBlockHeight == 0 ||
+                  (_state.TrustedLocalTipBlockHeight.HasValue &&
+                   _state.TrustedLocalTipBlockHeight.Value >= _poolConfig.V22ActivationBlockHeight)
+                    ? 0
+                    : null,
             StateBundleSchemaVersion = localVersion.StateBundleSchemaVersion,
             HttpApiVersion = localVersion.HttpApiVersion,
             PeerTransportVersion = localVersion.PeerTransportVersion,
@@ -7926,11 +8027,11 @@ public class BootProtocolStateService
 
         return new BootCommitmentInfo
         {
-            ProtocolVersion = _poolConfig.BootProtocolVersion,
+            ProtocolVersion = GetActiveConsensusVersionNoLock(),
             NetworkId = _poolConfig.BootNetworkId,
             NextStateId = _state.CandidateStateId,
             OnChainSupported = false,
-            TagPreview = $"BOOT|v{_poolConfig.BootProtocolVersion}|{_poolConfig.BootNetworkId}|{previewState}",
+            TagPreview = $"BOOT|v{GetActiveConsensusVersionNoLock()}|{_poolConfig.BootNetworkId}|{previewState}",
             SupportNote = "Per-round on-chain commitments require miner-side template support. The server computes state IDs now, but DATUM/Hydrapool must expose a dynamic coinbase hook before this can be embedded on-chain."
         };
     }
@@ -7974,14 +8075,14 @@ public class BootProtocolStateService
             PreviousStateId = _state.CurrentStateId,
             Kind = "candidate",
             CurrentRoundNumber = _state.CurrentRoundNumber + 1,
-            ProtocolVersion = _poolConfig.BootProtocolVersion,
-            ConsensusVersion = _poolConfig.BootProtocolVersion,
-            StateBundleSchemaVersion = BootProtocolVersions.StateBundleSchemaVersion,
+            ProtocolVersion = GetActiveConsensusVersionNoLock(),
+            ConsensusVersion = GetActiveConsensusVersionNoLock(),
+            StateBundleSchemaVersion = BootProtocolVersions.GetStateBundleSchemaVersion(GetActiveConsensusVersionNoLock()),
             HttpApiVersion = BootProtocolVersions.HttpApiVersion,
             PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
             UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
-            ReleaseVersion = BootProtocolVersions.Local(_poolConfig).ReleaseVersion,
-            VersionInfo = BootProtocolVersions.Local(_poolConfig),
+            ReleaseVersion = GetLocalVersionInfoNoLock().ReleaseVersion,
+            VersionInfo = GetLocalVersionInfoNoLock(),
             NetworkId = _poolConfig.BootNetworkId,
             LockedByBlockHash = null,
             LockedByBlockHeight = null,
@@ -8027,14 +8128,14 @@ public class BootProtocolStateService
             PreviousStateId = previousStateId,
             Kind = "current",
             CurrentRoundNumber = _state.CurrentRoundNumber,
-            ProtocolVersion = _poolConfig.BootProtocolVersion,
-            ConsensusVersion = _poolConfig.BootProtocolVersion,
-            StateBundleSchemaVersion = BootProtocolVersions.StateBundleSchemaVersion,
+            ProtocolVersion = GetActiveConsensusVersionNoLock(),
+            ConsensusVersion = GetActiveConsensusVersionNoLock(),
+            StateBundleSchemaVersion = BootProtocolVersions.GetStateBundleSchemaVersion(GetActiveConsensusVersionNoLock()),
             HttpApiVersion = BootProtocolVersions.HttpApiVersion,
             PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
             UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
-            ReleaseVersion = BootProtocolVersions.Local(_poolConfig).ReleaseVersion,
-            VersionInfo = BootProtocolVersions.Local(_poolConfig),
+            ReleaseVersion = GetLocalVersionInfoNoLock().ReleaseVersion,
+            VersionInfo = GetLocalVersionInfoNoLock(),
             NetworkId = _poolConfig.BootNetworkId,
             LockedByBlockHash = _state.CurrentTipBlockHash,
             LockedByBlockHeight = _state.CurrentTipBlockHeight,
@@ -8562,7 +8663,7 @@ public class BootProtocolStateService
     {
         var builder = new StringBuilder();
         builder.Append("boot-protocol-candidate-state").Append('\n');
-        builder.Append(_poolConfig.BootProtocolVersion).Append('\n');
+        builder.Append(GetActiveConsensusVersionNoLock()).Append('\n');
         builder.Append(_poolConfig.BootNetworkId).Append('\n');
         builder.Append(currentStateId ?? string.Empty).Append('\n');
         builder.Append(BuildPayoutVariantNoLock()).Append('\n');
@@ -8586,7 +8687,7 @@ public class BootProtocolStateService
     {
         var builder = new StringBuilder();
         builder.Append("boot-protocol-state").Append('\n');
-        builder.Append(_poolConfig.BootProtocolVersion).Append('\n');
+        builder.Append(GetActiveConsensusVersionNoLock()).Append('\n');
         builder.Append(_poolConfig.BootNetworkId).Append('\n');
         builder.Append(NormalizeCanonicalBlockHash(blockHash) ?? string.Empty).Append('\n');
         builder.Append(BuildPayoutVariantNoLock()).Append('\n');
@@ -10078,6 +10179,7 @@ public class BootProtocolStateService
 
         return new BootNodeVersionInfo
         {
+            SoftwareConsensusVersion = version.SoftwareConsensusVersion,
             ConsensusVersion = version.ConsensusVersion,
             ProtocolVersion = version.ProtocolVersion,
             StateBundleSchemaVersion = version.StateBundleSchemaVersion,
@@ -10397,6 +10499,7 @@ public class BootProtocolStateService
             ReleaseVersion = bundle.ReleaseVersion,
             VersionInfo = new BootNodeVersionInfo
             {
+                SoftwareConsensusVersion = bundle.VersionInfo?.SoftwareConsensusVersion ?? 0,
                 ConsensusVersion = bundle.VersionInfo?.ConsensusVersion ?? 0,
                 ProtocolVersion = bundle.VersionInfo?.ProtocolVersion ?? 0,
                 StateBundleSchemaVersion = bundle.VersionInfo?.StateBundleSchemaVersion ?? 0,

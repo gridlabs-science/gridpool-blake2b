@@ -114,6 +114,9 @@ public class PoolConfig
     [JsonPropertyName("boot_protocol_version")]
     public int BootProtocolVersion { get; set; } = BootProtocolVersions.ConsensusVersion;
 
+    [JsonPropertyName("v22_activation_block_height")]
+    public long V22ActivationBlockHeight { get; set; } = BootProtocolVersions.MainnetV22ActivationBlockHeight;
+
     [JsonPropertyName("admin_api_key")]
     public string? AdminApiKey { get; set; }
 

@@ -4,8 +4,11 @@ namespace boot_portal.Models;
 
 public static class BootProtocolVersions
 {
+    public const int V21ConsensusVersion = 21;
     public const int ConsensusVersion = 22;
+    public const int V21StateBundleSchemaVersion = 2;
     public const int StateBundleSchemaVersion = 3;
+    public const long MainnetV22ActivationBlockHeight = 959_500;
     public const int HttpApiVersion = 1;
     public const int PeerTransportVersion = 2;
     public const int UdpRelayVersion = 5;
@@ -25,11 +28,31 @@ public static class BootProtocolVersions
         return string.IsNullOrWhiteSpace(informational) ? "dev" : informational;
     });
 
-    public static BootNodeVersionInfo Local(PoolConfig config) => new()
+    public static int GetActiveConsensusVersion(PoolConfig config, long? trustedLocalTipHeight)
     {
-        ConsensusVersion = config.BootProtocolVersion,
-        ProtocolVersion = config.BootProtocolVersion,
-        StateBundleSchemaVersion = StateBundleSchemaVersion,
+        int softwareConsensusVersion = Math.Min(config.BootProtocolVersion, ConsensusVersion);
+        if (softwareConsensusVersion < ConsensusVersion)
+        {
+            return softwareConsensusVersion;
+        }
+
+        return config.V22ActivationBlockHeight == 0 ||
+               (trustedLocalTipHeight.HasValue && trustedLocalTipHeight.Value >= config.V22ActivationBlockHeight)
+            ? ConsensusVersion
+            : V21ConsensusVersion;
+    }
+
+    public static int GetStateBundleSchemaVersion(int activeConsensusVersion) =>
+        activeConsensusVersion >= ConsensusVersion
+            ? StateBundleSchemaVersion
+            : V21StateBundleSchemaVersion;
+
+    public static BootNodeVersionInfo Local(PoolConfig config, int activeConsensusVersion) => new()
+    {
+        SoftwareConsensusVersion = Math.Min(config.BootProtocolVersion, ConsensusVersion),
+        ConsensusVersion = activeConsensusVersion,
+        ProtocolVersion = activeConsensusVersion,
+        StateBundleSchemaVersion = GetStateBundleSchemaVersion(activeConsensusVersion),
         HttpApiVersion = HttpApiVersion,
         PeerTransportVersion = PeerTransportVersion,
         UdpRelayVersion = UdpRelayVersion,
@@ -153,6 +176,9 @@ public static class BootProtocolVersions
 
     private static BootNodeVersionInfo Normalize(BootNodeVersionInfo version, int fallbackConsensusVersion) => new()
     {
+        SoftwareConsensusVersion = version.SoftwareConsensusVersion != 0
+            ? version.SoftwareConsensusVersion
+            : (version.ConsensusVersion != 0 ? version.ConsensusVersion : fallbackConsensusVersion),
         ConsensusVersion = version.ConsensusVersion != 0 ? version.ConsensusVersion : fallbackConsensusVersion,
         ProtocolVersion = version.ProtocolVersion != 0 ? version.ProtocolVersion : fallbackConsensusVersion,
         StateBundleSchemaVersion = version.StateBundleSchemaVersion,
@@ -168,6 +194,7 @@ public static class BootProtocolVersions
 
 public class BootNodeVersionInfo
 {
+    public int SoftwareConsensusVersion { get; set; }
     public int ConsensusVersion { get; set; }
     public int ProtocolVersion { get; set; }
     public int StateBundleSchemaVersion { get; set; }
@@ -177,6 +204,7 @@ public class BootNodeVersionInfo
     public string ReleaseVersion { get; set; } = string.Empty;
 
     public bool HasAnyVersion =>
+        SoftwareConsensusVersion != 0 ||
         ConsensusVersion != 0 ||
         ProtocolVersion != 0 ||
         StateBundleSchemaVersion != 0 ||

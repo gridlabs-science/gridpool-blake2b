@@ -16,6 +16,32 @@ public sealed class PoolConfigValidatorTests
     }
 
     [TestMethod]
+    public void V22ActivationHeightMustBeNonNegative()
+    {
+        var config = new PoolConfig { V22ActivationBlockHeight = -1 };
+
+        Assert.IsTrue(PoolConfigValidator.Validate(config).Any(error =>
+            error.Contains("v22_activation_block_height", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
+    public void ProductionMainnetRejectsImmediateV22Activation()
+    {
+        var config = new PoolConfig
+        {
+            NodeMode = "production",
+            PublicBaseUrl = "https://use1.gridlabs.science",
+            DatumPublicHost = "datum-use1.gridlabs.science",
+            EnableAdminApi = false,
+            TestingRoundResetMode = "none",
+            V22ActivationBlockHeight = 0
+        };
+
+        Assert.IsTrue(PoolConfigValidator.Validate(config).Any(error =>
+            error.Contains("v22_activation_block_height", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
     public void EmptyCoinbaseTagIsAllowed()
     {
         var config = new PoolConfig

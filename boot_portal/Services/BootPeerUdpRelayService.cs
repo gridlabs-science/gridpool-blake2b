@@ -318,8 +318,9 @@ public sealed class BootPeerUdpRelayService : BackgroundService
             announcement.SenderNodeId = received.RemoteNodeId;
             announcement.Source = "peer-udp";
             announcement.ObservedUtc = default;
-            announcement.ProtocolVersion = _poolConfig.BootProtocolVersion;
-            announcement.ConsensusVersion = _poolConfig.BootProtocolVersion;
+            int activeConsensusVersion = _stateService.GetActiveConsensusVersion();
+            announcement.ProtocolVersion = activeConsensusVersion;
+            announcement.ConsensusVersion = activeConsensusVersion;
             announcement.PeerTransportVersion = BootProtocolVersions.PeerTransportVersion;
             announcement.NetworkId = _poolConfig.BootNetworkId;
             await _stateService.ObservePeerChainTipAsync(

@@ -8,6 +8,8 @@ public class PoolState
     public int CurrentRoundNumber { get; set; }
     public string? CurrentTipBlockHash { get; set; }
     public long? CurrentTipBlockHeight { get; set; }
+    public string? TrustedLocalTipBlockHash { get; set; }
+    public long? TrustedLocalTipBlockHeight { get; set; }
     public uint? CurrentTipCompactTarget { get; set; }
     public BootProvisionalTipState? ProvisionalTip { get; set; }
     public string? LastTestingTriggerBlockHash { get; set; }

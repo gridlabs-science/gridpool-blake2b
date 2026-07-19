@@ -24,12 +24,11 @@ public sealed class BootPeerIdentity
 
     public string X25519PublicKey { get; }
 
-    public BootPeerSessionHello CreateHello(PoolConfig config, string endpoint)
+    public BootPeerSessionHello CreateHello(PoolConfig config, BootNodeVersionInfo localVersion, string endpoint)
     {
-        BootNodeVersionInfo localVersion = BootProtocolVersions.Local(config);
         var hello = new BootPeerSessionHello
         {
-            ProtocolVersion = config.BootProtocolVersion,
+            ProtocolVersion = localVersion.ProtocolVersion,
             ConsensusVersion = localVersion.ConsensusVersion,
             StateBundleSchemaVersion = localVersion.StateBundleSchemaVersion,
             HttpApiVersion = localVersion.HttpApiVersion,
@@ -49,7 +48,11 @@ public sealed class BootPeerIdentity
         return hello;
     }
 
-    public bool ValidateHello(BootPeerSessionHello? hello, PoolConfig config, out string rejectionReason)
+    public bool ValidateHello(
+        BootPeerSessionHello? hello,
+        PoolConfig config,
+        BootNodeVersionInfo localVersion,
+        out string rejectionReason)
     {
         rejectionReason = string.Empty;
         if (hello == null)
@@ -65,7 +68,7 @@ public sealed class BootPeerIdentity
         }
 
         BootVersionCompatibilityDto compatibility = BootProtocolVersions.Evaluate(
-            BootProtocolVersions.Local(config),
+            localVersion,
             BootProtocolVersions.FromPeerHello(hello),
             config.BootNetworkId,
             hello.NetworkId,

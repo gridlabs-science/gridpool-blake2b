@@ -384,8 +384,8 @@ public sealed class ShareAttributionTests
                 HttpApiVersion = BootProtocolVersions.HttpApiVersion,
                 PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
                 UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
-                ReleaseVersion = BootProtocolVersions.Local(harness.Config).ReleaseVersion,
-                VersionInfo = BootProtocolVersions.Local(harness.Config),
+                ReleaseVersion = harness.StateService.GetLocalVersionInfo().ReleaseVersion,
+                VersionInfo = harness.StateService.GetLocalVersionInfo(),
                 NetworkId = harness.Config.BootNetworkId,
                 LockedByBlockHash = SamplePrevBlockHash,
                 LockedByBlockHeight = 945001,
@@ -423,8 +423,8 @@ public sealed class ShareAttributionTests
                 HttpApiVersion = BootProtocolVersions.HttpApiVersion,
                 PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
                 UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
-                ReleaseVersion = BootProtocolVersions.Local(harness.Config).ReleaseVersion,
-                VersionInfo = BootProtocolVersions.Local(harness.Config),
+                ReleaseVersion = harness.StateService.GetLocalVersionInfo().ReleaseVersion,
+                VersionInfo = harness.StateService.GetLocalVersionInfo(),
                 NetworkId = harness.Config.BootNetworkId,
                 LockedByBlockHash = OlderTipBlockHash,
                 LockedByBlockHeight = 945000,
@@ -1280,6 +1280,71 @@ public sealed class ShareAttributionTests
         BootStateBundle v21Sibling = v21Bob.StateService.GetStateBundle(v21Bob.StateService.GetNetworkStatus().CurrentStateId)!;
         Assert.IsFalse(await v21Alice.StateService.TryAdoptCurrentStateAsync(v21Sibling, boundary, 945001, "v21-bob"));
         Assert.AreNotEqual(v21Alice.StateService.GetNetworkStatus().ActiveSnapshotId, v21Bob.StateService.GetNetworkStatus().ActiveSnapshotId);
+    }
+
+    [TestMethod]
+    public async Task V22HeightActivationUsesV21BelowHeightAndMsrAtAndAboveHeightAsync()
+    {
+        BootShareProof proof = CreateValidatedProof(SampleHeaderHex, SamplePrevBlockHash, "seed-current");
+        BootPayoutSnapshotContext predecessor = CreateSnapshotContext("seed-current", SampleExpectedWinners);
+        using var harness = TestHarness.Create(
+            currentTipBlockHeight: 945000,
+            onDeckProofs: [proof],
+            snapshotContexts: [predecessor],
+            v22ActivationBlockHeight: 945002);
+
+        BootNetworkStatusDto below = await harness.StateService.ObserveChainTipAsync(
+            "0000000000000000000000000000000000000000000000000000000000a45001",
+            "local-bitcoin",
+            945001);
+        Assert.AreEqual(21, below.ConsensusVersion);
+        Assert.AreEqual(22, below.SoftwareConsensusVersion);
+        Assert.AreEqual(1L, below.BlocksToV22Activation);
+        Assert.AreEqual(BootProtocolVersions.V21StateBundleSchemaVersion, below.StateBundleSchemaVersion);
+        Assert.AreEqual(string.Empty, below.ActiveSnapshotFamilyId);
+        BootStateBundle belowBundle = harness.StateService.GetStateBundle(below.CurrentStateId)!;
+        Assert.AreEqual(21, belowBundle.ConsensusVersion);
+
+        BootNetworkStatusDto activated = await harness.StateService.ObserveChainTipAsync(
+            "0000000000000000000000000000000000000000000000000000000000a45002",
+            "local-bitcoin",
+            945002);
+        Assert.AreEqual(22, activated.ConsensusVersion);
+        Assert.AreEqual(0L, activated.BlocksToV22Activation);
+        Assert.AreEqual(BootProtocolVersions.StateBundleSchemaVersion, activated.StateBundleSchemaVersion);
+        Assert.AreNotEqual(string.Empty, activated.ActiveSnapshotFamilyId);
+        Assert.IsNotNull(harness.StateService.GetStateBundle(activated.CurrentStateId)!.SnapshotFamilyMember);
+    }
+
+    [TestMethod]
+    public void V22ActivationHeightZeroIsImmediateAndUnknownTipFailsClosedOtherwise()
+    {
+        using var immediate = TestHarness.Create(seedUnknownTipHeight: true, v22ActivationBlockHeight: 0);
+        using var unknown = TestHarness.Create(
+            currentTipBlockHeight: 959500,
+            seedUnknownTrustedTip: true,
+            v22ActivationBlockHeight: 959500);
+
+        Assert.AreEqual(22, immediate.StateService.GetNetworkStatus().ConsensusVersion);
+        Assert.AreEqual(21, unknown.StateService.GetNetworkStatus().ConsensusVersion);
+        Assert.AreEqual(959500L, unknown.StateService.GetNetworkStatus().CurrentTipBlockHeight);
+        Assert.IsNull(unknown.StateService.GetNetworkStatus().V22ActivationTipBlockHeight);
+        Assert.IsNull(unknown.StateService.GetNetworkStatus().BlocksToV22Activation);
+    }
+
+    [TestMethod]
+    public void PeerCompatibilityFollowsActiveConsensusBeforeAndAfterV22Height()
+    {
+        using var upgradedPre = TestHarness.Create(currentTipBlockHeight: 945000, v22ActivationBlockHeight: 945001);
+        using var legacy = TestHarness.Create(currentTipBlockHeight: 945000, protocolVersion: 21);
+        using var upgradedPost = TestHarness.Create(currentTipBlockHeight: 945001, v22ActivationBlockHeight: 945001);
+        using var upgradedPostPeer = TestHarness.Create(currentTipBlockHeight: 945001, v22ActivationBlockHeight: 945001);
+
+        Assert.IsTrue(upgradedPre.StateService.EvaluatePeerCompatibility(legacy.StateService.GetNetworkStatus()).CanSyncState);
+        Assert.IsTrue(legacy.StateService.EvaluatePeerCompatibility(upgradedPre.StateService.GetNetworkStatus()).CanSyncState);
+        Assert.IsFalse(upgradedPost.StateService.EvaluatePeerCompatibility(legacy.StateService.GetNetworkStatus()).CanSyncState);
+        Assert.IsFalse(legacy.StateService.EvaluatePeerCompatibility(upgradedPost.StateService.GetNetworkStatus()).CanSyncState);
+        Assert.IsTrue(upgradedPost.StateService.EvaluatePeerCompatibility(upgradedPostPeer.StateService.GetNetworkStatus()).CanSyncState);
     }
 
     [TestMethod]
@@ -2666,6 +2731,9 @@ public sealed class ShareAttributionTests
             IReadOnlyList<string>? activeSnapshotProofIds = null,
             int? protocolVersion = null,
             int? seedMetadataProtocolVersion = null,
+            long v22ActivationBlockHeight = 0,
+            bool seedUnknownTipHeight = false,
+            bool seedUnknownTrustedTip = false,
             bool enablePeerTipStaleProtection = false,
             int peerTipGraceSeconds = 3)
         {
@@ -2682,6 +2750,7 @@ public sealed class ShareAttributionTests
             {
                 BootNetworkId = "testnet",
                 BootProtocolVersion = protocolVersion ?? BootProtocolVersions.ConsensusVersion,
+                V22ActivationBlockHeight = v22ActivationBlockHeight,
                 WinnersListSize = sharedWinnerSlotCount ?? Math.Max(8, SampleExpectedWinners.Count),
                 PoolPayoutScript = SampleSlotZeroAddress,
                 GridLabsSupportFeeEnabled = supportFeeEnabled,
@@ -2701,7 +2770,13 @@ public sealed class ShareAttributionTests
                 CandidateStateId = "seed-candidate",
                 CurrentRoundNumber = currentRoundNumber,
                 CurrentTipBlockHash = currentTipBlockHash ?? SamplePrevBlockHash,
-                CurrentTipBlockHeight = currentTipBlockHeight ?? 945000,
+                CurrentTipBlockHeight = seedUnknownTipHeight ? null : currentTipBlockHeight ?? 945000,
+                TrustedLocalTipBlockHash = seedUnknownTipHeight || seedUnknownTrustedTip
+                    ? null
+                    : currentTipBlockHash ?? SamplePrevBlockHash,
+                TrustedLocalTipBlockHeight = seedUnknownTipHeight || seedUnknownTrustedTip
+                    ? null
+                    : currentTipBlockHeight ?? 945000,
                 CurrentTipCompactTarget = currentTipCompactTarget,
                 AcceptedParentBlockHashes = [currentTipBlockHash ?? SamplePrevBlockHash],
                 ActiveSnapshotId = activeSnapshotId ?? currentStateId,

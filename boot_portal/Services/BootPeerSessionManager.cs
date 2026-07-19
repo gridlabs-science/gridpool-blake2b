@@ -178,16 +178,17 @@ public sealed class BootPeerSessionManager : BackgroundService
             return relayedEndpoints;
         }
 
+        BootNodeVersionInfo localVersion = _stateService.GetLocalVersionInfo();
         var announcement = new PeerShareAnnouncement
         {
             SenderEndpoint = _stateService.GetSelfEndpoint(),
-            ProtocolVersion = _poolConfig.BootProtocolVersion,
-            ConsensusVersion = _poolConfig.BootProtocolVersion,
-            StateBundleSchemaVersion = BootProtocolVersions.StateBundleSchemaVersion,
+            ProtocolVersion = localVersion.ProtocolVersion,
+            ConsensusVersion = localVersion.ConsensusVersion,
+            StateBundleSchemaVersion = localVersion.StateBundleSchemaVersion,
             HttpApiVersion = BootProtocolVersions.HttpApiVersion,
             PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
             UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
-            ReleaseVersion = BootProtocolVersions.Local(_poolConfig).ReleaseVersion,
+            ReleaseVersion = localVersion.ReleaseVersion,
             NetworkId = _poolConfig.BootNetworkId,
             ProofClass = proof.ProofClass,
             RelayStage = proof.RelayStage,
@@ -357,7 +358,8 @@ public sealed class BootPeerSessionManager : BackgroundService
         string remoteEndpoint = NormalizeEndpoint(dialedEndpoint);
         try
         {
-            BootPeerSessionHello localHello = _identity.CreateHello(_poolConfig, _stateService.GetSelfEndpoint());
+            BootNodeVersionInfo localVersion = _stateService.GetLocalVersionInfo();
+            BootPeerSessionHello localHello = _identity.CreateHello(_poolConfig, localVersion, _stateService.GetSelfEndpoint());
             BootPeerSessionHello? remoteHello;
             if (localIsInitiator)
             {
@@ -370,7 +372,7 @@ public sealed class BootPeerSessionManager : BackgroundService
                 await SendPlainJsonAsync(socket, localHello, cancellationToken);
             }
 
-            if (!_identity.ValidateHello(remoteHello, _poolConfig, out string rejectionReason))
+            if (!_identity.ValidateHello(remoteHello, _poolConfig, localVersion, out string rejectionReason))
             {
                 _logger.LogDebug("Rejected V2 peer session hello from {Peer}: {Reason}", remoteEndpoint, rejectionReason);
                 if (!string.IsNullOrWhiteSpace(remoteEndpoint))
@@ -384,7 +386,7 @@ public sealed class BootPeerSessionManager : BackgroundService
 
             remoteEndpoint = ResolveRemoteEndpoint(dialedEndpoint, remoteHello!.Endpoint);
             BootVersionCompatibilityDto compatibility = BootProtocolVersions.Evaluate(
-                BootProtocolVersions.Local(_poolConfig),
+                localVersion,
                 BootProtocolVersions.FromPeerHello(remoteHello),
                 _poolConfig.BootNetworkId,
                 remoteHello.NetworkId,
@@ -626,6 +628,7 @@ public sealed class BootPeerSessionManager : BackgroundService
         if (!compatibility.CanSyncState)
         {
             _stateService.MarkPeerSessionFailure(session.RemoteEndpoint, session.RemoteNodeId, "session-version-mismatch");
+            session.Abort();
             return;
         }
 
@@ -658,7 +661,7 @@ public sealed class BootPeerSessionManager : BackgroundService
         }
 
         BootVersionCompatibilityDto compatibility = BootProtocolVersions.Evaluate(
-            BootProtocolVersions.Local(_poolConfig),
+            _stateService.GetLocalVersionInfo(),
             new BootNodeVersionInfo
             {
                 ConsensusVersion = announcement.ConsensusVersion,
@@ -671,6 +674,7 @@ public sealed class BootPeerSessionManager : BackgroundService
         if (!compatibility.NetworkCompatible || !compatibility.ConsensusCompatible || !compatibility.PeerTransportCompatible)
         {
             _stateService.MarkPeerSessionFailure(session.RemoteEndpoint, session.RemoteNodeId, "session-tip-rejected");
+            session.Abort();
             return;
         }
 

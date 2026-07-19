@@ -359,14 +359,16 @@ public class BootPeerSyncService : BackgroundService
             return;
         }
 
+        BootNodeVersionInfo localVersion = _stateService.GetLocalVersionInfo();
+
         request.Headers.TryAddWithoutValidation(BootNetworkController.PeerEndpointHeader, selfEndpoint);
         request.Headers.TryAddWithoutValidation(
             BootNetworkController.PeerProtocolVersionHeader,
-            _poolConfig.BootProtocolVersion.ToString(CultureInfo.InvariantCulture));
+            localVersion.ProtocolVersion.ToString(CultureInfo.InvariantCulture));
         request.Headers.TryAddWithoutValidation(BootNetworkController.PeerNetworkIdHeader, _poolConfig.BootNetworkId);
         request.Headers.TryAddWithoutValidation(
             BootNetworkController.PeerStateBundleSchemaVersionHeader,
-            BootProtocolVersions.StateBundleSchemaVersion.ToString(CultureInfo.InvariantCulture));
+            localVersion.StateBundleSchemaVersion.ToString(CultureInfo.InvariantCulture));
         request.Headers.TryAddWithoutValidation(
             BootNetworkController.PeerHttpApiVersionHeader,
             BootProtocolVersions.HttpApiVersion.ToString(CultureInfo.InvariantCulture));
@@ -375,22 +377,23 @@ public class BootPeerSyncService : BackgroundService
             BootProtocolVersions.PeerTransportVersion.ToString(CultureInfo.InvariantCulture));
         request.Headers.TryAddWithoutValidation(
             BootNetworkController.PeerReleaseVersionHeader,
-            BootProtocolVersions.Local(_poolConfig).ReleaseVersion);
+            localVersion.ReleaseVersion);
     }
 
     private async Task RelayShareAsync(string peer, BootShareProof proof, CancellationToken stoppingToken)
     {
         using var client = _httpClientFactory.CreateClient("BootPeerClient");
+        BootNodeVersionInfo localVersion = _stateService.GetLocalVersionInfo();
         var announcement = new PeerShareAnnouncement
         {
             SenderEndpoint = _stateService.GetSelfEndpoint(),
-            ProtocolVersion = _poolConfig.BootProtocolVersion,
-            ConsensusVersion = _poolConfig.BootProtocolVersion,
-            StateBundleSchemaVersion = BootProtocolVersions.StateBundleSchemaVersion,
+            ProtocolVersion = localVersion.ProtocolVersion,
+            ConsensusVersion = localVersion.ConsensusVersion,
+            StateBundleSchemaVersion = localVersion.StateBundleSchemaVersion,
             HttpApiVersion = BootProtocolVersions.HttpApiVersion,
             PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
             UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
-            ReleaseVersion = BootProtocolVersions.Local(_poolConfig).ReleaseVersion,
+            ReleaseVersion = localVersion.ReleaseVersion,
             NetworkId = _poolConfig.BootNetworkId,
             ProofClass = proof.ProofClass,
             RelayStage = proof.RelayStage,
