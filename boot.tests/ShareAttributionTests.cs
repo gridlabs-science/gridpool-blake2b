@@ -44,6 +44,30 @@ public sealed class ShareAttributionTests
     private static readonly IReadOnlyList<PayoutInfo> SampleExpectedWinners = BuildExpectedWinners(SampleCoinbaseHex);
 
     [TestMethod]
+    public void LocalAdapterTokenDefaultsBesidePersistentStateInsteadOfReadOnlyAppDirectory()
+    {
+        string? previousStatePath = Environment.GetEnvironmentVariable("BOOT_PORTAL_STATE_PATH");
+        string tempDirectory = Path.Combine(Path.GetTempPath(), $"boot-adapter-auth-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "BOOT_PORTAL_STATE_PATH",
+                Path.Combine(tempDirectory, "pool_state.json"));
+            var config = new PoolConfig { LocalAdapterTokenFile = "data/local-adapter.token" };
+
+            _ = new LocalMiningAdapterAuth(config, NullLogger<LocalMiningAdapterAuth>.Instance);
+
+            Assert.IsTrue(File.Exists(Path.Combine(tempDirectory, "local-adapter.token")));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("BOOT_PORTAL_STATE_PATH", previousStatePath);
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void ValidateShareAttributesToSlotZeroInsteadOfClaimedMinerAddress()
     {
         var verifier = new BootShareVerifier();

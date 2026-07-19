@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using boot_portal.Utils;
 
 namespace boot_portal.Services;
 
@@ -9,7 +10,19 @@ public sealed class LocalMiningAdapterAuth
 
     public LocalMiningAdapterAuth(PoolConfig config, ILogger<LocalMiningAdapterAuth> logger)
     {
-        string path = Path.GetFullPath(config.LocalAdapterTokenFile);
+        string configuredPath = config.LocalAdapterTokenFile.Trim();
+        string relativePath = configuredPath.Replace('\\', Path.DirectorySeparatorChar);
+        string dataPrefix = $"data{Path.DirectorySeparatorChar}";
+        if (relativePath.StartsWith(dataPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            relativePath = relativePath[dataPrefix.Length..];
+        }
+
+        string path = Path.IsPathRooted(configuredPath)
+            ? Path.GetFullPath(configuredPath)
+            : Path.GetFullPath(Path.Combine(
+                Path.GetDirectoryName(BootPortalPaths.PoolStateFilePath) ?? string.Empty,
+                relativePath));
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
         if (!File.Exists(path))
