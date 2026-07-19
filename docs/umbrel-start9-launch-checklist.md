@@ -121,7 +121,7 @@ Completion criteria:
 Current evidence:
 
 - `scripts/gridpool-health-monitor.mjs` compares `mainnet-beta` nodes separately from `testnet4-beta`.
-- Live config currently monitors `main.gridpool.net`, `test.gridpool.net`, `evomining.farted.net`, and `dallas.gridpool.net`.
+- Live config currently monitors `main.gridpool.net`, `test.gridpool.net`, `evomining.farted.net`, `dallas.gridpool.net`, and `detroit.gridpool.net`.
 - DATUM TCP endpoint checks cover `datum.main.gridpool.net:3008`, `datum.test.gridpool.net:3009`, and `datum.dallas.gridpool.net:3008`.
 - Monitor logs are written to `~/.local/state/gridpool-monitor/latest-summary.json`, `latest-consensus.json`, and dated `snapshots/`, `consensus/`, and `alerts/` JSONL files.
 - As of the first dry run after this change, `main` and `evomining` were aligned on mainnet current/candidate/active snapshot IDs.
