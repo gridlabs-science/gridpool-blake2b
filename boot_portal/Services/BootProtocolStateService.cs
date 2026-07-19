@@ -1933,6 +1933,13 @@ public class BootProtocolStateService
                     validation,
                     "Previous-parent proof quarantined after the provisional peer-tip boundary.");
             }
+            else if (validation.IsValid &&
+                     IsNewDirectIngressPreviousParentProofNoLock(validation.ShareId, validation.PrevBlockHash))
+            {
+                validation = RejectValidatedShare(
+                    validation,
+                    "New previous-parent proof rejected after the local snapshot boundary.");
+            }
         }
         shareCoreValidationDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
         DateTime validationCompletedUtc = DateTime.UtcNow;
@@ -2342,6 +2349,7 @@ public class BootProtocolStateService
                     ComputedDifficulty = validation.Difficulty,
                     IsBlock = validation.IsBlock,
                     BlockHash = validation.BlockHash,
+                    AcceptedProof = CloneProof(proof),
                     BestShare = CloneBestShare(_state.BestShare),
                     OnDeckList = ClonePayouts(_state.OnDeckList),
                     NetworkStatus = BuildNetworkStatusNoLock()
@@ -2908,7 +2916,13 @@ public class BootProtocolStateService
 
         long? blockHeight = InferFoundBlockHeight(result.BlockHash);
         RecordGridPoolBlockFound(result, blockSource, blockHeight);
-        RoundRotationResult rotation = await RotateToNextRoundAsync(result.BlockHash, blockSource, manual: false, blockHeight: blockHeight);
+        string? provenSnapshotId = result.AcceptedProof?.PayoutSnapshotId ?? share.PayoutSnapshotId;
+        RoundRotationResult rotation = await RotateToNextRoundAsync(
+            result.BlockHash,
+            blockSource,
+            manual: false,
+            blockHeight: blockHeight,
+            provenSnapshotId: provenSnapshotId);
         result.Rotation = rotation;
         result.NetworkStatus = rotation.NetworkStatus;
         result.OnDeckList = rotation.OnDeckList;
@@ -3001,7 +3015,12 @@ public class BootProtocolStateService
 
     private static bool IsFiniteNonNegative(double value) => double.IsFinite(value) && value >= 0;
 
-    public async Task<RoundRotationResult> RotateToNextRoundAsync(string blockHash, string source, bool manual, long? blockHeight = null)
+    public async Task<RoundRotationResult> RotateToNextRoundAsync(
+        string blockHash,
+        string source,
+        bool manual,
+        long? blockHeight = null,
+        string? provenSnapshotId = null)
     {
         RoundRotationResult result;
         bool winnersChanged = false;
@@ -3075,14 +3094,20 @@ public class BootProtocolStateService
             {
                 EnsureActiveSnapshotNoLock(nowUtc);
                 string previousStateId = _state.CurrentStateId;
-                string paidSnapshotId = _state.ActiveSnapshotId;
+                string paidSnapshotId = string.IsNullOrWhiteSpace(provenSnapshotId)
+                    ? _state.ActiveSnapshotId
+                    : provenSnapshotId;
                 BootPayoutSnapshotContext? paidContext = _state.SnapshotContexts
                     .FirstOrDefault(context => string.Equals(context.SnapshotId, paidSnapshotId, StringComparison.OrdinalIgnoreCase));
+                if (paidContext == null)
+                {
+                    throw new InvalidOperationException($"Winning block proved unknown payout snapshot {paidSnapshotId}.");
+                }
                 List<PayoutInfo> paidWinners = paidContext == null
                     ? ClonePayouts(_state.WinnersList)
                     : ClonePayouts(paidContext.WinnersList);
 
-                ApplyPaidSnapshotRemovalNoLock(source, effectiveBlockHash, effectiveBlockHeight, nowUtc);
+                ApplyPaidSnapshotRemovalNoLock(source, effectiveBlockHash, effectiveBlockHeight, nowUtc, paidSnapshotId);
                 _state.CurrentTipBlockHash = effectiveBlockHash;
                 _state.CurrentTipBlockHeight = effectiveBlockHeight;
                 PreserveAcceptedParentContinuityAfterRotationNoLock(previousTipBlockHash, effectiveBlockHash);
@@ -3331,6 +3356,15 @@ public class BootProtocolStateService
                 RequestDeferredSaveNoLock();
                 RequestDeferredHistorySaveNoLock();
                 return BuildNetworkStatusNoLock();
+            }
+
+            bool oneBlockReorg = _poolConfig.BootProtocolVersion >= 22 &&
+                effectiveBlockHeight.HasValue &&
+                _state.CurrentTipBlockHeight == effectiveBlockHeight &&
+                !BitcoinHashes.AreEquivalent(normalizedBlockHash, _state.CurrentTipBlockHash);
+            if (oneBlockReorg)
+            {
+                RestorePredecessorForRemovedBoundaryNoLock(source, normalizedBlockHash, effectiveBlockHeight!.Value);
             }
 
             shouldRotateTestRound = ShouldTriggerTestingRoundResetNoLock(normalizedBlockHash);
@@ -3805,7 +3839,9 @@ public class BootProtocolStateService
 
         if (bundle.WinnersList.Count > _poolConfig.WinnersListSize ||
             bundle.ShareProofs.Count > _poolConfig.SnapshotProofSlotCount ||
-            bundle.WorkSetProofs.Count > _poolConfig.WorkSetReserveLimit)
+            bundle.WorkSetProofs.Count > _poolConfig.WorkSetReserveLimit ||
+            bundle.SnapshotContexts.Count > GetMaxSnapshotContextCountNoLock() ||
+            (bundle.SnapshotFamilyMember?.BoundaryReserveProofs.Count ?? 0) > _poolConfig.WorkSetReserveLimit)
         {
             return false;
         }
@@ -3932,6 +3968,24 @@ public class BootProtocolStateService
             }
 
             remoteLockedTotalDifficulty = validatedProofs.Sum(x => x.Difficulty);
+        }
+
+        bool hasLocalActiveFamily;
+        lock (_sync)
+        {
+            hasLocalActiveFamily = GetActiveSnapshotFamilyNoLock() != null;
+        }
+        if (_poolConfig.BootProtocolVersion >= 22 &&
+            bundle.SnapshotFamilyMember != null &&
+            hasLocalActiveFamily)
+        {
+            return await TryReconcileSiblingSnapshotAsync(
+                bundle,
+                bundle.SnapshotFamilyMember,
+                currentStateSnapshot,
+                currentTipSnapshot,
+                currentWinnersSnapshot,
+                sourceEndpoint);
         }
 
         BootNetworkStatusDto networkStatus;
@@ -4075,6 +4129,248 @@ public class BootProtocolStateService
         }
 
         return adopted;
+    }
+
+    private async Task<bool> TryReconcileSiblingSnapshotAsync(
+        BootStateBundle bundle,
+        BootSnapshotFamilyMember member,
+        string currentStateSnapshot,
+        string? currentTipSnapshot,
+        IReadOnlyList<PayoutInfo> currentWinnersSnapshot,
+        string sourceEndpoint)
+    {
+        BootSnapshotFamilyState? familySnapshot;
+        HashSet<string> knownUnionIds;
+        lock (_sync)
+        {
+            familySnapshot = GetActiveSnapshotFamilyNoLock();
+            if (familySnapshot == null ||
+                !familySnapshot.IsOpen ||
+                !familySnapshot.BoundaryOnActiveChain ||
+                member.ConsensusVersion != bundle.ConsensusVersion ||
+                !string.Equals(member.PayoutVariant, bundle.PayoutVariant, StringComparison.OrdinalIgnoreCase) ||
+                bundle.SupportFeeEnabled != _poolConfig.GridLabsSupportFeeEnabled ||
+                !BootSnapshotReconciliation.MatchesFamily(familySnapshot, member) ||
+                !BitcoinHashes.AreEquivalent(member.BoundaryBlockHash, _state.CurrentTipBlockHash) ||
+                member.BoundaryBlockHeight != _state.CurrentTipBlockHeight)
+            {
+                _state.ReconciliationCounters.FamilyMismatchRejections++;
+                RecordNetworkEventNoLock(
+                    "snapshot-family-mismatch",
+                    sourceEndpoint,
+                    $"Rejected snapshot {member.SnapshotId} outside the active V2.2 reconciliation family.",
+                    member.BoundaryBlockHash,
+                    member.BoundaryBlockHeight);
+                RequestDeferredHistorySaveNoLock();
+                return false;
+            }
+
+            knownUnionIds = familySnapshot.ReconciledProofs
+                .Select(proof => proof.ShareId)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (member.BoundaryReserveProofs.All(proof => knownUnionIds.Contains(proof.ShareId)))
+            {
+                HashSet<string> claimedIds = member.BoundaryReserveProofs
+                    .Select(proof => proof.ShareId)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                List<BootShareProof> claimedKnownReserve = familySnapshot.ReconciledProofs
+                    .Where(proof => claimedIds.Contains(proof.ShareId))
+                    .OrderByDescending(proof => proof.Difficulty)
+                    .ThenBy(proof => proof.ShareId, StringComparer.Ordinal)
+                    .Take(_poolConfig.WorkSetReserveLimit)
+                    .Select(CloneProof)
+                    .ToList();
+                List<BootShareProof> claimedSnapshotProofs = claimedKnownReserve
+                    .Take(_poolConfig.SharedWinnerSlotCount)
+                    .ToList();
+                string claimedSnapshotId = ComputeStateIdNoLock(claimedSnapshotProofs, member.BoundaryBlockHash);
+                if (!string.Equals(claimedSnapshotId, member.SnapshotId, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(member.SnapshotId, bundle.ActiveSnapshotId, StringComparison.OrdinalIgnoreCase) ||
+                    !WinnersMatch(BuildPayoutsFromProofs(claimedSnapshotProofs), bundle.WinnersList))
+                {
+                    return false;
+                }
+
+                AdmitNoOpFamilyMemberNoLock(familySnapshot, member.SnapshotId);
+                RequestDeferredSaveNoLock();
+                RequestDeferredHistorySaveNoLock();
+                return true;
+            }
+
+            familySnapshot = CloneSnapshotFamily(familySnapshot);
+        }
+
+        List<string> boundaryParents = NormalizeAcceptedParentBlockHashes(
+            bundle.ValidParentBlockHashes
+                .Append(bundle.ParentBlockHash ?? string.Empty)
+                .Concat(member.BoundaryReserveProofs.Select(proof => proof.PrevBlockHash)));
+        List<BootShareProof> validatedBoundaryProofs;
+        try
+        {
+            validatedBoundaryProofs = ValidateImportedProofs(
+                member.BoundaryReserveProofs,
+                currentWinnersSnapshot,
+                boundaryParents,
+                $"peer-family:{sourceEndpoint}",
+                bundle.SnapshotContexts);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Rejected invalid V2.2 sibling boundary reserve from {SourceEndpoint}.", sourceEndpoint);
+            return false;
+        }
+
+        List<BootShareProof> memberReserve = BootSnapshotReconciliation.Reconcile(
+            [],
+            validatedBoundaryProofs,
+            familySnapshot.PaidProofIds,
+            _poolConfig.WorkSetReserveLimit);
+        List<BootShareProof> memberSnapshotProofs = memberReserve
+            .Take(_poolConfig.SharedWinnerSlotCount)
+            .Select(CloneProof)
+            .ToList();
+        string expectedMemberSnapshotId = ComputeStateIdNoLock(memberSnapshotProofs, member.BoundaryBlockHash);
+        if (!string.Equals(expectedMemberSnapshotId, member.SnapshotId, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(member.SnapshotId, bundle.ActiveSnapshotId, StringComparison.OrdinalIgnoreCase) ||
+            !WinnersMatch(BuildPayoutsFromProofs(memberSnapshotProofs), bundle.WinnersList))
+        {
+            return false;
+        }
+
+        BootNetworkStatusDto networkStatus;
+        List<PayoutInfo> winnersSnapshot;
+        List<PayoutInfo> onDeckSnapshot;
+        bool payoutChanged;
+        lock (_sync)
+        {
+            if (!string.Equals(currentStateSnapshot, _state.CurrentStateId, StringComparison.OrdinalIgnoreCase) ||
+                !BitcoinHashes.AreEquivalent(currentTipSnapshot, _state.CurrentTipBlockHash))
+            {
+                return false;
+            }
+
+            BootSnapshotFamilyState? family = GetActiveSnapshotFamilyNoLock();
+            if (family == null ||
+                !family.IsOpen ||
+                !family.BoundaryOnActiveChain ||
+                !BootSnapshotReconciliation.MatchesFamily(family, member))
+            {
+                _state.ReconciliationCounters.FamilyMismatchRejections++;
+                return false;
+            }
+
+            List<BootShareProof> reconciled = BootSnapshotReconciliation.Reconcile(
+                family.ReconciledProofs,
+                validatedBoundaryProofs,
+                family.PaidProofIds,
+                _poolConfig.WorkSetReserveLimit);
+            int unionAdditions = reconciled.Count(proof =>
+                !family.ReconciledProofs.Any(existing =>
+                    string.Equals(existing.ShareId, proof.ShareId, StringComparison.OrdinalIgnoreCase)));
+            if (unionAdditions == 0)
+            {
+                AdmitNoOpFamilyMemberNoLock(family, member.SnapshotId);
+                RequestDeferredSaveNoLock();
+                RequestDeferredHistorySaveNoLock();
+                return true;
+            }
+
+            family.SiblingAdmissions++;
+            family.UnionAdditions += unionAdditions;
+            _state.ReconciliationCounters.SiblingAdmissions++;
+            _state.ReconciliationCounters.UnionAdditions += unionAdditions;
+            RememberFamilyMemberNoLock(family, member.SnapshotId, noOp: false);
+            family.ReconciledProofs = reconciled;
+
+            _state.OnDeckProofs = BootSnapshotReconciliation.Reconcile(
+                _state.OnDeckProofs,
+                reconciled,
+                family.PaidProofIds,
+                _poolConfig.WorkSetReserveLimit);
+            foreach (BootPayoutSnapshotContext context in bundle.SnapshotContexts)
+            {
+                UpsertSnapshotContextNoLock(context);
+            }
+
+            BootPayoutSnapshotContext reconciledContext = BuildSnapshotContextFromProofsNoLock(
+                reconciled,
+                family.BoundaryBlockHash,
+                family.BoundaryBlockHeight,
+                DateTime.UtcNow,
+                _state.CurrentRoundNumber,
+                family.PredecessorSnapshotId);
+            reconciledContext.FamilyId = family.FamilyId;
+            payoutChanged = !_state.ActiveSnapshotProofIds.SequenceEqual(
+                reconciledContext.ProofIds,
+                StringComparer.OrdinalIgnoreCase);
+            UpsertSnapshotContextNoLock(reconciledContext);
+
+            if (payoutChanged)
+            {
+                _state.ActiveSnapshotId = reconciledContext.SnapshotId;
+                _state.ActiveSnapshotProofIds = reconciledContext.ProofIds.ToList();
+                _state.WinnersList = ClonePayouts(reconciledContext.WinnersList);
+                _state.CurrentStateId = reconciledContext.SnapshotId;
+                family.MemberSnapshotIds.RemoveAll(id =>
+                    string.Equals(id, reconciledContext.SnapshotId, StringComparison.OrdinalIgnoreCase));
+                RememberFamilyMemberNoLock(family, reconciledContext.SnapshotId, noOp: false);
+                family.PayoutChanges++;
+                family.ConvergenceCount++;
+                _state.ReconciliationCounters.PayoutChanges++;
+                _state.ReconciliationCounters.ConvergenceCount++;
+            }
+
+            RebuildOnDeckListNoLock();
+            _state.CandidateStateId = ComputeCandidateStateIdNoLock();
+            CacheCurrentCandidateBundleNoLock();
+            RecordNetworkEventNoLock(
+                payoutChanged ? "snapshot-reconciled" : "snapshot-family-union",
+                sourceEndpoint,
+                payoutChanged
+                    ? $"Reconciled snapshot family {family.FamilyId}; activated payout snapshot {reconciledContext.SnapshotId}."
+                    : $"Extended snapshot family {family.FamilyId} reserve without changing active payouts.",
+                family.BoundaryBlockHash,
+                family.BoundaryBlockHeight);
+            RequestDeferredSaveNoLock();
+            RequestDeferredHistorySaveNoLock();
+
+            networkStatus = BuildNetworkStatusNoLock();
+            winnersSnapshot = ClonePayouts(_state.WinnersList);
+            onDeckSnapshot = ClonePayouts(_state.OnDeckList);
+        }
+
+        await _hubContext.Clients.All.SendAsync("UpdateOnDeck", onDeckSnapshot);
+        await _hubContext.Clients.All.SendAsync("UpdateNetworkState", networkStatus);
+        if (payoutChanged)
+        {
+            await _hubContext.Clients.All.SendAsync("UpdateWinners", winnersSnapshot);
+            await _hubContext.Clients.All.SendAsync("UpdateRoundHistory", GetRoundHistory());
+            await NotifyWinnersListChangedAsync($"snapshot-reconciled:{sourceEndpoint}");
+        }
+
+        return true;
+    }
+
+    private void AdmitNoOpFamilyMemberNoLock(BootSnapshotFamilyState family, string snapshotId)
+    {
+        family.SiblingAdmissions++;
+        family.NoOpAdmissions++;
+        _state.ReconciliationCounters.SiblingAdmissions++;
+        _state.ReconciliationCounters.NoOpAdmissions++;
+        RememberFamilyMemberNoLock(family, snapshotId, noOp: true);
+    }
+
+    private void RememberFamilyMemberNoLock(BootSnapshotFamilyState family, string snapshotId, bool noOp)
+    {
+        if (!BootSnapshotReconciliation.TryRetainMemberId(family.MemberSnapshotIds, snapshotId))
+        {
+            if (noOp)
+            {
+                family.DroppedNoOpMembers++;
+                _state.ReconciliationCounters.DroppedNoOpMembers++;
+            }
+        }
     }
 
     public async Task<bool> TryBootstrapCurrentStateAsync(BootStateBundle bundle, string? observedTipBlockHash, long? observedTipBlockHeight, string sourceEndpoint)
@@ -4648,6 +4944,8 @@ public class BootProtocolStateService
             SupportFeeEnabled = _state.SupportFeeEnabled,
             PayoutVariant = _state.PayoutVariant,
             SnapshotContexts = _state.SnapshotContexts.Select(CloneSnapshotContext).ToList(),
+            SnapshotFamilies = _state.SnapshotFamilies.Select(CloneSnapshotFamily).ToList(),
+            ReconciliationCounters = CloneReconciliationCounters(_state.ReconciliationCounters),
             AcceptedParentBlockHashes = _state.AcceptedParentBlockHashes.ToList(),
             LastRotationUtc = _state.LastRotationUtc,
             GenesisRoundStartedUtc = _state.GenesisRoundStartedUtc,
@@ -4735,6 +5033,8 @@ public class BootProtocolStateService
             _state.ActiveSnapshotProofIds ??= [];
             _state.LastPaidSnapshotProofIds ??= [];
             _state.SnapshotContexts ??= [];
+            _state.SnapshotFamilies ??= [];
+            _state.ReconciliationCounters ??= new BootSnapshotReconciliationCounters();
             EnsureGenesisRoundStartNoLock(DateTime.UtcNow);
             NormalizeNetworkSensitivePayoutValuesNoLock();
             NormalizeArchivedBundlesNoLock();
@@ -4888,6 +5188,158 @@ public class BootProtocolStateService
             _state.SnapshotContexts.Any(context => string.Equals(context.SnapshotId, snapshotId, StringComparison.OrdinalIgnoreCase));
     }
 
+    private BootPayoutSnapshotContext? GetSnapshotContextNoLock(string? snapshotId)
+    {
+        return string.IsNullOrWhiteSpace(snapshotId)
+            ? null
+            : _state.SnapshotContexts.FirstOrDefault(context =>
+                string.Equals(context.SnapshotId, snapshotId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private BootSnapshotFamilyState? GetActiveSnapshotFamilyNoLock()
+    {
+        string? familyId = GetSnapshotContextNoLock(_state.ActiveSnapshotId)?.FamilyId;
+        return string.IsNullOrWhiteSpace(familyId)
+            ? null
+            : _state.SnapshotFamilies.FirstOrDefault(family =>
+                string.Equals(family.FamilyId, familyId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void UpsertLocalSnapshotFamilyNoLock(
+        BootPayoutSnapshotContext context,
+        IEnumerable<BootShareProof> boundaryReserveProofs)
+    {
+        if (_poolConfig.BootProtocolVersion < 22 || string.IsNullOrWhiteSpace(context.FamilyId))
+        {
+            return;
+        }
+
+        BootSnapshotFamilyState? family = _state.SnapshotFamilies.FirstOrDefault(existing =>
+            string.Equals(existing.FamilyId, context.FamilyId, StringComparison.OrdinalIgnoreCase));
+        if (family == null)
+        {
+            family = new BootSnapshotFamilyState
+            {
+                FamilyId = context.FamilyId,
+                ConsensusVersion = _poolConfig.BootProtocolVersion,
+                NetworkId = BuildSnapshotFamilyNetworkIdNoLock(),
+                PredecessorSnapshotId = context.PreviousSnapshotId,
+                BoundaryBlockHash = NormalizeCanonicalBlockHash(context.LockedByBlockHash) ?? string.Empty,
+                BoundaryBlockHeight = context.LockedByBlockHeight ?? 0,
+                PayoutVariant = context.PayoutVariant,
+                IsOpen = true,
+                BoundaryOnActiveChain = true
+            };
+            _state.SnapshotFamilies.Insert(0, family);
+        }
+
+        if (!family.MemberSnapshotIds.Contains(context.SnapshotId, StringComparer.OrdinalIgnoreCase))
+        {
+            family.MemberSnapshotIds.Add(context.SnapshotId);
+        }
+
+        family.ReconciledProofs = BootSnapshotReconciliation.Reconcile(
+            family.ReconciledProofs,
+            boundaryReserveProofs,
+            family.PaidProofIds,
+            _poolConfig.WorkSetReserveLimit);
+        PruneSnapshotFamiliesNoLock();
+    }
+
+    private void PruneSnapshotFamiliesNoLock()
+    {
+        int limit = Math.Max(4, _poolConfig.MaxStateBundleHistory);
+        HashSet<string> activeIds = _state.SnapshotContexts
+            .Where(context => string.Equals(context.SnapshotId, _state.ActiveSnapshotId, StringComparison.OrdinalIgnoreCase) ||
+                              string.Equals(context.SnapshotId, _state.LastPaidSnapshotId, StringComparison.OrdinalIgnoreCase))
+            .Select(context => context.FamilyId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _state.SnapshotFamilies = _state.SnapshotFamilies
+            .OrderByDescending(family => activeIds.Contains(family.FamilyId))
+            .ThenByDescending(family => family.BoundaryBlockHeight)
+            .Take(limit)
+            .Select(CloneSnapshotFamily)
+            .ToList();
+    }
+
+    private BootSnapshotFamilyMember? BuildActiveSnapshotFamilyMemberNoLock()
+    {
+        BootSnapshotFamilyState? family = GetActiveSnapshotFamilyNoLock();
+        if (family == null)
+        {
+            return null;
+        }
+
+        return new BootSnapshotFamilyMember
+        {
+            FamilyId = family.FamilyId,
+            ConsensusVersion = family.ConsensusVersion,
+            NetworkId = family.NetworkId,
+            PredecessorSnapshotId = family.PredecessorSnapshotId,
+            BoundaryBlockHash = family.BoundaryBlockHash,
+            BoundaryBlockHeight = family.BoundaryBlockHeight,
+            PayoutVariant = family.PayoutVariant,
+            SnapshotId = _state.ActiveSnapshotId,
+            BoundaryReserveProofs = family.ReconciledProofs.Select(CloneProof).ToList()
+        };
+    }
+
+    private bool IsNewDirectIngressPreviousParentProofNoLock(string? shareId, string? parentBlockHash)
+    {
+        if (string.IsNullOrWhiteSpace(parentBlockHash))
+        {
+            return false;
+        }
+
+        BootPayoutSnapshotContext? active = GetSnapshotContextNoLock(_state.ActiveSnapshotId);
+        BootPayoutSnapshotContext? predecessor = GetSnapshotContextNoLock(active?.PreviousSnapshotId);
+        string? finalizedPreviousParent = NormalizeCanonicalBlockHash(predecessor?.LockedByBlockHash);
+        if (string.IsNullOrWhiteSpace(finalizedPreviousParent) ||
+            !BitcoinHashes.AreEquivalent(parentBlockHash, finalizedPreviousParent))
+        {
+            return false;
+        }
+
+        return !_state.OnDeckProofs.Any(proof =>
+            string.Equals(proof.ShareId, shareId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void RestorePredecessorForRemovedBoundaryNoLock(
+        string source,
+        string replacementBlockHash,
+        long replacementBlockHeight)
+    {
+        BootSnapshotFamilyState? removedFamily = GetActiveSnapshotFamilyNoLock();
+        if (removedFamily == null ||
+            removedFamily.BoundaryBlockHeight != replacementBlockHeight ||
+            BitcoinHashes.AreEquivalent(removedFamily.BoundaryBlockHash, replacementBlockHash))
+        {
+            return;
+        }
+
+        removedFamily.IsOpen = false;
+        removedFamily.BoundaryOnActiveChain = false;
+        BootPayoutSnapshotContext? predecessor = GetSnapshotContextNoLock(removedFamily.PredecessorSnapshotId);
+        if (predecessor != null)
+        {
+            _state.ActiveSnapshotId = predecessor.SnapshotId;
+            _state.ActiveSnapshotProofIds = predecessor.ProofIds.ToList();
+            _state.WinnersList = ClonePayouts(predecessor.WinnersList);
+            _state.CurrentStateId = predecessor.SnapshotId;
+            _state.CurrentRoundNumber = Math.Max(0, predecessor.CurrentRoundNumber);
+            _state.CurrentTipBlockHash = NormalizeCanonicalBlockHash(predecessor.LockedByBlockHash);
+            _state.CurrentTipBlockHeight = predecessor.LockedByBlockHeight;
+        }
+
+        RecordNetworkEventNoLock(
+            "snapshot-family-reorg",
+            source,
+            $"Deactivated snapshot family {removedFamily.FamilyId} after boundary {removedFamily.BoundaryBlockHash} left the active chain.",
+            replacementBlockHash,
+            replacementBlockHeight);
+    }
+
     private void EnsureActiveSnapshotNoLock(DateTime nowUtc)
     {
         _state.SupportFeeEnabled = _poolConfig.GridLabsSupportFeeEnabled;
@@ -4942,7 +5394,8 @@ public class BootProtocolStateService
         string? blockHash,
         long? blockHeight,
         DateTime createdUtc,
-        int currentRoundNumber)
+        int currentRoundNumber,
+        string? predecessorSnapshotId = null)
     {
         List<BootShareProof> source = sourceProofs.Select(CloneProof).ToList();
         List<BootShareProof> feeFreeSnapshotProofs = SortAndTrimProofs(source, _poolConfig.SnapshotProofSlotCount);
@@ -4951,7 +5404,7 @@ public class BootProtocolStateService
         return new BootPayoutSnapshotContext
         {
             SnapshotId = snapshotId,
-            PreviousSnapshotId = _state.ActiveSnapshotId,
+            PreviousSnapshotId = predecessorSnapshotId ?? _state.ActiveSnapshotId,
             CurrentRoundNumber = currentRoundNumber,
             LockedByBlockHash = NormalizeCanonicalBlockHash(blockHash),
             LockedByBlockHeight = blockHeight,
@@ -4987,6 +5440,20 @@ public class BootProtocolStateService
                 createdUtc,
                 nextRoundNumber);
 
+        if (_poolConfig.BootProtocolVersion >= 22 &&
+            !string.IsNullOrWhiteSpace(normalizedBlockHash) &&
+            blockHeight.HasValue)
+        {
+            context.FamilyId = BootSnapshotReconciliation.ComputeFamilyId(
+                _poolConfig.BootProtocolVersion,
+                BuildSnapshotFamilyNetworkIdNoLock(),
+                context.PreviousSnapshotId,
+                normalizedBlockHash,
+                blockHeight.Value,
+                context.PayoutVariant);
+            UpsertLocalSnapshotFamilyNoLock(context, frozenProofs ?? _state.OnDeckProofs);
+        }
+
         bool changed = !string.Equals(context.SnapshotId, _state.ActiveSnapshotId, StringComparison.OrdinalIgnoreCase);
         _state.CurrentTipBlockHash = normalizedBlockHash ?? _state.CurrentTipBlockHash;
         _state.CurrentTipBlockHeight = blockHeight ?? _state.CurrentTipBlockHeight;
@@ -5012,11 +5479,24 @@ public class BootProtocolStateService
         return changed;
     }
 
-    private void ApplyPaidSnapshotRemovalNoLock(string source, string? blockHash, long? blockHeight, DateTime nowUtc)
+    private void ApplyPaidSnapshotRemovalNoLock(
+        string source,
+        string? blockHash,
+        long? blockHeight,
+        DateTime nowUtc,
+        string? provenSnapshotId = null)
     {
         EnsureActiveSnapshotNoLock(nowUtc);
-        string paidSnapshotId = _state.ActiveSnapshotId;
-        List<string> paidProofIds = _state.ActiveSnapshotProofIds.ToList();
+        string paidSnapshotId = string.IsNullOrWhiteSpace(provenSnapshotId)
+            ? _state.ActiveSnapshotId
+            : provenSnapshotId;
+        BootPayoutSnapshotContext? paidContext = GetSnapshotContextNoLock(paidSnapshotId);
+        if (paidContext == null)
+        {
+            throw new InvalidOperationException($"Cannot remove payment for unknown payout snapshot {paidSnapshotId}.");
+        }
+
+        List<string> paidProofIds = paidContext.ProofIds.ToList();
         if (paidProofIds.Count > 0)
         {
             HashSet<string> paid = paidProofIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -5028,6 +5508,21 @@ public class BootProtocolStateService
 
         _state.LastPaidSnapshotId = paidSnapshotId;
         _state.LastPaidSnapshotProofIds = paidProofIds;
+        BootSnapshotFamilyState? paidFamily = _state.SnapshotFamilies.FirstOrDefault(family =>
+            family.MemberSnapshotIds.Contains(paidSnapshotId, StringComparer.OrdinalIgnoreCase) ||
+            string.Equals(family.FamilyId, GetSnapshotContextNoLock(paidSnapshotId)?.FamilyId, StringComparison.OrdinalIgnoreCase));
+        if (paidFamily != null)
+        {
+            paidFamily.PaidProofIds = paidFamily.PaidProofIds
+                .Concat(paidProofIds)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            paidFamily.ReconciledProofs = paidFamily.ReconciledProofs
+                .Where(proof => !paidProofIds.Contains(proof.ShareId, StringComparer.OrdinalIgnoreCase))
+                .Select(CloneProof)
+                .ToList();
+            paidFamily.IsOpen = false;
+        }
         RecordNetworkEventNoLock(
             "snapshot-paid",
             source,
@@ -5063,12 +5558,17 @@ public class BootProtocolStateService
 
         protect(_state.ActiveSnapshotId);
         protect(_state.LastPaidSnapshotId);
+        protect(GetSnapshotContextNoLock(_state.ActiveSnapshotId)?.PreviousSnapshotId);
+        foreach (BootSnapshotFamilyState family in _state.SnapshotFamilies.Where(family => family.IsOpen))
+        {
+            protect(family.PredecessorSnapshotId);
+        }
         foreach (BootShareProof proof in _state.OnDeckProofs)
         {
             protect(proof.PayoutSnapshotId);
         }
 
-        int maxContexts = Math.Max(_poolConfig.MaxStateBundleHistory, _poolConfig.WorkSetReserveMultiplier * 16);
+        int maxContexts = GetMaxSnapshotContextCountNoLock();
         List<BootPayoutSnapshotContext> protectedContexts = _state.SnapshotContexts
             .Where(context => protectedIds.Contains(context.SnapshotId))
             .GroupBy(context => context.SnapshotId, StringComparer.OrdinalIgnoreCase)
@@ -5091,6 +5591,11 @@ public class BootProtocolStateService
             .Concat(unprotectedContexts)
             .Select(CloneSnapshotContext)
             .ToList();
+    }
+
+    private int GetMaxSnapshotContextCountNoLock()
+    {
+        return Math.Max(_poolConfig.MaxStateBundleHistory, _poolConfig.WorkSetReserveMultiplier * 16);
     }
 
     private int RepairMissingWorkSetSnapshotContextsNoLock(DateTime nowUtc)
@@ -5315,7 +5820,15 @@ public class BootProtocolStateService
 
     private string BuildPayoutVariantNoLock()
     {
-        return _poolConfig.GridLabsSupportFeeEnabled ? "gridlabs-support-v1" : "fee-free";
+        string baseVariant = _poolConfig.GridLabsSupportFeeEnabled ? "gridlabs-support-v1" : "fee-free";
+        return _poolConfig.BootProtocolVersion >= 22
+            ? $"{baseVariant}:shared={_poolConfig.SharedWinnerSlotCount}:snapshot={_poolConfig.SnapshotProofSlotCount}:reserve={_poolConfig.WorkSetReserveLimit}"
+            : baseVariant;
+    }
+
+    private string BuildSnapshotFamilyNetworkIdNoLock()
+    {
+        return $"{_poolConfig.BootNetworkId.Trim()}|bitcoin={BitcoinScript.NormalizeNetwork(_poolConfig.BitcoinNetwork)}";
     }
 
     private void NormalizeNetworkSensitivePayoutValuesNoLock()
@@ -5440,6 +5953,7 @@ public class BootProtocolStateService
         BootCoinbaserDiagnosticsSummaryDto coinbaserDiagnostics = BuildCoinbaserDiagnosticsSummaryNoLock(nowUtc);
         List<BootPeerStatus> peers = CloneExternalPeersNoLock();
         BootNodeVersionInfo localVersion = BootProtocolVersions.Local(_poolConfig);
+        BootSnapshotFamilyState? activeFamily = GetActiveSnapshotFamilyNoLock();
 
         return new BootNetworkStatusDto
         {
@@ -5531,7 +6045,11 @@ public class BootProtocolStateService
             LocalDatumMiners = localDatumMiners,
             CoinbaserDiagnostics = coinbaserDiagnostics,
             Peers = peers,
-            Commitment = BuildCommitmentNoLock()
+            Commitment = BuildCommitmentNoLock(),
+            ActiveSnapshotFamilyId = activeFamily?.FamilyId ?? string.Empty,
+            SnapshotFamilyMemberCount = activeFamily?.MemberSnapshotIds.Count ?? 0,
+            SnapshotFamilyUnionProofCount = activeFamily?.ReconciledProofs.Count ?? 0,
+            ReconciliationCounters = CloneReconciliationCounters(_state.ReconciliationCounters)
         };
     }
 
@@ -7485,7 +8003,8 @@ public class BootProtocolStateService
             SnapshotContexts = BuildSnapshotContextsForBundleNoLock(
                 snapshotProofs.Concat(_state.OnDeckProofs),
                 [candidateContext]),
-            Commitment = BuildCommitmentNoLock()
+            Commitment = BuildCommitmentNoLock(),
+            SnapshotFamilyMember = BuildActiveSnapshotFamilyMemberNoLock()
         };
     }
 
@@ -7495,7 +8014,9 @@ public class BootProtocolStateService
             .FirstOrDefault(bundle => string.Equals(bundle.StateId, _state.CurrentStateId, StringComparison.OrdinalIgnoreCase))
             ?.PreviousStateId;
         HashSet<string> activeProofIds = _state.ActiveSnapshotProofIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        List<BootShareProof> activeProofs = _state.OnDeckProofs
+        BootSnapshotFamilyState? activeFamily = GetActiveSnapshotFamilyNoLock();
+        IEnumerable<BootShareProof> activeProofSource = activeFamily?.ReconciledProofs ?? _state.OnDeckProofs;
+        List<BootShareProof> activeProofs = activeProofSource
             .Where(proof => activeProofIds.Contains(proof.ShareId))
             .Select(CloneProof)
             .ToList();
@@ -7534,7 +8055,8 @@ public class BootProtocolStateService
             WorkSetProofs = _state.OnDeckProofs.Select(CloneProof).ToList(),
             SnapshotContexts = BuildSnapshotContextsForBundleNoLock(
                 activeProofs.Concat(_state.OnDeckProofs)),
-            Commitment = BuildCommitmentNoLock()
+            Commitment = BuildCommitmentNoLock(),
+            SnapshotFamilyMember = BuildActiveSnapshotFamilyMemberNoLock()
         };
     }
 
@@ -9902,6 +10424,7 @@ public class BootProtocolStateService
             ShareProofs = (bundle.ShareProofs ?? []).Select(CloneProof).ToList(),
             WorkSetProofs = (bundle.WorkSetProofs ?? []).Select(CloneProof).ToList(),
             SnapshotContexts = (bundle.SnapshotContexts ?? []).Select(CloneSnapshotContext).ToList(),
+            SnapshotFamilyMember = CloneSnapshotFamilyMember(bundle.SnapshotFamilyMember),
             Commitment = new BootCommitmentInfo
             {
                 ProtocolVersion = bundle.Commitment.ProtocolVersion,
@@ -9919,6 +10442,7 @@ public class BootProtocolStateService
         return new BootPayoutSnapshotContext
         {
             SnapshotId = context.SnapshotId,
+            FamilyId = context.FamilyId,
             PreviousSnapshotId = context.PreviousSnapshotId,
             CurrentRoundNumber = context.CurrentRoundNumber,
             LockedByBlockHash = context.LockedByBlockHash,
@@ -9931,6 +10455,60 @@ public class BootProtocolStateService
             FeeFreeWinnersList = ClonePayouts(context.FeeFreeWinnersList)
         };
     }
+
+    private static BootSnapshotFamilyMember? CloneSnapshotFamilyMember(BootSnapshotFamilyMember? member)
+    {
+        if (member == null)
+        {
+            return null;
+        }
+
+        return new BootSnapshotFamilyMember
+        {
+            FamilyId = member.FamilyId,
+            ConsensusVersion = member.ConsensusVersion,
+            NetworkId = member.NetworkId,
+            PredecessorSnapshotId = member.PredecessorSnapshotId,
+            BoundaryBlockHash = member.BoundaryBlockHash,
+            BoundaryBlockHeight = member.BoundaryBlockHeight,
+            PayoutVariant = member.PayoutVariant,
+            SnapshotId = member.SnapshotId,
+            BoundaryReserveProofs = (member.BoundaryReserveProofs ?? []).Select(CloneProof).ToList()
+        };
+    }
+
+    private static BootSnapshotFamilyState CloneSnapshotFamily(BootSnapshotFamilyState family) => new()
+    {
+        FamilyId = family.FamilyId,
+        ConsensusVersion = family.ConsensusVersion,
+        NetworkId = family.NetworkId,
+        PredecessorSnapshotId = family.PredecessorSnapshotId,
+        BoundaryBlockHash = family.BoundaryBlockHash,
+        BoundaryBlockHeight = family.BoundaryBlockHeight,
+        PayoutVariant = family.PayoutVariant,
+        IsOpen = family.IsOpen,
+        BoundaryOnActiveChain = family.BoundaryOnActiveChain,
+        MemberSnapshotIds = (family.MemberSnapshotIds ?? []).ToList(),
+        ReconciledProofs = (family.ReconciledProofs ?? []).Select(CloneProof).ToList(),
+        PaidProofIds = (family.PaidProofIds ?? []).ToList(),
+        SiblingAdmissions = family.SiblingAdmissions,
+        UnionAdditions = family.UnionAdditions,
+        NoOpAdmissions = family.NoOpAdmissions,
+        DroppedNoOpMembers = family.DroppedNoOpMembers,
+        PayoutChanges = family.PayoutChanges,
+        ConvergenceCount = family.ConvergenceCount
+    };
+
+    private static BootSnapshotReconciliationCounters CloneReconciliationCounters(BootSnapshotReconciliationCounters? counters) => new()
+    {
+        SiblingAdmissions = counters?.SiblingAdmissions ?? 0,
+        UnionAdditions = counters?.UnionAdditions ?? 0,
+        NoOpAdmissions = counters?.NoOpAdmissions ?? 0,
+        DroppedNoOpMembers = counters?.DroppedNoOpMembers ?? 0,
+        PayoutChanges = counters?.PayoutChanges ?? 0,
+        ConvergenceCount = counters?.ConvergenceCount ?? 0,
+        FamilyMismatchRejections = counters?.FamilyMismatchRejections ?? 0
+    };
 
     private static BootProvisionalTipState? CloneProvisionalTip(BootProvisionalTipState? provisional)
     {

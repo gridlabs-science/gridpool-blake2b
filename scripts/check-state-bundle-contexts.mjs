@@ -26,7 +26,8 @@ function summarizeBundle(bundle) {
   const contextIds = new Set((bundle.snapshotContexts ?? []).map(context => context.snapshotId).filter(Boolean));
   const proofSnapshotIds = unique([
     ...(bundle.shareProofs ?? []).map(proof => proof.payoutSnapshotId),
-    ...(bundle.workSetProofs ?? []).map(proof => proof.payoutSnapshotId)
+    ...(bundle.workSetProofs ?? []).map(proof => proof.payoutSnapshotId),
+    ...(bundle.snapshotFamilyMember?.boundaryReserveProofs ?? []).map(proof => proof.payoutSnapshotId)
   ]);
   const missingContextIds = proofSnapshotIds.filter(id => !contextIds.has(id));
 
@@ -35,6 +36,7 @@ function summarizeBundle(bundle) {
     stateId: bundle.stateId ?? '',
     shareProofs: (bundle.shareProofs ?? []).length,
     workSetProofs: (bundle.workSetProofs ?? []).length,
+    boundaryReserveProofs: (bundle.snapshotFamilyMember?.boundaryReserveProofs ?? []).length,
     uniqueProofContexts: proofSnapshotIds.length,
     bundledContexts: contextIds.size,
     missingContexts: missingContextIds
@@ -56,7 +58,7 @@ async function checkBase(base) {
     const bundle = await fetchJson(`${normalizedBase}/api/network/state/${encodeURIComponent(stateId)}`);
     const result = summarizeBundle(bundle);
     const label = result.missingContexts.length === 0 ? 'OK' : 'FAIL';
-    console.log(`  ${label} ${result.kind} ${result.stateId.slice(0, 12)} share=${result.shareProofs} work=${result.workSetProofs} proofContexts=${result.uniqueProofContexts} bundledContexts=${result.bundledContexts} missing=${result.missingContexts.length}`);
+    console.log(`  ${label} ${result.kind} ${result.stateId.slice(0, 12)} share=${result.shareProofs} work=${result.workSetProofs} boundary=${result.boundaryReserveProofs} proofContexts=${result.uniqueProofContexts} bundledContexts=${result.bundledContexts} missing=${result.missingContexts.length}`);
 
     if (result.missingContexts.length > 0) {
       failed = true;

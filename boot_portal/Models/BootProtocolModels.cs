@@ -400,6 +400,10 @@ public class BootNetworkStatusDto
     public BootCoinbaserDiagnosticsSummaryDto CoinbaserDiagnostics { get; set; } = new();
     public List<BootPeerStatus> Peers { get; set; } = [];
     public BootCommitmentInfo Commitment { get; set; } = new();
+    public string ActiveSnapshotFamilyId { get; set; } = string.Empty;
+    public int SnapshotFamilyMemberCount { get; set; }
+    public int SnapshotFamilyUnionProofCount { get; set; }
+    public BootSnapshotReconciliationCounters ReconciliationCounters { get; set; } = new();
 }
 
 public class BootAcceptedShareTelemetry
@@ -887,11 +891,13 @@ public class BootStateBundle
     public List<BootShareProof> WorkSetProofs { get; set; } = [];
     public List<BootPayoutSnapshotContext> SnapshotContexts { get; set; } = [];
     public BootCommitmentInfo Commitment { get; set; } = new();
+    public BootSnapshotFamilyMember? SnapshotFamilyMember { get; set; }
 }
 
 public class BootPayoutSnapshotContext
 {
     public string SnapshotId { get; set; } = string.Empty;
+    public string FamilyId { get; set; } = string.Empty;
     public string PreviousSnapshotId { get; set; } = string.Empty;
     public int CurrentRoundNumber { get; set; }
     public string? LockedByBlockHash { get; set; }

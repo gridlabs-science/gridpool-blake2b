@@ -193,8 +193,13 @@ def summarize_bundle(bundle: dict) -> tuple[int, list[str]]:
     contexts = {context.get("snapshotId"): context for context in bundle.get("snapshotContexts", []) if context.get("snapshotId")}
     failures: list[str] = []
     checked = 0
-    for section in ("shareProofs", "workSetProofs"):
-        for proof in bundle.get(section, []):
+    proof_sections = {
+        "shareProofs": bundle.get("shareProofs", []),
+        "workSetProofs": bundle.get("workSetProofs", []),
+        "boundaryReserveProofs": (bundle.get("snapshotFamilyMember") or {}).get("boundaryReserveProofs", []),
+    }
+    for section, proofs in proof_sections.items():
+        for proof in proofs:
             checked += 1
             actual = aggregate_outputs(parse_outputs(proof["coinbaseHex"])[1:])
             variants = proof_variants(bundle, proof, contexts)

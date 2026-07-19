@@ -24,6 +24,8 @@ public class PoolState
     public bool SupportFeeEnabled { get; set; }
     public string PayoutVariant { get; set; } = string.Empty;
     public List<BootPayoutSnapshotContext> SnapshotContexts { get; set; } = [];
+    public List<BootSnapshotFamilyState> SnapshotFamilies { get; set; } = [];
+    public BootSnapshotReconciliationCounters ReconciliationCounters { get; set; } = new();
     public List<string> AcceptedParentBlockHashes { get; set; } = [];
     public DateTime? LastRotationUtc { get; set; }
     public DateTime? GenesisRoundStartedUtc { get; set; }

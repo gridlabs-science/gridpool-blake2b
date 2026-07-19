@@ -4,8 +4,8 @@ namespace boot_portal.Models;
 
 public static class BootProtocolVersions
 {
-    public const int ConsensusVersion = 21;
-    public const int StateBundleSchemaVersion = 2;
+    public const int ConsensusVersion = 22;
+    public const int StateBundleSchemaVersion = 3;
     public const int HttpApiVersion = 1;
     public const int PeerTransportVersion = 2;
     public const int UdpRelayVersion = 5;
