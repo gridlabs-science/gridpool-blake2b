@@ -158,7 +158,11 @@ Long-term censorship-resistance posture:
 - [ ] Run chain-tip latency reports during the 7-day soak and compare against local Bitcoin tip detection.
 - [ ] Track Bitcoin ZMQ topic sequence numbers instead of discarding the third message frame. Expose per-topic last sequence, gaps, duplicates, reconnects, and reset/wrap handling in API/monitor telemetry so delayed or missing notifications can be distinguished from a lagging Bitcoin node.
 - [ ] Investigate and choose a redundant attached-node notification strategy for packaged installs. Evaluate ZMQ `rawblock`/`hashblock`/`sequence`, Bitcoin Core mining IPC `waitTipChanged`, GBT long polling, `blocknotify`, and periodic RPC best-tip reconciliation; document the preferred and fallback matrix for Core, Knots, Docker, Umbrel, and Start9.
-- [ ] Decide whether peer-relayed chain-tip headers remain measurement/early-warning signals or may eventually trigger provisional or consensus snapshot behavior. Any activation must specify header PoW and parent validation, freshness/replay protection, reorg handling, local-node confirmation, failure behavior, and whether it requires a coordinated consensus-version bump.
+- [x] Implement opt-in peer-header stale-work protection: validate PoW/parent/freshness/expected mainnet target, freeze a provisional Work Set boundary, pause fresh work after a grace period, quarantine late old-parent proofs, and require local full-node confirmation before activation.
+- [x] Serialize Bitcoin ZMQ notifications and deduplicate paired `hashblock`/`rawblock` delivery so one block cannot create duplicate snapshots or phantom heights.
+- [ ] Coordinate enabling `enable_peer_tip_stale_protection` on every active mainnet-beta node; mixed boundary behavior can produce a short-lived snapshot split.
+- [ ] Design V2.2 peer-header snapshot activation with deterministic test vectors for competing headers, reorganizations, withheld block bodies, rollback, missed headers, retarget boundaries, and the exact old-parent cutoff. Do not activate from a peer header in V2.1.
+- [ ] Evaluate optional 1-3 second header-only empty-block mining as a separate, disabled-by-default experiment. Account for invalid-parent risk, lost fees, the 2015 BIP66/SPV-mining failure, and whether FIBRE makes the feature unnecessary.
 - [ ] Add advanced, disabled-by-default optimistic peer-header mining for GridPool-controlled SV2/direct-template adapters.
 - [ ] Decide whether UDP hole punching is necessary for beta performance after 7-day latency data review.
 - [ ] Separately decide the censorship-resistance roadmap priority for UDP hole punching even if beta performance is acceptable.
@@ -189,7 +193,7 @@ Current evidence:
 - Encrypted V2 session bundle sync and optional peer-only listener support are implemented but need real-node validation.
 - Reachability self-test, UDP diagnostics, chain-tip latency instrumentation, and admin-triggered PCP/NAT-PMP mapping are implemented.
 - Current ZMQ telemetry records arrival timestamps but discards Bitcoin Core's per-topic sequence frame; this prevents direct diagnosis of message gaps and duplicates. Evomining has also exhibited intermittent multi-block catch-up batches and duplicate rawblock observations that should be resolved during the soak.
-- Peer-relayed headers remain measurement-only: they do not currently advance the chain tip, rotate snapshots, invalidate work, or build mining templates.
+- Peer-relayed headers remain non-final: opt-in V2.1 protection may freeze provisionally and pause stale work, but only the locally attached Bitcoin node can activate a snapshot. Peer headers do not authorize payment transitions or mining on an unvalidated parent.
 - Real-router PCP/NAT-PMP validation, UPnP decision, direct-vs-session relay dependency metrics, and the 7-day latency report remain open.
 - Current production-like topology is acceptable for public beta if enough independent public nodes stay reachable, but it is not the final censorship-resistance topology.
 

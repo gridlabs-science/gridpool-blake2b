@@ -658,6 +658,7 @@ function buildAlerts(snapshot, state, config) {
         maybeAddPeerCompatibilityAlerts(alerts, node);
         maybeAddCoinbaseModeAlert(alerts, node);
         maybeAddNodeVersionVisibilityAlert(alerts, node);
+        maybeAddPeerTipProtectionAlert(alerts, node);
     }
 
     maybeAddConsensusComparisonAlerts(alerts, snapshot, state, config);
@@ -806,6 +807,19 @@ function maybeAddNodeVersionVisibilityAlert(alerts, node) {
     });
 }
 
+function maybeAddPeerTipProtectionAlert(alerts, node) {
+    if (!node.summary || node.summary.miningWorkSafe !== false) return;
+    alerts.push({
+        severity: "critical",
+        category: "local-bitcoin-lagging",
+        fingerprint: `gridpool:${node.name}:local-bitcoin-lagging`,
+        title: `GridPool ${node.name} paused stale-parent mining work`,
+        detail: node.summary.miningWorkSafetyReason ||
+            `Peer tip ${shortId(node.summary.provisionalTipBlockHash) || "--"} remains unconfirmed by the local Bitcoin node.`,
+        codexEligible: false
+    });
+}
+
 function maybeAddConsensusComparisonAlerts(alerts, snapshot, state, config) {
     for (const group of buildConsensusReport(snapshot, config)) {
         if (group.nodes.length < 2) continue;
@@ -821,6 +835,28 @@ function maybeAddConsensusComparisonAlerts(alerts, snapshot, state, config) {
             addDivergenceAlertForField(alerts, state, config, group, "candidateStateId", "candidate state", false);
         } else {
             resetFailure(state, `consensus:${group.groupKey}:candidateStateId`);
+        }
+
+
+        const nodesByTip = new Map();
+        for (const node of group.nodes) {
+            const tip = normalizeId(node.currentTipBlockHash);
+            if (!tip) continue;
+            if (!nodesByTip.has(tip)) nodesByTip.set(tip, []);
+            nodesByTip.get(tip).push(node);
+        }
+        for (const [tip, nodes] of nodesByTip) {
+            const heights = [...new Set(nodes.map(node => node.currentTipBlockHeight).filter(value => value != null))];
+            if (nodes.length > 1 && heights.length > 1) {
+                alerts.push({
+                    severity: "warning",
+                    category: "tip-metadata-mismatch",
+                    fingerprint: `consensus:${group.groupKey}:tip-height:${tip}`,
+                    title: `GridPool ${group.groupKey} reports inconsistent heights for one Bitcoin tip`,
+                    detail: nodes.map(node => `${node.name}=${node.currentTipBlockHeight ?? "--"}`).join(", "),
+                    codexEligible: false
+                });
+            }
         }
 
         const workSetCounts = group.nodes
@@ -1148,6 +1184,13 @@ function compactNodeConsensus(node) {
         lastPaidSnapshotId: summary.lastPaidSnapshotId || "",
         currentTipBlockHash: summary.currentTipBlockHash || "",
         currentTipBlockHeight: summary.currentTipBlockHeight ?? null,
+        currentTipCompactTarget: summary.currentTipCompactTarget ?? null,
+        peerTipStaleProtectionEnabled: summary.peerTipStaleProtectionEnabled ?? false,
+        miningWorkSafe: summary.miningWorkSafe ?? true,
+        localBitcoinLagging: summary.localBitcoinLagging ?? false,
+        miningWorkSafetyReason: summary.miningWorkSafetyReason || "",
+        provisionalTipBlockHash: summary.provisionalTipBlockHash || "",
+        provisionalSnapshotId: summary.provisionalSnapshotId || "",
         workSetCount: summary.workSetCount ?? null,
         workSetReserveLimit: summary.workSetReserveLimit ?? null,
         activeSnapshotProofCount: summary.activeSnapshotProofCount ?? null,

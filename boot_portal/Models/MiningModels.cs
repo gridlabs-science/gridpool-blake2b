@@ -32,6 +32,9 @@ public class MiningShareAdviceDto
     public string ActiveSnapshotId { get; set; } = string.Empty;
     public string? CurrentTipBlockHash { get; set; }
     public long? CurrentTipBlockHeight { get; set; }
+    public bool MiningWorkSafe { get; set; } = true;
+    public string MiningWorkSafetyReason { get; set; } = string.Empty;
+    public string? ProvisionalTipBlockHash { get; set; }
     public int SharedWinnerSlotCount { get; set; }
     public int WorkSetCount { get; set; }
     public int WorkSetReserveLimit { get; set; }
@@ -70,6 +73,9 @@ public class Sv2WorkSelectionDto
     public string CandidateStateId { get; set; } = string.Empty;
     public string? CurrentTipBlockHash { get; set; }
     public long? CurrentTipBlockHeight { get; set; }
+    public bool MiningWorkSafe { get; set; } = true;
+    public string MiningWorkSafetyReason { get; set; } = string.Empty;
+    public string? ProvisionalTipBlockHash { get; set; }
     public int TotalPayoutSlotCount { get; set; }
     public int SharedWinnerSlotCount { get; set; }
     public bool SupportFeeEnabled { get; set; }

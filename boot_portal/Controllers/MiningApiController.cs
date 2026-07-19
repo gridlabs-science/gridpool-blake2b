@@ -64,6 +64,15 @@ public class MiningApiController : ControllerBase
     [HttpGet("sv2-work-selection")]
     public IActionResult GetSv2WorkSelection()
     {
+        if (!_stateService.CanIssueMiningWork(out string reason))
+        {
+            return Conflict(new
+            {
+                error = "local-bitcoin-lagging",
+                message = reason
+            });
+        }
+
         return Ok(_stateService.GetSv2WorkSelectionResponse());
     }
 

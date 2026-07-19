@@ -8,6 +8,8 @@ public class PoolState
     public int CurrentRoundNumber { get; set; }
     public string? CurrentTipBlockHash { get; set; }
     public long? CurrentTipBlockHeight { get; set; }
+    public uint? CurrentTipCompactTarget { get; set; }
+    public BootProvisionalTipState? ProvisionalTip { get; set; }
     public string? LastTestingTriggerBlockHash { get; set; }
     public long? LastTestingTriggerBlockHeight { get; set; }
     public string? LastGridPoolBlockHash { get; set; }
@@ -41,6 +43,21 @@ public class PoolState
     public List<BootPeerStatus> Peers { get; set; } = [];
     public Dictionary<string, string> KnownDatumPayoutAddresses { get; set; } = [];
     public BestShareRecord BestShare { get; set; } = new();
+}
+
+public class BootProvisionalTipState
+{
+    public string BlockHash { get; set; } = string.Empty;
+    public string ParentBlockHash { get; set; } = string.Empty;
+    public string HeaderHex { get; set; } = string.Empty;
+    public uint CompactTarget { get; set; }
+    public DateTime HeaderTimeUtc { get; set; }
+    public DateTime ObservedUtc { get; set; }
+    public DateTime GraceDeadlineUtc { get; set; }
+    public string Source { get; set; } = string.Empty;
+    public string SnapshotId { get; set; } = string.Empty;
+    public List<BootShareProof> SnapshotProofs { get; set; } = [];
+    public bool ExpectedDifficultyValidated { get; set; }
 }
 
 public class PoolStateHistory

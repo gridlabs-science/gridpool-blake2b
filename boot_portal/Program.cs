@@ -216,6 +216,18 @@ public class PoolConfig
     [JsonPropertyName("peer_session_clock_skew_seconds")]
     public int PeerSessionClockSkewSeconds { get; set; } = 900;
 
+    [JsonPropertyName("enable_peer_tip_stale_protection")]
+    public bool EnablePeerTipStaleProtection { get; set; } = false;
+
+    [JsonPropertyName("peer_tip_grace_seconds")]
+    public int PeerTipGraceSeconds { get; set; } = 3;
+
+    [JsonPropertyName("peer_tip_max_header_age_seconds")]
+    public int PeerTipMaxHeaderAgeSeconds { get; set; } = 86400;
+
+    [JsonPropertyName("peer_tip_max_future_seconds")]
+    public int PeerTipMaxFutureSeconds { get; set; } = 7200;
+
     [JsonPropertyName("enable_peer_udp_fast_relay")]
     public bool EnablePeerUdpFastRelay { get; set; } = true;
 

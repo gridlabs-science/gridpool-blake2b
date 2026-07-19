@@ -115,6 +115,9 @@ public static class PoolConfigValidator
         ValidatePositive(errors, config.PeerSessionIdleTimeoutSeconds, "peer_session_idle_timeout_seconds");
         ValidatePositive(errors, config.PeerSessionMaxFrameBytes, "peer_session_max_frame_bytes");
         ValidatePositive(errors, config.PeerSessionClockSkewSeconds, "peer_session_clock_skew_seconds");
+        ValidatePositive(errors, config.PeerTipGraceSeconds, "peer_tip_grace_seconds");
+        ValidatePositive(errors, config.PeerTipMaxHeaderAgeSeconds, "peer_tip_max_header_age_seconds");
+        ValidatePositive(errors, config.PeerTipMaxFutureSeconds, "peer_tip_max_future_seconds");
         if (config.PeerSessionMaxFrameBytes > config.MaxShareRequestBytes)
         {
             errors.Add("peer_session_max_frame_bytes must be less than or equal to max_share_request_bytes");

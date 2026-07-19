@@ -66,6 +66,8 @@ public class BootProtocolStateService
     private readonly Dictionary<string, Queue<DateTime>> _recentPulseByPeer = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Queue<DateTime>> _recentPulseByAddress = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _optimisticRelayedShareIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, BitcoinHeaderEvaluation> _localChainTipHeaders = new(StringComparer.OrdinalIgnoreCase);
+    private long _provisionalTipGeneration;
     private Task? _deferredSaveTask;
     private bool _deferredSavePending;
     private Task? _deferredHistorySaveTask;
@@ -105,6 +107,41 @@ public class BootProtocolStateService
         _hubContext = hubContext;
         _logger = logger;
         LoadState();
+
+        string? restoredProvisionalHash = null;
+        long restoredGeneration = 0;
+        lock (_sync)
+        {
+            if (!_poolConfig.EnablePeerTipStaleProtection)
+            {
+                _state.ProvisionalTip = null;
+            }
+            else if (_state.ProvisionalTip != null)
+            {
+                BitcoinHeaderEvaluation restoredHeader = BitcoinHashes.EvaluateHeader(
+                    _state.ProvisionalTip.HeaderHex,
+                    _state.ProvisionalTip.ObservedUtc);
+                if (!restoredHeader.IsValid ||
+                    !BitcoinHashes.AreEquivalent(restoredHeader.BlockHash, _state.ProvisionalTip.BlockHash) ||
+                    !BitcoinHashes.AreEquivalent(restoredHeader.ParentBlockHash, _state.CurrentTipBlockHash))
+                {
+                    _logger.LogWarning("Discarded malformed or obsolete provisional peer-tip state during startup.");
+                    _state.ProvisionalTip = null;
+                    SaveStateNoLock();
+                }
+                else
+                {
+                    _provisionalTipGeneration++;
+                    restoredGeneration = _provisionalTipGeneration;
+                    restoredProvisionalHash = _state.ProvisionalTip.BlockHash;
+                }
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(restoredProvisionalHash))
+        {
+            ScheduleProvisionalTipGraceCheck(restoredProvisionalHash, restoredGeneration);
+        }
     }
 
     public ChannelReader<BootShareProof> AcceptedShares => _acceptedShares.Reader;
@@ -155,6 +192,11 @@ public class BootProtocolStateService
         var waitStopwatch = Stopwatch.StartNew();
         lock (_sync)
         {
+            if (!IsMiningWorkSafeNoLock(DateTime.UtcNow))
+            {
+                throw new InvalidOperationException(BuildMiningWorkSafetyReasonNoLock());
+            }
+
             double waitMs = waitStopwatch.Elapsed.TotalMilliseconds;
             if (waitMs >= SlowStateLockWaitWarningMs)
             {
@@ -196,6 +238,16 @@ public class BootProtocolStateService
         lock (_sync)
         {
             return BuildNetworkStatusNoLock();
+        }
+    }
+
+    public bool CanIssueMiningWork(out string reason)
+    {
+        lock (_sync)
+        {
+            bool safe = IsMiningWorkSafeNoLock(DateTime.UtcNow);
+            reason = safe ? string.Empty : BuildMiningWorkSafetyReasonNoLock();
+            return safe;
         }
     }
 
@@ -254,6 +306,9 @@ public class BootProtocolStateService
                 CandidateStateId = _state.CandidateStateId,
                 CurrentTipBlockHash = _state.CurrentTipBlockHash,
                 CurrentTipBlockHeight = _state.CurrentTipBlockHeight,
+                MiningWorkSafe = IsMiningWorkSafeNoLock(DateTime.UtcNow),
+                MiningWorkSafetyReason = BuildMiningWorkSafetyReasonNoLock(),
+                ProvisionalTipBlockHash = _state.ProvisionalTip?.BlockHash,
                 TotalPayoutSlotCount = _poolConfig.TotalPayoutSlotCount,
                 SharedWinnerSlotCount = _poolConfig.SharedWinnerSlotCount,
                 SupportFeeEnabled = _poolConfig.GridLabsSupportFeeEnabled,
@@ -312,6 +367,9 @@ public class BootProtocolStateService
                 ActiveSnapshotId = _state.ActiveSnapshotId,
                 CurrentTipBlockHash = _state.CurrentTipBlockHash,
                 CurrentTipBlockHeight = _state.CurrentTipBlockHeight,
+                MiningWorkSafe = IsMiningWorkSafeNoLock(DateTime.UtcNow),
+                MiningWorkSafetyReason = BuildMiningWorkSafetyReasonNoLock(),
+                ProvisionalTipBlockHash = _state.ProvisionalTip?.BlockHash,
                 SharedWinnerSlotCount = _poolConfig.SharedWinnerSlotCount,
                 WorkSetCount = _state.OnDeckProofs.Count,
                 WorkSetReserveLimit = _poolConfig.WorkSetReserveLimit,
@@ -1866,6 +1924,16 @@ public class BootProtocolStateService
                 }
             }
         }
+
+        lock (_sync)
+        {
+            if (validation.IsValid && ShouldQuarantinePreviousParentNoLock(validation.PrevBlockHash, DateTime.UtcNow))
+            {
+                validation = RejectValidatedShare(
+                    validation,
+                    "Previous-parent proof quarantined after the provisional peer-tip boundary.");
+            }
+        }
         shareCoreValidationDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
         DateTime validationCompletedUtc = DateTime.UtcNow;
 
@@ -2425,7 +2493,8 @@ public class BootProtocolStateService
         double minimumDifficulty;
         lock (_sync)
         {
-            if (!IsAcceptedParentBlockHashNoLock(headerEvaluation.PrevBlockHash))
+            if (!IsAcceptedParentBlockHashNoLock(headerEvaluation.PrevBlockHash) ||
+                ShouldQuarantinePreviousParentNoLock(headerEvaluation.PrevBlockHash, DateTime.UtcNow))
             {
                 return;
             }
@@ -3142,23 +3211,42 @@ public class BootProtocolStateService
         DateTime transportReceivedUtc,
         long? blockHeight = null)
     {
-        string normalizedHeader = BitcoinHashes.NormalizeHex(headerHex);
-        string blockHash;
-        try
+        BitcoinHeaderEvaluation evaluation = BitcoinHashes.EvaluateHeader(headerHex, transportReceivedUtc);
+        if (!evaluation.IsValid)
         {
-            blockHash = BitcoinHashes.ComputeBlockHashFromHeader(normalizedHeader);
-        }
-        catch (ArgumentException ex)
-        {
-            _logger.LogWarning(ex, "Ignored invalid local Bitcoin block header from {Source}.", source);
+            _logger.LogWarning(
+                "Ignored invalid local Bitcoin block header from {Source}: {Reason}",
+                source,
+                evaluation.RejectionReason);
             return false;
+        }
+
+        lock (_sync)
+        {
+            _localChainTipHeaders[evaluation.BlockHash] = evaluation;
+            if (BitcoinHashes.AreEquivalent(evaluation.BlockHash, _state.CurrentTipBlockHash))
+            {
+                _state.CurrentTipCompactTarget = evaluation.CompactTarget;
+                RequestDeferredSaveNoLock();
+            }
+            if (_localChainTipHeaders.Count > 32)
+            {
+                foreach (string expired in _localChainTipHeaders
+                             .OrderBy(entry => entry.Value.ReceivedUtc)
+                             .Take(_localChainTipHeaders.Count - 32)
+                             .Select(entry => entry.Key)
+                             .ToList())
+                {
+                    _localChainTipHeaders.Remove(expired);
+                }
+            }
         }
 
         RecordExternalNetworkEvent(
             "local-chain-tip-header",
             source,
             "Local Bitcoin source delivered a raw block header.",
-            blockHash,
+            evaluation.BlockHash,
             blockHeight,
             transportReceivedUtc,
             "bitcoin-zmq-rawblock",
@@ -3168,8 +3256,8 @@ public class BootProtocolStateService
         {
             SenderEndpoint = GetSelfEndpoint(),
             Source = source,
-            HeaderHex = normalizedHeader,
-            BlockHash = blockHash,
+            HeaderHex = evaluation.HeaderHex,
+            BlockHash = evaluation.BlockHash,
             BlockHeight = blockHeight,
             ObservedUtc = transportReceivedUtc,
             ProtocolVersion = _poolConfig.BootProtocolVersion,
@@ -3188,6 +3276,8 @@ public class BootProtocolStateService
         bool shouldRotateTestRound = false;
         bool metadataChanged = false;
         bool snapshotChanged = false;
+        bool provisionalResolved = false;
+        double? provisionalLeadMs = null;
         List<PayoutInfo> winnersSnapshot = [];
         List<PayoutInfo> onDeckSnapshot = [];
         lock (_sync)
@@ -3214,6 +3304,11 @@ public class BootProtocolStateService
             if (BitcoinHashes.AreEquivalent(normalizedBlockHash, _state.CurrentTipBlockHash))
             {
                 metadataChanged = UpdateKnownBlockHeightNoLock(normalizedBlockHash, effectiveBlockHeight);
+                if (_localChainTipHeaders.TryGetValue(normalizedBlockHash, out BitcoinHeaderEvaluation? duplicateHeader))
+                {
+                    _state.CurrentTipCompactTarget = duplicateHeader.CompactTarget;
+                    metadataChanged = true;
+                }
                 if (metadataChanged)
                 {
                     RequestDeferredSaveNoLock();
@@ -3251,8 +3346,42 @@ public class BootProtocolStateService
                     effectiveBlockHeight);
             }
 
+            BootProvisionalTipState? provisional = _state.ProvisionalTip;
+            IReadOnlyCollection<BootShareProof>? frozenProofs = null;
+            if (provisional != null)
+            {
+                provisionalResolved = true;
+                if (BitcoinHashes.AreEquivalent(provisional.BlockHash, normalizedBlockHash))
+                {
+                    frozenProofs = provisional.SnapshotProofs;
+                    provisionalLeadMs = Math.Max(0, (DateTime.UtcNow - provisional.ObservedUtc).TotalMilliseconds);
+                    RecordNetworkEventNoLock(
+                        "peer-tip-confirmed",
+                        source,
+                        $"Local Bitcoin source confirmed provisional header after {provisionalLeadMs.Value:F1} ms; activating frozen snapshot {provisional.SnapshotId}.",
+                        normalizedBlockHash,
+                        effectiveBlockHeight);
+                }
+                else
+                {
+                    RecordNetworkEventNoLock(
+                        "peer-tip-discarded",
+                        source,
+                        $"Local Bitcoin source validated competing block {normalizedBlockHash}; discarded provisional header {provisional.BlockHash}.",
+                        normalizedBlockHash,
+                        effectiveBlockHeight);
+                }
+
+                _state.ProvisionalTip = null;
+                _provisionalTipGeneration++;
+            }
+
             _state.CurrentTipBlockHash = normalizedBlockHash;
             _state.CurrentTipBlockHeight = effectiveBlockHeight;
+            if (_localChainTipHeaders.TryGetValue(normalizedBlockHash, out BitcoinHeaderEvaluation? localHeader))
+            {
+                _state.CurrentTipCompactTarget = localHeader.CompactTarget;
+            }
             RememberAcceptedParentBlockHashNoLock(normalizedBlockHash);
             UpdateKnownBlockHeightNoLock(normalizedBlockHash, effectiveBlockHeight);
             snapshotChanged = ApplySnapshotFromWorkSetNoLock(
@@ -3260,7 +3389,8 @@ public class BootProtocolStateService
                 effectiveBlockHeight,
                 $"chain-tip:{source}",
                 DateTime.UtcNow,
-                advanceRound: true);
+                advanceRound: true,
+                frozenProofs);
             RequestDeferredSaveNoLock();
             RequestDeferredHistorySaveNoLock();
 
@@ -3292,6 +3422,14 @@ public class BootProtocolStateService
             await NotifyWorkTemplatesInvalidatedAsync($"chain-tip:{source}");
         }
 
+        if (provisionalResolved)
+        {
+            _logger.LogInformation(
+                "Resolved provisional peer tip {BlockHash} from local Bitcoin confirmation (lead={LeadMs} ms).",
+                normalizedBlockHash,
+                provisionalLeadMs);
+        }
+
         return status;
     }
 
@@ -3304,18 +3442,13 @@ public class BootProtocolStateService
         DateTime? transportReceivedUtc = null)
     {
         DateTime receivedUtc = transportReceivedUtc ?? DateTime.UtcNow;
-        string normalizedHeader = BitcoinHashes.NormalizeHex(announcement.HeaderHex);
-        string computedBlockHash;
-        try
-        {
-            computedBlockHash = BitcoinHashes.ComputeBlockHashFromHeader(normalizedHeader);
-        }
-        catch (ArgumentException)
+        BitcoinHeaderEvaluation evaluation = BitcoinHashes.EvaluateHeader(announcement.HeaderHex, receivedUtc);
+        if (!evaluation.IsValid)
         {
             RecordExternalNetworkEvent(
                 "peer-chain-tip-rejected",
                 string.IsNullOrWhiteSpace(remoteEndpoint) ? $"peer-tip-node:{remoteNodeId}" : $"peer-tip:{remoteEndpoint}",
-                "Rejected measurement-only chain-tip announcement with an invalid 80-byte header.",
+                $"Rejected peer chain-tip announcement: {evaluation.RejectionReason}",
                 announcement.BlockHash,
                 announcement.BlockHeight,
                 receivedUtc,
@@ -3328,13 +3461,13 @@ public class BootProtocolStateService
         }
 
         if (!string.IsNullOrWhiteSpace(announcement.BlockHash) &&
-            !BitcoinHashes.AreEquivalent(computedBlockHash, announcement.BlockHash))
+            !BitcoinHashes.AreEquivalent(evaluation.BlockHash, announcement.BlockHash))
         {
             RecordExternalNetworkEvent(
                 "peer-chain-tip-rejected",
                 string.IsNullOrWhiteSpace(remoteEndpoint) ? $"peer-tip-node:{remoteNodeId}" : $"peer-tip:{remoteEndpoint}",
                 "Rejected measurement-only chain-tip announcement because its header hash did not match.",
-                computedBlockHash,
+                evaluation.BlockHash,
                 announcement.BlockHeight,
                 receivedUtc,
                 transport,
@@ -3348,11 +3481,133 @@ public class BootProtocolStateService
         string source = string.IsNullOrWhiteSpace(remoteEndpoint)
             ? $"peer-tip-node:{remoteNodeId}"
             : $"peer-tip:{remoteEndpoint}";
+
+        if (!_poolConfig.EnablePeerTipStaleProtection)
+        {
+            RecordExternalNetworkEvent(
+                "peer-chain-tip",
+                source,
+                $"Received measurement-only peer block header from {announcement.Source}; awaiting independent local Bitcoin confirmation.",
+                evaluation.BlockHash,
+                announcement.BlockHeight,
+                receivedUtc,
+                transport,
+                remoteEndpoint,
+                remoteNodeId,
+                announcement.ObservedUtc,
+                relayLatencyMs: null,
+                payloadBytes);
+            return GetNetworkStatus();
+        }
+
+        bool provisionalCreated = false;
+        string rejection = string.Empty;
+        bool expectedDifficultyValidated = false;
+        lock (_sync)
+        {
+            DateTime oldestAllowedUtc = receivedUtc.AddSeconds(-_poolConfig.PeerTipMaxHeaderAgeSeconds);
+            DateTime newestAllowedUtc = receivedUtc.AddSeconds(_poolConfig.PeerTipMaxFutureSeconds);
+            if (evaluation.HeaderTimeUtc < oldestAllowedUtc || evaluation.HeaderTimeUtc > newestAllowedUtc)
+            {
+                rejection = "header timestamp is outside the configured freshness window";
+            }
+            else if (!BitcoinHashes.AreEquivalent(evaluation.ParentBlockHash, _state.CurrentTipBlockHash))
+            {
+                rejection = "header does not directly extend the locally active Bitcoin tip";
+            }
+            else if (BitcoinScript.NormalizeNetwork(_poolConfig.BitcoinNetwork) != BitcoinScript.Mainnet)
+            {
+                rejection = "operational peer-tip protection does not yet implement testnet4 contextual target rules";
+            }
+            else if (!_state.CurrentTipCompactTarget.HasValue)
+            {
+                rejection = "the expected target is unavailable until a local raw block header has been observed";
+            }
+            else if (IsNextBitcoinRetargetBoundaryNoLock())
+            {
+                rejection = "operational peer-tip protection is disabled at retarget boundaries pending contextual target validation";
+            }
+            else if (evaluation.CompactTarget != _state.CurrentTipCompactTarget.Value)
+            {
+                rejection = "header target does not match the expected mainnet target";
+            }
+            else if (_state.ProvisionalTip != null &&
+                     !BitcoinHashes.AreEquivalent(_state.ProvisionalTip.BlockHash, evaluation.BlockHash))
+            {
+                rejection = "a competing provisional header already exists for this parent";
+            }
+            else if (_state.ProvisionalTip == null)
+            {
+                expectedDifficultyValidated = true;
+                List<BootShareProof> frozenProofs = SortAndTrimProofs(
+                    _state.OnDeckProofs,
+                    _poolConfig.SnapshotProofSlotCount);
+                BootPayoutSnapshotContext context = BuildSnapshotContextFromProofsNoLock(
+                    frozenProofs,
+                    evaluation.BlockHash,
+                    announcement.BlockHeight ?? (_state.CurrentTipBlockHeight + 1),
+                    receivedUtc,
+                    _state.CurrentRoundNumber + 1);
+                _state.ProvisionalTip = new BootProvisionalTipState
+                {
+                    BlockHash = evaluation.BlockHash,
+                    ParentBlockHash = evaluation.ParentBlockHash,
+                    HeaderHex = evaluation.HeaderHex,
+                    CompactTarget = evaluation.CompactTarget,
+                    HeaderTimeUtc = evaluation.HeaderTimeUtc,
+                    ObservedUtc = receivedUtc,
+                    GraceDeadlineUtc = receivedUtc.AddSeconds(_poolConfig.PeerTipGraceSeconds),
+                    Source = source,
+                    SnapshotId = context.SnapshotId,
+                    SnapshotProofs = frozenProofs.Select(CloneProof).ToList(),
+                    ExpectedDifficultyValidated = expectedDifficultyValidated
+                };
+                _provisionalTipGeneration++;
+                provisionalCreated = true;
+                RecordNetworkEventNoLock(
+                    "peer-tip-provisional",
+                    source,
+                    $"Froze provisional snapshot {context.SnapshotId} with {context.ProofIds.Count} proof(s); awaiting local Bitcoin confirmation.",
+                    evaluation.BlockHash,
+                    announcement.BlockHeight,
+                    receivedUtc,
+                    transport,
+                    remoteEndpoint,
+                    remoteNodeId,
+                    announcement.ObservedUtc,
+                    payloadBytes: payloadBytes);
+                RequestDeferredSaveNoLock();
+                RequestDeferredHistorySaveNoLock();
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(rejection))
+        {
+            RecordExternalNetworkEvent(
+                "peer-chain-tip-rejected",
+                source,
+                $"Rejected operational peer chain-tip announcement because {rejection}.",
+                evaluation.BlockHash,
+                announcement.BlockHeight,
+                receivedUtc,
+                transport,
+                remoteEndpoint,
+                remoteNodeId,
+                announcement.ObservedUtc,
+                payloadBytes: payloadBytes);
+            return GetNetworkStatus();
+        }
+
+        if (provisionalCreated)
+        {
+            ScheduleProvisionalTipGraceCheck(evaluation.BlockHash, _provisionalTipGeneration);
+        }
+
         RecordExternalNetworkEvent(
             "peer-chain-tip",
             source,
-            $"Received measurement-only peer block header from {announcement.Source}; awaiting independent local Bitcoin confirmation.",
-            computedBlockHash,
+            $"Received validated peer block header from {announcement.Source}; provisional boundary awaits local Bitcoin confirmation.",
+            evaluation.BlockHash,
             announcement.BlockHeight,
             receivedUtc,
             transport,
@@ -3403,6 +3658,17 @@ public class BootProtocolStateService
             currentTipSnapshot = _state.CurrentTipBlockHash;
             currentStateSnapshot = _state.CurrentStateId;
             acceptedParentBlockHashesSnapshot = GetAcceptedParentBlockHashesNoLock();
+            if (remoteWorkSetProofs.Any(proof => ShouldQuarantinePreviousParentNoLock(proof.PrevBlockHash, DateTime.UtcNow)))
+            {
+                RecordNetworkEventNoLock(
+                    "state-import-quarantined",
+                    sourceEndpoint,
+                    "Rejected candidate bundle containing proofs on the parent frozen by a provisional peer-tip boundary.",
+                    _state.ProvisionalTip?.BlockHash,
+                    _state.CurrentTipBlockHeight.HasValue ? _state.CurrentTipBlockHeight + 1 : null);
+                RequestDeferredHistorySaveNoLock();
+                return false;
+            }
         }
 
         List<string> remoteAcceptedParentBlockHashes = NormalizeAcceptedParentBlockHashes(
@@ -3554,6 +3820,21 @@ public class BootProtocolStateService
             currentTipSnapshot = _state.CurrentTipBlockHash;
             currentStateSnapshot = _state.CurrentStateId;
             currentRoundSnapshot = _state.CurrentRoundNumber;
+            string? incomingTip = NormalizeCanonicalBlockHash(bundle.LockedByBlockHash) ??
+                NormalizeCanonicalBlockHash(observedTipBlockHash);
+            if (_poolConfig.EnablePeerTipStaleProtection &&
+                _state.ProvisionalTip != null &&
+                BitcoinHashes.AreEquivalent(incomingTip, _state.ProvisionalTip.BlockHash))
+            {
+                RecordNetworkEventNoLock(
+                    "state-adoption-deferred-peer-tip",
+                    sourceEndpoint,
+                    "Deferred peer locked-state adoption until the local Bitcoin node validates the provisional block.",
+                    incomingTip,
+                    bundle.LockedByBlockHeight ?? observedTipBlockHeight);
+                RequestDeferredHistorySaveNoLock();
+                return false;
+            }
         }
 
         string? lockedTipSnapshot = NormalizeCanonicalBlockHash(bundle.LockedByBlockHash) ??
@@ -3846,6 +4127,20 @@ public class BootProtocolStateService
 
         lock (_sync)
         {
+            if (_poolConfig.EnablePeerTipStaleProtection &&
+                _state.ProvisionalTip != null &&
+                BitcoinHashes.AreEquivalent(observedTip, _state.ProvisionalTip.BlockHash))
+            {
+                RecordNetworkEventNoLock(
+                    "state-bootstrap-deferred-peer-tip",
+                    sourceEndpoint,
+                    "Deferred peer bootstrap state until the local Bitcoin node validates the provisional block.",
+                    observedTip,
+                    lockedTipHeight);
+                RequestDeferredHistorySaveNoLock();
+                return false;
+            }
+
             string? localTip = NormalizeCanonicalBlockHash(_state.CurrentTipBlockHash);
             bool localStateIsEmpty = IsPlaceholderOrEmptyCurrentStateNoLock();
             bool hasEstablishedState =
@@ -4337,6 +4632,8 @@ public class BootProtocolStateService
             CurrentRoundNumber = _state.CurrentRoundNumber,
             CurrentTipBlockHash = _state.CurrentTipBlockHash,
             CurrentTipBlockHeight = _state.CurrentTipBlockHeight,
+            CurrentTipCompactTarget = _state.CurrentTipCompactTarget,
+            ProvisionalTip = CloneProvisionalTip(_state.ProvisionalTip),
             LastTestingTriggerBlockHash = _state.LastTestingTriggerBlockHash,
             LastTestingTriggerBlockHeight = _state.LastTestingTriggerBlockHeight,
             LastGridPoolBlockHash = _state.LastGridPoolBlockHash,
@@ -4632,8 +4929,24 @@ public class BootProtocolStateService
         DateTime createdUtc,
         int currentRoundNumber)
     {
-        List<BootShareProof> feeFreeSnapshotProofs = SortAndTrimProofs(_state.OnDeckProofs, _poolConfig.SnapshotProofSlotCount);
-        List<BootShareProof> paidSnapshotProofs = SortAndTrimProofs(_state.OnDeckProofs, _poolConfig.SharedWinnerSlotCount);
+        return BuildSnapshotContextFromProofsNoLock(
+            _state.OnDeckProofs,
+            blockHash,
+            blockHeight,
+            createdUtc,
+            currentRoundNumber);
+    }
+
+    private BootPayoutSnapshotContext BuildSnapshotContextFromProofsNoLock(
+        IEnumerable<BootShareProof> sourceProofs,
+        string? blockHash,
+        long? blockHeight,
+        DateTime createdUtc,
+        int currentRoundNumber)
+    {
+        List<BootShareProof> source = sourceProofs.Select(CloneProof).ToList();
+        List<BootShareProof> feeFreeSnapshotProofs = SortAndTrimProofs(source, _poolConfig.SnapshotProofSlotCount);
+        List<BootShareProof> paidSnapshotProofs = SortAndTrimProofs(source, _poolConfig.SharedWinnerSlotCount);
         string snapshotId = ComputeStateIdNoLock(paidSnapshotProofs, blockHash);
         return new BootPayoutSnapshotContext
         {
@@ -4656,15 +4969,23 @@ public class BootProtocolStateService
         long? blockHeight,
         string source,
         DateTime createdUtc,
-        bool advanceRound)
+        bool advanceRound,
+        IReadOnlyCollection<BootShareProof>? frozenProofs = null)
     {
         string? normalizedBlockHash = NormalizeCanonicalBlockHash(blockHash);
         int nextRoundNumber = advanceRound ? _state.CurrentRoundNumber + 1 : _state.CurrentRoundNumber;
-        BootPayoutSnapshotContext context = BuildSnapshotContextFromWorkSetNoLock(
-            normalizedBlockHash,
-            blockHeight,
-            createdUtc,
-            nextRoundNumber);
+        BootPayoutSnapshotContext context = frozenProofs == null
+            ? BuildSnapshotContextFromWorkSetNoLock(
+                normalizedBlockHash,
+                blockHeight,
+                createdUtc,
+                nextRoundNumber)
+            : BuildSnapshotContextFromProofsNoLock(
+                frozenProofs,
+                normalizedBlockHash,
+                blockHeight,
+                createdUtc,
+                nextRoundNumber);
 
         bool changed = !string.Equals(context.SnapshotId, _state.ActiveSnapshotId, StringComparison.OrdinalIgnoreCase);
         _state.CurrentTipBlockHash = normalizedBlockHash ?? _state.CurrentTipBlockHash;
@@ -5167,6 +5488,18 @@ public class BootProtocolStateService
             CoinbaseOutputCount = BuildCoinbaseOutputsNoLock(_state.WinnersList).Count,
             CurrentTipBlockHash = _state.CurrentTipBlockHash,
             CurrentTipBlockHeight = _state.CurrentTipBlockHeight,
+            CurrentTipCompactTarget = _state.CurrentTipCompactTarget,
+            PeerTipStaleProtectionEnabled = _poolConfig.EnablePeerTipStaleProtection,
+            MiningWorkSafe = IsMiningWorkSafeNoLock(nowUtc),
+            LocalBitcoinLagging = !IsMiningWorkSafeNoLock(nowUtc),
+            MiningWorkSafetyReason = BuildMiningWorkSafetyReasonNoLock(),
+            ProvisionalTipBlockHash = _state.ProvisionalTip?.BlockHash,
+            ProvisionalTipParentBlockHash = _state.ProvisionalTip?.ParentBlockHash,
+            ProvisionalSnapshotId = _state.ProvisionalTip?.SnapshotId,
+            ProvisionalSnapshotProofCount = _state.ProvisionalTip?.SnapshotProofs.Count ?? 0,
+            ProvisionalTipObservedUtc = _state.ProvisionalTip?.ObservedUtc,
+            ProvisionalTipGraceDeadlineUtc = _state.ProvisionalTip?.GraceDeadlineUtc,
+            ProvisionalExpectedDifficultyValidated = _state.ProvisionalTip?.ExpectedDifficultyValidated ?? false,
             LastRotationUtc = currentRoundStartUtc,
             WinnersCount = _state.WinnersList.Count,
             CurrentStateProofCount = GetCurrentStateProofCountNoLock(),
@@ -8930,6 +9263,18 @@ public class BootProtocolStateService
                 return true;
             }
 
+            if (_poolConfig.EnablePeerTipStaleProtection && _state.ProvisionalTip != null)
+            {
+                RecordNetworkEventNoLock(
+                    "fresh-parent-deferred",
+                    source,
+                    "Did not learn a new parent from DATUM while a peer-tip boundary awaited local Bitcoin validation.",
+                    validation.PrevBlockHash,
+                    blockHeight: null);
+                RequestDeferredHistorySaveNoLock();
+                return false;
+            }
+
             RememberAcceptedParentBlockHashNoLock(validation.PrevBlockHash);
             if (string.IsNullOrWhiteSpace(_state.CurrentTipBlockHash))
             {
@@ -8951,6 +9296,110 @@ public class BootProtocolStateService
     private static bool IsTrustedFreshParentSource(string source)
     {
         return string.Equals(source, "datum", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool IsMiningWorkSafeNoLock(DateTime nowUtc)
+    {
+        return !_poolConfig.EnablePeerTipStaleProtection ||
+               _state.ProvisionalTip == null ||
+               nowUtc < _state.ProvisionalTip.GraceDeadlineUtc;
+    }
+
+    private string BuildMiningWorkSafetyReasonNoLock()
+    {
+        if (IsMiningWorkSafeNoLock(DateTime.UtcNow))
+        {
+            return string.Empty;
+        }
+
+        return $"Local Bitcoin node has not confirmed provisional peer tip {_state.ProvisionalTip!.BlockHash}; fresh mining work is paused to avoid stale-parent work.";
+    }
+
+    private bool ShouldQuarantinePreviousParentNoLock(string? parentBlockHash, DateTime nowUtc)
+    {
+        return _poolConfig.EnablePeerTipStaleProtection &&
+               _state.ProvisionalTip != null &&
+               BitcoinHashes.AreEquivalent(parentBlockHash, _state.ProvisionalTip.ParentBlockHash);
+    }
+
+    private bool IsNextBitcoinRetargetBoundaryNoLock()
+    {
+        return _state.CurrentTipBlockHeight.HasValue &&
+               (_state.CurrentTipBlockHeight.Value + 1) % 2016 == 0;
+    }
+
+    private void ScheduleProvisionalTipGraceCheck(string blockHash, long generation)
+    {
+        DateTime deadlineUtc;
+        lock (_sync)
+        {
+            if (_state.ProvisionalTip == null ||
+                generation != _provisionalTipGeneration ||
+                !BitcoinHashes.AreEquivalent(_state.ProvisionalTip.BlockHash, blockHash))
+            {
+                return;
+            }
+
+            deadlineUtc = _state.ProvisionalTip.GraceDeadlineUtc;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            TimeSpan delay = deadlineUtc - DateTime.UtcNow;
+            if (delay > TimeSpan.Zero)
+            {
+                await Task.Delay(delay);
+            }
+
+            BootNetworkStatusDto? status = null;
+            lock (_sync)
+            {
+                if (_state.ProvisionalTip == null ||
+                    generation != _provisionalTipGeneration ||
+                    !BitcoinHashes.AreEquivalent(_state.ProvisionalTip.BlockHash, blockHash) ||
+                    DateTime.UtcNow < _state.ProvisionalTip.GraceDeadlineUtc)
+                {
+                    return;
+                }
+
+                RecordNetworkEventNoLock(
+                    "local-bitcoin-lagging",
+                    _state.ProvisionalTip.Source,
+                    $"Local Bitcoin node did not confirm peer tip within {_poolConfig.PeerTipGraceSeconds} second(s); fresh work paused and reconciliation requested.",
+                    _state.ProvisionalTip.BlockHash,
+                    _state.CurrentTipBlockHeight.HasValue ? _state.CurrentTipBlockHeight + 1 : null);
+                RequestDeferredSaveNoLock();
+                RequestDeferredHistorySaveNoLock();
+                status = BuildNetworkStatusNoLock();
+            }
+
+            _logger.LogWarning("Local Bitcoin node is lagging peer tip {BlockHash}; paused fresh work.", blockHash);
+            await NotifyWorkTemplatesInvalidatedAsync("peer-tip-stale-protection");
+            if (status != null)
+            {
+                await _hubContext.Clients.All.SendAsync("UpdateNetworkState", status);
+            }
+        });
+    }
+
+    private static BootShareValidationResult RejectValidatedShare(BootShareValidationResult validation, string reason)
+    {
+        return new BootShareValidationResult
+        {
+            IsValid = false,
+            RejectionReason = reason,
+            ShareId = validation.ShareId,
+            MinerAddress = validation.MinerAddress,
+            Username = validation.Username,
+            ScriptPubKeyHex = validation.ScriptPubKeyHex,
+            HeaderHex = validation.HeaderHex,
+            CoinbaseHex = validation.CoinbaseHex,
+            MerklePath = validation.MerklePath.ToList(),
+            PrevBlockHash = validation.PrevBlockHash,
+            BlockHash = validation.BlockHash,
+            Difficulty = validation.Difficulty,
+            IsBlock = validation.IsBlock
+        };
     }
 
     private static bool IsWrongParentRejection(string? rejectionReason)
@@ -9480,6 +9929,29 @@ public class BootProtocolStateService
             ProofIds = (context.ProofIds ?? []).ToList(),
             WinnersList = ClonePayouts(context.WinnersList),
             FeeFreeWinnersList = ClonePayouts(context.FeeFreeWinnersList)
+        };
+    }
+
+    private static BootProvisionalTipState? CloneProvisionalTip(BootProvisionalTipState? provisional)
+    {
+        if (provisional == null)
+        {
+            return null;
+        }
+
+        return new BootProvisionalTipState
+        {
+            BlockHash = provisional.BlockHash,
+            ParentBlockHash = provisional.ParentBlockHash,
+            HeaderHex = provisional.HeaderHex,
+            CompactTarget = provisional.CompactTarget,
+            HeaderTimeUtc = provisional.HeaderTimeUtc,
+            ObservedUtc = provisional.ObservedUtc,
+            GraceDeadlineUtc = provisional.GraceDeadlineUtc,
+            Source = provisional.Source,
+            SnapshotId = provisional.SnapshotId,
+            SnapshotProofs = provisional.SnapshotProofs.Select(CloneProof).ToList(),
+            ExpectedDifficultyValidated = provisional.ExpectedDifficultyValidated
         };
     }
 

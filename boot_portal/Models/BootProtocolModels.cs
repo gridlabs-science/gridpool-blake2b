@@ -356,6 +356,18 @@ public class BootNetworkStatusDto
     public int CoinbaseOutputCount { get; set; }
     public string? CurrentTipBlockHash { get; set; }
     public long? CurrentTipBlockHeight { get; set; }
+    public uint? CurrentTipCompactTarget { get; set; }
+    public bool PeerTipStaleProtectionEnabled { get; set; }
+    public bool MiningWorkSafe { get; set; } = true;
+    public bool LocalBitcoinLagging { get; set; }
+    public string MiningWorkSafetyReason { get; set; } = string.Empty;
+    public string? ProvisionalTipBlockHash { get; set; }
+    public string? ProvisionalTipParentBlockHash { get; set; }
+    public string? ProvisionalSnapshotId { get; set; }
+    public int ProvisionalSnapshotProofCount { get; set; }
+    public DateTime? ProvisionalTipObservedUtc { get; set; }
+    public DateTime? ProvisionalTipGraceDeadlineUtc { get; set; }
+    public bool ProvisionalExpectedDifficultyValidated { get; set; }
     public DateTime? LastRotationUtc { get; set; }
     public int WinnersCount { get; set; }
     public int CurrentStateProofCount { get; set; }

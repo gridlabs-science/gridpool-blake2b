@@ -25,6 +25,10 @@ public sealed class ShareAttributionTests
     private const string SamplePrevBlockHash = "00000000000000000002029d47c98d2ad5c020ce9a92af8ace14b882abfa1643";
     private const string OlderTipBlockHash = "0000000000000000000000000000000000000000000000000000000000012345";
     private const string SampleHeaderHex = "00804f274316faab82b814ce8aaf929ace20c0d52a8dc9479d02020000000000000000002e0c639c7934a697d14a314cea5da30f0c45660248d534db3cfb2036b5ac0d8a65a6e3696913021778491e84";
+    private const string RecentBlockHeaderHex = "00a07b2daf1515873d86d8fba7a098689bcd958e6d2df870abe10100000000000000000077f88aefba92a3f434513218d7476aabaa35b9200cd339c6caea3db663ea1bfc9d355c6a9d36021724d435ae";
+    private const string RecentBlockHash = "00000000000000000002122154787256060976bce119846233eee04fa0ac0fe2";
+    private const string RecentBlockParentHash = "00000000000000000001e1ab70f82d6d8e95cd9b6898a0a7fbd8863d871515af";
+    private const uint RecentBlockCompactTarget = 0x1702369d;
     private const string SampleCoinbaseHex = "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff2003e16d0e13426f6f742070726f746f636f6c0f626f6f74000709921015000000ffffffff06128e120000000000160014c64b1b9283ba1ea86bb9e7b696b0c8f68dad040004cc041000000000160014c64b1b9283ba1ea86bb9e7b696b0c8f68dad04000000000000000000106a0e9113b1ccf00d0000000000b9bb1952ad8b02000000001600141ba063a60ffe85ee2034c3044d7ef087a5f20f910000000000000000036a01000000000000000000266a24aa21a9edcddc611f6111ea75c5a265fba065e8eccb3d1ec8f954c738ea4586b3fffab1ce00000000";
     private static readonly List<string> SampleMerklePath =
     [
@@ -711,14 +715,14 @@ public sealed class ShareAttributionTests
         DateTime observedUtc = DateTime.UtcNow.AddMilliseconds(-25);
 
         bool accepted = harness.StateService.ObserveLocalChainTipHeader(
-            SampleHeaderHex,
+            RecentBlockHeaderHex,
             "test-rawblock",
             observedUtc,
             945123);
 
         Assert.IsTrue(accepted);
         Assert.IsTrue(harness.StateService.ChainTipAnnouncements.TryRead(out BootChainTipAnnouncement? sessionAnnouncement));
-        Assert.AreEqual(SampleHeaderHex, sessionAnnouncement!.HeaderHex);
+        Assert.AreEqual(RecentBlockHeaderHex, sessionAnnouncement!.HeaderHex);
         Assert.IsTrue(sessionAnnouncement.RelayQueuedUtc >= observedUtc);
 
         BootNetworkEventSeriesDto events = harness.StateService.GetNetworkEvents(eventType: "local-chain-tip-header");
@@ -733,12 +737,12 @@ public sealed class ShareAttributionTests
     {
         using var harness = TestHarness.Create(currentTipBlockHash: OlderTipBlockHash);
         BootNetworkStatusDto before = harness.StateService.GetNetworkStatus();
-        string announcedHash = BitcoinHashes.ComputeBlockHashFromHeader(SampleHeaderHex);
+        string announcedHash = BitcoinHashes.ComputeBlockHashFromHeader(RecentBlockHeaderHex);
 
         await harness.StateService.ObservePeerChainTipAsync(
             new BootChainTipAnnouncement
             {
-                HeaderHex = SampleHeaderHex,
+                HeaderHex = RecentBlockHeaderHex,
                 BlockHash = announcedHash,
                 BlockHeight = 945123,
                 Source = "remote-zmq"
@@ -759,6 +763,88 @@ public sealed class ShareAttributionTests
         Assert.AreEqual(announcedHash, events.Events[0].BlockHash);
         Assert.AreEqual("udp", events.Events[0].Transport);
         Assert.IsNull(events.Events[0].RelayLatencyMs);
+    }
+
+    [TestMethod]
+    public async Task PeerHeaderFreezesProvisionalSnapshotUntilLocalConfirmationAsync()
+    {
+        BootShareProof[] seedProofs =
+        [
+            CreateFakeProof("proof-a", 100, SampleSlotZeroAddress),
+            CreateFakeProof("proof-b", 50, AlternateAddress)
+        ];
+        using var harness = TestHarness.Create(
+            currentTipBlockHash: RecentBlockParentHash,
+            currentTipBlockHeight: 958645,
+            currentTipCompactTarget: RecentBlockCompactTarget,
+            sharedWinnerSlotCount: 2,
+            onDeckProofs: seedProofs,
+            enablePeerTipStaleProtection: true,
+            peerTipGraceSeconds: 30);
+
+        string activeBefore = harness.StateService.GetNetworkStatus().ActiveSnapshotId;
+        BootNetworkStatusDto provisional = await harness.StateService.ObservePeerChainTipAsync(
+            new BootChainTipAnnouncement
+            {
+                HeaderHex = RecentBlockHeaderHex,
+                BlockHash = RecentBlockHash,
+                BlockHeight = 958646,
+                Source = "remote-zmq"
+            },
+            "https://peer.example",
+            "peer-node",
+            "udp",
+            138,
+            DateTime.UtcNow);
+
+        Assert.AreEqual(RecentBlockParentHash, provisional.CurrentTipBlockHash);
+        Assert.AreEqual(activeBefore, provisional.ActiveSnapshotId);
+        Assert.AreEqual(RecentBlockHash, provisional.ProvisionalTipBlockHash);
+        Assert.AreEqual(2, provisional.ProvisionalSnapshotProofCount);
+        Assert.IsTrue(provisional.MiningWorkSafe);
+
+        harness.StateService.ObserveLocalChainTipHeader(RecentBlockHeaderHex, "test-local", DateTime.UtcNow, 958646);
+        BootNetworkStatusDto confirmed = await harness.StateService.ObserveChainTipAsync(
+            RecentBlockHash,
+            "test-local",
+            958646);
+
+        Assert.AreEqual(RecentBlockHash, confirmed.CurrentTipBlockHash);
+        Assert.IsNull(confirmed.ProvisionalTipBlockHash);
+        Assert.AreEqual(2, confirmed.ActiveSnapshotProofCount);
+        Assert.AreNotEqual(activeBefore, confirmed.ActiveSnapshotId);
+        Assert.IsTrue(confirmed.MiningWorkSafe);
+    }
+
+    [TestMethod]
+    public async Task ProvisionalPeerTipPausesFreshWorkAfterGraceAsync()
+    {
+        using var harness = TestHarness.Create(
+            currentTipBlockHash: RecentBlockParentHash,
+            currentTipBlockHeight: 958645,
+            currentTipCompactTarget: RecentBlockCompactTarget,
+            enablePeerTipStaleProtection: true,
+            peerTipGraceSeconds: 1);
+
+        await harness.StateService.ObservePeerChainTipAsync(
+            new BootChainTipAnnouncement
+            {
+                HeaderHex = RecentBlockHeaderHex,
+                BlockHash = RecentBlockHash,
+                BlockHeight = 958646,
+                Source = "remote-zmq"
+            },
+            "https://peer.example",
+            "peer-node",
+            "udp",
+            138,
+            DateTime.UtcNow);
+
+        await Task.Delay(1200);
+        BootNetworkStatusDto status = harness.StateService.GetNetworkStatus();
+        Assert.IsFalse(status.MiningWorkSafe);
+        Assert.IsTrue(status.LocalBitcoinLagging);
+        Assert.IsInstanceOfType<ConflictObjectResult>(harness.MiningController.GetSv2WorkSelection());
     }
 
     [TestMethod]
@@ -2337,6 +2423,8 @@ public sealed class ShareAttributionTests
 
         public static TestHarness Create(
             string? currentTipBlockHash = null,
+            long? currentTipBlockHeight = null,
+            uint? currentTipCompactTarget = null,
             int currentRoundNumber = 1,
             string currentStateId = "seed-current",
             int? sharedWinnerSlotCount = null,
@@ -2347,7 +2435,9 @@ public sealed class ShareAttributionTests
             IReadOnlyList<BootPayoutSnapshotContext>? snapshotContexts = null,
             string? activeSnapshotId = null,
             IReadOnlyList<string>? activeSnapshotProofIds = null,
-            int? seedMetadataProtocolVersion = null)
+            int? seedMetadataProtocolVersion = null,
+            bool enablePeerTipStaleProtection = false,
+            int peerTipGraceSeconds = 3)
         {
             string? previousStatePath = Environment.GetEnvironmentVariable("BOOT_PORTAL_STATE_PATH");
             string? previousHistoryPath = Environment.GetEnvironmentVariable("BOOT_PORTAL_HISTORY_PATH");
@@ -2365,7 +2455,9 @@ public sealed class ShareAttributionTests
                 WinnersListSize = sharedWinnerSlotCount ?? Math.Max(8, SampleExpectedWinners.Count),
                 PoolPayoutScript = SampleSlotZeroAddress,
                 GridLabsSupportFeeEnabled = supportFeeEnabled,
-                WorkSetReserveMultiplier = workSetReserveMultiplier ?? 3
+                WorkSetReserveMultiplier = workSetReserveMultiplier ?? 3,
+                EnablePeerTipStaleProtection = enablePeerTipStaleProtection,
+                PeerTipGraceSeconds = peerTipGraceSeconds
             };
 
             var seedState = new PoolState
@@ -2379,7 +2471,8 @@ public sealed class ShareAttributionTests
                 CandidateStateId = "seed-candidate",
                 CurrentRoundNumber = currentRoundNumber,
                 CurrentTipBlockHash = currentTipBlockHash ?? SamplePrevBlockHash,
-                CurrentTipBlockHeight = 945000,
+                CurrentTipBlockHeight = currentTipBlockHeight ?? 945000,
+                CurrentTipCompactTarget = currentTipCompactTarget,
                 AcceptedParentBlockHashes = [currentTipBlockHash ?? SamplePrevBlockHash],
                 ActiveSnapshotId = activeSnapshotId ?? currentStateId,
                 ActiveSnapshotProofIds = activeSnapshotProofIds?.ToList() ?? [],
