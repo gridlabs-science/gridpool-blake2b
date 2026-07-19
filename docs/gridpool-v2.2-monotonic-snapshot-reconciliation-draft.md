@@ -1,11 +1,14 @@
 # GridPool V2.2 Monotonic Snapshot Reconciliation
 
-Status: **Implemented in the reference tree for consensus version 22; coordinated
-activation is required and deployment is not claimed by this document.**
+Status: **Implemented in the reference tree and scheduled for mainnet-beta
+activation at Bitcoin height 959500. Deployment is not claimed by this
+document.**
 
 This document specifies the deterministic recovery rule implemented by the
-reference node for consensus version 22. Nodes configured for consensus version
-21 retain V2.1 behavior and do not perform cross-sibling union reconciliation.
+reference node for consensus version 22. V2.2-capable nodes retain V2.1 behavior
+and do not perform cross-sibling union reconciliation below the configured
+activation height. At or above the height, active consensus version 22 performs
+MSR. A zero activation height is reserved for tests and explicit labs.
 
 ## Abstract
 
@@ -475,8 +478,10 @@ UDP validation canonical.
    one-block replacement-boundary rollback vector. Two-block replay and paid
    confirmation rollback remain follow-up test-vector work; families are never
    unioned across competing hashes.
-8. Consensus version 22 activates MSR. Version 21 keeps V2.1 boundary behavior,
-   and the existing version gates reject incompatible peers rather than
+8. Active consensus version 22 activates MSR. Version 21 keeps V2.1 boundary
+   behavior. Mainnet-beta changes active version at Bitcoin height 959500; the
+   trusted local tip height controls the gate, and an unknown height fails
+   closed to version 21. Version gates reject incompatible peers rather than
    soft-merging their state.
 
 ## 12. Required Implementation Tests

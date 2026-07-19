@@ -78,9 +78,15 @@ Operator action:
 
 Use when `consensusVersion`, `stateBundleSchemaVersion`, or payout validation rules change in a way that old nodes cannot safely interoperate.
 
+Bitcoin-height-activated upgrades must ship the new rules before activation,
+publish one network-specific activation height, and derive the active consensus
+version from the trusted local Bitcoin tip. Operators must not manually flip a
+protocol setting at activation. An unknown tip height fails closed to the
+pre-activation rules.
+
 Operator action:
 
-- all active public peers must upgrade in the same window;
+- all active public peers must upgrade before the published activation height;
 - do not run mixed versions on the same network after activation;
 - verify that peer compatibility shows no consensus/schema mismatch;
 - keep a rollback plan and state backup.
