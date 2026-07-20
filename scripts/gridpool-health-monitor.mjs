@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-const SCRIPT_VERSION = 2;
+const SCRIPT_VERSION = 3;
 const DEFAULT_STATE_DIR = path.join(os.homedir(), ".local", "state", "gridpool-monitor");
 const DEFAULT_CONFIG_PATHS = [
     path.join(os.homedir(), ".config", "gridpool-health-monitor", "config.json"),
@@ -1272,11 +1272,12 @@ function filterAlertsForDelivery(alerts, state, config) {
     const now = Date.now();
     const mutedUntil = parseDate(state.telegram.silencedUntilUtc);
     const muted = mutedUntil && mutedUntil > now;
+    const muteCritical = muted && state.telegram.silenceCritical === true;
     const cooldownMs = Number(config.alertCooldownMinutes || 60) * 60_000;
 
     for (const alert of alerts) {
         const critical = alert.severity === "critical" || alert.category === "gridpool-block-found";
-        if (muted && !critical) continue;
+        if (muted && (!critical || muteCritical)) continue;
 
         const last = parseDate(state.alertCooldowns[alert.fingerprint]);
         if (last && now - last < cooldownMs && !critical) continue;
@@ -1466,6 +1467,35 @@ class TelegramClient {
         }
         return response.json.result;
     }
+
+    /**
+     * Register the bot command menu shown in Telegram clients (/ menu).
+     * Safe to call every run; Telegram overwrites the previous list.
+     */
+    async setMyCommands(config = {}) {
+        if (!this.enabled || !this.token) {
+            return false;
+        }
+        const commands = [
+            { command: "status", description: "Compact live GridPool node status" },
+            { command: "digest", description: "Full digest now (same shape as morning)" },
+            { command: "silence", description: "Mute alerts: /silence 6h or /silence 6h all" },
+            { command: "unsilence", description: "Clear alert mute / resume normal alerts" },
+            { command: "help", description: "List monitor bot commands" }
+        ];
+        if (config.codex?.enabled) {
+            commands.splice(2, 0, {
+                command: "investigate",
+                description: "Run a manual Codex investigation (if enabled)"
+            });
+        }
+        const response = await fetchWithTimeout(this.apiUrl("setMyCommands"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ commands })
+        }, 12000);
+        return !!(response.ok && response.json?.ok);
+    }
 }
 
 function truncateTelegram(text) {
@@ -1492,16 +1522,34 @@ async function processTelegramCommands(telegram, state, snapshot, config, stateD
             await telegram.sendMessage(buildStatusMessage(snapshot), [chatId]);
         } else if (text.startsWith("/digest")) {
             await telegram.sendMessage(buildDigest(snapshot, state), [chatId]);
-        } else if (text.startsWith("/help")) {
-            const commands = ["/status", "/digest", "/silence 2h", "/help"];
-            if (config.codex?.enabled) {
-                commands.splice(2, 0, "/investigate");
+        } else if (text.startsWith("/help") || text.startsWith("/start") || text.startsWith("/commands")) {
+            await telegram.sendMessage(buildHelpMessage(config, state), [chatId]);
+        } else if (text.startsWith("/unsilence") || text.startsWith("/unmute")) {
+            state.telegram.silencedUntilUtc = null;
+            state.telegram.silenceCritical = false;
+            await telegram.sendMessage("Alert mute cleared. Normal alerting resumed.", [chatId]);
+        } else if (text.startsWith("/silence") || text.startsWith("/mute") || text.startsWith("/pause")) {
+            const parts = text.split(/\s+/).slice(1);
+            let durationToken = "6h";
+            let silenceAll = false;
+            for (const part of parts) {
+                const lower = String(part || "").toLowerCase();
+                if (lower === "all" || lower === "critical" || lower === "everything") {
+                    silenceAll = true;
+                    continue;
+                }
+                if (parseDurationMs(part)) {
+                    durationToken = part;
+                }
             }
-            await telegram.sendMessage(`Commands: ${commands.join(", ")}`, [chatId]);
-        } else if (text.startsWith("/silence")) {
-            const duration = parseDurationMs(text.split(/\s+/)[1] || "2h") || (2 * 60 * 60_000);
+            const duration = parseDurationMs(durationToken) || (6 * 60 * 60_000);
             state.telegram.silencedUntilUtc = new Date(Date.now() + duration).toISOString();
-            await telegram.sendMessage(`Non-critical alerts silenced until ${state.telegram.silencedUntilUtc}.`, [chatId]);
+            state.telegram.silenceCritical = silenceAll;
+            const scope = silenceAll ? "ALL alerts (including critical)" : "non-critical alerts";
+            await telegram.sendMessage(
+                `${scope} silenced until ${state.telegram.silencedUntilUtc}.\nUse /unsilence to resume early.\nTip: /silence 6h all also mutes divergence/critical.`,
+                [chatId]
+            );
         } else if (text.startsWith("/investigate")) {
             if (!config.codex?.enabled) {
                 await telegram.sendMessage("Codex investigation is disabled on this monitor. Use /status or /digest, then inspect the monitor logs manually.", [chatId]);
@@ -1518,6 +1566,33 @@ async function processTelegramCommands(telegram, state, snapshot, config, stateD
             await telegram.sendMessage(buildAlertMessage([incident], codexResult), [chatId]);
         }
     }
+}
+
+function buildHelpMessage(config, state) {
+    const mutedUntil = parseDate(state?.telegram?.silencedUntilUtc);
+    const muted = mutedUntil && mutedUntil.getTime() > Date.now();
+    const lines = [
+        "GridPool monitor commands:",
+        "",
+        "/status — compact live node status",
+        "/digest — full digest now",
+        "/silence 6h — mute non-critical alerts for 6 hours",
+        "/silence 6h all — mute ALL alerts incl. critical/divergence",
+        "/unsilence — clear mute / resume alerts",
+        "/help — this menu"
+    ];
+    if (config.codex?.enabled) {
+        lines.splice(5, 0, "/investigate — manual Codex investigation");
+    }
+    lines.push("");
+    if (muted) {
+        const scope = state.telegram.silenceCritical ? "all alerts" : "non-critical alerts";
+        lines.push(`Currently muted (${scope}) until ${state.telegram.silencedUntilUtc}.`);
+    } else {
+        lines.push("Alerts are not muted.");
+    }
+    lines.push("Open the / menu in Telegram for the same shortcuts.");
+    return lines.join("\n");
 }
 
 function parseDurationMs(value) {
@@ -1857,8 +1932,19 @@ async function main() {
     const telegram = new TelegramClient(config);
 
     if (args["test-telegram"] === "true") {
+        await telegram.setMyCommands(config);
         await telegram.sendMessage(`GridPool monitor test message from ${os.hostname()} at ${currentIso()}.`);
         return;
+    }
+
+    // Keep the Telegram / menu in sync so operators do not have to remember commands.
+    try {
+        const menuOk = await telegram.setMyCommands(config);
+        if (!menuOk) {
+            console.warn("[gridpool-health-monitor] setMyCommands failed or telegram unavailable");
+        }
+    } catch (error) {
+        console.warn(`[gridpool-health-monitor] setMyCommands error: ${error?.message || error}`);
     }
 
     const snapshot = await collectSnapshot(config);

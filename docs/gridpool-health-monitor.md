@@ -168,12 +168,16 @@ systemctl --user disable --now gridpool-health-monitor.timer
 
 ## Telegram Commands
 
-Send these to the bot from an allowed chat:
+Send these to the bot from an allowed command chat, or pick them from the Telegram
+**/** command menu (registered automatically via `setMyCommands` each run):
 
 - `/status`: compact live status.
 - `/digest`: full digest immediately.
-- `/silence 2h`: mute non-critical alerts for two hours.
-- `/help`: command list.
+- `/silence 6h`: mute non-critical alerts for six hours (duration optional: `30m`, `2h`, `1d`).
+- `/silence 6h all`: mute **all** alerts including critical / consensus-divergence.
+- `/unsilence`: clear mute and resume normal alerts.
+- `/help` (also `/start`, `/commands`): command list and current mute state.
+- `/investigate`: only when `codex.enabled` is true.
 
 Only chats listed in `TELEGRAM_COMMAND_CHAT_IDS` can use commands. Other chats listed in `TELEGRAM_ALLOWED_CHAT_IDS` receive alerts and digests only.
 
