@@ -2763,7 +2763,9 @@ public sealed class ShareAttributionTests
                 GridLabsSupportFeeEnabled = supportFeeEnabled,
                 WorkSetReserveMultiplier = workSetReserveMultiplier ?? 3,
                 EnablePeerTipStaleProtection = enablePeerTipStaleProtection,
-                PeerTipGraceSeconds = peerTipGraceSeconds
+                PeerTipGraceSeconds = peerTipGraceSeconds,
+                // Fixed historical headers in these tests must not expire as wall-clock time advances.
+                PeerTipMaxHeaderAgeSeconds = 31_536_000
             };
 
             var seedState = new PoolState

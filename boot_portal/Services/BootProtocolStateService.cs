@@ -50,6 +50,9 @@ public class BootProtocolStateService
     private readonly BootShareVerifier _shareVerifier;
     private readonly IHubContext<PoolStatsHub> _hubContext;
     private readonly ILogger<BootProtocolStateService> _logger;
+    private readonly BootPeerLoopHealth _peerLoopHealth;
+    private readonly BootPeerIdentity? _peerIdentity;
+    private bool _identityChanged;
     private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
     private readonly JsonSerializerOptions _compactJsonOptions = new() { WriteIndented = false };
     private readonly Channel<BootShareProof> _acceptedShares = Channel.CreateUnbounded<BootShareProof>();
@@ -100,12 +103,16 @@ public class BootProtocolStateService
         PoolConfig poolConfig,
         BootShareVerifier shareVerifier,
         IHubContext<PoolStatsHub> hubContext,
-        ILogger<BootProtocolStateService> logger)
+        ILogger<BootProtocolStateService> logger,
+        BootPeerLoopHealth? peerLoopHealth = null,
+        BootPeerIdentity? peerIdentity = null)
     {
         _poolConfig = poolConfig;
         _shareVerifier = shareVerifier;
         _hubContext = hubContext;
         _logger = logger;
+        _peerLoopHealth = peerLoopHealth ?? new BootPeerLoopHealth();
+        _peerIdentity = peerIdentity;
         LoadState();
 
         string? restoredProvisionalHash = null;
@@ -2435,6 +2442,10 @@ public class BootProtocolStateService
             if (!pulseAccepted)
             {
                 RecordAcceptedShareTelemetryNoLock(proof);
+            }
+            else if (!BootPeerSource.TryParsePeerSource(share.Source, out _, out _, out _))
+            {
+                _peerLoopHealth.RecordLocalPulse(proof.Timestamp);
             }
             RecordShareDiagnosticNoLock(
                 share.Source,
@@ -4925,6 +4936,7 @@ public class BootProtocolStateService
     private StateFileSnapshot<PoolState> CaptureCoreStateSnapshotNoLock()
     {
         _state.Metadata.NetworkId = _poolConfig.BootNetworkId;
+        _state.Metadata.NodeId = _peerIdentity?.NodeId ?? _state.Metadata.NodeId;
         BootNodeVersionInfo localVersion = GetLocalVersionInfoNoLock();
         _state.Metadata.ProtocolVersion = localVersion.ProtocolVersion;
         _state.Metadata.ConsensusVersion = localVersion.ConsensusVersion;
@@ -5086,6 +5098,16 @@ public class BootProtocolStateService
             }
 
             _state = loaded;
+            string persistedNodeId = _state.Metadata.NodeId?.Trim() ?? string.Empty;
+            string currentNodeId = _peerIdentity?.NodeId?.Trim() ?? string.Empty;
+            _identityChanged = !string.IsNullOrWhiteSpace(persistedNodeId) &&
+                               !string.IsNullOrWhiteSpace(currentNodeId) &&
+                               !string.Equals(persistedNodeId, currentNodeId, StringComparison.Ordinal);
+            if (_identityChanged)
+            {
+                _logger.LogError("Node identity differs from the identity stored with existing pool state. Restore the prior keys before accepting mining traffic.");
+            }
+            _state.Metadata.NodeId = string.IsNullOrWhiteSpace(currentNodeId) ? persistedNodeId : currentNodeId;
             _state.Metadata.NetworkId = string.IsNullOrWhiteSpace(_state.Metadata.NetworkId)
                 ? _poolConfig.BootNetworkId
                 : _state.Metadata.NetworkId;
@@ -6061,10 +6083,37 @@ public class BootProtocolStateService
         List<BootPeerStatus> peers = CloneExternalPeersNoLock();
         BootNodeVersionInfo localVersion = GetLocalVersionInfoNoLock();
         BootSnapshotFamilyState? activeFamily = GetActiveSnapshotFamilyNoLock();
+        bool peerLoopsHealthy = !_poolConfig.EnablePeerSync ||
+                                !_peerLoopHealth.IsPeerPollStale(nowUtc, _poolConfig.PeerLoopStaleSeconds);
+        bool localMiningActive = activeNonTemporaryLocalDatumMiners.Count > 0 || _activeDatumSessions.Count > 0;
+        bool outboundRelayHealthy = !localMiningActive ||
+                                    !_poolConfig.EnablePeerSync ||
+                                    !_poolConfig.EnablePulseProofs ||
+                                    !_peerLoopHealth.IsOutboundRelayStale(nowUtc, _poolConfig.OutboundRelayStaleSeconds);
+        string outboundRelayReason = outboundRelayHealthy
+            ? string.Empty
+            : "No successful outbound share or pulse relay completed within the configured stale threshold.";
+        List<string> configWarnings = BuildConfigWarningsNoLock(peerLoopsHealthy, outboundRelayHealthy);
 
         return new BootNetworkStatusDto
         {
+            NodeId = _peerIdentity?.NodeId ?? string.Empty,
+            IdentityChanged = _identityChanged,
             SelfEndpoint = NormalizePeerEndpoint(_poolConfig.PublicBaseUrl),
+            ConfigWarnings = configWarnings,
+            LastPeerPollCompletedUtc = _peerLoopHealth.LastPeerPollCompletedUtc,
+            LastShareRelayDequeuedUtc = _peerLoopHealth.LastShareRelayDequeuedUtc,
+            LastSuccessfulOutboundRelayUtc = _peerLoopHealth.LastSuccessfulOutboundRelayUtc,
+            LastChainTipRelayUtc = _peerLoopHealth.LastChainTipRelayUtc,
+            ShareRelayQueueDepth = _acceptedShares.Reader.CanCount ? _acceptedShares.Reader.Count : -1,
+            PeerLoopFaults = _peerLoopHealth.GetFaults(),
+            PeerLoopsHealthy = peerLoopsHealthy,
+            OutboundRelayHealthy = outboundRelayHealthy,
+            OutboundRelayHealthReason = outboundRelayReason,
+            LastLocalPulseUtc = _peerLoopHealth.LastLocalPulseUtc,
+            LocalPulseAcceptedCount = _peerLoopHealth.LocalPulseAcceptedCount,
+            LocalPulseAcceptRatePerMinute = _peerLoopHealth.LocalPulseAcceptedCount /
+                Math.Max(1d, (nowUtc - _peerLoopHealth.StartedUtc).TotalMinutes),
             SoftwareConsensusVersion = localVersion.SoftwareConsensusVersion,
             ProtocolVersion = localVersion.ProtocolVersion,
             ConsensusVersion = localVersion.ConsensusVersion,
@@ -9941,9 +9990,15 @@ public class BootProtocolStateService
 
     private bool IsMiningWorkSafeNoLock(DateTime nowUtc)
     {
-        return !_poolConfig.EnablePeerTipStaleProtection ||
-               _state.ProvisionalTip == null ||
-               nowUtc < _state.ProvisionalTip.GraceDeadlineUtc;
+        bool bitcoinTipSafe = !_poolConfig.EnablePeerTipStaleProtection ||
+                              _state.ProvisionalTip == null ||
+                              nowUtc < _state.ProvisionalTip.GraceDeadlineUtc;
+        bool outboundSafe = !_poolConfig.PauseMiningOnOutboundRelayStale ||
+                            !_poolConfig.EnablePeerSync ||
+                            !_poolConfig.EnablePulseProofs ||
+                            _activeDatumSessions.Count == 0 ||
+                            !_peerLoopHealth.IsOutboundRelayStale(nowUtc, _poolConfig.OutboundRelayStaleSeconds);
+        return !_identityChanged && bitcoinTipSafe && outboundSafe;
     }
 
     private string BuildMiningWorkSafetyReasonNoLock()
@@ -9953,7 +10008,39 @@ public class BootProtocolStateService
             return string.Empty;
         }
 
+        if (_identityChanged)
+        {
+            return "Node identity changed from the identity stored with existing state; fresh mining work is paused until the prior keys are restored or the operator explicitly migrates identity.";
+        }
+
+        if (_poolConfig.PauseMiningOnOutboundRelayStale &&
+            _poolConfig.EnablePeerSync &&
+            _poolConfig.EnablePulseProofs &&
+            _activeDatumSessions.Count > 0 &&
+            _peerLoopHealth.IsOutboundRelayStale(DateTime.UtcNow, _poolConfig.OutboundRelayStaleSeconds))
+        {
+            return "Local DATUM mining is active but no outbound share or pulse relay completed within the configured stale threshold; fresh mining work is paused.";
+        }
+
         return $"Local Bitcoin node has not confirmed provisional peer tip {_state.ProvisionalTip!.BlockHash}; fresh mining work is paused to avoid stale-parent work.";
+    }
+
+    private List<string> BuildConfigWarningsNoLock(bool peerLoopsHealthy, bool outboundRelayHealthy)
+    {
+        var warnings = new List<string>();
+        if (_poolConfig.EnablePeerSync && string.IsNullOrWhiteSpace(_poolConfig.PublicBaseUrl))
+            warnings.Add("peer sync enabled without a dialable public_base_url");
+        if (_poolConfig.EnablePeerSync && !_poolConfig.EnablePulseProofs)
+            warnings.Add("pulse proofs disabled while peer sync is enabled");
+        if (BootProtocolVersions.IsBareReleaseVersion(BootProtocolVersions.CurrentReleaseVersion))
+            warnings.Add("release version lacks git/build provenance");
+        if (_identityChanged)
+            warnings.Add("node identity changed from the identity stored with existing state");
+        if (!peerLoopsHealthy)
+            warnings.Add("peer poll loop is stale");
+        if (!outboundRelayHealthy)
+            warnings.Add("outbound share/pulse relay is stale");
+        return warnings;
     }
 
     private bool ShouldQuarantinePreviousParentNoLock(string? parentBlockHash, DateTime nowUtc)

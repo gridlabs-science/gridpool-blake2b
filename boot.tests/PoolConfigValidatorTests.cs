@@ -16,6 +16,47 @@ public sealed class PoolConfigValidatorTests
     }
 
     [TestMethod]
+    public void PulseProofsDefaultToEnabled()
+    {
+        Assert.IsTrue(new PoolConfig().EnablePulseProofs);
+    }
+
+    [DataTestMethod]
+    [DataRow("https://boot.example.com")]
+    [DataRow("http://localhost:5000")]
+    [DataRow("https://rebuilt.example.com")]
+    public void ProductionRejectsPlaceholderPublicUrl(string publicBaseUrl)
+    {
+        var config = new PoolConfig
+        {
+            NodeMode = "production",
+            PublicBaseUrl = publicBaseUrl,
+            DatumPublicHost = "datum.gridpool.net",
+            EnableAdminApi = false
+        };
+
+        Assert.IsTrue(PoolConfigValidator.Validate(config).Any(error =>
+            error.Contains("public_base_url", StringComparison.OrdinalIgnoreCase) &&
+            error.Contains("must not", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
+    public void ProductionMainnetBetaRejectsDisabledPulseProofs()
+    {
+        var config = new PoolConfig
+        {
+            NodeMode = "production",
+            PublicBaseUrl = "https://node.gridpool.net",
+            DatumPublicHost = "datum.gridpool.net",
+            EnableAdminApi = false,
+            EnablePulseProofs = false
+        };
+
+        Assert.IsTrue(PoolConfigValidator.Validate(config).Any(error =>
+            error.Contains("enable_pulse_proofs", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
     public void V22ActivationHeightMustBeNonNegative()
     {
         var config = new PoolConfig { V22ActivationBlockHeight = -1 };

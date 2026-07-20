@@ -33,12 +33,14 @@ public class HealthController : ControllerBase
     public IActionResult Ready()
     {
         BootNetworkStatusDto network = _stateService.GetNetworkStatus();
-        bool ready = network.WinnersCount > 0 && !string.IsNullOrWhiteSpace(network.CurrentStateId);
+        bool baseReady = network.WinnersCount > 0 && !string.IsNullOrWhiteSpace(network.CurrentStateId);
+        bool peerReady = (!_poolConfig.EnablePeerSync || network.PeerLoopsHealthy) && !network.IdentityChanged;
+        bool ready = baseReady && peerReady;
         int statusCode = ready ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable;
 
         return StatusCode(statusCode, new
         {
-            status = ready ? "ready" : "starting",
+            status = ready ? "ready" : baseReady ? "degraded" : "starting",
             network.ProtocolVersion,
             network.NetworkId,
             network.CurrentStateId,
@@ -48,6 +50,14 @@ public class HealthController : ControllerBase
             network.OnDeckCount,
             network.PeerCount,
             peerSyncEnabled = _poolConfig.EnablePeerSync,
+            network.PeerLoopsHealthy,
+            network.IdentityChanged,
+            network.OutboundRelayHealthy,
+            network.LastPeerPollCompletedUtc,
+            network.LastShareRelayDequeuedUtc,
+            network.LastSuccessfulOutboundRelayUtc,
+            network.ShareRelayQueueDepth,
+            network.ConfigWarnings,
             publicEndpoint = network.SelfEndpoint,
             timeUtc = DateTime.UtcNow
         });

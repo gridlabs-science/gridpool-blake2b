@@ -976,19 +976,42 @@ public sealed class BootPeerSessionManager : BackgroundService
 
         try
         {
-            await session.SendLock.WaitAsync(cancellationToken);
+            TimeSpan timeout = TimeSpan.FromSeconds(Math.Max(1, _poolConfig.PeerSessionSendTimeoutSeconds));
+            bool lockAcquired = await WaitForSendLockAsync(session.SendLock, timeout, cancellationToken);
+            if (!lockAcquired)
+            {
+                throw new TimeoutException("Peer session send-lock wait timed out.");
+            }
             try
             {
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeoutCts.CancelAfter(timeout);
                 string payloadJson = JsonSerializer.Serialize(payload, JsonOptions);
                 BootPeerSessionEncryptedFrame frame = session.Crypto.Encrypt(payloadJson, session.NextSendSequence++);
                 string frameJson = JsonSerializer.Serialize(frame, JsonOptions);
-                await SendStringAsync(session.Socket, frameJson, cancellationToken);
+                await SendStringAsync(session.Socket, frameJson, timeoutCts.Token);
                 return true;
             }
             finally
             {
                 session.SendLock.Release();
             }
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogWarning("Timed out waiting for V2 peer-session send lock for {Peer}; closing the session so reliable HTTP fallback can proceed.", session.RemoteEndpoint);
+            _stateService.MarkPeerSessionFailure(session.RemoteEndpoint, session.RemoteNodeId, "session-send-timeout");
+            RemoveSession(session);
+            session.Abort();
+            return false;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning("Timed out sending V2 peer-session payload to {Peer}; closing the session so reliable HTTP fallback can proceed.", session.RemoteEndpoint);
+            _stateService.MarkPeerSessionFailure(session.RemoteEndpoint, session.RemoteNodeId, "session-send-timeout");
+            RemoveSession(session);
+            session.Abort();
+            return false;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -998,6 +1021,12 @@ public sealed class BootPeerSessionManager : BackgroundService
             return false;
         }
     }
+
+    public static Task<bool> WaitForSendLockAsync(
+        SemaphoreSlim sendLock,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default) =>
+        sendLock.WaitAsync(timeout, cancellationToken);
 
     private bool TryRegisterSession(PeerSession session)
     {

@@ -29,6 +29,7 @@ documentation.
 
 ## Operators
 
+- [Node Bootstrap And Critical Configuration](node-bootstrap-and-critical-config.md)
 - [Mainnet Beta Service Runbook](mainnet-beta-service-runbook.md)
 - [GridPool Health Monitor](gridpool-health-monitor.md)
 - [Testnet Full-Coinbase Compatibility Endpoint](testnet-full-coinbase-compatibility-endpoint.md)

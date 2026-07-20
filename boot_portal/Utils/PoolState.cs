@@ -81,6 +81,7 @@ public class PoolStateHistory
 
 public class BootProtocolMetadata
 {
+    public string NodeId { get; set; } = string.Empty;
     public string NetworkId { get; set; } = "mainnet-beta";
     public int ProtocolVersion { get; set; } = BootProtocolVersions.ConsensusVersion;
     public int ConsensusVersion { get; set; } = BootProtocolVersions.ConsensusVersion;

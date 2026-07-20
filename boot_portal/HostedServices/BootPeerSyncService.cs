@@ -17,6 +17,7 @@ public class BootPeerSyncService : BackgroundService
     private readonly BootPeerUdpRelayService _udpRelayService;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<BootPeerSyncService> _logger;
+    private readonly BootPeerLoopHealth _loopHealth;
 
     public BootPeerSyncService(
         PoolConfig poolConfig,
@@ -24,7 +25,8 @@ public class BootPeerSyncService : BackgroundService
         BootPeerSessionManager sessionManager,
         BootPeerUdpRelayService udpRelayService,
         IHttpClientFactory httpClientFactory,
-        ILogger<BootPeerSyncService> logger)
+        ILogger<BootPeerSyncService> logger,
+        BootPeerLoopHealth loopHealth)
     {
         _poolConfig = poolConfig;
         _stateService = stateService;
@@ -32,6 +34,7 @@ public class BootPeerSyncService : BackgroundService
         _udpRelayService = udpRelayService;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
+        _loopHealth = loopHealth;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -48,10 +51,35 @@ public class BootPeerSyncService : BackgroundService
             _logger.LogInformation("Peer sync is enabled without public_base_url. This node will sync outbound but will not advertise itself as a reachable peer.");
         }
 
-        Task syncLoop = RunPeerSyncLoopAsync(stoppingToken);
-        Task relayLoop = RunShareRelayLoopAsync(stoppingToken);
-        Task chainTipRelayLoop = RunChainTipRelayLoopAsync(stoppingToken);
+        Task syncLoop = RunSupervisedLoopAsync("peer-poll", RunPeerSyncLoopAsync, stoppingToken);
+        Task relayLoop = RunSupervisedLoopAsync("share-relay", RunShareRelayLoopAsync, stoppingToken);
+        Task chainTipRelayLoop = RunSupervisedLoopAsync("chain-tip-relay", RunChainTipRelayLoopAsync, stoppingToken);
         await Task.WhenAll(syncLoop, relayLoop, chainTipRelayLoop);
+    }
+
+    private async Task RunSupervisedLoopAsync(
+        string loopName,
+        Func<CancellationToken, Task> loop,
+        CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await loop(stoppingToken);
+                return;
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                _loopHealth.RecordFault(loopName, ex.GetType().Name, ex);
+                _logger.LogError(ex, "Peer {LoopName} loop faulted; restarting independently.", loopName);
+                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+            }
+        }
     }
 
     private async Task RunPeerSyncLoopAsync(CancellationToken stoppingToken)
@@ -77,16 +105,19 @@ public class BootPeerSyncService : BackgroundService
                 catch (OperationCanceledException ex)
                 {
                     _logger.LogWarning(ex, "Peer poll timed out for {Peer}.", peer);
+                    _loopHealth.RecordFault("peer-poll", "timeout", ex);
                     _stateService.MarkPeerFailure(peer, "timeout");
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Peer poll failed for {Peer}.", peer);
+                    _loopHealth.RecordFault("peer-poll", ex.GetType().Name, ex);
                     _stateService.MarkPeerFailure(peer, "error");
                 }
             }
 
             PruneStalePeers();
+            _loopHealth.RecordPeerPollCompleted();
 
             await Task.Delay(TimeSpan.FromSeconds(Math.Max(5, _poolConfig.PeerSyncIntervalSeconds)), stoppingToken);
         }
@@ -114,6 +145,7 @@ public class BootPeerSyncService : BackgroundService
     {
         await foreach (var proof in _stateService.AcceptedShares.ReadAllAsync(stoppingToken))
         {
+            _loopHealth.RecordShareDequeued();
             bool hasPeerSource = BootPeerSource.TryParsePeerSource(
                 proof.Source,
                 out _,
@@ -141,7 +173,11 @@ public class BootPeerSyncService : BackgroundService
             using var semaphore = new SemaphoreSlim(_stateService.GetPeerRelayParallelism());
 
             var relayTasks = peers.Select(peer => RelayShareWithLimitAsync(peer, proof, semaphore, stoppingToken)).ToArray();
-            await Task.WhenAll(relayTasks);
+            bool[] httpResults = await Task.WhenAll(relayTasks);
+            if (sessionRelayedEndpoints.Count > 0 || httpResults.Any(success => success))
+            {
+                _loopHealth.RecordOutboundRelay();
+            }
         }
     }
 
@@ -167,10 +203,11 @@ public class BootPeerSyncService : BackgroundService
             Task udpRelayTask = _udpRelayService.RelayChainTipAsync(announcement, stoppingToken);
             Task sessionRelayTask = _sessionManager.RelayChainTipToConnectedSessionsAsync(announcement, stoppingToken);
             await Task.WhenAll(udpRelayTask, sessionRelayTask);
+            _loopHealth.RecordChainTipRelay();
         }
     }
 
-    private async Task RelayShareWithLimitAsync(
+    private async Task<bool> RelayShareWithLimitAsync(
         string peer,
         BootShareProof proof,
         SemaphoreSlim semaphore,
@@ -179,7 +216,7 @@ public class BootPeerSyncService : BackgroundService
         await semaphore.WaitAsync(stoppingToken);
         try
         {
-            await RelayShareAsync(peer, proof, stoppingToken);
+            return await RelayShareAsync(peer, proof, stoppingToken);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -188,12 +225,16 @@ public class BootPeerSyncService : BackgroundService
         catch (OperationCanceledException ex)
         {
             _logger.LogDebug(ex, "Timed out relaying share {ShareId} to {Peer}.", proof.ShareId, peer);
+            _loopHealth.RecordFault("share-relay", "timeout", ex);
             _stateService.MarkPeerFailure(peer, "relay-timeout");
+            return false;
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to relay share {ShareId} to {Peer}.", proof.ShareId, peer);
+            _loopHealth.RecordFault("share-relay", ex.GetType().Name, ex);
             _stateService.MarkPeerFailure(peer, "relay-error");
+            return false;
         }
         finally
         {
@@ -380,7 +421,7 @@ public class BootPeerSyncService : BackgroundService
             localVersion.ReleaseVersion);
     }
 
-    private async Task RelayShareAsync(string peer, BootShareProof proof, CancellationToken stoppingToken)
+    private async Task<bool> RelayShareAsync(string peer, BootShareProof proof, CancellationToken stoppingToken)
     {
         using var client = _httpClientFactory.CreateClient("BootPeerClient");
         BootNodeVersionInfo localVersion = _stateService.GetLocalVersionInfo();
@@ -409,7 +450,7 @@ public class BootPeerSyncService : BackgroundService
         if (response.IsSuccessStatusCode)
         {
             _stateService.UpdatePeerHeartbeat(peer, "relayed", null, DateTime.UtcNow);
-            return;
+            return true;
         }
 
         string status = response.StatusCode == HttpStatusCode.TooManyRequests
@@ -425,6 +466,7 @@ public class BootPeerSyncService : BackgroundService
                 : $"Share relay failed with HTTP {(int)response.StatusCode} {response.ReasonPhrase}: {responsePreview}",
             proof.PrevBlockHash,
             null);
+        return false;
     }
 
     private static string FormatResponsePreview(string? responseBody)

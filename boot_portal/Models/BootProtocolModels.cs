@@ -1,3 +1,5 @@
+using boot_portal.Services;
+
 namespace boot_portal.Models;
 
 public class RecordedShareSubmission
@@ -311,7 +313,22 @@ public class BootLocalDatumMinerHashrateRollupPoint
 
 public class BootNetworkStatusDto
 {
+    public string NodeId { get; set; } = string.Empty;
+    public bool IdentityChanged { get; set; }
     public string SelfEndpoint { get; set; } = string.Empty;
+    public List<string> ConfigWarnings { get; set; } = [];
+    public DateTime? LastPeerPollCompletedUtc { get; set; }
+    public DateTime? LastShareRelayDequeuedUtc { get; set; }
+    public DateTime? LastSuccessfulOutboundRelayUtc { get; set; }
+    public DateTime? LastChainTipRelayUtc { get; set; }
+    public int ShareRelayQueueDepth { get; set; }
+    public Dictionary<string, BootPeerLoopFault> PeerLoopFaults { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public bool PeerLoopsHealthy { get; set; } = true;
+    public bool OutboundRelayHealthy { get; set; } = true;
+    public string OutboundRelayHealthReason { get; set; } = string.Empty;
+    public DateTime? LastLocalPulseUtc { get; set; }
+    public long LocalPulseAcceptedCount { get; set; }
+    public double LocalPulseAcceptRatePerMinute { get; set; }
     public int SoftwareConsensusVersion { get; set; }
     public int ProtocolVersion { get; set; }
     public int ConsensusVersion { get; set; }

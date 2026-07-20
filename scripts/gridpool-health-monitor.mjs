@@ -49,7 +49,9 @@ const DEFAULT_CONFIG = {
         hashrateSpikeMultiplier: 2.0,
         hashrateSamplesForTrend: 3,
         minimumHashrateThsForTrend: 1,
-        activeHydrapoolWorkerMaxAgeMinutes: 60
+        activeHydrapoolWorkerMaxAgeMinutes: 60,
+        outboundRelayStaleMinutes: 10,
+        peerOutboundAttemptStaleMinutes: 10
     },
     nodes: [
         {
@@ -109,6 +111,7 @@ Options:
   --force-digest              Send the morning digest now
   --test-telegram             Send a test Telegram message and exit
   --print-summary             Print compact JSON summary
+  --self-test                 Run pure monitor behavior tests
   --help                      Show this help
 `);
 }
@@ -335,6 +338,7 @@ async function collectGridPoolNode(node, config) {
         localMiners: [],
         payoutAddresses: [],
         candidateAddresses: [],
+        currentState: null,
         peers: [],
         peerRecords: [],
         peerRelayLatency: null,
@@ -377,6 +381,13 @@ async function collectGridPoolNode(node, config) {
         result.candidateState = state.json;
         result.candidateAddresses = extractAddresses(state.json?.winnersList);
         if (!state.ok) result.errors.push(`candidate state failed: ${state.error || state.status}`);
+    }
+
+    const currentStateId = summary.json?.currentStateId;
+    if (currentStateId) {
+        const state = await fetchJson(baseUrl, `/api/network/state/${encodeURIComponent(currentStateId)}`, config);
+        result.checks.currentState = compactFetchResult(state);
+        result.currentState = state.json;
     }
 
     const latency = await fetchJson(baseUrl, "/api/network/peer-relay-latency?window=24h&limit=1000", config);
@@ -659,6 +670,7 @@ function buildAlerts(snapshot, state, config) {
         maybeAddCoinbaseModeAlert(alerts, node);
         maybeAddNodeVersionVisibilityAlert(alerts, node);
         maybeAddPeerTipProtectionAlert(alerts, node);
+        maybeAddOutboundRelayAlert(alerts, node, config);
     }
 
     maybeAddConsensusComparisonAlerts(alerts, snapshot, state, config);
@@ -820,14 +832,49 @@ function maybeAddPeerTipProtectionAlert(alerts, node) {
     });
 }
 
+function maybeAddOutboundRelayAlert(alerts, node, config) {
+    const summary = node.summary;
+    if (!summary) return;
+    const localHashrate = Number(summary.localDatumHashrateThs || 0);
+    const staleMs = Number(config.thresholds.outboundRelayStaleMinutes || 10) * 60_000;
+    const lastRelay = parseDate(summary.lastSuccessfulOutboundRelayUtc);
+    const relayStale = summary.outboundRelayHealthy === false ||
+        (localHashrate > 0 && lastRelay && Date.now() - lastRelay > staleMs);
+    if (localHashrate > 0 && relayStale) {
+        alerts.push({
+            severity: "critical",
+            category: "outbound-relay-stale",
+            fingerprint: `gridpool:${node.name}:outbound-relay-stale`,
+            title: `GridPool ${node.name} has local hashrate but outbound relay is stale`,
+            detail: summary.outboundRelayHealthReason || `localHashrateThs=${localHashrate}; lastSuccessfulOutboundRelayUtc=${summary.lastSuccessfulOutboundRelayUtc || "never"}`,
+            codexEligible: true
+        });
+    }
+
+    const attemptStaleMs = Number(config.thresholds.peerOutboundAttemptStaleMinutes || 10) * 60_000;
+    const stalePeers = (node.peerRecords || []).filter(peer => {
+        const attempt = parseDate(peer.lastAttemptUtc);
+        return peer.sessionConnected === true && attempt && Date.now() - attempt > attemptStaleMs;
+    });
+    if (stalePeers.length > 0) {
+        alerts.push({
+            severity: "warning",
+            category: "peer-outbound-attempt-stale",
+            fingerprint: `gridpool:${node.name}:peer-outbound-attempt-stale:${stalePeers.map(peer => peer.endpoint).sort().join("|")}`,
+            title: `GridPool ${node.name} has connected sessions with frozen outbound polling`,
+            detail: stalePeers.slice(0, 5).map(peer => `${peer.endpoint}=attempt:${peer.lastAttemptUtc || "never"},tip:${shortId(peer.lastTipBlockHash) || "--"},state:${shortId(peer.lastCurrentStateId) || "--"}`).join("; "),
+            codexEligible: true
+        });
+    }
+}
+
 function maybeAddConsensusComparisonAlerts(alerts, snapshot, state, config) {
     for (const group of buildConsensusReport(snapshot, config)) {
         if (group.nodes.length < 2) continue;
 
         addDivergenceAlertForField(alerts, state, config, group, "consensusVersion", "consensus version", true);
         addDivergenceAlertForField(alerts, state, config, group, "stateBundleSchemaVersion", "state schema version", true);
-        addDivergenceAlertForField(alerts, state, config, group, "currentStateId", "current state", true);
-        addDivergenceAlertForField(alerts, state, config, group, "activeSnapshotId", "active snapshot", true);
+        addConsensusStateDivergenceAlert(alerts, state, config, group);
 
         const hardDivergence = ["consensusVersion", "stateBundleSchemaVersion", "currentStateId", "activeSnapshotId"]
             .some(fieldName => fieldDiverges(group, fieldName));
@@ -878,6 +925,53 @@ function maybeAddConsensusComparisonAlerts(alerts, snapshot, state, config) {
             });
         }
     }
+}
+
+function consensusStateFingerprint(group) {
+    const values = group.nodes.map(node =>
+        `${node.name}:${normalizeId(node.currentStateId)}:${normalizeId(node.activeSnapshotId)}`);
+    return `consensus:${group.groupKey}:state-snapshot:${values.sort().join("|")}`;
+}
+
+function compactProofSetDiff(group) {
+    const sourceNodes = group.nodes.map(compact => ({
+        compact,
+        source: compact.__source,
+        ids: new Set(compact.__source?.currentState?.activeSnapshotProofIds || [])
+    })).filter(node => node.ids.size > 0);
+    if (sourceNodes.length < 2) return "proofDiff=unavailable";
+    const [left, right] = sourceNodes;
+    const intersection = [...left.ids].filter(id => right.ids.has(id));
+    const leftOnly = [...left.ids].filter(id => !right.ids.has(id));
+    const rightOnly = [...right.ids].filter(id => !left.ids.has(id));
+    const describeTop = (node, ids) => {
+        const bundle = node.source.currentState || {};
+        const proofs = [...(bundle.shareProofs || []), ...(bundle.workSetProofs || [])];
+        const byId = new Map(proofs.map(proof => [proof.shareId, proof]));
+        const top = ids.map(id => byId.get(id)).filter(Boolean)
+            .sort((a, b) => Number(b.difficulty || 0) - Number(a.difficulty || 0))[0];
+        return top ? `${Number(top.difficulty || 0).toPrecision(4)}@${String(top.source || "unknown").slice(0, 40)}` : "--";
+    };
+    return `proofDiff intersection=${intersection.length}, ${left.compact.name}-only=${leftOnly.length} top=${describeTop(left, leftOnly)}, ${right.compact.name}-only=${rightOnly.length} top=${describeTop(right, rightOnly)}`;
+}
+
+function addConsensusStateDivergenceAlert(alerts, state, config, group) {
+    const key = `consensus:${group.groupKey}:state-snapshot`;
+    const diverged = fieldDiverges(group, "currentStateId") || fieldDiverges(group, "activeSnapshotId");
+    if (!diverged) {
+        resetFailure(state, key);
+        return;
+    }
+    const count = incrementFailure(state, key);
+    if (count < Number(config.thresholds.consensusDivergenceConsecutive || 2)) return;
+    alerts.push({
+        severity: "critical",
+        category: "consensus-divergence",
+        fingerprint: consensusStateFingerprint(group),
+        title: `GridPool ${group.groupKey} current state / active snapshot diverged`,
+        detail: `${group.nodes.map(node => `${node.name}=state:${shortId(node.currentStateId) || "--"},snapshot:${shortId(node.activeSnapshotId) || "--"}`).join("; ")}; ${compactProofSetDiff(group)}`,
+        codexEligible: true
+    });
 }
 
 function addDivergenceAlertForField(alerts, state, config, group, fieldName, label, immediate) {
@@ -1128,7 +1222,9 @@ function buildConsensusReport(snapshot, config) {
         if (!groups.has(groupKey)) {
             groups.set(groupKey, []);
         }
-        groups.get(groupKey).push(compactNodeConsensus(node));
+        const compact = compactNodeConsensus(node);
+        Object.defineProperty(compact, "__source", { value: node, enumerable: false });
+        groups.get(groupKey).push(compact);
     }
 
     return [...groups.entries()].map(([groupKey, nodes]) => {
@@ -1280,7 +1376,8 @@ function filterAlertsForDelivery(alerts, state, config) {
         if (muted && (!critical || muteCritical)) continue;
 
         const last = parseDate(state.alertCooldowns[alert.fingerprint]);
-        if (last && now - last < cooldownMs && !critical) continue;
+        const consensusReminder = alert.category === "consensus-divergence";
+        if (last && now - last < cooldownMs && (!critical || consensusReminder)) continue;
 
         state.alertCooldowns[alert.fingerprint] = currentIso();
         delivered.push(alert);
@@ -1920,6 +2017,10 @@ function writeMonitorLogs(stateDir, snapshot, alerts) {
 
 async function main() {
     const args = parseArgs(process.argv.slice(2));
+    if (args["self-test"] === "true") {
+        runSelfTests();
+        return;
+    }
     if (args.help === "true" || args.h === "true") {
         usage();
         return;
@@ -1986,6 +2087,24 @@ async function main() {
     } else {
         console.log(`[gridpool-health-monitor] ${snapshot.collectedAtUtc} alerts=${deliverableAlerts.length} state=${statePathFor(stateDir)}`);
     }
+}
+
+function runSelfTests() {
+    const group = { groupKey: "test", nodes: [
+        { name: "a", currentStateId: "one", activeSnapshotId: "alpha" },
+        { name: "b", currentStateId: "two", activeSnapshotId: "beta" }
+    ] };
+    const first = consensusStateFingerprint(group);
+    const reordered = consensusStateFingerprint({ ...group, nodes: [...group.nodes].reverse() });
+    if (first !== reordered) throw new Error("consensus fingerprint must be order independent");
+
+    const state = { telegram: {}, alertCooldowns: { [first]: currentIso() }, recentAlerts: [] };
+    const delivered = filterAlertsForDelivery(
+        [{ severity: "critical", category: "consensus-divergence", fingerprint: first }],
+        state,
+        { alertCooldownMinutes: 60 });
+    if (delivered.length !== 0) throw new Error("consensus divergence reminder cooldown failed");
+    console.log("gridpool-health-monitor self-test: ok");
 }
 
 main().catch(error => {

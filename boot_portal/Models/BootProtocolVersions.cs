@@ -28,6 +28,15 @@ public static class BootProtocolVersions
         return string.IsNullOrWhiteSpace(informational) ? "dev" : informational;
     });
 
+    public static string CurrentReleaseVersion => ReleaseVersion.Value;
+
+    public static bool IsBareReleaseVersion(string? value)
+    {
+        string normalized = value?.Trim() ?? string.Empty;
+        return normalized is "" or "dev" or "1.0.0" ||
+               System.Text.RegularExpressions.Regex.IsMatch(normalized, "^\\d+\\.\\d+\\.\\d+$");
+    }
+
     public static int GetActiveConsensusVersion(PoolConfig config, long? trustedLocalTipHeight)
     {
         int softwareConsensusVersion = Math.Min(config.BootProtocolVersion, ConsensusVersion);

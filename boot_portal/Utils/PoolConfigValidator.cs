@@ -1,4 +1,5 @@
 using System.Text;
+using boot_portal.Models;
 
 namespace boot_portal.Utils;
 
@@ -128,6 +129,9 @@ public static class PoolConfigValidator
         ValidatePositive(errors, config.PeerTipGraceSeconds, "peer_tip_grace_seconds");
         ValidatePositive(errors, config.PeerTipMaxHeaderAgeSeconds, "peer_tip_max_header_age_seconds");
         ValidatePositive(errors, config.PeerTipMaxFutureSeconds, "peer_tip_max_future_seconds");
+        ValidatePositive(errors, config.PeerSessionSendTimeoutSeconds, "peer_session_send_timeout_seconds");
+        ValidatePositive(errors, config.PeerLoopStaleSeconds, "peer_loop_stale_seconds");
+        ValidatePositive(errors, config.OutboundRelayStaleSeconds, "outbound_relay_stale_seconds");
         if (config.PeerSessionMaxFrameBytes > config.MaxShareRequestBytes)
         {
             errors.Add("peer_session_max_frame_bytes must be less than or equal to max_share_request_bytes");
@@ -200,6 +204,17 @@ public static class PoolConfigValidator
             ValidateRequiredAbsoluteUrl(errors, config.PublicBaseUrl, "public_base_url");
             ValidateRequiredHost(errors, config.DatumPublicHost, "datum_public_host");
 
+            if (IsPlaceholderPublicUrl(config.PublicBaseUrl))
+            {
+                errors.Add("public_base_url must not use boot.example.com, example.com, or localhost in production");
+            }
+
+            if (string.Equals(config.BootNetworkId, "mainnet-beta", StringComparison.OrdinalIgnoreCase) &&
+                !config.EnablePulseProofs)
+            {
+                errors.Add("enable_pulse_proofs must be true for production mainnet-beta nodes");
+            }
+
             if (!string.Equals(config.TestingRoundResetMode, "none", StringComparison.OrdinalIgnoreCase))
             {
                 errors.Add("testing_round_reset_mode must be none when node_mode is production");
@@ -224,6 +239,19 @@ public static class PoolConfigValidator
     private static bool IsProduction(PoolConfig config)
     {
         return string.Equals(config.NodeMode, "production", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPlaceholderPublicUrl(string? value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out Uri? uri))
+        {
+            return false;
+        }
+
+        string host = uri.Host.Trim().TrimEnd('.');
+        return string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(host, "boot.example.com", StringComparison.OrdinalIgnoreCase) ||
+               host.EndsWith(".example.com", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool HasStrongAdminKey(string? adminKey)

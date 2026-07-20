@@ -39,6 +39,8 @@ so user-level timers do not accidentally run the old distro `node` binary.
   - public nodes in the same consensus group disagreeing on protocol version,
     active snapshot, current state, or candidate state for multiple checks
   - sustained hashrate drop or spike
+  - local DATUM hashrate with stale outbound share/pulse relay
+  - connected peer sessions whose outbound poll attempts and reported state/tip fields are stale
   - high DATUM reject rate on any monitored node
   - new local DATUM miner addresses
   - new Hydrapool Stratum users/workers
@@ -262,7 +264,11 @@ Tune these fields first:
 - `thresholds.datumRejectRateMax`: default `0.10`.
 - `thresholds.hashrateDropFraction`: default `0.35`.
 - `thresholds.hashrateSpikeMultiplier`: default `2.0`.
+- `thresholds.outboundRelayStaleMinutes`: default `10`.
+- `thresholds.peerOutboundAttemptStaleMinutes`: default `10`.
 - `alertCooldownMinutes`: default `60`.
+
+Current-state and active-snapshot disagreement is one critical incident fingerprint. It alerts on a new divergence edge and repeats at most hourly while unchanged. When current-state bundles are fetchable within the normal request timeout, the alert includes proof-set intersection/side-only counts and the highest-difficulty side-only source.
 
 The installer does not overwrite an existing
 `~/.config/gridpool-health-monitor/config.json`. To adopt new public-node

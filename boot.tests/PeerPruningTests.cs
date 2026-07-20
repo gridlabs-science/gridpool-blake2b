@@ -2,6 +2,8 @@ using System.Text.Json;
 using boot_portal;
 using boot_portal.Models;
 using boot_portal.Services;
+using boot_portal.Controllers;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -141,9 +143,23 @@ public sealed class PeerPruningTests
         Assert.AreEqual("http://dallas.gridpool.net", endpoint);
     }
 
-    private static BootProtocolStateService CreateService()
+    [TestMethod]
+    public void ReadinessFailsWhenEnabledPeerPollLoopIsStale()
     {
-        var config = new PoolConfig
+        var health = new BootPeerLoopHealth(DateTime.UtcNow.AddMinutes(-2));
+        BootProtocolStateService service = CreateService(out PoolConfig config, health);
+
+        config.PeerLoopStaleSeconds = 30;
+        var result = (ObjectResult)new HealthController(config, service).Ready();
+        Assert.AreEqual(503, result.StatusCode);
+        Assert.IsFalse(service.GetNetworkStatus().PeerLoopsHealthy);
+    }
+
+    private static BootProtocolStateService CreateService() => CreateService(out _, null);
+
+    private static BootProtocolStateService CreateService(out PoolConfig config, BootPeerLoopHealth? health)
+    {
+        config = new PoolConfig
         {
             PublicBaseUrl = SelfEndpoint,
             BootstrapPeers = [],
@@ -181,7 +197,8 @@ public sealed class PeerPruningTests
             config,
             new BootShareVerifier(),
             new NoOpHubContext(),
-            NullLogger<BootProtocolStateService>.Instance);
+            NullLogger<BootProtocolStateService>.Instance,
+            health);
     }
 
     private sealed class NoOpHubContext : IHubContext<PoolStatsHub>

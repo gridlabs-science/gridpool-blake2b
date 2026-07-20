@@ -159,6 +159,15 @@ public class PoolConfig
     [JsonPropertyName("peer_request_timeout_seconds")]
     public int PeerRequestTimeoutSeconds { get; set; } = 5;
 
+    [JsonPropertyName("peer_session_send_timeout_seconds")]
+    public int PeerSessionSendTimeoutSeconds { get; set; } = 5;
+
+    [JsonPropertyName("peer_loop_stale_seconds")]
+    public int PeerLoopStaleSeconds { get; set; } = 600;
+
+    [JsonPropertyName("outbound_relay_stale_seconds")]
+    public int OutboundRelayStaleSeconds { get; set; } = 300;
+
     [JsonPropertyName("max_peers")]
     public int MaxPeers { get; set; } = 64;
 
@@ -253,7 +262,10 @@ public class PoolConfig
     public bool PeerRelayLatencyProbeAllTransports { get; set; } = false;
 
     [JsonPropertyName("enable_pulse_proofs")]
-    public bool EnablePulseProofs { get; set; } = false;
+    public bool EnablePulseProofs { get; set; } = true;
+
+    [JsonPropertyName("pause_mining_on_outbound_relay_stale")]
+    public bool PauseMiningOnOutboundRelayStale { get; set; } = true;
 
     [JsonPropertyName("pulse_min_difficulty")]
     public double PulseMinDifficulty { get; set; } = 1d;
@@ -429,6 +441,8 @@ public class ServerConfig
 public class Program
 {
     public const string DefaultPublicSeedEndpoint = "https://main.gridpool.net";
+    public static readonly string[] DefaultPublicSeedEndpoints =
+        ["https://main.gridpool.net", "https://dallas.gridpool.net", "https://detroit.gridpool.net"];
     // TODO: I should optionally load this from config, instead of hard-coded like this.
     private static int DatumPort = 3008;  //Defaults to 3008.  Should get set by config file.
     public static ulong BLOCK_REWARD = 312_500_000;  //TODO: Need to detect this from the blockchain, so it gracefully handles the next epoch
@@ -680,6 +694,7 @@ public class Program
             builder.Services.AddSignalR();    // For real-time updates
             builder.Services.AddSingleton(_poolConfig);
             builder.Services.AddSingleton(new BootPeerIdentity(ed25519Key, x25519Key));
+            builder.Services.AddSingleton<BootPeerLoopHealth>();
             builder.Services.AddSingleton<BootShareVerifier>();
             builder.Services.AddSingleton<BootProtocolStateService>();
             builder.Services.AddSingleton<LocalMiningAdapterAuth>();
@@ -965,10 +980,10 @@ public class Program
             : config.BitcoinZmqEndpoint.Trim();
 
         if (string.Equals(config.BootNetworkId, "mainnet-beta", StringComparison.OrdinalIgnoreCase) &&
-            config.BootstrapPeers.Count == 0 &&
-            !string.Equals(config.PublicBaseUrl.Trim().TrimEnd('/'), DefaultPublicSeedEndpoint, StringComparison.OrdinalIgnoreCase))
+            config.BootstrapPeers.Count == 0)
         {
-            config.BootstrapPeers.Add(DefaultPublicSeedEndpoint);
+            config.BootstrapPeers.AddRange(DefaultPublicSeedEndpoints.Where(seed =>
+                !string.Equals(config.PublicBaseUrl.Trim().TrimEnd('/'), seed, StringComparison.OrdinalIgnoreCase)));
         }
     }
 

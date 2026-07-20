@@ -1,0 +1,49 @@
+# Node Bootstrap And Critical Configuration
+
+This is the canonical rebuild checklist for GridPool node operators and automation agents. Never delete or replace an existing state file or node key as part of bootstrap.
+
+## Automatic Safety
+
+- `mainnet-beta` nodes with an empty bootstrap list seed `main.gridpool.net`, `dallas.gridpool.net`, and `detroit.gridpool.net` (excluding their own endpoint).
+- Pulse proofs default on. Production `mainnet-beta` rejects an explicit pulse-off configuration.
+- Peer polling, share relay, and chain-tip relay run under independent supervisors. WebSocket send-lock and frame writes time out, close the stuck session, and allow HTTP share fallback.
+- `/health/ready` becomes unavailable when peer polling is stale for `peer_loop_stale_seconds` (default 600).
+- With active local DATUM sessions, pulse proofs, and peer sync enabled, mining work pauses after `outbound_relay_stale_seconds` (default 300) without a successful outbound share/pulse relay. Set `pause_mining_on_outbound_relay_stale=false` only for an explicitly isolated non-production node.
+- `/api/network/summary` exposes node identity, endpoint, release, loop timestamps/faults, queue depth, pulse/outbound health, and configuration warnings.
+
+Peer-observed acceptance acknowledgements are not yet authenticated end-to-end; the current health signal proves a bounded local transport send/HTTP acceptance, not that a remote node admitted a candidate-changing proof. An authenticated proof-ID ack/reject remains follow-up work.
+
+## Humans And Agents Must Set
+
+- `public_base_url`: the real externally reachable HTTPS base URL for a dialable production node. Placeholder/example/localhost values fail production startup.
+- `datum_public_host` and optional public port: the real DATUM endpoint advertised to miners.
+- `pool_payout_script`: the operator-controlled address on the selected Bitcoin network.
+- Absolute, persistent paths for state, history, local-adapter token, and service working directory. Do not store state on an ephemeral container layer.
+- Bitcoin Core connectivity and `bitcoin_zmq_endpoint` / raw-block ZMQ endpoint. Confirm the node is caught up.
+- Ed25519 and X25519 private keys. Back them up offline with the state database; a changed key produces a changed public `nodeId`.
+- `GRIDPOOL_RELEASE_VERSION` when the build informational version lacks a git suffix. Use a value such as `2.2.0+g<commit>`; bare `1.0.0`/`dev` is warned in the summary.
+- Strong `admin_api_key` through an untracked local override or environment when the admin API is enabled. Never commit secrets.
+
+V2.2 activation remains height **959500**. Rebuilds do not justify changing it.
+
+## Post-Rebuild Validation
+
+```bash
+curl -fsS https://YOUR_NODE/health/ready | jq
+curl -fsS https://YOUR_NODE/api/network/summary | jq '{nodeId,selfEndpoint,releaseVersion,configWarnings,pulseProofsEnabled,peerLoopsHealthy,outboundRelayHealthy,lastPeerPollCompletedUtc,lastSuccessfulOutboundRelayUtc,shareRelayQueueDepth}'
+systemctl status bootserverapp.service --no-pager
+journalctl -u bootserverapp.service -n 200 --no-pager
+```
+
+Verify the restored `nodeId` matches the pre-rebuild record, `selfEndpoint` is public and correct, `configWarnings` is empty or understood, pulses are enabled, poll timestamps advance, outbound relay advances after a local pulse/share, peer current state/tip fields advance, and the node agrees with at least two public peers on current state and active snapshot before enabling miners.
+
+## Copy-Paste Agent Checklist
+
+1. Preserve and back up node keys, state, history, and local overrides; do not wipe state.
+2. Confirm absolute persistent paths and file ownership.
+3. Set the real public/DATUM endpoints, payout address, Bitcoin/ZMQ endpoints, and release provenance.
+4. Leave V2.2 activation at 959500, pulses enabled, stale-loop readiness enabled, and outbound-stale mining pause enabled on production mainnet-beta.
+5. Start the node; compare `nodeId` to the saved identity.
+6. Require ready HTTP 200, advancing peer poll and outbound relay timestamps, no unexplained config warnings, and agreement with two public nodes.
+7. Run the health monitor once manually, then confirm its timer and Telegram alert path.
+8. Only then reconnect or enable local mining traffic.

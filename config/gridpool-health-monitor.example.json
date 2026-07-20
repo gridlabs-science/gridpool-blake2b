@@ -42,7 +42,9 @@
     "hashrateSpikeMultiplier": 2.0,
     "hashrateSamplesForTrend": 3,
     "minimumHashrateThsForTrend": 1,
-    "activeHydrapoolWorkerMaxAgeMinutes": 60
+    "activeHydrapoolWorkerMaxAgeMinutes": 60,
+    "outboundRelayStaleMinutes": 10,
+    "peerOutboundAttemptStaleMinutes": 10
   },
   "nodes": [
     {
