@@ -64,6 +64,8 @@ public class MiningShareAdviceDto
 
 public class Sv2WorkSelectionDto
 {
+    public int SchemaVersion { get; set; } = 1;
+    public string PlanId { get; set; } = string.Empty;
     public long Sequence { get; set; }
     public string NetworkId { get; set; } = string.Empty;
     public string BitcoinNetwork { get; set; } = string.Empty;
@@ -84,6 +86,7 @@ public class Sv2WorkSelectionDto
     public string CoinbaseTxOutputsHex { get; set; } = string.Empty;
     public List<Sv2CoinbaseOutputDto> CoinbaseOutputs { get; set; } = [];
     public double MinimumAcceptedDifficulty { get; set; } = 1;
+    public double MinimumPulseDifficulty { get; set; } = 1;
     public double MinimumDifficultyToEnterReserve { get; set; } = 1;
     public string MinimumDifficultyToEnterReserveDisplay { get; set; } = "1";
     public string UserIdentifierRule { get; set; } = string.Empty;

@@ -1792,8 +1792,13 @@ public sealed class ShareAttributionTests
         using var harness = TestHarness.Create(winnersList: winners);
 
         Sv2WorkSelectionDto response = harness.StateService.GetSv2WorkSelectionResponse();
+        Sv2WorkSelectionDto repeated = harness.StateService.GetSv2WorkSelectionResponse();
 
+        Assert.AreEqual(1, response.SchemaVersion);
+        Assert.AreEqual(64, response.PlanId.Length);
+        Assert.AreEqual(response.PlanId, repeated.PlanId);
         Assert.AreEqual("coinbase-only", response.Mode);
+        Assert.AreEqual(Math.Max(1d, harness.Config.PulseMinDifficulty), response.MinimumPulseDifficulty);
         Assert.AreEqual(harness.Config.BootNetworkId, response.NetworkId);
         Assert.AreEqual(harness.Config.BitcoinNetwork, response.BitcoinNetwork);
         Assert.AreEqual(harness.Config.BootProtocolVersion, response.ProtocolVersion);
@@ -1806,6 +1811,12 @@ public sealed class ShareAttributionTests
         Assert.AreEqual(Convert.FromHexString(expectedHex).Length, response.CoinbaseTxOutputsBytes);
         Assert.AreEqual(3000UL, response.CoinbaseOutputs.Single(output => output.Address == SampleSlotZeroAddress).Value);
         Assert.AreEqual(3000UL, response.CoinbaseOutputs.Single(output => output.Address == AlternateAddress).Value);
+
+        Assert.IsInstanceOfType<OkObjectResult>(harness.MiningController.GetWorkPlan());
+
+        harness.Config.CoinbaseUncondensedOutputsEnabled = true;
+        Sv2WorkSelectionDto uncondensed = harness.StateService.GetSv2WorkSelectionResponse();
+        Assert.AreNotEqual(response.PlanId, uncondensed.PlanId);
     }
 
     [TestMethod]

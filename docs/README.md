@@ -44,6 +44,7 @@ documentation.
 - [Robust Networking Architecture Plan](robust-networking-architecture-plan.md)
 - [Hashrate Estimation](hashrate-estimation.md)
 - [Hydrapool HTTP Submission](hydrapool-http-submission.md)
+- [CKPool And AtlasPool Integration](ckpool-atlaspool-integration.md)
 - [DATUM Upstream Server Compatibility Notes](datum-server-compatibility-notes.md)
 - [Stratum V2 / GridPool Evaluation](stratum-v2-gridpool-evaluation.md)
 - [Firmware Coinbase Compatibility Matrix](firmware-coinbase-compatibility-matrix.md)

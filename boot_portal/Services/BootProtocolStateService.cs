@@ -316,8 +316,29 @@ public class BootProtocolStateService
             byte[] coinbaseTxOutputs = BitcoinTransactionSerialization.SerializeTxOutputs(serializedOutputs);
             double minimumDifficultyToEnter = GetWorkSetAdmissionDifficultyNoLock();
 
+            string planMaterial = string.Join('|',
+                "gridpool-mining-plan-v1",
+                _poolConfig.BootNetworkId,
+                _poolConfig.BitcoinNetwork,
+                GetActiveConsensusVersionNoLock(),
+                _state.ActiveSnapshotId,
+                _state.CurrentTipBlockHash ?? string.Empty,
+                _state.CurrentTipBlockHeight?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+                IsMiningWorkSafeNoLock(DateTime.UtcNow),
+                _state.ProvisionalTip?.BlockHash ?? string.Empty,
+                _poolConfig.TotalPayoutSlotCount,
+                _poolConfig.SharedWinnerSlotCount,
+                _poolConfig.GridLabsSupportFeeEnabled,
+                Math.Max(1d, _poolConfig.PulseMinDifficulty).ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+                Convert.ToHexString(coinbaseTxOutputs).ToLowerInvariant());
+            string planId = Convert.ToHexString(
+                System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(planMaterial)))
+                .ToLowerInvariant();
+
             return new Sv2WorkSelectionDto
             {
+                SchemaVersion = 1,
+                PlanId = planId,
                 Sequence = DateTime.UtcNow.Ticks,
                 NetworkId = _poolConfig.BootNetworkId,
                 BitcoinNetwork = _poolConfig.BitcoinNetwork,
@@ -338,6 +359,7 @@ public class BootProtocolStateService
                 CoinbaseTxOutputsHex = Convert.ToHexString(coinbaseTxOutputs).ToLowerInvariant(),
                 CoinbaseOutputs = outputDtos,
                 MinimumAcceptedDifficulty = 1d,
+                MinimumPulseDifficulty = Math.Max(1d, _poolConfig.PulseMinDifficulty),
                 MinimumDifficultyToEnterReserve = minimumDifficultyToEnter,
                 MinimumDifficultyToEnterReserveDisplay = ClientHandler.FormatDifficulty(minimumDifficultyToEnter),
                 UserIdentifierRule = "Use payoutAddress or payoutAddress.worker; GridPool still attributes shares from the slot-0 coinbase output, not this metadata.",

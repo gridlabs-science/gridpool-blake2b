@@ -4,6 +4,8 @@ using boot_portal.Models;
 using boot_portal.Services;
 using boot_portal.Utils;
 using Microsoft.AspNetCore.RateLimiting;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace boot_portal.Controllers;
 
@@ -64,6 +66,15 @@ public class MiningApiController : ControllerBase
     [HttpGet("sv2-work-selection")]
     public IActionResult GetSv2WorkSelection()
     {
+        return GetWorkPlan();
+    }
+
+    // GET: api/mining/work-plan
+    // Generic adapter contract for SV1, SV2, and future local mining gateways.
+    [EnableRateLimiting("network-read")]
+    [HttpGet("work-plan")]
+    public IActionResult GetWorkPlan()
+    {
         if (!_stateService.CanIssueMiningWork(out string reason))
         {
             return Conflict(new
@@ -74,6 +85,62 @@ public class MiningApiController : ControllerBase
         }
 
         return Ok(_stateService.GetSv2WorkSelectionResponse());
+    }
+
+    // GET: api/mining/local/work-plan
+    // Authenticated alias used by sidecars that should not depend on a public route.
+    [HttpGet("local/work-plan")]
+    public IActionResult GetLocalWorkPlan()
+    {
+        if (!IsLocalAdapterAuthorized())
+        {
+            return Unauthorized(new { status = "rejected", reason = "Invalid local adapter token" });
+        }
+
+        return GetWorkPlan();
+    }
+
+    // GET: api/mining/local/work-plan/events
+    // Server-sent plan updates. The short internal poll observes state atomically through
+    // GetSv2WorkSelectionResponse and avoids coupling adapters to UI SignalR messages.
+    [HttpGet("local/work-plan/events")]
+    public async Task StreamLocalWorkPlans(CancellationToken cancellationToken)
+    {
+        if (!IsLocalAdapterAuthorized())
+        {
+            Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await Response.WriteAsJsonAsync(
+                new { status = "rejected", reason = "Invalid local adapter token" },
+                cancellationToken);
+            return;
+        }
+
+        Response.Headers.CacheControl = "no-cache";
+        Response.Headers.Connection = "keep-alive";
+        Response.ContentType = "text/event-stream";
+
+        string? lastPlanId = null;
+        DateTime nextHeartbeatUtc = DateTime.MinValue;
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(250));
+
+        do
+        {
+            Sv2WorkSelectionDto plan = _stateService.GetSv2WorkSelectionResponse();
+            DateTime now = DateTime.UtcNow;
+            if (!string.Equals(lastPlanId, plan.PlanId, StringComparison.Ordinal) || now >= nextHeartbeatUtc)
+            {
+                string eventName = lastPlanId == null || !string.Equals(lastPlanId, plan.PlanId, StringComparison.Ordinal)
+                    ? "work-plan"
+                    : "heartbeat";
+                await Response.WriteAsync($"event: {eventName}\n", cancellationToken);
+                await Response.WriteAsync($"id: {plan.PlanId}\n", cancellationToken);
+                await Response.WriteAsync($"data: {JsonSerializer.Serialize(plan)}\n\n", cancellationToken);
+                await Response.Body.FlushAsync(cancellationToken);
+                lastPlanId = plan.PlanId;
+                nextHeartbeatUtc = now.AddSeconds(15);
+            }
+        }
+        while (await timer.WaitForNextTickAsync(cancellationToken));
     }
 
     // GET: api/mining/connect-info
@@ -101,7 +168,12 @@ public class MiningApiController : ControllerBase
             stratumV1 = new
             {
                 nativeListenerAvailable = false,
-                note = "boot-portal is not a native Stratum V1 server. Point ASICs at DATUM Gateway or a compatible gateway such as Hydrapool, then point that gateway at GridPool."
+                workPlanEndpoint = "/api/mining/work-plan",
+                localWorkPlanEndpoint = "/api/mining/local/work-plan",
+                localWorkPlanEventsEndpoint = "/api/mining/local/work-plan/events",
+                localProofEndpoint = "/api/mining/local/share",
+                localTelemetryEndpoint = "/api/mining/local/share-telemetry",
+                note = "boot-portal is not a native Stratum V1 server. Run DATUM Gateway, Hydrapool, or the GridPool CKPool adapter and compatible CKPool fork beside this node."
             },
             stratumV2 = new
             {
@@ -133,7 +205,8 @@ public class MiningApiController : ControllerBase
             return Unauthorized(new { status = "rejected", reason = "Invalid local adapter token" });
         }
 
-        return await SubmitShareCore(share, "sv2", "sv2-block");
+        string source = ResolveLocalAdapterSource();
+        return await SubmitShareCore(share, source, $"{source}-block");
     }
 
     // POST: api/mining/local/share-telemetry
@@ -162,7 +235,7 @@ public class MiningApiController : ControllerBase
 
         try
         {
-            return Ok(_stateService.RecordLocalMiningTelemetryBatch(batch, "sv2"));
+            return Ok(_stateService.RecordLocalMiningTelemetryBatch(batch, ResolveLocalAdapterSource()));
         }
         catch (ArgumentException ex)
         {
@@ -241,6 +314,16 @@ public class MiningApiController : ControllerBase
         return _localAdapterAuth != null &&
             Request.Headers.TryGetValue(LocalMiningAdapterAuth.HeaderName, out var values) &&
             _localAdapterAuth.IsAuthorized(values.FirstOrDefault());
+    }
+
+    private string ResolveLocalAdapterSource()
+    {
+        const string sourceHeader = "X-GridPool-Adapter-Type";
+        string source = Request.Headers.TryGetValue(sourceHeader, out var values)
+            ? values.FirstOrDefault()?.Trim().ToLowerInvariant() ?? string.Empty
+            : string.Empty;
+
+        return Regex.IsMatch(source, "^[a-z0-9][a-z0-9-]{0,31}$") ? source : "sv2";
     }
 
     private string ResolveDatumHost()
