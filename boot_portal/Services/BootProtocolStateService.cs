@@ -88,7 +88,7 @@ public class BootProtocolStateService
     private const int MaxRecentDatumProtocolEvents = 25000;
     private const int MaxRecentNetworkEvents = 20000;
     private const int MaxRecentPeerRelayObservations = 10000;
-    private const int MaxRecentCandidateBundles = 512;
+    private const int MaxRecentCandidateBundles = 8;
     private const int MinLocalDatumMinerDisplaySamples = 8;
 
     private PoolState _state = new();
@@ -4970,9 +4970,13 @@ public class BootProtocolStateService
         BootPortalPaths.EnsureParentDirectory(snapshot.TargetPath);
         string tempPath = $"{snapshot.TargetPath}.tmp";
         JsonSerializerOptions options = compact ? _compactJsonOptions : _jsonOptions;
-        string json = JsonSerializer.Serialize(snapshot.Payload, options);
-
-        File.WriteAllText(tempPath, json);
+        long bytes;
+        using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            JsonSerializer.Serialize(stream, snapshot.Payload, options);
+            stream.Flush(flushToDisk: true);
+            bytes = stream.Length;
+        }
         if (File.Exists(snapshot.TargetPath))
         {
             File.Replace(tempPath, snapshot.TargetPath, snapshot.BackupPath, ignoreMetadataErrors: true);
@@ -4989,7 +4993,7 @@ public class BootProtocolStateService
                 "Slow pool-state save: {DurationMs:F1} ms (reason={Reason}, bytes={Bytes}).",
                 saveStopwatch.Elapsed.TotalMilliseconds,
                 reason,
-                json.Length);
+                bytes);
         }
     }
 
@@ -5090,8 +5094,8 @@ public class BootProtocolStateService
     {
         try
         {
-            string json = File.ReadAllText(path);
-            var loaded = JsonSerializer.Deserialize<PoolState>(json);
+            using FileStream stream = File.OpenRead(path);
+            var loaded = JsonSerializer.Deserialize<PoolState>(stream);
             if (loaded == null)
             {
                 return false;
@@ -5239,8 +5243,8 @@ public class BootProtocolStateService
     {
         try
         {
-            string json = File.ReadAllText(path);
-            var loaded = JsonSerializer.Deserialize<PoolStateHistory>(json);
+            using FileStream stream = File.OpenRead(path);
+            var loaded = JsonSerializer.Deserialize<PoolStateHistory>(stream);
             if (loaded == null)
             {
                 return false;
@@ -5284,6 +5288,9 @@ public class BootProtocolStateService
             RebuildLocalDatumAddressHashrateNoLock();
             RebuildPeerRelayFirstArrivalsNoLock();
             _recentShareDiagnostics.Clear();
+            // Rewrite once after loading so retention changes compact legacy
+            // history files without requiring a later mining or peer event.
+            RequestDeferredHistorySaveNoLock();
             _recentShareDiagnostics.AddRange(_state.RecentRejectedShareDiagnostics.Select(CloneShareDiagnostic));
             _logger.LogInformation("Loaded Boot protocol history from {Label} disk file.", label);
             return true;
@@ -8950,6 +8957,14 @@ public class BootProtocolStateService
                     bundle.ProofWinnersList = inferredProofWinners;
                 }
             }
+        }
+
+        int historyLimit = Math.Max(1, _poolConfig.MaxStateBundleHistory);
+        if (_state.ArchivedStateBundles.Count > historyLimit)
+        {
+            _state.ArchivedStateBundles.RemoveRange(
+                historyLimit,
+                _state.ArchivedStateBundles.Count - historyLimit);
         }
     }
 

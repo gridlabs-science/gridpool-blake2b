@@ -124,7 +124,7 @@ public class PoolConfig
     public bool EnableAdminApi { get; set; } = true;
 
     [JsonPropertyName("max_state_bundle_history")]
-    public int MaxStateBundleHistory { get; set; } = 32;
+    public int MaxStateBundleHistory { get; set; } = 8;
 
     [JsonPropertyName("Datum_Port")]
     public int DatumPort { get; set; } = 3008;
