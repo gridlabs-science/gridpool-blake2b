@@ -13,6 +13,7 @@ namespace boot_portal.Controllers;
 [Route("api/mining")]
 public class MiningApiController : ControllerBase
 {
+    private static readonly JsonSerializerOptions EventJsonOptions = new(JsonSerializerDefaults.Web);
     private readonly PoolConfig _poolConfig;
     private readonly BootProtocolStateService _stateService;
     private readonly LocalMiningAdapterAuth? _localAdapterAuth;
@@ -134,7 +135,9 @@ public class MiningApiController : ControllerBase
                     : "heartbeat";
                 await Response.WriteAsync($"event: {eventName}\n", cancellationToken);
                 await Response.WriteAsync($"id: {plan.PlanId}\n", cancellationToken);
-                await Response.WriteAsync($"data: {JsonSerializer.Serialize(plan)}\n\n", cancellationToken);
+                await Response.WriteAsync(
+                    $"data: {JsonSerializer.Serialize(plan, EventJsonOptions)}\n\n",
+                    cancellationToken);
                 await Response.Body.FlushAsync(cancellationToken);
                 lastPlanId = plan.PlanId;
                 nextHeartbeatUtc = now.AddSeconds(15);
