@@ -8,7 +8,11 @@ set -euo pipefail
 
 HYDRAPOOL_DIR="${HYDRAPOOL_DIR:-/home/keegreil/Documents/GitHub/hydrapool}"
 HYDRAPOOL_CONFIG="${HYDRAPOOL_CONFIG:-${HYDRAPOOL_DIR}/config.toml}"
-HYDRAPOOL_BIN="${HYDRAPOOL_BIN:-${HYDRAPOOL_DIR}/target/debug/hydrapool}"
+default_hydrapool_bin="${HYDRAPOOL_DIR}/target/release/hydrapool"
+if [[ ! -x "$default_hydrapool_bin" ]]; then
+  default_hydrapool_bin="${HYDRAPOOL_DIR}/target/debug/hydrapool"
+fi
+HYDRAPOOL_BIN="${HYDRAPOOL_BIN:-$default_hydrapool_bin}"
 BITCOIN_CONTAINER="${BITCOIN_CONTAINER:-}"
 BITCOIN_COOKIE_FILE="${BITCOIN_COOKIE_FILE:-/home/keegreil/.bitcoin/.cookie}"
 BITCOIN_COOKIE_PATH="${BITCOIN_COOKIE_PATH:-/data/.bitcoin/.cookie}"
