@@ -201,7 +201,7 @@ function statePathFor(stateDir) {
 
 function loadState(stateDir) {
     const state = readJsonIfExists(statePathFor(stateDir));
-    return mergeConfig({
+    const merged = mergeConfig({
         version: SCRIPT_VERSION,
         initialized: false,
         failureCounts: {},
@@ -226,6 +226,8 @@ function loadState(stateDir) {
         recentAlerts: [],
         lastSnapshot: null
     }, state || {});
+    merged.version = SCRIPT_VERSION;
+    return merged;
 }
 
 function normalizeBaseUrl(url) {
@@ -1429,11 +1431,13 @@ function nodesForIncidentAlerts(alerts, snapshot) {
         const parts = String(alert.fingerprint || "").split(":");
         if (parts[0] === "consensus" && parts[1]) selectedGroups.add(parts[1]);
         if (parts[0] === "gridpool" && parts[1]) selectedNames.add(parts[1]);
-        if (parts[0] === "tcp") {
-            for (const node of nodes) {
-                if (String(parts[1] || "").toLowerCase().includes(String(node.name || "").toLowerCase())) {
-                    selectedNames.add(node.name);
-                }
+        for (const node of nodes) {
+            const nodeName = String(node.name || "").toLowerCase();
+            if (parts.some(part => {
+                const value = String(part || "").toLowerCase();
+                return value === nodeName || value.includes(nodeName);
+            })) {
+                selectedNames.add(node.name);
             }
         }
     }
@@ -2251,6 +2255,16 @@ function runSelfTests() {
         [{ severity: "warning", category: "test", fingerprint: "gridpool:a:test" }],
         incidentState).length !== 1) {
         throw new Error("resolved incident recurrence was not detected");
+    }
+    const incidentNodes = nodesForIncidentAlerts(
+        [{ fingerprint: "hashrate:b:local:drop" }],
+        { gridpoolNodes: [
+            { name: "a", consensusGroup: "test" },
+            { name: "b", consensusGroup: "test" },
+            { name: "other", consensusGroup: "other" }
+        ] });
+    if (incidentNodes.map(node => node.name).sort().join(",") !== "a,b") {
+        throw new Error("incident node and consensus peer selection failed");
     }
     console.log("gridpool-health-monitor self-test: ok");
 }
