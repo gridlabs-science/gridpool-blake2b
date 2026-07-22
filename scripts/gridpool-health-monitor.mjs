@@ -847,16 +847,30 @@ function maybeAddOutboundRelayAlert(alerts, node, config) {
     if (!summary) return;
     const localHashrate = Number(summary.localDatumHashrateThs || 0);
     const staleMs = Number(config.thresholds.outboundRelayStaleMinutes || 10) * 60_000;
+    const lastLocalShare = parseDate(summary.lastValidLocalDatumShareUtc);
+    const datumSessionOpened = parseDate(summary.lastDatumSessionOpenedUtc);
     const lastRelay = parseDate(summary.lastSuccessfulOutboundRelayUtc);
+    const localShareRecent = lastLocalShare && Date.now() - lastLocalShare <= staleMs;
+    const localInputReference = lastLocalShare || datumSessionOpened;
+    const localInputStale = localInputReference && Date.now() - localInputReference > staleMs;
     const relayStale = summary.outboundRelayHealthy === false ||
         (localHashrate > 0 && lastRelay && Date.now() - lastRelay > staleMs);
-    if (localHashrate > 0 && relayStale) {
+    if (localHashrate > 0 && localShareRecent && relayStale) {
         alerts.push({
             severity: "critical",
             category: "outbound-relay-stale",
             fingerprint: `gridpool:${node.name}:outbound-relay-stale`,
             title: `GridPool ${node.name} has local hashrate but outbound relay is stale`,
             detail: summary.outboundRelayHealthReason || `localHashrateThs=${localHashrate}; lastSuccessfulOutboundRelayUtc=${summary.lastSuccessfulOutboundRelayUtc || "never"}`,
+            codexEligible: true
+        });
+    } else if (localHashrate > 0 && localInputStale && Number(summary.activeDatumSessionCount || 0) > 0) {
+        alerts.push({
+            severity: "warning",
+            category: "local-datum-share-stale",
+            fingerprint: `gridpool:${node.name}:local-datum-share-stale`,
+            title: `GridPool ${node.name} DATUM session is alive but miner shares stopped`,
+            detail: `localHashrateThs=${localHashrate}; lastValidLocalDatumShareUtc=${summary.lastValidLocalDatumShareUtc || "never"}; lastCoinbaserResponseUtc=${summary.lastSuccessfulDatumCoinbaserResponseUtc || "never"}. Check the local Stratum worker or rental failover before diagnosing peer relay.`,
             codexEligible: true
         });
     }
@@ -968,7 +982,14 @@ function compactProofSetDiff(group) {
 function addConsensusStateDivergenceAlert(alerts, state, config, group) {
     const key = `consensus:${group.groupKey}:state-snapshot`;
     const diverged = fieldDiverges(group, "currentStateId") || fieldDiverges(group, "activeSnapshotId");
-    if (!diverged) {
+    // A snapshot is keyed to the Bitcoin tip. Different states are expected while
+    // nodes are briefly at different heights and do not represent a consensus fork.
+    const knownHeights = group.nodes
+        .map(node => Number(node.currentTipBlockHeight))
+        .filter(Number.isFinite);
+    const comparableBoundary = knownHeights.length !== group.nodes.length ||
+        new Set(knownHeights).size === 1;
+    if (!diverged || !comparableBoundary) {
         resetFailure(state, key);
         return;
     }
@@ -2265,6 +2286,49 @@ function runSelfTests() {
         ] });
     if (incidentNodes.map(node => node.name).sort().join(",") !== "a,b") {
         throw new Error("incident node and consensus peer selection failed");
+    }
+
+    const crossHeightAlerts = [];
+    addConsensusStateDivergenceAlert(
+        crossHeightAlerts,
+        { failureCounts: {}, failureFirstSeenUtc: {} },
+        { thresholds: { consensusDivergenceConsecutive: 1 } },
+        { groupKey: "test", nodes: [
+            { name: "a", currentStateId: "one", activeSnapshotId: "alpha", currentTipBlockHeight: 100 },
+            { name: "b", currentStateId: "two", activeSnapshotId: "beta", currentTipBlockHeight: 101 }
+        ] });
+    if (crossHeightAlerts.length !== 0) {
+        throw new Error("cross-height snapshot transition was classified as consensus divergence");
+    }
+
+    const sameHeightAlerts = [];
+    addConsensusStateDivergenceAlert(
+        sameHeightAlerts,
+        { failureCounts: {}, failureFirstSeenUtc: {} },
+        { thresholds: { consensusDivergenceConsecutive: 1 } },
+        { groupKey: "test", nodes: [
+            { name: "a", currentStateId: "one", activeSnapshotId: "alpha", currentTipBlockHeight: 101 },
+            { name: "b", currentStateId: "two", activeSnapshotId: "beta", currentTipBlockHeight: 101 }
+        ] });
+    if (sameHeightAlerts.length !== 1 || sameHeightAlerts[0].category !== "consensus-divergence") {
+        throw new Error("same-height state divergence was not detected");
+    }
+
+    const staleInputAlerts = [];
+    maybeAddOutboundRelayAlert(staleInputAlerts, {
+        name: "test",
+        summary: {
+            localDatumHashrateThs: 10,
+            activeDatumSessionCount: 1,
+            lastDatumSessionOpenedUtc: new Date(Date.now() - 30 * 60_000).toISOString(),
+            lastValidLocalDatumShareUtc: new Date(Date.now() - 20 * 60_000).toISOString(),
+            lastSuccessfulOutboundRelayUtc: new Date(Date.now() - 20 * 60_000).toISOString(),
+            outboundRelayHealthy: false
+        },
+        peerRecords: []
+    }, { thresholds: { outboundRelayStaleMinutes: 10, peerOutboundAttemptStaleMinutes: 10 } });
+    if (staleInputAlerts.length !== 1 || staleInputAlerts[0].category !== "local-datum-share-stale") {
+        throw new Error("stopped DATUM input was misclassified as an outbound relay failure");
     }
     console.log("gridpool-health-monitor self-test: ok");
 }

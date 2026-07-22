@@ -129,7 +129,7 @@ separate design and threat-model review after field data exists.
 ## Deferred Decisions
 
 Peer-header snapshot activation is a future coordinated consensus change,
-tentatively V2.2. It requires deterministic rules and test vectors for
+strictly after V2.2 MSR. It requires deterministic rules and test vectors for
 competing headers, reorgs, withheld block bodies, rollback, missed headers,
 retarget boundaries, and the exact old-parent eligibility cutoff.
 

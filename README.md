@@ -3,7 +3,9 @@ GridPool is a decentralized reward-sharing protocol for sovereign Bitcoin miners
 
 - It is like P2Pool in spirit, but much simpler: miners coordinate on coinbase payout lists instead of maintaining a secondary blockchain.
 - It is not a traditional pool. It is closer to shared lottery mining: smaller payouts, better odds, and local block-template control.
-- This reference implementation works with DATUM today. Hydrapool and other HTTP share submitters can integrate through the documented HTTP API.
+- This reference implementation works with DATUM today and exposes generic
+  work-plan/proof APIs used by the early CKPool/AtlasPool and native SV2
+  integrations. Those additional gateways remain public-beta canaries.
 
 For cross-project architecture, decisions, research findings, and agent-ready
 context, see the [GridPool handbook](https://github.com/gridlabs-science/gridpool-handbook).
@@ -19,7 +21,11 @@ GridPool is early, and several claims still need rigorous public modeling.
 - `docs/README.md` is the index for current docs.
 - `docs/umbrel-start9-launch-checklist.md` is the primary launch-gating checklist before broad Umbrel / Start9 packaging.
 - `docs/project-architecture-map.md` explains which work belongs in this reference node repo versus `gridpool-spec`, `gridpool-web`, and `gridpool-simulations`.
-- `docs/consensus-selection-audit.md` documents the V2.1 snapshot-boundary and merge rule plus remaining scoring questions.
+- `docs/gridpool-v2.2-monotonic-snapshot-reconciliation-draft.md` and
+  `docs/v2.2-cutover.md` document the scheduled V2.2 reconciliation rules and
+  height-gated rollout; the V2.1 selection audit remains historical foundation.
+- `docs/next-week-development-roadmap.md` orders the current activation, soak,
+  StratumRace, adapter, and UI work.
 - `docs/simulation-findings-2026-06.md` summarizes which current simulation findings look publishable and which are still too early.
 - `docs/critic-faq.md` answers common technical objections such as pool hopping, loose consensus, sharechain comparisons, Sybil accounting, and majority-miner team splits.
 - `docs/modeling-and-simulation-roadmap.md` defines the open simulation work needed to turn those answers into reproducible evidence.
@@ -74,7 +80,12 @@ If you need a full fresh sovereign stack, including pruned Bitcoin Core and DATU
 ## Docker Compose Quickstart
 GridPool includes a basic Docker Compose packaging path for manual public beta testing.
 
-Beta defaults now assume `300` total conceptual payout slots. Slot `0` is reserved for the block finder and receives transaction fees plus any subsidy remainder. With the default support fee enabled, one post-slot-0 slot is the canonical Grid Labs support output and up to `298` shared proof slots are paid. With the support fee disabled, up to `299` shared proof slots are paid. Some of the longer discussion below still uses older 15/16-slot toy examples for intuition.
+Beta defaults assume `300` total conceptual payout slots. Slot `0` is reserved
+for the block finder and receives transaction fees plus any subsidy remainder.
+On the public reference network, one post-slot-0 slot is the canonical Grid Labs
+support output and up to `298` shared proof slots are paid. Support-off is not an
+interoperable reference-network dialect. Some longer discussion below still
+uses older 15/16-slot toy examples for intuition.
 
 1. Review `docker/boot_portal_config.sample.json`.
 2. Bring the stack up with `docker compose up -d`.
@@ -171,7 +182,9 @@ Key terms:
 - Active payout snapshot:  The post-slot-0 payout template miners are currently building on. It is rebuilt from unpaid work whenever a new Bitcoin block is observed.
 - Unpaid Work Set:  A bounded reserve of high-difficulty, unpaid share proofs. The default reserve is `3 * 299 = 897` proofs. The top slice of this reserve is what the UI often calls the On Deck List.
 - GridPool Share Proof: This consists of the block header, the coinbase transaction, and just enough information from the Merkle tree for other nodes to verify the coinbase outputs, Merkle root, slot-0 attribution, parent block, and proof-of-work difficulty.
-- Support slot: By default, one of the 300 conceptual payout slots is a canonical Grid Labs support output. This can be disabled by config, but the support address itself is not configurable.
+- Support slot: On the public reference network, one of the 300 conceptual
+  payout slots is the canonical Grid Labs support output. It cannot be replaced
+  by an operator address; support-off is experimental/private only.
 - Team: In this context, a team is the loose grouping of miners that are all working on templates built from the same active payout snapshot and sharing proofs into the same unpaid Work Set.
 
 1. Create a block template using a local Bitcoin node. The coinbase pays your own address in slot `0`, then pays the active GridPool payout snapshot after slot `0`.
@@ -207,7 +220,11 @@ This concept of coinbase splitting can be used as a base layer underneath other 
 ### Block withholding thoughts
 The protocol is intended to make block withholding less attractive than in conventional pooled mining.  Given that each miner puts their own address in slot 0, they have an immediate incentive to submit a real block and collect the slot-0 reward plus transaction fees.  No value is ever promised, tallied, or accounted long term.  If an adversary consisted of 50% of a team's hashrate, they could expect to claim roughly 50% of the shared proof slots on average.  However if they chose to block withhold, then the team on average would find fewer blocks, and the attacker would forfeit every slot-0 reward and all transaction fees they could have claimed by playing honestly.  Someone who consistently earns many high-difficulty shared slots but never finds and publishes slot 0 may be worth watching.
 
-The current beta keeps this simple: 300 conceptual payout slots, fixed slot value `subsidy / 300`, slot 0 receives the subsidy remainder and transaction fees, and the optional Grid Labs support slot uses one post-slot-0 slot.  Future protocol versions could experiment with different slot-0 weighting, but that is not part of the current consensus.
+The current beta keeps this simple: 300 conceptual payout slots, fixed slot
+value `subsidy / 300`, slot 0 receives the subsidy remainder and transaction
+fees, and the canonical Grid Labs support output uses one post-slot-0 slot on
+the public reference network. Future protocol versions could experiment with
+different slot-0 weighting, but that is not part of the current consensus.
 
 ### A few toy variance examples
 Coming next...

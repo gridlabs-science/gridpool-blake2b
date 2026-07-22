@@ -2021,6 +2021,26 @@
         return "Mainnet";
     }
 
+    function formatEndpointForDisplay(endpoint, nodeId = "", emptyLabel = "Private / outbound-only") {
+        const raw = String(endpoint || "").trim();
+        const shortNode = nodeId ? String(nodeId).substring(0, 12) : "";
+        if (!raw) return shortNode ? `outbound-only node:${shortNode}` : emptyLabel;
+
+        try {
+            const parsed = new URL(raw.includes("://") ? raw : `http://${raw}`);
+            const hostname = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+            const isIpv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname);
+            const isIpv6 = hostname.includes(":");
+            const isLocalName = hostname === "localhost" || hostname.endsWith(".local");
+            if (isIpv4 || isIpv6 || isLocalName) {
+                return shortNode ? `node:${shortNode}` : "Endpoint hidden";
+            }
+            return `${hostname}${parsed.port ? `:${parsed.port}` : ""}`;
+        } catch {
+            return shortNode ? `node:${shortNode}` : "Endpoint hidden";
+        }
+    }
+
     function updateEnvironmentChrome(state = latestNetworkState) {
         const isTestnet = isTestnetState(state);
         document.body.classList.toggle("network-testnet", isTestnet);
@@ -2049,7 +2069,12 @@
                 : "The pool for cypherpunks. Sovereign templates, shared variance, no pool wallet.";
         }
         if (headerNetworkName) headerNetworkName.innerText = state ? `${getNetworkDisplayName(state)} · ${state.networkId || "--"}` : "Loading...";
-        if (headerNodeEndpoint) headerNodeEndpoint.innerText = state?.selfEndpoint || window.location.host || "--";
+        if (headerNodeEndpoint) {
+            headerNodeEndpoint.innerText = formatEndpointForDisplay(
+                state?.selfEndpoint || window.location.host,
+                state?.nodeId,
+                "Private node");
+        }
         if (headerRoundMode) headerRoundMode.innerText = state ? formatRoundTriggerMode(state) : "--";
         document.title = isTestnet ? "GridPool Testnet4" : "GridPool";
     }
@@ -3311,7 +3336,10 @@
             latestNetworkState?.currentTipBlockHeight != null
                 ? `Tip ${latestNetworkState.currentTipBlockHeight.toLocaleString()} · trigger ${latestNetworkState.lastTestingTriggerBlockHeight ?? "--"}`
                 : "Waiting for chain tip.",
-            latestNetworkState?.selfEndpoint || "--"
+            formatEndpointForDisplay(
+                latestNetworkState?.selfEndpoint,
+                latestNetworkState?.nodeId,
+                "Private / outbound-only")
         );
 
         setModeCard(
@@ -4371,7 +4399,7 @@
             const latency = peer.latencyMs == null ? '--' : `${peer.latencyMs.toFixed(0)} ms`;
             const lastSeen = peer.lastSeenUtc ? new Date(peer.lastSeenUtc).toLocaleString() : '--';
             const shortNode = peer.nodeId ? peer.nodeId.substring(0, 12) : "unknown";
-            const endpointLabel = peer.endpoint || `node:${shortNode}`;
+            const endpointLabel = formatEndpointForDisplay(peer.endpoint, peer.nodeId);
             const mode = peer.connectionMode || (peer.endpoint ? "public" : "outbound-only");
             const capabilities = Array.isArray(peer.capabilities) && peer.capabilities.length > 0
                 ? ` · ${peer.capabilities.join(", ")}`
@@ -4392,7 +4420,7 @@
                 compatWarnings
             ].filter(Boolean).join(" · ");
             const row = `<tr>
-                    <td title="${escapeHtml(peer.endpoint || peer.nodeId || "")}">${escapeHtml(endpointLabel)}</td>
+                    <td title="${escapeHtml(peer.nodeId ? `Node ID: ${peer.nodeId}` : "Endpoint hidden")}">${escapeHtml(endpointLabel)}</td>
                     <td title="${escapeHtml(`session=${peer.sessionConnected ? "connected" : "disconnected"}${capabilities}`)}">${escapeHtml(mode)}</td>
                     <td>${escapeHtml(peer.status || '--')}</td>
                     <td title="${escapeHtml(compatTitle)}">${escapeHtml(compatStatus)}</td>
@@ -4719,7 +4747,10 @@
         if (!state) return;
         latestNetworkState = state;
         updateEnvironmentChrome(state);
-        document.getElementById("self-endpoint").innerText = state.selfEndpoint || "--";
+        document.getElementById("self-endpoint").innerText = formatEndpointForDisplay(
+            state.selfEndpoint,
+            state.nodeId,
+            "Private / outbound-only");
         document.getElementById("network-id").innerText = state.networkId || "--";
         document.getElementById("consensus-version").innerText = state.consensusVersion || state.protocolVersion || "--";
         document.getElementById("state-schema-version").innerText = state.stateBundleSchemaVersion || "--";

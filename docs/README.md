@@ -14,6 +14,8 @@ documentation.
 
 - [Umbrel And Start9 Launch Checklist](umbrel-start9-launch-checklist.md):
   primary launch gate before one-click packages.
+- [22-31 July Development Roadmap](next-week-development-roadmap.md): active
+  execution order for V2.2 activation, soak, StratumRace, adapters, and UI work.
 - [Project Architecture Map](project-architecture-map.md): redirect to the
   handbook-owned cross-project map.
 - [Consensus Selection Audit](consensus-selection-audit.md): V2.1 snapshot
@@ -26,6 +28,8 @@ documentation.
 - [Technical FAQ](critic-faq.md): redirect to the handbook-owned FAQ.
 - [Release Process](release-process.md): branch, tag, Docker image, and
   coordinated-upgrade policy.
+- [Security And Privacy Review](security-privacy-review.md): active pre-package
+  gate for key handling, public UI/API disclosure, logs, and private-node safety.
 
 ## Operators
 

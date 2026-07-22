@@ -20,6 +20,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check tracked secrets and secret logging
+        run: node scripts/security-source-check.mjs
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
