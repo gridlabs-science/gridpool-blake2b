@@ -28,6 +28,32 @@ public sealed class PeerLoopHealthTests
     }
 
     [TestMethod]
+    public void RecordsTransportAndDatumLifecycleTimestampsSeparately()
+    {
+        var health = new BootPeerLoopHealth();
+        DateTime datumShareUtc = DateTime.UtcNow.AddSeconds(-3);
+        DateTime coinbaserUtc = DateTime.UtcNow.AddSeconds(-2);
+        DateTime closedUtc = DateTime.UtcNow.AddSeconds(-1);
+
+        health.RecordShareQueued();
+        health.RecordUdpShareRelay();
+        health.RecordWebSocketShareRelay();
+        health.RecordHttpShareRelay();
+        health.RecordValidLocalDatumShare(datumShareUtc);
+        health.RecordSuccessfulDatumCoinbaserResponse(coinbaserUtc);
+        health.RecordDatumSessionClosed("test close", closedUtc);
+
+        Assert.IsNotNull(health.LastShareRelayQueuedUtc);
+        Assert.IsNotNull(health.LastUdpShareRelayUtc);
+        Assert.IsNotNull(health.LastWebSocketShareRelayUtc);
+        Assert.IsNotNull(health.LastHttpShareRelayUtc);
+        Assert.AreEqual(datumShareUtc, health.LastValidLocalDatumShareUtc);
+        Assert.AreEqual(coinbaserUtc, health.LastSuccessfulDatumCoinbaserResponseUtc);
+        Assert.AreEqual(closedUtc, health.LastDatumSessionClosedUtc);
+        Assert.AreEqual("test close", health.LastDatumSessionCloseReason);
+    }
+
+    [TestMethod]
     public async Task BlockedWebSocketSendLockDoesNotBlockPeerPollHealthAsync()
     {
         using var sendLock = new SemaphoreSlim(0, 1);

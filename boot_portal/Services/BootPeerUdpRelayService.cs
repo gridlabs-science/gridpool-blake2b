@@ -79,17 +79,17 @@ public sealed class BootPeerUdpRelayService : BackgroundService
         }
     }
 
-    public async Task RelayShareAsync(BootShareProof proof, string? sourceEndpoint, CancellationToken cancellationToken)
+    public async Task<bool> RelayShareAsync(BootShareProof proof, string? sourceEndpoint, CancellationToken cancellationToken)
     {
         if (!_poolConfig.EnablePeerUdpFastRelay || _udpClient == null)
         {
-            return;
+            return false;
         }
 
         if (!BootPeerUdpShareCodec.TryEncode(proof, _poolConfig, out byte[] payload, out string reason))
         {
             _logger.LogDebug("Skipped V3 UDP relay for share {ShareId}: {Reason}", proof.ShareId, reason);
-            return;
+            return false;
         }
 
         List<BootPeerUdpDatagramTarget> targets = _sessionManager.BuildUdpDatagramTargets(
@@ -98,9 +98,10 @@ public sealed class BootPeerUdpRelayService : BackgroundService
             _poolConfig.PeerUdpMaxDatagramBytes);
         if (targets.Count == 0)
         {
-            return;
+            return false;
         }
 
+        bool relayed = false;
         foreach (BootPeerUdpDatagramTarget target in targets)
         {
             try
@@ -112,6 +113,7 @@ public sealed class BootPeerUdpRelayService : BackgroundService
                 }
 
                 await _udpClient.SendAsync(target.Datagram, target.Datagram.Length, target.EndPoint);
+                relayed = true;
                 _stateService.UpdatePeerUdpHeartbeat(target.RemoteEndpoint, target.RemoteNodeId, "udp-relayed", success: true, DateTime.UtcNow);
             }
             catch (Exception ex) when (ex is SocketException or ObjectDisposedException)
@@ -120,6 +122,8 @@ public sealed class BootPeerUdpRelayService : BackgroundService
                 _stateService.UpdatePeerUdpHeartbeat(target.RemoteEndpoint, target.RemoteNodeId, "udp-error", success: false, DateTime.UtcNow);
             }
         }
+
+        return relayed;
     }
 
     public async Task RelayChainTipAsync(BootChainTipAnnouncement announcement, CancellationToken cancellationToken)

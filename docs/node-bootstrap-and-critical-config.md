@@ -9,7 +9,7 @@ This is the canonical rebuild checklist for GridPool node operators and automati
 - Peer polling, share relay, and chain-tip relay run under independent supervisors. WebSocket send-lock and frame writes time out, close the stuck session, and allow HTTP share fallback.
 - `/health/ready` becomes unavailable when peer polling is stale for `peer_loop_stale_seconds` (default 600).
 - With active local DATUM sessions, pulse proofs, and peer sync enabled, `outbound_relay_stale_seconds` (default 300) raises a visible health warning when no outbound share/pulse delivery succeeds. It does not stop coinbaser service: doing so can force DATUM into solo fallback and prevent automatic recovery. `pause_mining_on_outbound_relay_stale` is retained as a deprecated configuration key and should be `false`.
-- `/api/network/summary` exposes node identity, endpoint, release, loop timestamps/faults, queue depth, pulse/outbound health, and configuration warnings.
+- `/api/network/summary` exposes node identity, endpoint, release, loop timestamps/faults, queue depth, pulse/outbound health, and configuration warnings. DATUM/relay diagnosis includes the last valid local DATUM share, successful coinbaser response, session close reason, relay enqueue, and successful UDP/WebSocket/HTTP share sends.
 
 Peer-observed acceptance acknowledgements are not yet authenticated end-to-end; the current health signal proves a bounded local transport send/HTTP acceptance, not that a remote node admitted a candidate-changing proof. An authenticated proof-ID ack/reject remains follow-up work.
 
@@ -30,7 +30,7 @@ V2.2 activation remains height **959500**. Rebuilds do not justify changing it.
 
 ```bash
 curl -fsS https://YOUR_NODE/health/ready | jq
-curl -fsS https://YOUR_NODE/api/network/summary | jq '{nodeId,selfEndpoint,releaseVersion,configWarnings,pulseProofsEnabled,peerLoopsHealthy,outboundRelayHealthy,lastPeerPollCompletedUtc,lastSuccessfulOutboundRelayUtc,shareRelayQueueDepth}'
+curl -fsS https://YOUR_NODE/api/network/summary | jq '{nodeId,selfEndpoint,releaseVersion,configWarnings,pulseProofsEnabled,peerLoopsHealthy,outboundRelayHealthy,lastValidLocalDatumShareUtc,lastSuccessfulDatumCoinbaserResponseUtc,lastDatumSessionClosedUtc,lastDatumSessionCloseReason,lastShareRelayQueuedUtc,lastUdpShareRelayUtc,lastWebSocketShareRelayUtc,lastHttpShareRelayUtc,lastSuccessfulOutboundRelayUtc,shareRelayQueueDepth}'
 systemctl status bootserverapp.service --no-pager
 journalctl -u bootserverapp.service -n 200 --no-pager
 ```

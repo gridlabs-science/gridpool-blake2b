@@ -900,6 +900,9 @@ public class BootProtocolStateService
         }
     }
 
+    public void RecordSuccessfulDatumCoinbaserResponse(DateTime? timestampUtc = null) =>
+        _peerLoopHealth.RecordSuccessfulDatumCoinbaserResponse(timestampUtc);
+
     public void RecordDatumSessionRefreshRequest(string sessionId, DateTime? timestampUtc = null)
     {
         if (string.IsNullOrWhiteSpace(sessionId))
@@ -946,6 +949,7 @@ public class BootProtocolStateService
             if (accepted)
             {
                 session.AcceptedShareCount += 1;
+                _peerLoopHealth.RecordValidLocalDatumShare(effectiveTimestampUtc);
             }
             else
             {
@@ -1077,6 +1081,9 @@ public class BootProtocolStateService
             }
 
             _activeDatumSessions.Remove(sessionId);
+            _peerLoopHealth.RecordDatumSessionClosed(
+                !string.IsNullOrWhiteSpace(closeReason) ? closeReason : session.CloseDisposition,
+                effectiveTimestampUtc);
             TrimDatumSessionsNoLock(effectiveTimestampUtc);
             RequestDeferredHistorySaveNoLock();
         }
@@ -2557,6 +2564,7 @@ public class BootProtocolStateService
         }
         if (shouldRelay && result.AcceptedProof != null)
         {
+            _peerLoopHealth.RecordShareQueued();
             await _acceptedShares.Writer.WriteAsync(result.AcceptedProof);
         }
         return result;
@@ -2626,7 +2634,10 @@ public class BootProtocolStateService
             DifficultyCheckedUtc = difficultyCheckedUtc
         };
 
-        _acceptedShares.Writer.TryWrite(proof);
+        if (_acceptedShares.Writer.TryWrite(proof))
+        {
+            _peerLoopHealth.RecordShareQueued();
+        }
     }
 
     private bool TryConsumePulseRateLimitNoLock(string source, string minerAddress, DateTime nowUtc, out string reason)
@@ -6132,8 +6143,16 @@ public class BootProtocolStateService
             ConfigWarnings = configWarnings,
             LastPeerPollCompletedUtc = _peerLoopHealth.LastPeerPollCompletedUtc,
             LastShareRelayDequeuedUtc = _peerLoopHealth.LastShareRelayDequeuedUtc,
+            LastShareRelayQueuedUtc = _peerLoopHealth.LastShareRelayQueuedUtc,
             LastSuccessfulOutboundRelayUtc = _peerLoopHealth.LastSuccessfulOutboundRelayUtc,
+            LastUdpShareRelayUtc = _peerLoopHealth.LastUdpShareRelayUtc,
+            LastWebSocketShareRelayUtc = _peerLoopHealth.LastWebSocketShareRelayUtc,
+            LastHttpShareRelayUtc = _peerLoopHealth.LastHttpShareRelayUtc,
             LastChainTipRelayUtc = _peerLoopHealth.LastChainTipRelayUtc,
+            LastValidLocalDatumShareUtc = _peerLoopHealth.LastValidLocalDatumShareUtc,
+            LastSuccessfulDatumCoinbaserResponseUtc = _peerLoopHealth.LastSuccessfulDatumCoinbaserResponseUtc,
+            LastDatumSessionClosedUtc = _peerLoopHealth.LastDatumSessionClosedUtc,
+            LastDatumSessionCloseReason = _peerLoopHealth.LastDatumSessionCloseReason,
             ShareRelayQueueDepth = _acceptedShares.Reader.CanCount ? _acceptedShares.Reader.Count : -1,
             PeerLoopFaults = _peerLoopHealth.GetFaults(),
             PeerLoopsHealthy = peerLoopsHealthy,

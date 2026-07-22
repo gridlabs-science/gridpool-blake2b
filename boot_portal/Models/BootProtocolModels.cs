@@ -319,8 +319,16 @@ public class BootNetworkStatusDto
     public List<string> ConfigWarnings { get; set; } = [];
     public DateTime? LastPeerPollCompletedUtc { get; set; }
     public DateTime? LastShareRelayDequeuedUtc { get; set; }
+    public DateTime? LastShareRelayQueuedUtc { get; set; }
     public DateTime? LastSuccessfulOutboundRelayUtc { get; set; }
+    public DateTime? LastUdpShareRelayUtc { get; set; }
+    public DateTime? LastWebSocketShareRelayUtc { get; set; }
+    public DateTime? LastHttpShareRelayUtc { get; set; }
     public DateTime? LastChainTipRelayUtc { get; set; }
+    public DateTime? LastValidLocalDatumShareUtc { get; set; }
+    public DateTime? LastSuccessfulDatumCoinbaserResponseUtc { get; set; }
+    public DateTime? LastDatumSessionClosedUtc { get; set; }
+    public string LastDatumSessionCloseReason { get; set; } = string.Empty;
     public int ShareRelayQueueDepth { get; set; }
     public Dictionary<string, BootPeerLoopFault> PeerLoopFaults { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public bool PeerLoopsHealthy { get; set; } = true;

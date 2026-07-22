@@ -174,6 +174,26 @@ public sealed class PeerPruningTests
         CollectionAssert.Contains(status.ConfigWarnings, "outbound share/pulse relay is stale");
     }
 
+    [TestMethod]
+    public void NetworkSummaryExposesDatumLifecycleDiagnostics()
+    {
+        var health = new BootPeerLoopHealth();
+        BootProtocolStateService service = CreateService(out _, health);
+        DateTime shareUtc = DateTime.UtcNow.AddSeconds(-2);
+        DateTime closeUtc = DateTime.UtcNow.AddSeconds(-1);
+
+        service.RecordDatumSessionOpened("datum-test", "127.0.0.1:12345");
+        service.RecordDatumSessionShareOutcome("datum-test", accepted: true, affectedOnDeck: false, shareUtc);
+        service.RecordSuccessfulDatumCoinbaserResponse(shareUtc);
+        service.CompleteDatumSession("datum-test", "server-closed", "test close", timestampUtc: closeUtc);
+
+        BootNetworkStatusDto status = service.GetNetworkStatus();
+        Assert.AreEqual(shareUtc, status.LastValidLocalDatumShareUtc);
+        Assert.AreEqual(shareUtc, status.LastSuccessfulDatumCoinbaserResponseUtc);
+        Assert.AreEqual(closeUtc, status.LastDatumSessionClosedUtc);
+        Assert.AreEqual("test close", status.LastDatumSessionCloseReason);
+    }
+
     private static BootProtocolStateService CreateService() => CreateService(out _, null);
 
     private static BootProtocolStateService CreateService(out PoolConfig config, BootPeerLoopHealth? health)

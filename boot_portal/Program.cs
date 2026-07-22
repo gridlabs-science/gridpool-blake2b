@@ -2388,6 +2388,7 @@ public class ClientHandler
 
             stageStopwatch.Restart();
             await SendEncryptedMessageAsync(0x05, responsePayload, isSigned: false, isEncryptedChannel: true, isEncryptedPubKey: false, messageLabel: "coinbaser-fetch-response");
+            _stateService.RecordSuccessfulDatumCoinbaserResponse();
             sendDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
             stopwatch.Stop();
 

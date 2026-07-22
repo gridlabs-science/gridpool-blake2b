@@ -24,15 +24,37 @@ public sealed class BootPeerLoopHealth
     public DateTime StartedUtc => _startedUtc;
     public DateTime? LastPeerPollCompletedUtc { get; private set; }
     public DateTime? LastShareRelayDequeuedUtc { get; private set; }
+    public DateTime? LastShareRelayQueuedUtc { get; private set; }
     public DateTime? LastSuccessfulOutboundRelayUtc { get; private set; }
+    public DateTime? LastUdpShareRelayUtc { get; private set; }
+    public DateTime? LastWebSocketShareRelayUtc { get; private set; }
+    public DateTime? LastHttpShareRelayUtc { get; private set; }
     public DateTime? LastChainTipRelayUtc { get; private set; }
     public DateTime? LastLocalPulseUtc { get; private set; }
+    public DateTime? LastValidLocalDatumShareUtc { get; private set; }
+    public DateTime? LastSuccessfulDatumCoinbaserResponseUtc { get; private set; }
+    public DateTime? LastDatumSessionClosedUtc { get; private set; }
+    public string LastDatumSessionCloseReason { get; private set; } = string.Empty;
     public long LocalPulseAcceptedCount => Interlocked.Read(ref _localPulseAccepted);
 
     public void RecordPeerPollCompleted() => LastPeerPollCompletedUtc = DateTime.UtcNow;
     public void RecordShareDequeued() => LastShareRelayDequeuedUtc = DateTime.UtcNow;
+    public void RecordShareQueued(DateTime? timestampUtc = null) => LastShareRelayQueuedUtc = timestampUtc ?? DateTime.UtcNow;
     public void RecordOutboundRelay() => LastSuccessfulOutboundRelayUtc = DateTime.UtcNow;
+    public void RecordUdpShareRelay() => LastUdpShareRelayUtc = DateTime.UtcNow;
+    public void RecordWebSocketShareRelay() => LastWebSocketShareRelayUtc = DateTime.UtcNow;
+    public void RecordHttpShareRelay() => LastHttpShareRelayUtc = DateTime.UtcNow;
     public void RecordChainTipRelay() => LastChainTipRelayUtc = DateTime.UtcNow;
+    public void RecordValidLocalDatumShare(DateTime? timestampUtc = null) =>
+        LastValidLocalDatumShareUtc = timestampUtc ?? DateTime.UtcNow;
+    public void RecordSuccessfulDatumCoinbaserResponse(DateTime? timestampUtc = null) =>
+        LastSuccessfulDatumCoinbaserResponseUtc = timestampUtc ?? DateTime.UtcNow;
+
+    public void RecordDatumSessionClosed(string? reason, DateTime? timestampUtc = null)
+    {
+        LastDatumSessionClosedUtc = timestampUtc ?? DateTime.UtcNow;
+        LastDatumSessionCloseReason = reason ?? string.Empty;
+    }
 
     public void RecordLocalPulse(DateTime timestampUtc)
     {

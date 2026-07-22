@@ -154,14 +154,23 @@ public class BootPeerSyncService : BackgroundService
             string? sourceEndpoint = hasPeerSource
                 ? parsedSourceEndpoint
                 : null;
-            Task udpRelayTask = _udpRelayService.RelayShareAsync(proof, sourceEndpoint, stoppingToken);
+            Task<bool> udpRelayTask = _udpRelayService.RelayShareAsync(proof, sourceEndpoint, stoppingToken);
             Task<HashSet<string>> sessionRelayTask = _sessionManager.RelayToConnectedSessionsAsync(
                 proof,
                 sourceEndpoint,
                 parsedSourceNodeId,
                 stoppingToken);
             await Task.WhenAll(udpRelayTask, sessionRelayTask);
+            bool udpRelayed = await udpRelayTask;
             HashSet<string> sessionRelayedEndpoints = await sessionRelayTask;
+            if (udpRelayed)
+            {
+                _loopHealth.RecordUdpShareRelay();
+            }
+            if (sessionRelayedEndpoints.Count > 0)
+            {
+                _loopHealth.RecordWebSocketShareRelay();
+            }
             List<string> peers = _stateService.GetPeerEndpointsForShareRelay(sourceEndpoint);
             if (sessionRelayedEndpoints.Count > 0 && !_poolConfig.PeerRelayLatencyProbeAllTransports)
             {
@@ -174,7 +183,12 @@ public class BootPeerSyncService : BackgroundService
 
             var relayTasks = peers.Select(peer => RelayShareWithLimitAsync(peer, proof, semaphore, stoppingToken)).ToArray();
             bool[] httpResults = await Task.WhenAll(relayTasks);
-            if (sessionRelayedEndpoints.Count > 0 || httpResults.Any(success => success))
+            bool httpRelayed = httpResults.Any(success => success);
+            if (httpRelayed)
+            {
+                _loopHealth.RecordHttpShareRelay();
+            }
+            if (udpRelayed || sessionRelayedEndpoints.Count > 0 || httpRelayed)
             {
                 _loopHealth.RecordOutboundRelay();
             }
