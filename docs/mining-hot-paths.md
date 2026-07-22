@@ -17,8 +17,8 @@ The practical goal is not premature micro-optimization. It is to protect the few
 ### 1. DATUM coinbaser fetch response path
 
 Files:
-- [Program.cs](boot_portal/Program.cs)
-- [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs)
+- [Program.cs](../boot_portal/Program.cs)
+- [BootProtocolStateService.cs](../boot_portal/Services/BootProtocolStateService.cs)
 
 Path:
 1. DATUM requests a coinbaser response from GridPool.
@@ -51,9 +51,9 @@ Recent finding:
 ### 2. Share validation and Work Set mutation
 
 Files:
-- [Program.cs](boot_portal/Program.cs)
-- [BootShareVerifier.cs](boot_portal/Services/BootShareVerifier.cs)
-- [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs)
+- [Program.cs](../boot_portal/Program.cs)
+- [BootShareVerifier.cs](../boot_portal/Services/BootShareVerifier.cs)
+- [BootProtocolStateService.cs](../boot_portal/Services/BootProtocolStateService.cs)
 
 Path:
 1. DATUM share arrives at GridPool.
@@ -77,9 +77,9 @@ Current expectations:
 ### 3. Chain-tip observation and DATUM refresh
 
 Files:
-- [MempoolSpaceSocketSubscriber.cs](boot_portal/HostedServices/MempoolSpaceSocketSubscriber.cs)
-- [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs)
-- [Program.cs](boot_portal/Program.cs)
+- [MempoolSpaceSocketSubscriber.cs](../boot_portal/HostedServices/MempoolSpaceSocketSubscriber.cs)
+- [BootProtocolStateService.cs](../boot_portal/Services/BootProtocolStateService.cs)
+- [Program.cs](../boot_portal/Program.cs)
 
 Path:
 1. GridPool observes a new Bitcoin tip.
@@ -99,7 +99,7 @@ Current expectations:
 ### 4. Snapshot and payment transitions
 
 Files:
-- [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs)
+- [BootProtocolStateService.cs](../boot_portal/Services/BootProtocolStateService.cs)
 
 Path:
 1. A new Bitcoin tip creates an active payout snapshot from the current unpaid Work Set.
@@ -120,7 +120,7 @@ Current expectations:
 ### 5. Peer sync and share relay
 
 Files:
-- [BootPeerSyncService.cs](boot_portal/HostedServices/BootPeerSyncService.cs)
+- [BootPeerSyncService.cs](../boot_portal/HostedServices/BootPeerSyncService.cs)
 
 Path:
 1. Nodes poll peer summaries and state bundles.
@@ -144,7 +144,7 @@ Recent finding:
 
 ## Locking Principles
 
-The `_sync` lock in [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs) protects protocol state.
+The `_sync` lock in [BootProtocolStateService.cs](../boot_portal/Services/BootProtocolStateService.cs) protects protocol state.
 
 That is correct, but only if the lock stays narrow.
 
@@ -162,10 +162,10 @@ Recent fix:
 ## Current Persistence Split
 
 Core file:
-- [pool_state.json](boot_portal/pool_state.json)
+- [pool_state.json](../boot_portal/pool_state.json)
 
 History/debug sidecar:
-- [pool_state.history.json](boot_portal/pool_state.history.json)
+- [pool_state.history.json](../boot_portal/pool_state.history.json)
 
 Intent:
 - core file contains only what the miner-facing protocol needs immediately

@@ -51,7 +51,7 @@ This is a strong scaling property.
 
 ### 2. Share selection cost is effectively constant
 
-Today, insertion into the unpaid Work Set in [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs) works on a list capped by `workSetReserveLimit`, default `897`.
+Today, insertion into the unpaid Work Set in [BootProtocolStateService.cs](../boot_portal/Services/BootProtocolStateService.cs) works on a list capped by `workSetReserveLimit`, default `897`.
 
 That means the cost of:
 
@@ -138,7 +138,7 @@ These are the main places where scale pressure shows up:
 ### DATUM coinbaser fetch
 
 Path:
-- [Program.cs](boot_portal/Program.cs)
+- [Program.cs](../boot_portal/Program.cs)
 
 Risk:
 - if coinbaser fetch latency rises, DATUM can fall back to solo templates and create reject churn
@@ -149,8 +149,8 @@ Current status:
 ### Share validation and Work Set mutation
 
 Paths:
-- [BootShareVerifier.cs](boot_portal/Services/BootShareVerifier.cs)
-- [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs)
+- [BootShareVerifier.cs](../boot_portal/Services/BootShareVerifier.cs)
+- [BootProtocolStateService.cs](../boot_portal/Services/BootProtocolStateService.cs)
 
 Risk:
 - expensive validation before cheap rejection
@@ -159,7 +159,7 @@ Risk:
 ### Peer polling and relay
 
 Path:
-- [BootPeerSyncService.cs](boot_portal/HostedServices/BootPeerSyncService.cs)
+- [BootPeerSyncService.cs](../boot_portal/HostedServices/BootPeerSyncService.cs)
 
 Risk:
 - per-share relay fanout to too many peers

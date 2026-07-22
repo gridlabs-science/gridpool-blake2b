@@ -14,13 +14,13 @@ The goals are:
 This plan assumes stress testing will be driven by a checked-in load harness rather than manual miners.
 
 Current checked-in helpers:
-- [malformed-request-smoke.sh](scripts/malformed-request-smoke.sh)
+- [malformed-request-smoke.sh](../scripts/malformed-request-smoke.sh)
   - live malformed-request safety smoke
-- [boot-soak-report.mjs](scripts/boot-soak-report.mjs)
+- [boot-soak-report.mjs](../scripts/boot-soak-report.mjs)
   - API-based soak summary for current `G2.1` / `G2.3` signals on one or two nodes
-- [boot-g2-monitor.mjs](scripts/boot-g2-monitor.mjs)
+- [boot-g2-monitor.mjs](../scripts/boot-g2-monitor.mjs)
   - timed two-node monitor for divergence intervals and Gate 2 verdict hints
-- [boot-history-check.mjs](scripts/boot-history-check.mjs)
+- [boot-history-check.mjs](../scripts/boot-history-check.mjs)
   - live round-history invariant checker
 
 ## What Must Be Simulated

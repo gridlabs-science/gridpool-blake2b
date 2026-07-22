@@ -291,7 +291,7 @@ public sealed class PoolConfigValidatorTests
             PublicBaseUrl = "https://use1.gridlabs.science",
             DatumPublicHost = "datum-use1.gridlabs.science",
             EnableAdminApi = true,
-            AdminApiKey = "0123456789abcdef0123456789abcdef",
+            AdminApiKey = new string('a', 32),
             TestingRoundResetMode = "none"
         };
 

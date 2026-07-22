@@ -14,7 +14,7 @@ This is not the final global architecture. It is the first stable public seed/re
 
 Companion setup guide:
 
-- [launch-infra-clickthrough.md](docs/launch-infra-clickthrough.md)
+- [launch-infra-clickthrough.md](launch-infra-clickthrough.md)
 
 ## Core Infrastructure Decision
 
@@ -360,7 +360,7 @@ After the initial public cluster is stable, build a first-visit node selector:
 - users choose a node explicitly
 - selected node can be remembered in local storage
 
-That future work belongs primarily in [ui-modes-plan.md](docs/ui-modes-plan.md), not in the first infra rollout.
+That future work belongs primarily in [ui-modes-plan.md](ui-modes-plan.md), not in the first infra rollout.
 
 ## Access And Operations Model
 
@@ -383,9 +383,9 @@ Public traffic model:
 
 Existing helpers:
 
-- [update_server.sh](update_server.sh)
-- [boot-main.sh](scripts/boot-main.sh)
-- [boot-laptop.sh](scripts/boot-laptop.sh)
+- [update_server.sh](../update_server.sh)
+- [boot-main.sh](../scripts/boot-main.sh)
+- [boot-laptop.sh](../scripts/boot-laptop.sh)
 
 These are not yet generalized for a multi-node public fleet, but they are enough to bootstrap the pattern.
 
@@ -758,9 +758,9 @@ Steps:
 6. Verify peer convergence.
    - owner: `CODEX`
    - tools:
-     - [boot-g2-monitor.mjs](scripts/boot-g2-monitor.mjs)
-     - [boot-history-check.mjs](scripts/boot-history-check.mjs)
-     - [boot-soak-report.mjs](scripts/boot-soak-report.mjs)
+     - [boot-g2-monitor.mjs](../scripts/boot-g2-monitor.mjs)
+     - [boot-history-check.mjs](../scripts/boot-history-check.mjs)
+     - [boot-soak-report.mjs](../scripts/boot-soak-report.mjs)
 
 ## Phase 9: DATUM Deployment
 

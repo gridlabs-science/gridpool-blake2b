@@ -22,16 +22,16 @@ This document explains the current estimator, the mathematics behind it, why it 
 ## Where It Is Implemented
 
 Backend:
-- [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs#L1452)
-- [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs#L1535)
-- [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs#L1733)
-- [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs#L1876)
+- [BootProtocolStateService.cs](../boot_portal/Services/BootProtocolStateService.cs#L1452)
+- [BootProtocolStateService.cs](../boot_portal/Services/BootProtocolStateService.cs#L1535)
+- [BootProtocolStateService.cs](../boot_portal/Services/BootProtocolStateService.cs#L1733)
+- [BootProtocolStateService.cs](../boot_portal/Services/BootProtocolStateService.cs#L1876)
 
 Browser mirror for the live current-round estimate:
-- [Index.cshtml](boot_portal/Pages/Index.cshtml#L1105)
+- [Index.cshtml](../boot_portal/Pages/Index.cshtml#L1105)
 
 Sampling config:
-- [Program.cs](boot_portal/Program.cs#L137)
+- [Program.cs](../boot_portal/Program.cs#L137)
 
 ## The Current Team Estimator
 
@@ -195,10 +195,10 @@ There are now three related but distinct hashrate displays:
 This uses only the current `On Deck` list and the time since the round started.
 
 Backend:
-- [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs#L1452)
+- [BootProtocolStateService.cs](../boot_portal/Services/BootProtocolStateService.cs#L1452)
 
 Browser mirror:
-- [Index.cshtml](boot_portal/Pages/Index.cshtml#L1105)
+- [Index.cshtml](../boot_portal/Pages/Index.cshtml#L1105)
 
 The browser recomputes this every second from the current visible `On Deck` difficulties so the estimate decays and updates smoothly during the round.
 
@@ -207,21 +207,21 @@ The browser recomputes this every second from the current visible `On Deck` diff
 For archived rounds, the same rank-adjusted median estimator is run on the locked winning shares of that round and the round duration.
 
 Implementation:
-- [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs#L1535)
+- [BootProtocolStateService.cs](../boot_portal/Services/BootProtocolStateService.cs#L1535)
 
 ### 3. Local DATUM Estimate
 
 This uses accepted DATUM shares over a rolling local window, not just On Deck winners.
 
 Implementation:
-- [BootProtocolStateService.cs](boot_portal/Services/BootProtocolStateService.cs#L1749)
+- [BootProtocolStateService.cs](../boot_portal/Services/BootProtocolStateService.cs#L1749)
 
 Defaults:
 - sample interval: `60s`
 - local window: `1800s`
 
 from:
-- [Program.cs](boot_portal/Program.cs#L137)
+- [Program.cs](../boot_portal/Program.cs#L137)
 
 This local estimate usually has more data and is therefore useful for comparing:
 

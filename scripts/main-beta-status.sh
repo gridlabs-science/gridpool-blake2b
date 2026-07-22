@@ -39,7 +39,9 @@ else
   echo "GridPool payout API: FAIL"
 fi
 
-if curl -fsS -u hydrapool:hydrapool http://127.0.0.1:46884/health >/dev/null; then
+if [[ -z "${HYDRAPOOL_METRICS_AUTH:-}" ]]; then
+  echo "Hydrapool API health: skipped (set HYDRAPOOL_METRICS_AUTH=user:password)"
+elif curl -fsS -u "$HYDRAPOOL_METRICS_AUTH" http://127.0.0.1:46884/health >/dev/null; then
   echo "Hydrapool API health: ok"
 else
   echo "Hydrapool API health: FAIL"

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This is the hands-on companion to [launch-infra-plan.md](docs/launch-infra-plan.md).
+This is the hands-on companion to [launch-infra-plan.md](launch-infra-plan.md).
 
 It is written for a first-time setup and assumes:
 
