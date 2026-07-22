@@ -1507,6 +1507,42 @@ public class BootProtocolStateService
         }
     }
 
+    public void ReconcilePeerIdentity(string dialedEndpoint, string resolvedEndpoint, string nodeId)
+    {
+        string normalizedNodeId = NormalizePeerNodeId(nodeId);
+        if (string.IsNullOrWhiteSpace(normalizedNodeId))
+        {
+            return;
+        }
+
+        TryNormalizePeerEndpoint(dialedEndpoint, allowPrivate: true, out string normalizedDialed, out _);
+        TryNormalizePeerEndpoint(resolvedEndpoint, allowPrivate: true, out string normalizedResolved, out _);
+
+        lock (_sync)
+        {
+            bool changed = false;
+            foreach (BootPeerStatus peer in _state.Peers.Where(peer =>
+                         string.Equals(NormalizePeerNodeId(peer.NodeId), normalizedNodeId, StringComparison.Ordinal) ||
+                         (!string.IsNullOrWhiteSpace(normalizedDialed) &&
+                          string.Equals(NormalizePeerEndpoint(peer.Endpoint), normalizedDialed, StringComparison.OrdinalIgnoreCase)) ||
+                         (!string.IsNullOrWhiteSpace(normalizedResolved) &&
+                          string.Equals(NormalizePeerEndpoint(peer.Endpoint), normalizedResolved, StringComparison.OrdinalIgnoreCase))))
+            {
+                if (!string.Equals(peer.NodeId, normalizedNodeId, StringComparison.Ordinal))
+                {
+                    peer.NodeId = normalizedNodeId;
+                    changed = true;
+                }
+            }
+
+            if (changed)
+            {
+                NormalizePeerAddressBookNoLock(DateTime.UtcNow);
+                RequestDeferredSaveNoLock();
+            }
+        }
+    }
+
     public void AnnouncePeer(string endpoint)
     {
         if (!TryNormalizePeerEndpoint(endpoint, AllowPrivatePeerAdvertisements(), out string normalized, out _))
@@ -9330,11 +9366,30 @@ public class BootProtocolStateService
     private void NormalizePeerAddressBookNoLock(DateTime nowUtc)
     {
         string selfEndpoint = GetSelfEndpoint();
+        TimeSpan sessionIdleTimeout = TimeSpan.FromSeconds(Math.Clamp(_poolConfig.PeerSessionIdleTimeoutSeconds, 30, 3600));
         _state.Peers = _state.Peers
             .Select(peer =>
             {
+                DateTime? lastSessionActivityUtc = peer.LastSessionUtc ?? peer.LastSeenUtc;
+                if (peer.SessionConnected &&
+                    (!lastSessionActivityUtc.HasValue || nowUtc - lastSessionActivityUtc.Value > sessionIdleTimeout))
+                {
+                    peer.SessionConnected = false;
+                    if (string.Equals(peer.Status, "session-connected", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(peer.Status, "session-relayed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        peer.Status = "session-stale";
+                    }
+                }
+
                 if (string.IsNullOrWhiteSpace(peer.Endpoint) && !string.IsNullOrWhiteSpace(peer.NodeId))
                 {
+                    if (!peer.SessionConnected &&
+                        (!lastSessionActivityUtc.HasValue || nowUtc - lastSessionActivityUtc.Value > sessionIdleTimeout))
+                    {
+                        return null;
+                    }
+
                     peer.NodeId = NormalizePeerNodeId(peer.NodeId);
                     peer.DiscoveredUtc ??= peer.LastSeenUtc ?? peer.LastFailureUtc ?? nowUtc;
                     peer.Source = string.IsNullOrWhiteSpace(peer.Source) ? "session" : peer.Source;
@@ -9388,13 +9443,50 @@ public class BootProtocolStateService
             })
             .OfType<BootPeerStatus>()
             .GroupBy(GetPeerIdentityKeyNoLock, StringComparer.OrdinalIgnoreCase)
-            .Select(group => group
-                .OrderByDescending(peer => peer.IsConfiguredSeed)
-                .ThenByDescending(peer => peer.LastSuccessUtc ?? peer.LastSeenUtc ?? peer.DiscoveredUtc ?? DateTime.MinValue)
-                .First())
+            .Select(MergePeerIdentityGroupNoLock)
             .ToList();
 
         TrimPeerAddressBookNoLock(nowUtc);
+    }
+
+    private static BootPeerStatus MergePeerIdentityGroupNoLock(IEnumerable<BootPeerStatus> peers)
+    {
+        List<BootPeerStatus> group = peers.ToList();
+        BootPeerStatus selected = group
+            .OrderByDescending(peer => peer.SessionConnected)
+            .ThenByDescending(peer => peer.LastSuccessUtc ?? peer.LastSeenUtc ?? peer.LastSessionUtc ?? DateTime.MinValue)
+            .ThenByDescending(peer => peer.IsConfiguredSeed)
+            .First();
+
+        selected.IsConfiguredSeed = group.Any(peer => peer.IsConfiguredSeed);
+        selected.DiscoveredUtc = MinDate(group.Select(peer => peer.DiscoveredUtc));
+        selected.LastAttemptUtc = MaxDate(group.Select(peer => peer.LastAttemptUtc));
+        selected.LastSuccessUtc = MaxDate(group.Select(peer => peer.LastSuccessUtc));
+        selected.LastSessionUtc = MaxDate(group.Select(peer => peer.LastSessionUtc));
+        selected.LastSeenUtc = MaxDate(group.Select(peer => peer.LastSeenUtc));
+        selected.LastFailureUtc = MaxDate(group.Select(peer => peer.LastFailureUtc));
+        selected.SessionConnected = group.Any(peer => peer.SessionConnected);
+        selected.Capabilities = group.SelectMany(peer => peer.Capabilities).Distinct(StringComparer.Ordinal).ToList();
+        selected.FailureCount = group.Max(peer => peer.FailureCount);
+        selected.RelaySuccessCount = group.Max(peer => peer.RelaySuccessCount);
+        selected.RelayFailureCount = group.Max(peer => peer.RelayFailureCount);
+        selected.SessionSuccessCount = group.Max(peer => peer.SessionSuccessCount);
+        selected.SessionFailureCount = group.Max(peer => peer.SessionFailureCount);
+        selected.UdpRelaySuccessCount = group.Max(peer => peer.UdpRelaySuccessCount);
+        selected.UdpRelayFailureCount = group.Max(peer => peer.UdpRelayFailureCount);
+        return selected;
+    }
+
+    private static DateTime? MaxDate(IEnumerable<DateTime?> values)
+    {
+        DateTime[] present = values.Where(value => value.HasValue).Select(value => value!.Value).ToArray();
+        return present.Length == 0 ? null : present.Max();
+    }
+
+    private static DateTime? MinDate(IEnumerable<DateTime?> values)
+    {
+        DateTime[] present = values.Where(value => value.HasValue).Select(value => value!.Value).ToArray();
+        return present.Length == 0 ? null : present.Min();
     }
 
     private void TrimPeerAddressBookNoLock(DateTime nowUtc)
@@ -9774,16 +9866,16 @@ public class BootProtocolStateService
 
     private static string GetPeerIdentityKeyNoLock(BootPeerStatus peer)
     {
-        string endpoint = NormalizePeerEndpoint(peer.Endpoint);
-        if (!string.IsNullOrWhiteSpace(endpoint))
+        string nodeId = NormalizePeerNodeId(peer.NodeId);
+        if (!string.IsNullOrWhiteSpace(nodeId))
         {
-            return $"endpoint:{endpoint}";
+            return $"node:{nodeId}";
         }
 
-        string nodeId = NormalizePeerNodeId(peer.NodeId);
-        return string.IsNullOrWhiteSpace(nodeId)
+        string endpoint = NormalizePeerEndpoint(peer.Endpoint);
+        return string.IsNullOrWhiteSpace(endpoint)
             ? "unknown:"
-            : $"node:{nodeId}";
+            : $"endpoint:{endpoint}";
     }
 
     private static string NormalizePeerNodeId(string? nodeId)

@@ -274,6 +274,7 @@ public class BootPeerSyncService : BackgroundService
         }
 
         string remoteEndpoint = _stateService.ResolvePeerEndpoint(peer, remote.SelfEndpoint);
+        _stateService.ReconcilePeerIdentity(peer, remoteEndpoint, remote.NodeId);
         _stateService.UpdatePeerHeartbeat(remoteEndpoint, "connected", stopwatch.Elapsed.TotalMilliseconds, DateTime.UtcNow);
         _stateService.MergeDiscoveredPeers(remote.Peers.Select(x => x.Endpoint).Append(remoteEndpoint));
 

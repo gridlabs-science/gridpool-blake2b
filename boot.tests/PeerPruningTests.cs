@@ -144,6 +144,38 @@ public sealed class PeerPruningTests
     }
 
     [TestMethod]
+    public void PeerAliasesCollapseByAuthenticatedNodeIdentity()
+    {
+        var service = CreateService();
+        const string nodeId = "Crm97Gm/m/Wvvl2s7rEeYXyzjScSNwcTZFXEqlOZcq4=";
+
+        service.SeedPeers(["https://dallas.gridpool.net"]);
+        service.MergeDiscoveredPeers([
+            "http://dallas.gridpool.net",
+            "http://dallas.gridpool.net:5000"
+        ]);
+        service.ReconcilePeerIdentity("https://dallas.gridpool.net", "https://dallas.gridpool.net", nodeId);
+        service.ReconcilePeerIdentity("http://dallas.gridpool.net", "http://dallas.gridpool.net", nodeId);
+        service.ReconcilePeerIdentity("http://dallas.gridpool.net:5000", "http://dallas.gridpool.net:5000", nodeId);
+
+        List<BootPeerStatus> peers = service.GetNetworkStatus().Peers.Where(peer => peer.NodeId == nodeId).ToList();
+        Assert.AreEqual(1, peers.Count);
+        Assert.IsTrue(peers[0].IsConfiguredSeed);
+    }
+
+    [TestMethod]
+    public void StaleEndpointlessSessionDoesNotSurviveNormalization()
+    {
+        BootProtocolStateService service = CreateService(out PoolConfig config, null);
+        config.PeerSessionIdleTimeoutSeconds = 30;
+        const string nodeId = "stale-outbound-only-node";
+
+        service.UpdatePeerSessionHeartbeat(string.Empty, nodeId, "session-connected", DateTime.UtcNow.AddMinutes(-5));
+
+        Assert.IsFalse(service.GetNetworkStatus().Peers.Any(peer => peer.NodeId == nodeId));
+    }
+
+    [TestMethod]
     public void ReadinessFailsWhenEnabledPeerPollLoopIsStale()
     {
         var health = new BootPeerLoopHealth(DateTime.UtcNow.AddMinutes(-2));
