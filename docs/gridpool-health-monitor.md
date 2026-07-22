@@ -215,6 +215,14 @@ Incident packets and Codex findings are written under:
 ~/.local/state/gridpool-monitor/incidents/
 ```
 
+Incident capture does not require Codex. On the first warning/critical run of
+an alert, the monitor immediately fetches the affected consensus group's
+summary, DATUM sessions/share responses/protocol events, coinbaser diagnostics,
+network events, and peer-relay telemetry. Each bounded capture is written under
+`incidents/<timestamp>-<fingerprint>/`, with request failures recorded in its
+`manifest.json`. A continuing alert is not captured again until it resolves and
+later recurs. This preserves in-memory node evidence before an operator restart.
+
 Keep this disabled for shared operator chats unless everyone in
 `TELEGRAM_COMMAND_CHAT_IDS` should be able to request local Codex diagnostics.
 
@@ -267,6 +275,8 @@ Tune these fields first:
 - `thresholds.outboundRelayStaleMinutes`: default `10`.
 - `thresholds.peerOutboundAttemptStaleMinutes`: default `10`.
 - `alertCooldownMinutes`: default `60`.
+- `incidentCapture`: enabled by default. `window`, `sessionLimit`, `eventLimit`,
+  and `relayLimit` bound automatic first-alert diagnostic collection.
 
 Current-state and active-snapshot disagreement is one critical incident fingerprint. It alerts on a new divergence edge and repeats at most hourly while unchanged. When current-state bundles are fetchable within the normal request timeout, the alert includes proof-set intersection/side-only counts and the highest-difficulty side-only source.
 
@@ -285,6 +295,7 @@ The monitor writes compact logs intended for quick review by a human or Codex:
 ~/.local/state/gridpool-monitor/snapshots/YYYY-MM-DD.jsonl
 ~/.local/state/gridpool-monitor/consensus/YYYY-MM-DD.jsonl
 ~/.local/state/gridpool-monitor/alerts/YYYY-MM-DD.jsonl
+~/.local/state/gridpool-monitor/incidents/<timestamp>-<fingerprint>/manifest.json
 ```
 
 The JSONL files intentionally omit full state bundles. They preserve the

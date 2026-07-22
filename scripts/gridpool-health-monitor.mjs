@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-const SCRIPT_VERSION = 3;
+const SCRIPT_VERSION = 4;
 const DEFAULT_STATE_DIR = path.join(os.homedir(), ".local", "state", "gridpool-monitor");
 const DEFAULT_CONFIG_PATHS = [
     path.join(os.homedir(), ".config", "gridpool-health-monitor", "config.json"),
@@ -37,6 +37,13 @@ const DEFAULT_CONFIG = {
         timeoutSeconds: 600,
         model: "",
         resumeArgs: ["exec", "-C", process.cwd(), "--sandbox", "read-only", "--ask-for-approval", "never", "resume", "--last"]
+    },
+    incidentCapture: {
+        enabled: true,
+        window: "24h",
+        sessionLimit: 1000,
+        eventLimit: 2000,
+        relayLimit: 2000
     },
     thresholds: {
         endpointFailureConsecutive: 2,
@@ -200,6 +207,7 @@ function loadState(stateDir) {
         failureCounts: {},
         failureFirstSeenUtc: {},
         alertCooldowns: {},
+        activeIncidentKeys: [],
         codexCooldowns: {},
         hashrateHistory: {},
         lastRoundByNode: {},
@@ -1391,6 +1399,117 @@ function filterAlertsForDelivery(alerts, state, config) {
     return delivered;
 }
 
+function stableIncidentKey(alert) {
+    const fingerprint = String(alert?.fingerprint || "");
+    if (fingerprint.startsWith("consensus:")) {
+        return fingerprint.split(":").slice(0, 3).join(":");
+    }
+    return fingerprint || `${alert?.category || "alert"}:${alert?.title || "unknown"}`;
+}
+
+function selectNewIncidentAlerts(alerts, state) {
+    const previous = new Set(state.activeIncidentKeys || []);
+    const active = alerts
+        .filter(alert => alert.severity === "warning" || alert.severity === "critical");
+    const newlyActive = active.filter(alert => !previous.has(stableIncidentKey(alert)));
+    state.activeIncidentKeys = [...new Set(active.map(stableIncidentKey))].sort();
+    return newlyActive;
+}
+
+function safeFileComponent(value) {
+    return String(value || "unknown").replace(/[^a-zA-Z0-9_.-]+/g, "_").slice(0, 100);
+}
+
+function nodesForIncidentAlerts(alerts, snapshot) {
+    const nodes = snapshot.gridpoolNodes || [];
+    const selectedGroups = new Set();
+    const selectedNames = new Set();
+
+    for (const alert of alerts) {
+        const parts = String(alert.fingerprint || "").split(":");
+        if (parts[0] === "consensus" && parts[1]) selectedGroups.add(parts[1]);
+        if (parts[0] === "gridpool" && parts[1]) selectedNames.add(parts[1]);
+        if (parts[0] === "tcp") {
+            for (const node of nodes) {
+                if (String(parts[1] || "").toLowerCase().includes(String(node.name || "").toLowerCase())) {
+                    selectedNames.add(node.name);
+                }
+            }
+        }
+    }
+
+    for (const node of nodes) {
+        if (selectedNames.has(node.name) && node.consensusGroup) selectedGroups.add(node.consensusGroup);
+    }
+
+    const selected = nodes.filter(node =>
+        selectedNames.has(node.name) ||
+        (node.consensusGroup && selectedGroups.has(node.consensusGroup)));
+    return selected.length ? selected : nodes;
+}
+
+function incidentFetchPayload(result) {
+    return {
+        capturedAtUtc: currentIso(),
+        ok: result.ok,
+        status: result.status,
+        url: result.url,
+        durationMs: result.durationMs,
+        error: result.error || null,
+        data: result.json ?? result.text ?? null
+    };
+}
+
+async function captureIncidentDiagnostics(alerts, snapshot, stateDir, config) {
+    if (!alerts.length || config.incidentCapture?.enabled === false) return null;
+
+    const startedUtc = currentIso();
+    const suffix = safeFileComponent(stableIncidentKey(alerts[0]));
+    const directory = path.join(
+        stateDir,
+        "incidents",
+        `${startedUtc.replace(/[:.]/g, "-")}-${suffix}`);
+    fs.mkdirSync(directory, { recursive: true });
+
+    const window = encodeURIComponent(config.incidentCapture?.window || "24h");
+    const sessionLimit = Math.max(1, Number(config.incidentCapture?.sessionLimit || 1000));
+    const eventLimit = Math.max(1, Number(config.incidentCapture?.eventLimit || 2000));
+    const relayLimit = Math.max(1, Number(config.incidentCapture?.relayLimit || 2000));
+    const endpoints = [
+        ["summary", "/api/network/summary"],
+        ["datum-sessions", `/api/network/datum-sessions?window=${window}&limit=${sessionLimit}`],
+        ["datum-share-responses", `/api/network/datum-share-responses?window=${window}&limit=${sessionLimit}`],
+        ["datum-protocol-events", `/api/network/datum-protocol-events?window=${window}&limit=${eventLimit}`],
+        ["coinbaser-diagnostics", `/api/network/coinbaser-diagnostics?window=${window}&limit=${sessionLimit}`],
+        ["network-events", `/api/network/events?window=${window}&limit=${eventLimit}`],
+        ["peer-relay-latency", `/api/network/peer-relay-latency?window=${window}&limit=${relayLimit}`]
+    ];
+    const nodes = nodesForIncidentAlerts(alerts, snapshot);
+    const manifest = {
+        schemaVersion: 1,
+        startedUtc,
+        completedUtc: null,
+        alerts,
+        nodes: []
+    };
+
+    await Promise.all(nodes.map(async node => {
+        const nodeDirectory = path.join(directory, "nodes", safeFileComponent(node.name));
+        const captures = await Promise.all(endpoints.map(async ([name, suffixPath]) => {
+            const result = await fetchJson(node.baseUrl, suffixPath, config);
+            writeJsonAtomic(path.join(nodeDirectory, `${name}.json`), incidentFetchPayload(result));
+            return { name, ok: result.ok, status: result.status, error: result.error || null };
+        }));
+        manifest.nodes.push({ name: node.name, baseUrl: node.baseUrl, captures });
+    }));
+
+    manifest.nodes.sort((a, b) => a.name.localeCompare(b.name));
+    manifest.completedUtc = currentIso();
+    writeJsonAtomic(path.join(directory, "manifest.json"), manifest);
+    for (const alert of alerts) alert.diagnosticCapturePath = directory;
+    return directory;
+}
+
 function shouldSendMorningDigest(state, config, forceDigest) {
     if (forceDigest) return true;
     if (!config.morningDigest?.enabled) return false;
@@ -1412,6 +1531,7 @@ function buildAlertMessage(alerts, codexResult = null) {
     for (const alert of alerts.slice(0, 10)) {
         lines.push(`[${alert.severity.toUpperCase()}] ${alert.title}`);
         if (alert.detail) lines.push(alert.detail);
+        if (alert.diagnosticCapturePath) lines.push(`Diagnostics: ${alert.diagnosticCapturePath}`);
         lines.push("");
     }
 
@@ -2050,6 +2170,17 @@ async function main() {
 
     const snapshot = await collectSnapshot(config);
     const alerts = buildAlerts(snapshot, state, config);
+    const newIncidentAlerts = selectNewIncidentAlerts(alerts, state);
+    if (newIncidentAlerts.length) {
+        try {
+            const capturePath = await captureIncidentDiagnostics(newIncidentAlerts, snapshot, stateDir, config);
+            if (capturePath) {
+                console.log(`[gridpool-health-monitor] captured incident diagnostics: ${capturePath}`);
+            }
+        } catch (error) {
+            console.warn(`[gridpool-health-monitor] incident diagnostic capture failed: ${error?.message || error}`);
+        }
+    }
     const deliverableAlerts = filterAlertsForDelivery(alerts, state, config);
 
     await processTelegramCommands(telegram, state, snapshot, config, stateDir);
@@ -2104,6 +2235,23 @@ function runSelfTests() {
         state,
         { alertCooldownMinutes: 60 });
     if (delivered.length !== 0) throw new Error("consensus divergence reminder cooldown failed");
+    const incidentState = { activeIncidentKeys: [] };
+    if (selectNewIncidentAlerts(
+        [{ severity: "warning", category: "test", fingerprint: "gridpool:a:test" }],
+        incidentState).length !== 1) {
+        throw new Error("new incident edge was not detected");
+    }
+    if (selectNewIncidentAlerts(
+        [{ severity: "warning", category: "test", fingerprint: "gridpool:a:test" }],
+        incidentState).length !== 0) {
+        throw new Error("active incident was captured more than once");
+    }
+    selectNewIncidentAlerts([], incidentState);
+    if (selectNewIncidentAlerts(
+        [{ severity: "warning", category: "test", fingerprint: "gridpool:a:test" }],
+        incidentState).length !== 1) {
+        throw new Error("resolved incident recurrence was not detected");
+    }
     console.log("gridpool-health-monitor self-test: ok");
 }
 

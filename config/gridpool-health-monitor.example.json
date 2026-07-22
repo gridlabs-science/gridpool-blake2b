@@ -31,6 +31,13 @@
       "--last"
     ]
   },
+  "incidentCapture": {
+    "enabled": true,
+    "window": "24h",
+    "sessionLimit": 1000,
+    "eventLimit": 2000,
+    "relayLimit": 2000
+  },
   "thresholds": {
     "endpointFailureConsecutive": 2,
     "consensusDivergenceConsecutive": 2,
