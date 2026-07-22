@@ -243,6 +243,7 @@ public class BootDatumDiagnosticsDto
     public int RejectedCount { get; set; }
     public DateTime? LastAcceptedUtc { get; set; }
     public DateTime? LastRejectedUtc { get; set; }
+    public string LastRejectionReason { get; set; } = string.Empty;
     public List<BootReasonCountDto> RejectionReasons { get; set; } = [];
 }
 
@@ -317,6 +318,11 @@ public class BootNetworkStatusDto
     public bool IdentityChanged { get; set; }
     public string SelfEndpoint { get; set; } = string.Empty;
     public List<string> ConfigWarnings { get; set; } = [];
+    public DateTime ServiceStartedUtc { get; set; }
+    public int ActiveDatumSessionCount { get; set; }
+    public DateTime? LastDatumSessionOpenedUtc { get; set; }
+    public DateTime? LastDatumHelloReceivedUtc { get; set; }
+    public DateTime? LastDatumCoinbaserRequestUtc { get; set; }
     public DateTime? LastPeerPollCompletedUtc { get; set; }
     public DateTime? LastShareRelayDequeuedUtc { get; set; }
     public DateTime? LastShareRelayQueuedUtc { get; set; }

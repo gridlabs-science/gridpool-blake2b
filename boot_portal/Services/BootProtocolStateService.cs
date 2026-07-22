@@ -796,6 +796,7 @@ public class BootProtocolStateService
             session.StartedUtc = effectiveTimestampUtc;
             session.LastActivityUtc = effectiveTimestampUtc;
             session.LastActivityType = "opened";
+            _peerLoopHealth.RecordDatumSessionOpened(effectiveTimestampUtc);
             TrimDatumSessionsNoLock(effectiveTimestampUtc);
             RequestDeferredHistorySaveNoLock();
         }
@@ -850,6 +851,7 @@ public class BootProtocolStateService
             session.HandshakeMs ??= Math.Max(0, (effectiveTimestampUtc - session.StartedUtc).TotalMilliseconds);
             session.LastActivityUtc = effectiveTimestampUtc;
             session.LastActivityType = "hello";
+            _peerLoopHealth.RecordDatumHelloReceived(effectiveTimestampUtc);
             RequestDeferredHistorySaveNoLock();
         }
     }
@@ -896,6 +898,7 @@ public class BootProtocolStateService
             session.LastCoinbaserFetchUtc = effectiveTimestampUtc;
             session.LastActivityUtc = effectiveTimestampUtc;
             session.LastActivityType = "coinbaser-fetch";
+            _peerLoopHealth.RecordDatumCoinbaserRequest(effectiveTimestampUtc);
             RequestDeferredHistorySaveNoLock();
         }
     }
@@ -6141,6 +6144,11 @@ public class BootProtocolStateService
             IdentityChanged = _identityChanged,
             SelfEndpoint = NormalizePeerEndpoint(_poolConfig.PublicBaseUrl),
             ConfigWarnings = configWarnings,
+            ServiceStartedUtc = _serviceStartedUtc,
+            ActiveDatumSessionCount = _activeDatumSessions.Count,
+            LastDatumSessionOpenedUtc = _peerLoopHealth.LastDatumSessionOpenedUtc,
+            LastDatumHelloReceivedUtc = _peerLoopHealth.LastDatumHelloReceivedUtc,
+            LastDatumCoinbaserRequestUtc = _peerLoopHealth.LastDatumCoinbaserRequestUtc,
             LastPeerPollCompletedUtc = _peerLoopHealth.LastPeerPollCompletedUtc,
             LastShareRelayDequeuedUtc = _peerLoopHealth.LastShareRelayDequeuedUtc,
             LastShareRelayQueuedUtc = _peerLoopHealth.LastShareRelayQueuedUtc,
@@ -7054,6 +7062,7 @@ public class BootProtocolStateService
             .OrderBy(item => item.TimestampUtc)
             .ToList();
 
+        BootShareDiagnosticTelemetry? lastRejection = localDatumDiagnostics.LastOrDefault(item => !item.Accepted);
         return new BootDatumDiagnosticsDto
         {
             WindowSeconds = GetShareDiagnosticRetentionHours() * 3600,
@@ -7063,6 +7072,7 @@ public class BootProtocolStateService
             RejectedCount = localDatumDiagnostics.Count(item => !item.Accepted),
             LastAcceptedUtc = localDatumDiagnostics.LastOrDefault(item => item.Accepted)?.TimestampUtc,
             LastRejectedUtc = localDatumDiagnostics.LastOrDefault(item => !item.Accepted)?.TimestampUtc,
+            LastRejectionReason = lastRejection?.RejectionReason ?? string.Empty,
             RejectionReasons = localDatumDiagnostics
                 .Where(item => !item.Accepted && !string.IsNullOrWhiteSpace(item.RejectionCategory))
                 .GroupBy(item => item.RejectionCategory!, StringComparer.OrdinalIgnoreCase)

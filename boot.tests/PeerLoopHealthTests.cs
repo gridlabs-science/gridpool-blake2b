@@ -35,6 +35,9 @@ public sealed class PeerLoopHealthTests
         DateTime coinbaserUtc = DateTime.UtcNow.AddSeconds(-2);
         DateTime closedUtc = DateTime.UtcNow.AddSeconds(-1);
 
+        health.RecordDatumSessionOpened(datumShareUtc);
+        health.RecordDatumHelloReceived(datumShareUtc);
+        health.RecordDatumCoinbaserRequest(datumShareUtc);
         health.RecordShareQueued();
         health.RecordUdpShareRelay();
         health.RecordWebSocketShareRelay();
@@ -43,6 +46,9 @@ public sealed class PeerLoopHealthTests
         health.RecordSuccessfulDatumCoinbaserResponse(coinbaserUtc);
         health.RecordDatumSessionClosed("test close", closedUtc);
 
+        Assert.AreEqual(datumShareUtc, health.LastDatumSessionOpenedUtc);
+        Assert.AreEqual(datumShareUtc, health.LastDatumHelloReceivedUtc);
+        Assert.AreEqual(datumShareUtc, health.LastDatumCoinbaserRequestUtc);
         Assert.IsNotNull(health.LastShareRelayQueuedUtc);
         Assert.IsNotNull(health.LastUdpShareRelayUtc);
         Assert.IsNotNull(health.LastWebSocketShareRelayUtc);

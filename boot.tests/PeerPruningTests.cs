@@ -183,11 +183,17 @@ public sealed class PeerPruningTests
         DateTime closeUtc = DateTime.UtcNow.AddSeconds(-1);
 
         service.RecordDatumSessionOpened("datum-test", "127.0.0.1:12345");
+        service.RecordDatumSessionHello("datum-test", "identity", "encryption", shareUtc);
+        service.RecordDatumSessionCoinbaserFetch("datum-test", shareUtc);
         service.RecordDatumSessionShareOutcome("datum-test", accepted: true, affectedOnDeck: false, shareUtc);
         service.RecordSuccessfulDatumCoinbaserResponse(shareUtc);
         service.CompleteDatumSession("datum-test", "server-closed", "test close", timestampUtc: closeUtc);
 
         BootNetworkStatusDto status = service.GetNetworkStatus();
+        Assert.AreEqual(0, status.ActiveDatumSessionCount);
+        Assert.IsNotNull(status.LastDatumSessionOpenedUtc);
+        Assert.AreEqual(shareUtc, status.LastDatumHelloReceivedUtc);
+        Assert.AreEqual(shareUtc, status.LastDatumCoinbaserRequestUtc);
         Assert.AreEqual(shareUtc, status.LastValidLocalDatumShareUtc);
         Assert.AreEqual(shareUtc, status.LastSuccessfulDatumCoinbaserResponseUtc);
         Assert.AreEqual(closeUtc, status.LastDatumSessionClosedUtc);

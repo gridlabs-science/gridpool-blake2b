@@ -22,6 +22,9 @@ public sealed class BootPeerLoopHealth
     }
 
     public DateTime StartedUtc => _startedUtc;
+    public DateTime? LastDatumSessionOpenedUtc { get; private set; }
+    public DateTime? LastDatumHelloReceivedUtc { get; private set; }
+    public DateTime? LastDatumCoinbaserRequestUtc { get; private set; }
     public DateTime? LastPeerPollCompletedUtc { get; private set; }
     public DateTime? LastShareRelayDequeuedUtc { get; private set; }
     public DateTime? LastShareRelayQueuedUtc { get; private set; }
@@ -38,6 +41,12 @@ public sealed class BootPeerLoopHealth
     public long LocalPulseAcceptedCount => Interlocked.Read(ref _localPulseAccepted);
 
     public void RecordPeerPollCompleted() => LastPeerPollCompletedUtc = DateTime.UtcNow;
+    public void RecordDatumSessionOpened(DateTime? timestampUtc = null) =>
+        LastDatumSessionOpenedUtc = timestampUtc ?? DateTime.UtcNow;
+    public void RecordDatumHelloReceived(DateTime? timestampUtc = null) =>
+        LastDatumHelloReceivedUtc = timestampUtc ?? DateTime.UtcNow;
+    public void RecordDatumCoinbaserRequest(DateTime? timestampUtc = null) =>
+        LastDatumCoinbaserRequestUtc = timestampUtc ?? DateTime.UtcNow;
     public void RecordShareDequeued() => LastShareRelayDequeuedUtc = DateTime.UtcNow;
     public void RecordShareQueued(DateTime? timestampUtc = null) => LastShareRelayQueuedUtc = timestampUtc ?? DateTime.UtcNow;
     public void RecordOutboundRelay() => LastSuccessfulOutboundRelayUtc = DateTime.UtcNow;

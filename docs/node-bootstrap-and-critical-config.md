@@ -30,7 +30,7 @@ V2.2 activation remains height **959500**. Rebuilds do not justify changing it.
 
 ```bash
 curl -fsS https://YOUR_NODE/health/ready | jq
-curl -fsS https://YOUR_NODE/api/network/summary | jq '{nodeId,selfEndpoint,releaseVersion,configWarnings,pulseProofsEnabled,peerLoopsHealthy,outboundRelayHealthy,lastValidLocalDatumShareUtc,lastSuccessfulDatumCoinbaserResponseUtc,lastDatumSessionClosedUtc,lastDatumSessionCloseReason,lastShareRelayQueuedUtc,lastUdpShareRelayUtc,lastWebSocketShareRelayUtc,lastHttpShareRelayUtc,lastSuccessfulOutboundRelayUtc,shareRelayQueueDepth}'
+curl -fsS https://YOUR_NODE/api/network/summary | jq '{nodeId,selfEndpoint,releaseVersion,serviceStartedUtc,configWarnings,pulseProofsEnabled,peerLoopsHealthy,outboundRelayHealthy,activeDatumSessionCount,lastDatumSessionOpenedUtc,lastDatumHelloReceivedUtc,lastDatumCoinbaserRequestUtc,lastSuccessfulDatumCoinbaserResponseUtc,lastValidLocalDatumShareUtc,lastDatumSessionClosedUtc,lastDatumSessionCloseReason,lastShareRelayQueuedUtc,lastUdpShareRelayUtc,lastWebSocketShareRelayUtc,lastHttpShareRelayUtc,lastSuccessfulOutboundRelayUtc,shareRelayQueueDepth,localDatumDiagnostics}'
 systemctl status bootserverapp.service --no-pager
 journalctl -u bootserverapp.service -n 200 --no-pager
 ```
