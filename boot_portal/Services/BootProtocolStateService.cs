@@ -9155,7 +9155,7 @@ public class BootProtocolStateService
         }
 
         if (!string.IsNullOrWhiteSpace(GetSelfEndpoint()) &&
-            string.Equals(normalized, GetSelfEndpoint(), StringComparison.OrdinalIgnoreCase))
+            ArePeerEndpointHostsEquivalent(normalized, GetSelfEndpoint()))
         {
             return false;
         }
@@ -9193,7 +9193,12 @@ public class BootProtocolStateService
         }
 
         bool changed = false;
-        if (!string.IsNullOrWhiteSpace(status) && !string.Equals(existing.Status, status, StringComparison.Ordinal))
+        bool discoveryRefresh = (string.Equals(source, "gossip", StringComparison.OrdinalIgnoreCase) ||
+                                 string.Equals(source, "header", StringComparison.OrdinalIgnoreCase)) &&
+                                string.Equals(status, "discovered", StringComparison.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(status) &&
+            !string.Equals(existing.Status, status, StringComparison.Ordinal) &&
+            !(discoveryRefresh && IsPeerFailureStatus(existing.Status)))
         {
             existing.Status = status;
             changed = true;
@@ -9434,7 +9439,7 @@ public class BootProtocolStateService
                 }
 
                 if (!string.IsNullOrWhiteSpace(selfEndpoint) &&
-                    string.Equals(normalized, selfEndpoint, StringComparison.OrdinalIgnoreCase))
+                    ArePeerEndpointHostsEquivalent(normalized, selfEndpoint))
                 {
                     return null;
                 }
@@ -9443,6 +9448,8 @@ public class BootProtocolStateService
             })
             .OfType<BootPeerStatus>()
             .GroupBy(GetPeerIdentityKeyNoLock, StringComparer.OrdinalIgnoreCase)
+            .Select(MergePeerIdentityGroupNoLock)
+            .GroupBy(GetPeerHostIdentityKeyNoLock, StringComparer.OrdinalIgnoreCase)
             .Select(MergePeerIdentityGroupNoLock)
             .ToList();
 
@@ -9876,6 +9883,27 @@ public class BootProtocolStateService
         return string.IsNullOrWhiteSpace(endpoint)
             ? "unknown:"
             : $"endpoint:{endpoint}";
+    }
+
+    private static string GetPeerHostIdentityKeyNoLock(BootPeerStatus peer)
+    {
+        string endpoint = NormalizePeerEndpoint(peer.Endpoint);
+        if (Uri.TryCreate(endpoint, UriKind.Absolute, out Uri? uri) && !string.IsNullOrWhiteSpace(uri.Host))
+        {
+            return $"host:{uri.Host.Trim().ToLowerInvariant()}";
+        }
+
+        string nodeId = NormalizePeerNodeId(peer.NodeId);
+        return string.IsNullOrWhiteSpace(nodeId)
+            ? "unknown:"
+            : $"node:{nodeId}";
+    }
+
+    private static bool ArePeerEndpointHostsEquivalent(string left, string right)
+    {
+        return Uri.TryCreate(left, UriKind.Absolute, out Uri? leftUri) &&
+               Uri.TryCreate(right, UriKind.Absolute, out Uri? rightUri) &&
+               string.Equals(leftUri.Host, rightUri.Host, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string NormalizePeerNodeId(string? nodeId)

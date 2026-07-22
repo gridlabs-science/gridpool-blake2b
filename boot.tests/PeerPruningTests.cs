@@ -164,6 +164,35 @@ public sealed class PeerPruningTests
     }
 
     [TestMethod]
+    public void PeerAliasesCollapseByPublicHostnameBeforeIdentityIsKnown()
+    {
+        var service = CreateService();
+
+        service.SeedPeers(["https://alias.gridpool.example"]);
+        service.MergeDiscoveredPeers([
+            "http://alias.gridpool.example",
+            "http://alias.gridpool.example:5000"
+        ]);
+
+        List<BootPeerStatus> peers = service.GetNetworkStatus().Peers
+            .Where(peer => peer.Endpoint.Contains("alias.gridpool.example", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        Assert.AreEqual(1, peers.Count);
+        Assert.IsTrue(peers[0].IsConfiguredSeed);
+    }
+
+    [TestMethod]
+    public void SelfAliasOnDifferentSchemeOrPortIsNotRetained()
+    {
+        var service = CreateService();
+
+        service.AnnouncePeer("https://127.0.0.1:7443");
+
+        Assert.IsFalse(service.GetNetworkStatus().Peers.Any(peer =>
+            peer.Endpoint.Contains("127.0.0.1", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
     public void StaleEndpointlessSessionDoesNotSurviveNormalization()
     {
         BootProtocolStateService service = CreateService(out PoolConfig config, null);
