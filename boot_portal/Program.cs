@@ -265,7 +265,9 @@ public class PoolConfig
     public bool EnablePulseProofs { get; set; } = true;
 
     [JsonPropertyName("pause_mining_on_outbound_relay_stale")]
-    public bool PauseMiningOnOutboundRelayStale { get; set; } = true;
+    // Deprecated compatibility key. Relay staleness is reported as health data;
+    // it must not make DATUM coinbaser requests fail closed into solo fallback.
+    public bool PauseMiningOnOutboundRelayStale { get; set; } = false;
 
     [JsonPropertyName("pulse_min_difficulty")]
     public double PulseMinDifficulty { get; set; } = 1d;

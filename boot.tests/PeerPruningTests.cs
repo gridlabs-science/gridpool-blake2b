@@ -155,6 +155,25 @@ public sealed class PeerPruningTests
         Assert.IsFalse(service.GetNetworkStatus().PeerLoopsHealthy);
     }
 
+    [TestMethod]
+    public void OutboundRelayStalenessWarnsWithoutRefusingDatumCoinbaserWork()
+    {
+        var health = new BootPeerLoopHealth(DateTime.UtcNow.AddMinutes(-2));
+        BootProtocolStateService service = CreateService(out PoolConfig config, health);
+
+        config.OutboundRelayStaleSeconds = 30;
+        config.PauseMiningOnOutboundRelayStale = true; // Legacy deployed configuration.
+        service.RecordDatumSessionOpened("datum-test", "127.0.0.1:12345");
+
+        DatumCoinbaseTemplate template = service.GetDatumCoinbaseTemplate();
+        BootNetworkStatusDto status = service.GetNetworkStatus();
+
+        Assert.IsTrue(template.CoinbaseOutputs.Count > 0);
+        Assert.IsTrue(status.MiningWorkSafe);
+        Assert.IsFalse(status.OutboundRelayHealthy);
+        CollectionAssert.Contains(status.ConfigWarnings, "outbound share/pulse relay is stale");
+    }
+
     private static BootProtocolStateService CreateService() => CreateService(out _, null);
 
     private static BootProtocolStateService CreateService(out PoolConfig config, BootPeerLoopHealth? health)

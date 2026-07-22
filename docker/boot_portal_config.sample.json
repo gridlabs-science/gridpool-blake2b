@@ -53,7 +53,7 @@
   "peer_udp_replay_window": 4096,
   "peer_relay_latency_probe_all_transports": false,
   "enable_pulse_proofs": true,
-  "pause_mining_on_outbound_relay_stale": true,
+  "pause_mining_on_outbound_relay_stale": false,
   "enable_peer_tip_stale_protection": false,
   "peer_tip_grace_seconds": 3,
   "peer_tip_max_header_age_seconds": 86400,

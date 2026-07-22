@@ -10030,12 +10030,12 @@ public class BootProtocolStateService
         bool bitcoinTipSafe = !_poolConfig.EnablePeerTipStaleProtection ||
                               _state.ProvisionalTip == null ||
                               nowUtc < _state.ProvisionalTip.GraceDeadlineUtc;
-        bool outboundSafe = !_poolConfig.PauseMiningOnOutboundRelayStale ||
-                            !_poolConfig.EnablePeerSync ||
-                            !_poolConfig.EnablePulseProofs ||
-                            _activeDatumSessions.Count == 0 ||
-                            !_peerLoopHealth.IsOutboundRelayStale(nowUtc, _poolConfig.OutboundRelayStaleSeconds);
-        return !_identityChanged && bitcoinTipSafe && outboundSafe;
+
+        // Relay health is diagnostic, not a property of the Bitcoin work plan. Refusing
+        // coinbaser requests here makes DATUM fall back to solo work, whose rejected
+        // shares cannot refresh relay health and therefore create a permanent reconnect
+        // loop. Peer-tip protection remains the fail-closed stale-parent boundary.
+        return !_identityChanged && bitcoinTipSafe;
     }
 
     private string BuildMiningWorkSafetyReasonNoLock()
@@ -10048,15 +10048,6 @@ public class BootProtocolStateService
         if (_identityChanged)
         {
             return "Node identity changed from the identity stored with existing state; fresh mining work is paused until the prior keys are restored or the operator explicitly migrates identity.";
-        }
-
-        if (_poolConfig.PauseMiningOnOutboundRelayStale &&
-            _poolConfig.EnablePeerSync &&
-            _poolConfig.EnablePulseProofs &&
-            _activeDatumSessions.Count > 0 &&
-            _peerLoopHealth.IsOutboundRelayStale(DateTime.UtcNow, _poolConfig.OutboundRelayStaleSeconds))
-        {
-            return "Local DATUM mining is active but no outbound share or pulse relay completed within the configured stale threshold; fresh mining work is paused.";
         }
 
         return $"Local Bitcoin node has not confirmed provisional peer tip {_state.ProvisionalTip!.BlockHash}; fresh mining work is paused to avoid stale-parent work.";

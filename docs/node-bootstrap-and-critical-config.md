@@ -8,7 +8,7 @@ This is the canonical rebuild checklist for GridPool node operators and automati
 - Pulse proofs default on. Production `mainnet-beta` rejects an explicit pulse-off configuration.
 - Peer polling, share relay, and chain-tip relay run under independent supervisors. WebSocket send-lock and frame writes time out, close the stuck session, and allow HTTP share fallback.
 - `/health/ready` becomes unavailable when peer polling is stale for `peer_loop_stale_seconds` (default 600).
-- With active local DATUM sessions, pulse proofs, and peer sync enabled, mining work pauses after `outbound_relay_stale_seconds` (default 300) without a successful outbound share/pulse relay. Set `pause_mining_on_outbound_relay_stale=false` only for an explicitly isolated non-production node.
+- With active local DATUM sessions, pulse proofs, and peer sync enabled, `outbound_relay_stale_seconds` (default 300) raises a visible health warning when no outbound share/pulse delivery succeeds. It does not stop coinbaser service: doing so can force DATUM into solo fallback and prevent automatic recovery. `pause_mining_on_outbound_relay_stale` is retained as a deprecated configuration key and should be `false`.
 - `/api/network/summary` exposes node identity, endpoint, release, loop timestamps/faults, queue depth, pulse/outbound health, and configuration warnings.
 
 Peer-observed acceptance acknowledgements are not yet authenticated end-to-end; the current health signal proves a bounded local transport send/HTTP acceptance, not that a remote node admitted a candidate-changing proof. An authenticated proof-ID ack/reject remains follow-up work.
@@ -42,7 +42,7 @@ Verify the restored `nodeId` matches the pre-rebuild record, `selfEndpoint` is p
 1. Preserve and back up node keys, state, history, and local overrides; do not wipe state.
 2. Confirm absolute persistent paths and file ownership.
 3. Set the real public/DATUM endpoints, payout address, Bitcoin/ZMQ endpoints, and release provenance.
-4. Leave V2.2 activation at 959500, pulses enabled, stale-loop readiness enabled, and outbound-stale mining pause enabled on production mainnet-beta.
+4. Leave V2.2 activation at 959500, pulses enabled, peer-loop readiness enabled, and outbound relay health monitoring enabled. Keep the deprecated outbound-stale mining pause disabled.
 5. Start the node; compare `nodeId` to the saved identity.
 6. Require ready HTTP 200, advancing peer poll and outbound relay timestamps, no unexplained config warnings, and agreement with two public nodes.
 7. Run the health monitor once manually, then confirm its timer and Telegram alert path.
