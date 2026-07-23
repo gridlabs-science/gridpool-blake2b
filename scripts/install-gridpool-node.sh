@@ -417,16 +417,16 @@ main() {
     require_root
     normalize_network_defaults
 
-    valid_port "$BOOT_WEB_PORT" || fail "--web-port must be between 1 and 65535"
-    valid_port "$BOOT_DATUM_PORT" || fail "--datum-port must be between 1 and 65535"
-    valid_port "$BOOT_DATUM_PUBLIC_PORT" || fail "--datum-public-port must be between 1 and 65535"
-
     local detected_ip
     detected_ip="$(primary_ipv4 || true)"
     detected_ip="${detected_ip:-127.0.0.1}"
     BOOT_DATUM_PUBLIC_HOST="${BOOT_DATUM_PUBLIC_HOST:-$detected_ip}"
     BOOT_DATUM_PUBLIC_PORT="${BOOT_DATUM_PUBLIC_PORT:-$BOOT_DATUM_PORT}"
     BOOT_PUBLIC_BASE_URL="${BOOT_PUBLIC_BASE_URL:-http://${detected_ip}:${BOOT_WEB_PORT}}"
+
+    valid_port "$BOOT_WEB_PORT" || fail "--web-port must be between 1 and 65535"
+    valid_port "$BOOT_DATUM_PORT" || fail "--datum-port must be between 1 and 65535"
+    valid_port "$BOOT_DATUM_PUBLIC_PORT" || fail "--datum-public-port must be between 1 and 65535"
 
     detect_bitcoin_zmq
     confirm
