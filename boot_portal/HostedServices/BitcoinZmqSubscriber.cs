@@ -161,6 +161,18 @@ public class BitcoinZmqSubscriber : BackgroundService
         {
             try
             {
+                bool hasRawHeader = !string.IsNullOrWhiteSpace(notification.HeaderHex);
+                _stateService.RecordExternalNetworkEvent(
+                    "local-chain-tip-notification",
+                    hasRawHeader ? "zmq-rawblock" : "zmq-hashblock",
+                    hasRawHeader
+                        ? "Local Bitcoin source delivered a rawblock notification."
+                        : "Local Bitcoin source delivered a hashblock notification.",
+                    notification.BlockHash,
+                    timestampUtc: notification.TransportReceivedUtc,
+                    transport: hasRawHeader ? "bitcoin-zmq-rawblock" : "bitcoin-zmq-hashblock",
+                    payloadBytes: hasRawHeader ? 80 : 32);
+
                 if (!string.IsNullOrWhiteSpace(notification.HeaderHex))
                 {
                     _stateService.ObserveLocalChainTipHeader(
