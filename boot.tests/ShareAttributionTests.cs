@@ -258,6 +258,10 @@ public sealed class ShareAttributionTests
 
         Assert.AreEqual("accepted", payload["status"]?.GetValue<string>());
         Assert.AreEqual(SampleSlotZeroAddress, harness.StateService.GetOnDeckList()[0].Address);
+        BootLocalMiningSourceSummaryDto httpSource = harness.StateService.GetNetworkStatus()
+            .LocalMiningSources.Single(source => source.Source == "http");
+        Assert.AreEqual(1, httpSource.ActiveMinerCount);
+        Assert.AreEqual("insufficient-data", httpSource.EstimationMethod);
     }
 
     [TestMethod]
@@ -271,6 +275,22 @@ public sealed class ShareAttributionTests
 
         Assert.AreEqual("accepted", payload["status"]?.GetValue<string>());
         Assert.AreEqual(SampleSlotZeroAddress, harness.StateService.GetOnDeckList()[0].Address);
+    }
+
+    [TestMethod]
+    public async Task PublicShareSourceHeaderLabelsHydrapoolWithoutChangingValidationAsync()
+    {
+        using var harness = TestHarness.Create();
+        harness.MiningController.Request.Headers["X-GridPool-Mining-Source"] = "hydrapool";
+
+        IActionResult response = await harness.MiningController.SubmitShare(CreateSampleShareDto());
+        JsonObject payload = ParseObjectResult(response, StatusCodes.Status200OK);
+        BootLocalMiningSourceSummaryDto source = harness.StateService.GetNetworkStatus()
+            .LocalMiningSources.Single(item => item.Source == "hydrapool");
+
+        Assert.AreEqual("accepted", payload["status"]?.GetValue<string>());
+        Assert.AreEqual(1, source.ActiveMinerCount);
+        Assert.AreEqual("insufficient-data", source.EstimationMethod);
     }
 
     [TestMethod]
@@ -1551,6 +1571,71 @@ public sealed class ShareAttributionTests
         Assert.AreEqual(0, after.LocalDatumDiagnostics.RejectedCount);
         Assert.IsTrue(after.LocalDatumMiners.Any(miner =>
             string.Equals(miner.Address, AlternateAddress, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
+    public void LocalMiningTelemetryReportsSourcesAndDeduplicatesRetriedWindows()
+    {
+        using var harness = TestHarness.Create();
+        DateTime windowEndUtc = DateTime.UtcNow;
+        DateTime windowStartUtc = windowEndUtc.AddMinutes(-10);
+        double fiftyThWorkDifficulty = 50d * 1_000_000_000_000d * 600d / 4294967296d;
+        var batch = new LocalMiningTelemetryBatchDto
+        {
+            Entries =
+            [
+                new LocalMiningTelemetryEntryDto
+                {
+                    ChannelId = "channel-1",
+                    PayoutAddress = AlternateAddress,
+                    Username = "worker-a",
+                    WindowStartUtc = windowStartUtc,
+                    WindowEndUtc = windowEndUtc,
+                    AcceptedShareCount = 20,
+                    AcceptedWorkDifficulty = fiftyThWorkDifficulty,
+                    BestDifficulty = 1_000_000
+                }
+            ]
+        };
+
+        LocalMiningTelemetryResultDto first = harness.StateService.RecordLocalMiningTelemetryBatch(batch, "ckpool");
+        LocalMiningTelemetryResultDto retry = harness.StateService.RecordLocalMiningTelemetryBatch(batch, "ckpool");
+        BootNetworkStatusDto status = harness.StateService.GetNetworkStatus();
+        BootLocalMiningSourceSummaryDto source = status.LocalMiningSources.Single(item => item.Source == "ckpool");
+
+        Assert.AreEqual(1, first.AcceptedEntries);
+        Assert.AreEqual(0, retry.AcceptedEntries);
+        Assert.AreEqual(1, source.ActiveMinerCount);
+        Assert.AreEqual(20L, source.RecentAcceptedShareCount);
+        Assert.AreEqual("reported-work", source.EstimationMethod);
+        Assert.IsTrue(source.CurrentHashrateThs is > 45 and < 55, source.CurrentHashrateDisplay);
+        Assert.IsTrue(status.LocalMiningHashrateThs is > 45 and < 55, status.LocalMiningHashrateDisplay);
+    }
+
+    [TestMethod]
+    public void LocalHashrateEstimatorIgnoresWindowOpeningLuckyShare()
+    {
+        using var harness = TestHarness.Create();
+        DateTime startedUtc = DateTime.UtcNow.AddMinutes(-10);
+        harness.StateService.RecordDatumTelemetryShare(
+            AlternateAddress,
+            "worker-a",
+            difficulty: 1_000_000_000_000,
+            timestampUtc: startedUtc);
+        for (int i = 1; i <= 8; i++)
+        {
+            harness.StateService.RecordDatumTelemetryShare(
+                AlternateAddress,
+                "worker-a",
+                difficulty: 1_000,
+                timestampUtc: startedUtc.AddSeconds(i * 60));
+        }
+
+        BootNetworkStatusDto status = harness.StateService.GetNetworkStatus();
+        BootLocalMiningSourceSummaryDto source = status.LocalMiningSources.Single(item => item.Source == "datum");
+
+        Assert.AreEqual("proof-order-statistic", source.EstimationMethod);
+        Assert.IsTrue(source.CurrentHashrateThs is > 0 and < 1, source.CurrentHashrateDisplay);
     }
 
     [TestMethod]

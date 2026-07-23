@@ -195,7 +195,8 @@ public class MiningApiController : ControllerBase
     [HttpPost("share")]
     public async Task<IActionResult> SubmitShare([FromBody] ShareSubmissionDto? share)
     {
-        return await SubmitShareCore(share, "http", "http-block");
+        string source = ResolvePublicMiningSource();
+        return await SubmitShareCore(share, source, $"{source}-block");
     }
 
     // POST: api/mining/local/share
@@ -327,6 +328,20 @@ public class MiningApiController : ControllerBase
             : string.Empty;
 
         return Regex.IsMatch(source, "^[a-z0-9][a-z0-9-]{0,31}$") ? source : "sv2";
+    }
+
+    private string ResolvePublicMiningSource()
+    {
+        const string sourceHeader = "X-GridPool-Mining-Source";
+        string source = Request.Headers.TryGetValue(sourceHeader, out var values)
+            ? values.FirstOrDefault()?.Trim().ToLowerInvariant() ?? string.Empty
+            : string.Empty;
+
+        // This header is an observability label only. It grants no local-adapter
+        // privileges and full proof validation plus public rate limits still apply.
+        return source is "hydrapool" or "ckpool" or "atlaspool" or "sv2"
+            ? source
+            : "http";
     }
 
     private string ResolveDatumHost()

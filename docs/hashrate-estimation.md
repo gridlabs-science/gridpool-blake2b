@@ -209,9 +209,21 @@ For archived rounds, the same rank-adjusted median estimator is run on the locke
 Implementation:
 - [BootProtocolStateService.cs](../boot_portal/Services/BootProtocolStateService.cs#L1535)
 
-### 3. Local DATUM Estimate
+### 3. Local Connected-Mining Estimate
 
-This uses accepted DATUM shares over a rolling local window, not just On Deck winners.
+This uses source-tagged accounting over a rolling local window, not just Work
+Set winners. The API and UI report DATUM, CKPool/AtlasPool, Hydrapool, Stratum
+V2, direct HTTP, and any explicitly named local adapter separately.
+
+Adapters should report vardiff work through the authenticated local telemetry
+API. That is the preferred estimate. A fully validated proof submitted without
+vardiff accounting is still visible, but its hashrate remains `--` while the
+sample is too sparse. When proof inference is used, the first arrival opens the
+observation window and is excluded from the estimate; otherwise one lucky
+opening proof can inflate a new miner by orders of magnitude.
+
+Repeated adapter telemetry for the same source, channel, and exact time window
+is deduplicated so durable retries do not double-count work.
 
 Implementation:
 - [BootProtocolStateService.cs](../boot_portal/Services/BootProtocolStateService.cs#L1749)
@@ -223,9 +235,9 @@ Defaults:
 from:
 - [Program.cs](../boot_portal/Program.cs#L137)
 
-This local estimate usually has more data and is therefore useful for comparing:
+This local estimate is useful for comparing:
 
-- `my node's directly connected DATUM flow`
+- `my node's directly connected mining gateways`
 - versus
 - `the team-wide estimate inferred from the On Deck distribution`
 

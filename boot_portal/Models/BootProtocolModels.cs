@@ -284,6 +284,19 @@ public class BootLocalDatumMinerSummaryDto
     public DateTime? LastShareUtc { get; set; }
 }
 
+public class BootLocalMiningSourceSummaryDto
+{
+    public string Source { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public int ActiveMinerCount { get; set; }
+    public long RecentAcceptedShareCount { get; set; }
+    public int HashrateSampleCount { get; set; }
+    public double? CurrentHashrateThs { get; set; }
+    public string CurrentHashrateDisplay { get; set; } = "--";
+    public string EstimationMethod { get; set; } = "insufficient-data";
+    public DateTime? LastShareUtc { get; set; }
+}
+
 public class BootLocalDatumMinerSeriesDto
 {
     public int WindowSeconds { get; set; }
@@ -414,6 +427,10 @@ public class BootNetworkStatusDto
     public string CurrentRoundObservedHashrateDisplay { get; set; } = "--";
     public double? LocalDatumHashrateThs { get; set; }
     public string LocalDatumHashrateDisplay { get; set; } = "--";
+    public double? LocalMiningHashrateThs { get; set; }
+    public string LocalMiningHashrateDisplay { get; set; } = "--";
+    public int LocalMiningSourceCount { get; set; }
+    public List<BootLocalMiningSourceSummaryDto> LocalMiningSources { get; set; } = [];
     public int PeerCount { get; set; }
     public bool AdminApiEnabled { get; set; }
     public bool TestingRoundResetEnabled { get; set; }

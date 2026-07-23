@@ -42,6 +42,11 @@ The DATUM-facing coinbase tag defaults to `Grid Pool`, but HTTP share validation
 
 Hydrapool does not need to include the default DATUM tag, and changing or clearing `coinbase_tag` must not change whether a valid HTTP share can be accepted. Consensus-relevant attribution comes from the verified coinbase output list, not from coinbase tag text.
 
+Hydrapool integrations should include the optional request header
+`X-GridPool-Mining-Source: hydrapool` when posting a proof. This only labels
+source-specific UI and soak telemetry. It does not authenticate the caller,
+bypass public rate limits, alter attribution, or relax full proof validation.
+
 ## Response Shape
 
 Accepted share:

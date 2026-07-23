@@ -863,6 +863,35 @@
             color: var(--accent-color);
         }
 
+        .local-mining-sources {
+            display: grid;
+            gap: 6px;
+            margin: 8px 0 12px;
+        }
+
+        .local-mining-source-row {
+            display: grid;
+            grid-template-columns: 78px 72px minmax(0, 1fr);
+            gap: 8px;
+            align-items: baseline;
+            padding: 6px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            font-size: 0.78rem;
+        }
+
+        .local-mining-source-row:last-child {
+            border-bottom: 0;
+        }
+
+        .local-mining-source-name {
+            color: var(--text-color);
+        }
+
+        .local-mining-source-meta {
+            color: var(--text-muted);
+            text-align: right;
+        }
+
         .key-container {
             display: flex;
             align-items: center;
@@ -1621,8 +1650,10 @@
             <div>Current State: <span class="accent-value" id="current-state-id">Loading...</span></div>
             <div>Candidate State: <span class="accent-value" id="candidate-state-id">Loading...</span></div>
             <div>Snapshot Age: <span class="accent-value" id="current-round-age">--</span></div>
-            <div>Estimated Hashrate: <span class="accent-value" id="current-round-hashrate">--</span></div>
-            <div>Local Mining Hashrate: <span class="accent-value" id="local-datum-hashrate">--</span></div>
+            <div>Work Set Avg Hashrate: <span class="accent-value" id="current-round-hashrate">--</span></div>
+            <div>Local Connected Hashrate: <span class="accent-value" id="local-mining-hashrate">--</span></div>
+            <h3 style="margin-top: 10px;">Local Mining Sources</h3>
+            <div class="local-mining-sources" id="local-mining-sources"></div>
             <h3 style="margin-top: 10px;">Local DATUM Diagnostics</h3>
             <div>Window: <span class="accent-value" id="datum-diagnostic-window">--</span></div>
             <div>Accepted: <span class="accent-value" id="datum-accepted-count">--</span></div>
@@ -1637,7 +1668,7 @@
             <div class="search-results" id="commitment-note"></div>
             <div class="search-results" id="testing-trigger-note"></div>
             <div class="search-results" id="launch-readiness-note"></div>
-            <div class="search-results" id="round-hashrate-note">Team estimate uses the current unpaid Work Set share window. Local mining uses rolling accounting from directly connected DATUM and SV2 gateways.</div>
+            <div class="search-results" id="round-hashrate-note">Team estimate uses the current unpaid Work Set share window. Local source estimates prefer vardiff work accounting; sparse proof estimates remain hidden while warming up.</div>
             <div class="search-results" id="datum-rejection-note"></div>
         </div>
     </div>
@@ -2942,7 +2973,10 @@
         const teamHashrateThs = currentTeamHashrateThs();
         const teamHashrateDisplay = currentTeamHashrateDisplay();
         const localMiner = getSelectedLocalMinerSummary();
-        const localHashrateThs = localMiner?.currentHashrateThs ?? latestNetworkState?.localDatumHashrateThs ?? null;
+        const localHashrateThs = localMiner?.currentHashrateThs
+            ?? latestNetworkState?.localMiningHashrateThs
+            ?? latestNetworkState?.localDatumHashrateThs
+            ?? null;
         const localHashrateDisplay = formatHashrateFromThs(localHashrateThs);
         const currentSnapshotAge = formatElapsedSeconds(getCurrentRoundElapsedSeconds() ?? latestNetworkState?.currentRoundElapsedSeconds);
         const connection = getConnectionSummary();
@@ -3110,7 +3144,7 @@
                         buildFocusMetric("Local/team share", localSharePercent),
                         buildFocusMetric("Snapshot age", currentSnapshotAge)
                     ].join(""),
-                    "Team estimate comes from the unpaid Work Set. Local mining uses direct DATUM/SV2 accounting."
+                    "Team estimate comes from the unpaid Work Set. Local mining combines source-tagged DATUM, CKPool, Hydrapool, SV2, and direct HTTP accounting."
                 ),
                 buildFocusCard(
                     "Connection Target",
@@ -3222,7 +3256,10 @@
         const search = getSearchContext();
         const teamHashrateThs = currentTeamHashrateThs();
         const localMiner = getSelectedLocalMinerSummary();
-        const localHashrateThs = localMiner?.currentHashrateThs ?? latestNetworkState?.localDatumHashrateThs ?? null;
+        const localHashrateThs = localMiner?.currentHashrateThs
+            ?? latestNetworkState?.localMiningHashrateThs
+            ?? latestNetworkState?.localDatumHashrateThs
+            ?? null;
         const localDiagnostics = latestNetworkState?.localDatumDiagnostics || {};
         const acceptanceRate = formatAcceptanceRate(localDiagnostics.acceptedCount ?? 0, localDiagnostics.totalSubmissions ?? 0);
         const health = describeHealthAssessment(localDiagnostics);
@@ -3282,7 +3319,7 @@
                     : "Connect through this node to estimate your chance of beating the current reserve floor.",
                 localMiner
                     ? `Average time between floor-beating proofs: ${localReserveHitRate ? formatDurationLong(1 / localReserveHitRate) : "--"}. This is not a retention guarantee.`
-                    : "Uses your directly connected DATUM share stream."
+                    : "Uses source-tagged work from mining gateways connected directly to this node."
             );
             return;
         }
@@ -3650,7 +3687,9 @@
         const elapsedSeconds = getCurrentRoundElapsedSeconds();
         const estimatedHashrateThs = getCurrentRoundEstimatedHashrateThs();
         const estimatedDisplay = formatHashrateFromThs(estimatedHashrateThs);
-        const localDatumDisplay = formatHashrateFromThs(latestNetworkState?.localDatumHashrateThs);
+        const localMiningHashrateThs = latestNetworkState?.localMiningHashrateThs
+            ?? latestNetworkState?.localDatumHashrateThs;
+        const localMiningDisplay = formatHashrateFromThs(localMiningHashrateThs);
 
         document.getElementById("current-round-age").innerText = formatElapsedSeconds(
             elapsedSeconds ?? latestNetworkState?.currentRoundElapsedSeconds
@@ -3659,10 +3698,53 @@
             (estimatedDisplay !== "--" ? estimatedDisplay : null) ||
             latestNetworkState?.currentRoundObservedHashrateDisplay ||
             "--";
-        document.getElementById("local-datum-hashrate").innerText =
-            (localDatumDisplay !== "--" ? localDatumDisplay : null) ||
+        document.getElementById("local-mining-hashrate").innerText =
+            (localMiningDisplay !== "--" ? localMiningDisplay : null) ||
+            latestNetworkState?.localMiningHashrateDisplay ||
             latestNetworkState?.localDatumHashrateDisplay ||
             "--";
+        renderLocalMiningSources();
+    }
+
+    function renderLocalMiningSources() {
+        const container = document.getElementById("local-mining-sources");
+        if (!container) return;
+
+        const summaries = new Map(
+            (Array.isArray(latestNetworkState?.localMiningSources) ? latestNetworkState.localMiningSources : [])
+                .map(summary => [String(summary.source || "").toLowerCase(), summary])
+        );
+        const expectedSources = [
+            ["datum", "DATUM"],
+            ["ckpool", "CKPool"],
+            ["hydrapool", "Hydrapool"],
+            ["sv2", "Stratum V2"],
+            ["http", "Direct HTTP"]
+        ];
+        const extraSources = [...summaries.entries()]
+            .filter(([source]) => !expectedSources.some(([expected]) => expected === source))
+            .map(([source, summary]) => [source, summary.displayName || source]);
+
+        container.innerHTML = [...expectedSources, ...extraSources].map(([source, displayName]) => {
+            const summary = summaries.get(source);
+            const hashrate = summary?.currentHashrateDisplay || "--";
+            const miners = Number(summary?.activeMinerCount || 0);
+            const samples = Number(summary?.hashrateSampleCount || 0);
+            const method = summary?.estimationMethod === "reported-work"
+                ? "vardiff work"
+                : summary?.estimationMethod === "reported-work-and-proofs"
+                    ? "work + proofs"
+                    : summary?.estimationMethod === "proof-order-statistic"
+                        ? "proof estimate"
+                        : samples > 0
+                            ? "warming up"
+                            : "no recent data";
+            return `<div class="local-mining-source-row">
+                <span class="local-mining-source-name">${escapeHtml(displayName)}</span>
+                <span class="accent-value">${escapeHtml(hashrate)}</span>
+                <span class="local-mining-source-meta">${miners} miner${miners === 1 ? "" : "s"} · ${samples.toLocaleString()} samples · ${escapeHtml(method)}</span>
+            </div>`;
+        }).join("");
     }
 
     function updateHashrateHistoryChart() {
@@ -3688,7 +3770,9 @@
             })));
 
         const currentHashrateThs = getCurrentRoundEstimatedHashrateThs();
-        const currentLocalDatumHashrateThs = latestNetworkState?.localDatumHashrateThs ?? null;
+        const currentLocalDatumHashrateThs = latestNetworkState?.localMiningHashrateThs
+            ?? latestNetworkState?.localDatumHashrateThs
+            ?? null;
         const currentTimestampMs = Date.now();
         if ((currentHashrateThs != null || currentLocalDatumHashrateThs != null)) {
             points.push({
