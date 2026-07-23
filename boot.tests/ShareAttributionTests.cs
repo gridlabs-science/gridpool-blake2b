@@ -1639,6 +1639,100 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public void LocalMiningClientApiGaugeOverridesProofEstimate()
+    {
+        using var harness = TestHarness.Create();
+        harness.StateService.RecordDatumTelemetryShare(
+            AlternateAddress,
+            "worker-a",
+            difficulty: 1_000_000_000_000,
+            timestampUtc: DateTime.UtcNow.AddMinutes(-5));
+
+        harness.StateService.RecordLocalMiningSourceGauge(
+            "datum",
+            hashrateThs: 3.25,
+            activeMinerCount: 1,
+            observedUtc: DateTime.UtcNow);
+
+        BootLocalMiningSourceSummaryDto source = harness.StateService.GetNetworkStatus()
+            .LocalMiningSources.Single(item => item.Source == "datum");
+
+        Assert.AreEqual("client-api", source.EstimationMethod);
+        Assert.AreEqual(3.25, source.CurrentHashrateThs);
+        Assert.AreEqual(1, source.ActiveMinerCount);
+    }
+
+    [TestMethod]
+    public void LocalMiningTelemetryRetentionIsIndependentPerSource()
+    {
+        using var harness = TestHarness.Create();
+        DateTime startedUtc = DateTime.UtcNow.AddMinutes(-5);
+
+        harness.StateService.RecordLocalMiningTelemetryBatch(
+            BuildTelemetryBatch("ck-channel", startedUtc, startedUtc.AddSeconds(1), 100),
+            "ckpool");
+
+        for (int i = 0; i < 520; i++)
+        {
+            harness.StateService.RecordLocalMiningTelemetryBatch(
+                BuildTelemetryBatch(
+                    $"hydra-{i}",
+                    startedUtc.AddSeconds(i + 2),
+                    startedUtc.AddSeconds(i + 3),
+                    10),
+                "hydrapool");
+        }
+
+        BootNetworkStatusDto status = harness.StateService.GetNetworkStatus();
+        Assert.IsTrue(status.LocalMiningSources.Any(source => source.Source == "ckpool"));
+        Assert.IsTrue(status.LocalMiningSources.Any(source => source.Source == "hydrapool"));
+    }
+
+    [TestMethod]
+    public void LocalMiningTelemetryNormalizesOffsetTimestampsToUtc()
+    {
+        using var harness = TestHarness.Create();
+        DateTime windowEndLocal = DateTime.UtcNow.AddSeconds(-1).ToLocalTime();
+        LocalMiningTelemetryBatchDto batch = BuildTelemetryBatch(
+            "ck-offset",
+            windowEndLocal.AddSeconds(-10),
+            windowEndLocal,
+            100);
+
+        harness.StateService.RecordLocalMiningTelemetryBatch(batch, "ckpool");
+
+        Assert.AreEqual(DateTimeKind.Utc, batch.Entries[0].WindowStartUtc.Kind);
+        Assert.AreEqual(DateTimeKind.Utc, batch.Entries[0].WindowEndUtc.Kind);
+        Assert.IsTrue(harness.StateService.GetNetworkStatus()
+            .LocalMiningSources.Any(source => source.Source == "ckpool"));
+    }
+
+    private static LocalMiningTelemetryBatchDto BuildTelemetryBatch(
+        string channelId,
+        DateTime windowStartUtc,
+        DateTime windowEndUtc,
+        double acceptedDifficulty)
+    {
+        return new LocalMiningTelemetryBatchDto
+        {
+            Entries =
+            [
+                new LocalMiningTelemetryEntryDto
+                {
+                    ChannelId = channelId,
+                    PayoutAddress = AlternateAddress,
+                    Username = channelId,
+                    WindowStartUtc = windowStartUtc,
+                    WindowEndUtc = windowEndUtc,
+                    AcceptedShareCount = 1,
+                    AcceptedWorkDifficulty = acceptedDifficulty,
+                    BestDifficulty = acceptedDifficulty
+                }
+            ]
+        };
+    }
+
+    [TestMethod]
     public async Task BitcoinBlockSnapshotUpdatesActiveWinnersWithoutRemovingWorkSetProofsAsync()
     {
         BootShareProof[] seedProofs =

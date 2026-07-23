@@ -869,6 +869,27 @@
             margin: 8px 0 12px;
         }
 
+        .local-source-panel {
+            margin: 18px 0 26px;
+        }
+
+        .source-card-grid {
+            grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+            gap: 10px;
+        }
+
+        .source-card-grid .local-mining-source-row {
+            grid-template-columns: 1fr auto;
+            padding: 12px;
+            border: 1px solid var(--border-color);
+            background: rgba(0, 0, 0, 0.28);
+        }
+
+        .source-card-grid .local-mining-source-meta {
+            grid-column: 1 / -1;
+            text-align: left;
+        }
+
         .local-mining-source-row {
             display: grid;
             grid-template-columns: 78px 72px minmax(0, 1fr);
@@ -1506,24 +1527,30 @@
         <div id="local-miner-shortcuts" class="shortcut-strip" hidden></div>
     </div>
 
+    <section class="local-source-panel">
+        <div class="section-toolbar">
+            <h2>Local Mining Clients</h2>
+        </div>
+        <div class="local-mining-sources source-card-grid" data-local-mining-sources></div>
+    </section>
+
     <section class="connect-panel" id="connect-panel">
         <div class="connect-panel-header">
             <div>
                 <h2>Connect Your Miner</h2>
                 <div class="connect-panel-subtitle">
-                    Point a DATUM Gateway at this GridPool node, then search your payout address above to switch into your personal dashboard.
+                    Connect through a supported sovereign template builder, then search your payout address above to switch into your personal dashboard.
                     No cookies needed: bookmarked address links hide this setup panel automatically.
                 </div>
             </div>
-            <div class="status-pill">DATUM only today</div>
+            <div class="status-pill">Multiple mining paths</div>
         </div>
         <div class="connect-grid">
             <div class="connect-card">
                 <h3>Supported Paths</h3>
                 <div class="connect-list">
-                    <div><strong>Works now:</strong> DATUM Gateway connected to this GridPool node.</div>
-                    <div><strong>Coming soon:</strong> Hydrapool HTTP share submission.</div>
-                    <div><strong>Wanted:</strong> CK Pool, Public Pool, Stratum V2, FutureBit, and other sovereign template builders integrating the <a href="https://github.com/gridlabs-science/boot-protocol/blob/main/docs/hydrapool-http-submission.md" target="_blank" rel="noopener noreferrer">HTTP API spec</a>.</div>
+                    <div><strong>Works now:</strong> DATUM Gateway, GridPool CKPool, Hydrapool, native Stratum V2, and direct HTTP integrations.</div>
+                    <div><strong>Extensible:</strong> Public Pool, FutureBit, and other sovereign template builders can integrate through the <a href="https://github.com/gridlabs-science/boot-protocol/blob/main/docs/hydrapool-http-submission.md" target="_blank" rel="noopener noreferrer">HTTP API spec</a>.</div>
                     <div><span>Raw Stratum V1 directly from an ASIC is not supported here. This protocol is for miners who can build their own block templates.</span></div>
                 </div>
                 <div class="connect-warning">
@@ -1653,7 +1680,7 @@
             <div>Work Set Avg Hashrate: <span class="accent-value" id="current-round-hashrate">--</span></div>
             <div>Local Connected Hashrate: <span class="accent-value" id="local-mining-hashrate">--</span></div>
             <h3 style="margin-top: 10px;">Local Mining Sources</h3>
-            <div class="local-mining-sources" id="local-mining-sources"></div>
+            <div class="local-mining-sources" data-local-mining-sources></div>
             <h3 style="margin-top: 10px;">Local DATUM Diagnostics</h3>
             <div>Window: <span class="accent-value" id="datum-diagnostic-window">--</span></div>
             <div>Accepted: <span class="accent-value" id="datum-accepted-count">--</span></div>
@@ -3707,8 +3734,8 @@
     }
 
     function renderLocalMiningSources() {
-        const container = document.getElementById("local-mining-sources");
-        if (!container) return;
+        const containers = [...document.querySelectorAll("[data-local-mining-sources]")];
+        if (containers.length === 0) return;
 
         const summaries = new Map(
             (Array.isArray(latestNetworkState?.localMiningSources) ? latestNetworkState.localMiningSources : [])
@@ -3725,13 +3752,15 @@
             .filter(([source]) => !expectedSources.some(([expected]) => expected === source))
             .map(([source, summary]) => [source, summary.displayName || source]);
 
-        container.innerHTML = [...expectedSources, ...extraSources].map(([source, displayName]) => {
+        const html = [...expectedSources, ...extraSources].map(([source, displayName]) => {
             const summary = summaries.get(source);
             const hashrate = summary?.currentHashrateDisplay || "--";
             const miners = Number(summary?.activeMinerCount || 0);
             const samples = Number(summary?.hashrateSampleCount || 0);
-            const method = summary?.estimationMethod === "reported-work"
-                ? "vardiff work"
+            const method = summary?.estimationMethod === "client-api"
+                ? "client API"
+                : summary?.estimationMethod === "reported-work"
+                    ? "assigned-share work"
                 : summary?.estimationMethod === "reported-work-and-proofs"
                     ? "work + proofs"
                     : summary?.estimationMethod === "proof-order-statistic"
@@ -3739,12 +3768,16 @@
                         : samples > 0
                             ? "warming up"
                             : "no recent data";
+            const status = summary ? (miners > 0 ? "active" : "connected") : "idle";
             return `<div class="local-mining-source-row">
                 <span class="local-mining-source-name">${escapeHtml(displayName)}</span>
                 <span class="accent-value">${escapeHtml(hashrate)}</span>
-                <span class="local-mining-source-meta">${miners} miner${miners === 1 ? "" : "s"} · ${samples.toLocaleString()} samples · ${escapeHtml(method)}</span>
+                <span class="local-mining-source-meta">${escapeHtml(status)} · ${miners} miner${miners === 1 ? "" : "s"} · ${samples.toLocaleString()} samples · ${escapeHtml(method)}</span>
             </div>`;
         }).join("");
+        containers.forEach(container => {
+            container.innerHTML = html;
+        });
     }
 
     function updateHashrateHistoryChart() {

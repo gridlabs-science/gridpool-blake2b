@@ -147,6 +147,20 @@ public sealed class BootRequestGuardsTests
     }
 
     [TestMethod]
+    public void ValidateShareRequestDefaultAllowsFullGridPoolCoinbase()
+    {
+        string fullGridPoolCoinbaseHex = new('a', 30000);
+
+        BootRequestValidationFailure? failure = Validate(
+            headerHex: ValidHeaderHex,
+            coinbaseHex: fullGridPoolCoinbaseHex,
+            merklePath: [ValidMerkleHash],
+            contentLength: fullGridPoolCoinbaseHex.Length + 1024);
+
+        Assert.IsFalse(failure.HasValue);
+    }
+
+    [TestMethod]
     public void ValidateShareRequestRejectsNonHexCoinbase()
     {
         BootRequestValidationFailure? failure = Validate(

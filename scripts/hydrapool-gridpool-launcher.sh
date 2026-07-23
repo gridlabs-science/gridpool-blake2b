@@ -7,6 +7,14 @@ set -euo pipefail
 # start instead of baking RPC credentials into a systemd unit.
 
 HYDRAPOOL_DIR="${HYDRAPOOL_DIR:-/home/keegreil/Documents/GitHub/hydrapool}"
+HYDRAPOOL_ENV_FILE="${HYDRAPOOL_ENV_FILE:-${HOME}/.config/gridpool-hydrapool/adapter.env}"
+
+if [[ -r "$HYDRAPOOL_ENV_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$HYDRAPOOL_ENV_FILE"
+  set +a
+fi
 HYDRAPOOL_CONFIG="${HYDRAPOOL_CONFIG:-${HYDRAPOOL_DIR}/config.toml}"
 default_hydrapool_bin="${HYDRAPOOL_DIR}/target/release/hydrapool"
 if [[ ! -x "$default_hydrapool_bin" ]]; then

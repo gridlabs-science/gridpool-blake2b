@@ -64,6 +64,7 @@ public class BootProtocolStateService
     private readonly Dictionary<string, PeerRelayFirstArrival> _peerRelayFirstArrivals = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, BootDatumSessionTelemetry> _activeDatumSessions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, LocalDatumAddressHashrateTracker> _localDatumHashrateByAddress = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, LocalMiningSourceGauge> _localMiningSourceGauges = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _lastLocalDatumHashrateRollupByAddress = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<BootStateBundle> _recentCandidateBundles = [];
     private readonly Dictionary<string, Queue<DateTime>> _recentPulseByPeer = new(StringComparer.OrdinalIgnoreCase);
@@ -3076,6 +3077,8 @@ public class BootProtocolStateService
             foreach (LocalMiningTelemetryEntryDto entry in batch.Entries)
             {
                 ValidateLocalMiningTelemetryEntry(entry);
+                entry.WindowStartUtc = NormalizeTelemetryTimestampUtc(entry.WindowStartUtc);
+                entry.WindowEndUtc = NormalizeTelemetryTimestampUtc(entry.WindowEndUtc);
                 string address = BitcoinScript.NormalizeAddress(entry.PayoutAddress);
                 if (!_localDatumHashrateByAddress.TryGetValue(address, out LocalDatumAddressHashrateTracker? tracker))
                 {
@@ -3135,6 +3138,31 @@ public class BootProtocolStateService
         return result;
     }
 
+    public void RecordLocalMiningSourceGauge(
+        string source,
+        double hashrateThs,
+        int activeMinerCount,
+        DateTime observedUtc)
+    {
+        if (!TryNormalizeLocalMiningSource(source, out string normalizedSource) ||
+            !double.IsFinite(hashrateThs) ||
+            hashrateThs < 0 ||
+            activeMinerCount < 0)
+        {
+            throw new ArgumentException("Local mining source gauge is invalid.");
+        }
+
+        lock (_sync)
+        {
+            _localMiningSourceGauges[normalizedSource] = new LocalMiningSourceGauge
+            {
+                HashrateThs = hashrateThs,
+                ActiveMinerCount = activeMinerCount,
+                ObservedUtc = observedUtc == default ? DateTime.UtcNow : observedUtc
+            };
+        }
+    }
+
     private void ValidateLocalMiningTelemetryEntry(LocalMiningTelemetryEntryDto entry)
     {
         string address = BitcoinScript.NormalizeAddress(entry.PayoutAddress);
@@ -3158,6 +3186,16 @@ public class BootProtocolStateService
     }
 
     private static bool IsFiniteNonNegative(double value) => double.IsFinite(value) && value >= 0;
+
+    private static DateTime NormalizeTelemetryTimestampUtc(DateTime timestamp)
+    {
+        return timestamp.Kind switch
+        {
+            DateTimeKind.Utc => timestamp,
+            DateTimeKind.Local => timestamp.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(timestamp, DateTimeKind.Utc)
+        };
+    }
 
     public async Task<RoundRotationResult> RotateToNextRoundAsync(
         string blockHash,
@@ -7677,6 +7715,7 @@ public class BootProtocolStateService
         DateTime windowStartUtc = nowUtc.AddSeconds(-windowSeconds);
         var sources = _localDatumHashrateByAddress.Values
             .SelectMany(tracker => tracker.Sources)
+            .Concat(_localMiningSourceGauges.Keys)
             .Where(source => !string.IsNullOrWhiteSpace(source))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(LocalMiningSourceSortOrder)
@@ -7693,6 +7732,8 @@ public class BootProtocolStateService
             bool hasReportedWorkEstimate = false;
             bool hasProofEstimate = false;
             DateTime? lastShareUtc = null;
+            LocalMiningSourceGauge? gauge = _localMiningSourceGauges.GetValueOrDefault(source);
+            bool gaugeIsFresh = gauge != null && gauge.ObservedUtc >= nowUtc.AddMinutes(-2);
 
             foreach (LocalDatumAddressHashrateTracker tracker in _localDatumHashrateByAddress.Values)
             {
@@ -7754,23 +7795,32 @@ public class BootProtocolStateService
             {
                 Source = source,
                 DisplayName = FormatLocalMiningSourceName(source),
-                ActiveMinerCount = activeMinerCount,
+                ActiveMinerCount = gaugeIsFresh ? gauge!.ActiveMinerCount : activeMinerCount,
                 RecentAcceptedShareCount = acceptedShareCount,
                 HashrateSampleCount = sampleCount,
-                CurrentHashrateThs = totalHashrateThs > 0 ? totalHashrateThs : null,
-                CurrentHashrateDisplay = FormatObservedHashrate(totalHashrateThs > 0 ? totalHashrateThs : null),
-                EstimationMethod = hasReportedWorkEstimate && hasProofEstimate
-                    ? "reported-work-and-proofs"
-                    : hasReportedWorkEstimate
-                        ? "reported-work"
-                        : hasProofEstimate
-                            ? "proof-order-statistic"
-                            : "insufficient-data",
-                LastShareUtc = lastShareUtc
+                CurrentHashrateThs = gaugeIsFresh
+                    ? gauge!.HashrateThs
+                    : totalHashrateThs > 0 ? totalHashrateThs : null,
+                CurrentHashrateDisplay = FormatObservedHashrate(
+                    gaugeIsFresh ? gauge!.HashrateThs : totalHashrateThs > 0 ? totalHashrateThs : null),
+                EstimationMethod = gaugeIsFresh
+                    ? "client-api"
+                    : hasReportedWorkEstimate && hasProofEstimate
+                        ? "reported-work-and-proofs"
+                        : hasReportedWorkEstimate
+                            ? "reported-work"
+                            : hasProofEstimate
+                                ? "proof-order-statistic"
+                                : "insufficient-data",
+                LastShareUtc = gaugeIsFresh && (!lastShareUtc.HasValue || gauge!.ObservedUtc > lastShareUtc.Value)
+                    ? gauge!.ObservedUtc
+                    : lastShareUtc
             });
         }
 
-        return summaries.Where(summary => summary.ActiveMinerCount > 0).ToList();
+        return summaries
+            .Where(summary => summary.ActiveMinerCount > 0 || summary.CurrentHashrateThs.HasValue)
+            .ToList();
     }
 
     private static int LocalMiningSourceSortOrder(string source) => source.ToLowerInvariant() switch
@@ -8091,10 +8141,21 @@ public class BootProtocolStateService
         {
             tracker.Samples.RemoveRange(0, overflow);
         }
-        int workOverflow = tracker.WorkSamples.Count - maxSamples;
-        if (workOverflow > 0)
+        foreach (IGrouping<string, LocalMiningWorkSample> sourceSamples in tracker.WorkSamples
+                     .GroupBy(sample => sample.Source, StringComparer.OrdinalIgnoreCase)
+                     .ToList())
         {
-            tracker.WorkSamples.RemoveRange(0, workOverflow);
+            int workOverflow = sourceSamples.Count() - maxSamples;
+            if (workOverflow <= 0)
+            {
+                continue;
+            }
+
+            HashSet<LocalMiningWorkSample> remove = sourceSamples
+                .OrderBy(sample => sample.WindowEndUtc)
+                .Take(workOverflow)
+                .ToHashSet();
+            tracker.WorkSamples.RemoveAll(remove.Contains);
         }
     }
 
@@ -11151,5 +11212,12 @@ public class BootProtocolStateService
         public double AcceptedWorkDifficulty { get; set; }
         public double FeeWorkDifficulty { get; set; }
         public double BestDifficulty { get; set; }
+    }
+
+    private sealed class LocalMiningSourceGauge
+    {
+        public double HashrateThs { get; set; }
+        public int ActiveMinerCount { get; set; }
+        public DateTime ObservedUtc { get; set; }
     }
 }

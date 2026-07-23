@@ -317,6 +317,15 @@ public class PoolConfig
     [JsonPropertyName("local_adapter_telemetry_max_batch_size")]
     public int LocalAdapterTelemetryMaxBatchSize { get; set; } = 1000;
 
+    [JsonPropertyName("local_mining_api_poll_seconds")]
+    public int LocalMiningApiPollSeconds { get; set; } = 15;
+
+    [JsonPropertyName("local_datum_api_url")]
+    public string LocalDatumApiUrl { get; set; } = string.Empty;
+
+    [JsonPropertyName("local_sv2_api_url")]
+    public string LocalSv2ApiUrl { get; set; } = string.Empty;
+
     [JsonPropertyName("admin_rate_limit_per_minute")]
     public int AdminRateLimitPerMinute { get; set; } = 12;
 
@@ -324,7 +333,7 @@ public class PoolConfig
     public int MaxShareRequestBytes { get; set; } = 262144;
 
     [JsonPropertyName("max_coinbase_hex_chars")]
-    public int MaxCoinbaseHexChars { get; set; } = 20000;
+    public int MaxCoinbaseHexChars { get; set; } = 100000;
 
     [JsonPropertyName("max_merkle_path_entries")]
     public int MaxMerklePathEntries { get; set; } = 64;
@@ -790,6 +799,7 @@ public class Program
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<BootPeerSessionManager>());
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<BootPeerUdpRelayService>());
             builder.Services.AddHostedService<BootPeerSyncService>();
+            builder.Services.AddHostedService<LocalMiningSourcePoller>();
 
             var app = builder.Build();
             _ = app.Services.GetRequiredService<LocalMiningAdapterAuth>();
