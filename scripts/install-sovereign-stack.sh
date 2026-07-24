@@ -179,7 +179,9 @@ random_secret() {
 }
 
 primary_ipv4() {
-    ip -4 route get 1.1.1.1 2>/dev/null | awk '
+    local route
+    route="$(ip -4 route get 1.1.1.1 2>/dev/null || true)"
+    awk '
         {
             for (i = 1; i <= NF; i++) {
                 if ($i == "src") {
@@ -187,7 +189,7 @@ primary_ipv4() {
                     exit
                 }
             }
-        }'
+        }' <<<"$route"
 }
 
 mem_total_mb() {
@@ -272,6 +274,7 @@ parse_args() {
         case "$1" in
             --payout-address)
                 GRID_POOL_PAYOUT_ADDRESS="${2:-}"
+                GRID_POOL_PAYOUT_ADDRESS_WAS_SET=1
                 shift 2
                 ;;
             --home)
@@ -320,6 +323,7 @@ parse_args() {
                 ;;
             --bootstrap-peers)
                 GRID_BOOT_BOOTSTRAP_PEERS="${2:-}"
+                GRID_BOOT_BOOTSTRAP_PEERS_WAS_SET=1
                 shift 2
                 ;;
             --swap-mb)
@@ -981,11 +985,15 @@ install_boot() {
     (( INSTALL_BOOT )) || return 0
 
     local boot_dir="$GRID_HOME/boot-protocol"
+    local boot_config_sample="$boot_dir/docker/boot_portal_config.sample.json"
     clone_or_update_repo "$GRID_BOOT_REPO_URL" "$GRID_BOOT_REPO_REF" "$boot_dir"
 
+    if [[ "$BITCOIN_NETWORK" == "testnet4" ]]; then
+        boot_config_sample="$boot_dir/docker/boot_portal_config.testnet4.sample.json"
+    fi
     run mkdir -p "$boot_dir/data"
     if [[ ! -f "$boot_dir/data/boot_portal_config.json" ]]; then
-        run cp "$boot_dir/docker/boot_portal_config.sample.json" "$boot_dir/data/boot_portal_config.json"
+        run cp "$boot_config_sample" "$boot_dir/data/boot_portal_config.json"
     fi
 
     local peers_json
@@ -1287,6 +1295,8 @@ Endpoints:
   DATUM local API:    http://127.0.0.1:${DATUM_API_PORT}
 
 Bitcoin mode:
+  Bitcoin network:    ${BITCOIN_NETWORK}
+  GridPool network:   ${GRID_BOOT_NETWORK_ID}
   Source:             $(if (( INSTALL_BITCOIN )); then printf 'local pruned Bitcoin Core'; else printf 'external RPC'; fi)
   RPC URL:            ${BITCOIN_RPC_URL}
   Wallet:             $(if (( INSTALL_BITCOIN )); then printf 'disabled'; else printf 'external node setting'; fi)

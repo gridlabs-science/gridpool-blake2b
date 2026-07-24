@@ -69,6 +69,40 @@ The ASIC username is ignored by default. The payout address is the one passed to
 
 For a quick smoke test before using your real payout address, omit `--payout-address`. That uses the 256 Foundation donation address. Do not leave that default in place for real mining.
 
+### Testnet4 Pruned Full Stack
+
+Use this mode for a disposable or laboratory node that must not join GridPool
+mainnet. It installs a locally validated, pruned Bitcoin Core testnet4 node,
+GridPool on `testnet4-beta`, and a local DATUM Gateway:
+
+```bash
+sudo apt-get update &&
+sudo apt-get install -y git ca-certificates curl &&
+git clone https://github.com/gridlabs-science/boot-protocol.git &&
+cd boot-protocol &&
+sudo ./scripts/install-sovereign-stack.sh \
+  --bitcoin-network testnet4 \
+  --prune-mb 1100 \
+  --payout-address mxt9bYPtfBdzoTeZcHr23QgL4Un45PVvF5
+```
+
+Replace the example payout address with a testnet4 address you control if you
+want to retain any test coins. The example is safe for installation testing,
+but it is not a wallet created by the installer.
+
+Testnet4 mode selects these settings automatically:
+
+- Bitcoin Core `chain=testnet4`, with wallet and indexes disabled.
+- GridPool network `testnet4-beta`.
+- Bootstrap peer `https://test.gridpool.net`.
+- Separate state file `pool_state.testnet4.json`.
+- The testnet4 base configuration, including immediate V2.2 activation.
+- A default 1100 MiB prune target unless overridden.
+
+The installer summary must say `Bitcoin network: testnet4` and
+`GridPool network: testnet4-beta`. Stop and investigate if either line says
+mainnet.
+
 ### Faster Edge-Mode Smoke Test
 
 If you only want to test GridPool + DATUM first, and you already have a trusted Bitcoin Core RPC server on your LAN, skip local Bitcoin Core:
