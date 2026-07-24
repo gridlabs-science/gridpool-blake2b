@@ -928,7 +928,8 @@ WantedBy=multi-user.target
 EOF
 
     run systemctl daemon-reload
-    run systemctl enable --now bitcoind
+    run systemctl enable bitcoind
+    run systemctl restart bitcoind
     load_assumeutxo_snapshot
 }
 
@@ -1223,7 +1224,8 @@ EOF
 
     run chown -R datum:datum "$datum_dir"
     run systemctl daemon-reload
-    run systemctl enable --now datum-gateway
+    run systemctl enable datum-gateway
+    run systemctl restart datum-gateway
 }
 
 configure_firewall() {
