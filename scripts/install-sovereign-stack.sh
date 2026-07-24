@@ -522,7 +522,7 @@ confirm_inputs() {
     log "install root: $GRID_HOME"
     log "detected primary IP: $GRID_PRIMARY_IP"
     log "GridPool UI: $BOOT_PUBLIC_BASE_URL"
-    log "DATUM pool endpoint advertised to miners: ${BOOT_DATUM_PUBLIC_HOST}:${BOOT_DATUM_PUBLIC_PORT}"
+    log "Public DATUM server advertised to remote gateways: ${BOOT_DATUM_PUBLIC_HOST}:${BOOT_DATUM_PUBLIC_PORT}"
     log "ASIC Stratum endpoint after install: ${GRID_PRIMARY_IP}:${DATUM_STRATUM_PORT}"
     log "payout address: $GRID_POOL_PAYOUT_ADDRESS"
     log "Bitcoin network: $BITCOIN_NETWORK"
@@ -881,6 +881,7 @@ $(if [[ -n "$BITCOIN_ASSUMEVALID" ]]; then printf 'assumevalid=%s\n' "$BITCOIN_A
 
 rpcuser=${BITCOIN_RPC_USER}
 rpcpassword=${BITCOIN_RPC_PASSWORD}
+$(if [[ "$BITCOIN_NETWORK" != "mainnet" ]]; then printf '\n[%s]\n' "$BITCOIN_NETWORK"; fi)
 rpcbind=127.0.0.1
 rpcallowip=127.0.0.1
 rpcport=8332
@@ -1289,7 +1290,7 @@ GridPool sovereign stack install complete.
 
 Endpoints:
   Web UI:             ${BOOT_PUBLIC_BASE_URL}
-  DATUM pool target:  ${BOOT_DATUM_PUBLIC_HOST}:${BOOT_DATUM_PUBLIC_PORT}
+  Public DATUM server: ${BOOT_DATUM_PUBLIC_HOST}:${BOOT_DATUM_PUBLIC_PORT}
   DATUM pool pubkey:  ${pubkey:-see: docker logs boot-portal}
   ASIC Stratum:       ${GRID_PRIMARY_IP}:${DATUM_STRATUM_PORT}
   DATUM local API:    http://127.0.0.1:${DATUM_API_PORT}

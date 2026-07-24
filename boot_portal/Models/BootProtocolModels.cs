@@ -330,6 +330,9 @@ public class BootNetworkStatusDto
     public string NodeId { get; set; } = string.Empty;
     public bool IdentityChanged { get; set; }
     public string SelfEndpoint { get; set; } = string.Empty;
+    public string DatumPublicHost { get; set; } = string.Empty;
+    public int DatumPublicPort { get; set; }
+    public int DatumListenPort { get; set; }
     public List<string> ConfigWarnings { get; set; } = [];
     public DateTime ServiceStartedUtc { get; set; }
     public int ActiveDatumSessionCount { get; set; }

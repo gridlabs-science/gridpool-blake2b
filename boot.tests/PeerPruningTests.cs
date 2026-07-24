@@ -239,7 +239,10 @@ public sealed class PeerPruningTests
     public void NetworkSummaryExposesDatumLifecycleDiagnostics()
     {
         var health = new BootPeerLoopHealth();
-        BootProtocolStateService service = CreateService(out _, health);
+        BootProtocolStateService service = CreateService(out PoolConfig config, health);
+        config.DatumPublicHost = "datum.test.gridpool.net";
+        config.DatumPublicPort = 3009;
+        config.DatumPort = 3008;
         DateTime shareUtc = DateTime.UtcNow.AddSeconds(-2);
         DateTime closeUtc = DateTime.UtcNow.AddSeconds(-1);
 
@@ -259,6 +262,9 @@ public sealed class PeerPruningTests
         Assert.AreEqual(shareUtc, status.LastSuccessfulDatumCoinbaserResponseUtc);
         Assert.AreEqual(closeUtc, status.LastDatumSessionClosedUtc);
         Assert.AreEqual("test close", status.LastDatumSessionCloseReason);
+        Assert.AreEqual("datum.test.gridpool.net", status.DatumPublicHost);
+        Assert.AreEqual(3009, status.DatumPublicPort);
+        Assert.AreEqual(3008, status.DatumListenPort);
     }
 
     private static BootProtocolStateService CreateService() => CreateService(out _, null);
