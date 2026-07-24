@@ -178,6 +178,14 @@ random_secret() {
     fi
 }
 
+read_existing_install_secret() {
+    local key="$1"
+    local record="/etc/grid-pool/install.env"
+
+    [[ -r "$record" ]] || return 0
+    sed -n "s/^${key}=//p" "$record" | tail -n 1
+}
+
 primary_ipv4() {
     local route
     route="$(ip -4 route get 1.1.1.1 2>/dev/null || true)"
@@ -497,11 +505,13 @@ confirm_inputs() {
     fi
 
     if [[ -z "$BITCOIN_RPC_PASSWORD" ]]; then
-        BITCOIN_RPC_PASSWORD="$(random_secret)"
+        BITCOIN_RPC_PASSWORD="$(read_existing_install_secret BITCOIN_RPC_PASSWORD)"
+        BITCOIN_RPC_PASSWORD="${BITCOIN_RPC_PASSWORD:-$(random_secret)}"
     fi
 
     if [[ -z "$DATUM_ADMIN_PASSWORD" ]]; then
-        DATUM_ADMIN_PASSWORD="$(random_secret)"
+        DATUM_ADMIN_PASSWORD="$(read_existing_install_secret DATUM_ADMIN_PASSWORD)"
+        DATUM_ADMIN_PASSWORD="${DATUM_ADMIN_PASSWORD:-$(random_secret)}"
     fi
 
     GRID_PRIMARY_IP="${GRID_PRIMARY_IP:-$(primary_ipv4)}"
@@ -934,9 +944,10 @@ clone_or_update_repo() {
     fi
 
     log "checking out $dest at $ref"
-    run git -C "$dest" fetch --all --tags --prune
-    run git -C "$dest" checkout "$ref"
-    run git -C "$dest" pull --ff-only || warn "pull skipped; $ref may be a detached commit or local branch"
+    run git -c "safe.directory=$dest" -C "$dest" fetch --all --tags --prune
+    run git -c "safe.directory=$dest" -C "$dest" checkout "$ref"
+    run git -c "safe.directory=$dest" -C "$dest" pull --ff-only ||
+        warn "pull skipped; $ref may be a detached commit or local branch"
 }
 
 bootstrap_peers_json() {
