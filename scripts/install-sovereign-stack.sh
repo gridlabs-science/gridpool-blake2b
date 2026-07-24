@@ -1015,7 +1015,14 @@ install_boot() {
     if (( DRY_RUN )); then
         log "would write $boot_dir/data/boot_portal_config.local.json"
     else
+        local local_config_path="$boot_dir/data/boot_portal_config.local.json"
+        local existing_local_config="{}"
+        if [[ -f "$local_config_path" ]]; then
+            existing_local_config="$(jq -c '.' "$local_config_path" 2>/dev/null || printf '{}')"
+        fi
+
         jq -n \
+            --argjson existing "$existing_local_config" \
             --arg publicBaseUrl "$BOOT_PUBLIC_BASE_URL" \
             --arg datumPublicHost "$BOOT_DATUM_PUBLIC_HOST" \
             --arg nodeMode "$GRID_BOOT_NODE_MODE" \
@@ -1027,7 +1034,7 @@ install_boot() {
             --argjson datumPort "$BOOT_DATUM_PORT" \
             --argjson datumPublicPort "$BOOT_DATUM_PUBLIC_PORT" \
             --argjson peers "$peers_json" \
-            '{
+            '$existing * {
                 NotificationSource: "BitcoinZmq",
                 WebUI_Port_http: $webPort,
                 WebUI_Port_https: 0,
@@ -1050,8 +1057,8 @@ install_boot() {
                 pool_payout_script: $payout,
                 coinbase_tag: $tag,
                 min_diff: 300
-            }' >"$boot_dir/data/boot_portal_config.local.json"
-        chmod 0600 "$boot_dir/data/boot_portal_config.local.json"
+            }' >"$local_config_path"
+        chmod 0600 "$local_config_path"
     fi
 
     write_boot_compose "$boot_dir"
@@ -1129,8 +1136,16 @@ install_datum() {
     clone_or_update_repo "$GRID_DATUM_REPO_URL" "$GRID_DATUM_REPO_REF" "$datum_dir"
 
     log "building DATUM Gateway"
-    run cmake -S "$datum_dir" -B "$datum_dir/build"
-    run cmake --build "$datum_dir/build" --parallel "$(nproc)"
+    run env \
+        GIT_CONFIG_COUNT=1 \
+        GIT_CONFIG_KEY_0=safe.directory \
+        GIT_CONFIG_VALUE_0="$datum_dir" \
+        cmake -S "$datum_dir" -B "$datum_dir/build"
+    run env \
+        GIT_CONFIG_COUNT=1 \
+        GIT_CONFIG_KEY_0=safe.directory \
+        GIT_CONFIG_VALUE_0="$datum_dir" \
+        cmake --build "$datum_dir/build" --parallel "$(nproc)"
 
     local datum_bin="$datum_dir/build/datum_gateway"
     if [[ ! -x "$datum_bin" && -x "$datum_dir/datum_gateway" ]]; then
