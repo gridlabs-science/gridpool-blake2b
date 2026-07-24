@@ -98,6 +98,7 @@ public class BitcoinZmqSubscriber : BackgroundService
                         if (!notifications.Writer.TryWrite(new BitcoinBlockNotification(
                             hashHex,
                             null,
+                            null,
                             transportReceivedUtc)))
                         {
                             _logger.LogWarning("Dropped ZMQ hashblock notification for {HashHex} during shutdown.", hashHex);
@@ -107,10 +108,14 @@ public class BitcoinZmqSubscriber : BackgroundService
                     {
                         string headerHex = Convert.ToHexString(messageBytes.AsSpan(0, 80)).ToLowerInvariant();
                         string hashHex = BitcoinHashes.ComputeBlockHashFromHeader(headerHex);
+                        long? blockHeight = BitcoinBlockParser.TryReadCoinbaseHeight(messageBytes, out long parsedHeight)
+                            ? parsedHeight
+                            : null;
                         _logger.LogInformation("New raw block header detected: {HashHex}", hashHex);
                         if (!notifications.Writer.TryWrite(new BitcoinBlockNotification(
                             hashHex,
                             headerHex,
+                            blockHeight,
                             transportReceivedUtc)))
                         {
                             _logger.LogWarning("Dropped ZMQ rawblock notification for {HashHex} during shutdown.", hashHex);
@@ -169,6 +174,7 @@ public class BitcoinZmqSubscriber : BackgroundService
                         ? "Local Bitcoin source delivered a rawblock notification."
                         : "Local Bitcoin source delivered a hashblock notification.",
                     notification.BlockHash,
+                    notification.BlockHeight,
                     timestampUtc: notification.TransportReceivedUtc,
                     transport: hasRawHeader ? "bitcoin-zmq-rawblock" : "bitcoin-zmq-hashblock",
                     payloadBytes: hasRawHeader ? 80 : 32);
@@ -179,7 +185,7 @@ public class BitcoinZmqSubscriber : BackgroundService
                         notification.HeaderHex,
                         "zmq-rawblock",
                         notification.TransportReceivedUtc,
-                        blockHeight: null);
+                        blockHeight: notification.BlockHeight);
                 }
 
                 if (!recentBlocks.TryAccept(notification.BlockHash, notification.TransportReceivedUtc))
@@ -187,10 +193,19 @@ public class BitcoinZmqSubscriber : BackgroundService
                     _logger.LogDebug(
                         "Ignored duplicate ZMQ block notification for {BlockHash}.",
                         notification.BlockHash);
+                    if (notification.BlockHeight.HasValue)
+                    {
+                        // hashblock normally arrives before rawblock; use the raw block's
+                        // exact BIP34 height to repair inferred metadata without replaying a snapshot.
+                        await _stateService.ObserveChainTipAsync(
+                            notification.BlockHash,
+                            "zmq-rawblock-height-correction",
+                            notification.BlockHeight);
+                    }
                     continue;
                 }
 
-                await OnNewBlockAsync(notification.BlockHash, stoppingToken);
+                await OnNewBlockAsync(notification.BlockHash, notification.BlockHeight, stoppingToken);
             }
             catch (Exception ex)
             {
@@ -199,10 +214,10 @@ public class BitcoinZmqSubscriber : BackgroundService
         }
     }
 
-    public async Task OnNewBlockAsync(string blockHash, CancellationToken stoppingToken)
+    public async Task OnNewBlockAsync(string blockHash, long? blockHeight, CancellationToken stoppingToken)
     {
         _logger.LogInformation("Processing block {BlockHash}...", blockHash);
-        await _stateService.ObserveChainTipAsync(blockHash, "zmq", null);
+        await _stateService.ObserveChainTipAsync(blockHash, "zmq", blockHeight);
     }
 }
 
@@ -245,4 +260,5 @@ public sealed class RecentBitcoinBlockNotifications
 internal sealed record BitcoinBlockNotification(
     string BlockHash,
     string? HeaderHex,
+    long? BlockHeight,
     DateTime TransportReceivedUtc);

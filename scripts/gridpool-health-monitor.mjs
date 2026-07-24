@@ -878,7 +878,15 @@ function maybeAddOutboundRelayAlert(alerts, node, config) {
     const attemptStaleMs = Number(config.thresholds.peerOutboundAttemptStaleMinutes || 10) * 60_000;
     const stalePeers = (node.peerRecords || []).filter(peer => {
         const attempt = parseDate(peer.lastAttemptUtc);
-        return peer.sessionConnected === true && attempt && Date.now() - attempt > attemptStaleMs;
+        const lastSuccess = parseDate(peer.lastSuccessUtc);
+        const lastSeen = parseDate(peer.lastSeenUtc);
+        const lastActivity = [lastSuccess, lastSeen]
+            .filter(Boolean)
+            .reduce((latest, value) => latest && latest > value ? latest : value, null);
+        return peer.sessionConnected === true &&
+            attempt &&
+            Date.now() - attempt > attemptStaleMs &&
+            (!lastActivity || Date.now() - lastActivity > attemptStaleMs);
     });
     if (stalePeers.length > 0) {
         alerts.push({
@@ -2329,6 +2337,38 @@ function runSelfTests() {
     }, { thresholds: { outboundRelayStaleMinutes: 10, peerOutboundAttemptStaleMinutes: 10 } });
     if (staleInputAlerts.length !== 1 || staleInputAlerts[0].category !== "local-datum-share-stale") {
         throw new Error("stopped DATUM input was misclassified as an outbound relay failure");
+    }
+
+    const activePeerAlerts = [];
+    maybeAddOutboundRelayAlert(activePeerAlerts, {
+        name: "test",
+        summary: {},
+        peerRecords: [{
+            endpoint: "https://peer.example",
+            sessionConnected: true,
+            lastAttemptUtc: new Date(Date.now() - 20 * 60_000).toISOString(),
+            lastSuccessUtc: new Date(Date.now() - 30_000).toISOString(),
+            lastSeenUtc: new Date(Date.now() - 30_000).toISOString()
+        }]
+    }, { thresholds: { peerOutboundAttemptStaleMinutes: 10 } });
+    if (activePeerAlerts.length !== 0) {
+        throw new Error("active peer traffic was misclassified as frozen outbound polling");
+    }
+
+    const frozenPeerAlerts = [];
+    maybeAddOutboundRelayAlert(frozenPeerAlerts, {
+        name: "test",
+        summary: {},
+        peerRecords: [{
+            endpoint: "https://peer.example",
+            sessionConnected: true,
+            lastAttemptUtc: new Date(Date.now() - 20 * 60_000).toISOString(),
+            lastSuccessUtc: new Date(Date.now() - 20 * 60_000).toISOString(),
+            lastSeenUtc: new Date(Date.now() - 20 * 60_000).toISOString()
+        }]
+    }, { thresholds: { peerOutboundAttemptStaleMinutes: 10 } });
+    if (frozenPeerAlerts.length !== 1 || frozenPeerAlerts[0].category !== "peer-outbound-attempt-stale") {
+        throw new Error("frozen outbound polling was not detected");
     }
     console.log("gridpool-health-monitor self-test: ok");
 }
