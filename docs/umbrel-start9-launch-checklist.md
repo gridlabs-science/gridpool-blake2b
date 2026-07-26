@@ -181,11 +181,14 @@ Long-term censorship-resistance posture:
 - [ ] Research optional UPnP IGD port mapping after PCP/NAT-PMP testing.
 - [x] Add measurement-only full-header relay telemetry over encrypted V2 sessions and compact encrypted UDP, paired against receiver-local Bitcoin rawblock ZMQ arrival.
 - [ ] Run chain-tip latency reports during the 7-day soak and compare against local Bitcoin tip detection.
-- [ ] Track Bitcoin ZMQ topic sequence numbers instead of discarding the third message frame. Expose per-topic last sequence, gaps, duplicates, reconnects, and reset/wrap handling in API/monitor telemetry so delayed or missing notifications can be distinguished from a lagging Bitcoin node.
-- [ ] Investigate and choose a redundant attached-node notification strategy for packaged installs. Evaluate ZMQ `rawblock`/`hashblock`/`sequence`, Bitcoin Core mining IPC `waitTipChanged`, GBT long polling, `blocknotify`, and periodic RPC best-tip reconciliation; document the preferred and fallback matrix for Core, Knots, Docker, Umbrel, and Start9.
+- [x] Track Bitcoin ZMQ topic sequence numbers instead of discarding the third message frame. Expose per-topic last sequence, gaps, duplicates, reconnects, and reset/wrap handling in API/monitor telemetry so delayed or missing notifications can be distinguished from a lagging Bitcoin node.
+- [x] Choose ZMQ plus authenticated five-second RPC reconciliation as the attached-node baseline. RPC is authoritative; ZMQ loss degrades latency without changing correctness.
 - [x] Implement opt-in peer-header stale-work protection: validate PoW/parent/freshness/expected mainnet target, freeze a provisional Work Set boundary, pause fresh work after a grace period, quarantine late old-parent proofs, and require local full-node confirmation before activation.
 - [x] Serialize Bitcoin ZMQ notifications and deduplicate paired `hashblock`/`rawblock` delivery so one block cannot create duplicate snapshots or phantom heights.
-- [ ] Add a packaged-node RPC reconciliation callback for `local-bitcoin-lagging`. The current implementation pauses DATUM/SV2 work, refreshes/disconnects miners for failover, emits API/monitor alerts, and leaves peer/source polling active, but the reference node does not yet have a generic Bitcoin RPC configuration for an immediate `getbestblockhash` check.
+- [x] Add an immediate authenticated RPC reconciliation request when a verified peer header indicates `local-bitcoin-lagging`.
+- [ ] Validate the attached-node coordinator on Main, Evomining, and Detroit for at least three blocks each.
+- [ ] Keep Dallas in explicit `external-fallback` mode and confirm it emits no missing-local-ZMQ warning.
+- [ ] Pass a 24-hour no-intervention canary on one provenanced commit, then reset and begin the seven-day soak.
 - [ ] Coordinate enabling `enable_peer_tip_stale_protection` on every active mainnet-beta node; mixed boundary behavior can produce a short-lived snapshot split.
 - [ ] Design any future peer-header snapshot activation as a post-V2.2 consensus
   change with deterministic vectors for competing headers, reorganizations,
@@ -221,7 +224,11 @@ Current evidence:
 - Hidden session accounting and direct live WebSocket share relay are implemented.
 - Encrypted V2 session bundle sync and optional peer-only listener support are implemented but need real-node validation.
 - Reachability self-test, UDP diagnostics, chain-tip latency instrumentation, and admin-triggered PCP/NAT-PMP mapping are implemented.
-- Current ZMQ telemetry records arrival timestamps but discards Bitcoin Core's per-topic sequence frame; this prevents direct diagnosis of message gaps and duplicates. Evomining has also exhibited intermittent multi-block catch-up batches and duplicate rawblock observations that should be resolved during the soak.
+- The attached-node coordinator now records ZMQ sequences and publisher
+  configuration, polls authenticated RPC, recovers missed blocks in height
+  order, and requests immediate reconciliation after a verified peer lead.
+- Installer and runtime contract implementation is complete; public-node
+  recovery, three-block verification, and the canary/soak gates remain open.
 - Peer-relayed headers remain non-final: stale-work protection may freeze
   provisionally and pause stale work, but only the locally attached Bitcoin node
   can activate a snapshot. Peer headers do not authorize payment transitions or

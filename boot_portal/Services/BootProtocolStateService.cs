@@ -52,6 +52,7 @@ public class BootProtocolStateService
     private readonly ILogger<BootProtocolStateService> _logger;
     private readonly BootPeerLoopHealth _peerLoopHealth;
     private readonly BootPeerIdentity? _peerIdentity;
+    private readonly BitcoinNotificationHealth? _bitcoinNotificationHealth;
     private bool _identityChanged;
     private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
     private readonly JsonSerializerOptions _compactJsonOptions = new() { WriteIndented = false };
@@ -107,7 +108,8 @@ public class BootProtocolStateService
         IHubContext<PoolStatsHub> hubContext,
         ILogger<BootProtocolStateService> logger,
         BootPeerLoopHealth? peerLoopHealth = null,
-        BootPeerIdentity? peerIdentity = null)
+        BootPeerIdentity? peerIdentity = null,
+        BitcoinNotificationHealth? bitcoinNotificationHealth = null)
     {
         _poolConfig = poolConfig;
         _shareVerifier = shareVerifier;
@@ -115,6 +117,7 @@ public class BootProtocolStateService
         _logger = logger;
         _peerLoopHealth = peerLoopHealth ?? new BootPeerLoopHealth();
         _peerIdentity = peerIdentity;
+        _bitcoinNotificationHealth = bitcoinNotificationHealth;
         LoadState();
 
         string? restoredProvisionalHash = null;
@@ -3463,11 +3466,15 @@ public class BootProtocolStateService
         RecordExternalNetworkEvent(
             "local-chain-tip-header",
             source,
-            "Local Bitcoin source delivered a raw block header.",
+            source.StartsWith("rpc", StringComparison.OrdinalIgnoreCase)
+                ? "Local Bitcoin RPC reconciliation delivered a block header."
+                : "Local Bitcoin source delivered a raw block header.",
             evaluation.BlockHash,
             blockHeight,
             transportReceivedUtc,
-            "bitcoin-zmq-rawblock",
+            source.StartsWith("rpc", StringComparison.OrdinalIgnoreCase)
+                ? "bitcoin-rpc"
+                : "bitcoin-zmq-rawblock",
             payloadBytes: 80);
 
         int activeConsensusVersion = GetActiveConsensusVersion();
@@ -3731,6 +3738,8 @@ public class BootProtocolStateService
                 payloadBytes: payloadBytes);
             return GetNetworkStatus();
         }
+
+        _bitcoinNotificationHealth?.RequestReconciliation();
 
         string source = string.IsNullOrWhiteSpace(remoteEndpoint)
             ? $"peer-tip-node:{remoteNodeId}"
@@ -6230,6 +6239,8 @@ public class BootProtocolStateService
             ? string.Empty
             : "No successful outbound share or pulse relay completed within the configured stale threshold.";
         List<string> configWarnings = BuildConfigWarningsNoLock(peerLoopsHealthy, outboundRelayHealthy);
+        BootBitcoinNotificationDto bitcoinNotification =
+            _bitcoinNotificationHealth?.Snapshot(nowUtc) ?? new BootBitcoinNotificationDto();
 
         return new BootNetworkStatusDto
         {
@@ -6325,8 +6336,12 @@ public class BootProtocolStateService
             CurrentTipCompactTarget = _state.CurrentTipCompactTarget,
             PeerTipStaleProtectionEnabled = _poolConfig.EnablePeerTipStaleProtection,
             MiningWorkSafe = IsMiningWorkSafeNoLock(nowUtc),
-            LocalBitcoinLagging = !IsMiningWorkSafeNoLock(nowUtc),
+            LocalBitcoinLagging = !bitcoinNotification.MiningSafe ||
+                                  (_poolConfig.EnablePeerTipStaleProtection &&
+                                   _state.ProvisionalTip != null &&
+                                   nowUtc >= _state.ProvisionalTip.GraceDeadlineUtc),
             MiningWorkSafetyReason = BuildMiningWorkSafetyReasonNoLock(),
+            BitcoinNotification = bitcoinNotification,
             ProvisionalTipBlockHash = _state.ProvisionalTip?.BlockHash,
             ProvisionalTipParentBlockHash = _state.ProvisionalTip?.ParentBlockHash,
             ProvisionalSnapshotId = _state.ProvisionalTip?.SnapshotId,
@@ -10440,12 +10455,13 @@ public class BootProtocolStateService
         bool bitcoinTipSafe = !_poolConfig.EnablePeerTipStaleProtection ||
                               _state.ProvisionalTip == null ||
                               nowUtc < _state.ProvisionalTip.GraceDeadlineUtc;
+        bool bitcoinSourceSafe = _bitcoinNotificationHealth?.IsMiningSafe(nowUtc, out _) ?? true;
 
         // Relay health is diagnostic, not a property of the Bitcoin work plan. Refusing
         // coinbaser requests here makes DATUM fall back to solo work, whose rejected
         // shares cannot refresh relay health and therefore create a permanent reconnect
         // loop. Peer-tip protection remains the fail-closed stale-parent boundary.
-        return !_identityChanged && bitcoinTipSafe;
+        return !_identityChanged && bitcoinTipSafe && bitcoinSourceSafe;
     }
 
     private string BuildMiningWorkSafetyReasonNoLock()
@@ -10458,6 +10474,12 @@ public class BootProtocolStateService
         if (_identityChanged)
         {
             return "Node identity changed from the identity stored with existing state; fresh mining work is paused until the prior keys are restored or the operator explicitly migrates identity.";
+        }
+
+        if (_bitcoinNotificationHealth != null &&
+            !_bitcoinNotificationHealth.IsMiningSafe(DateTime.UtcNow, out string bitcoinSourceReason))
+        {
+            return bitcoinSourceReason;
         }
 
         return $"Local Bitcoin node has not confirmed provisional peer tip {_state.ProvisionalTip!.BlockHash}; fresh mining work is paused to avoid stale-parent work.";
@@ -10478,6 +10500,17 @@ public class BootProtocolStateService
             warnings.Add("peer poll loop is stale");
         if (!outboundRelayHealthy)
             warnings.Add("outbound share/pulse relay is stale");
+        if (_bitcoinNotificationHealth != null)
+        {
+            BootBitcoinNotificationDto notification = _bitcoinNotificationHealth.Snapshot(DateTime.UtcNow);
+            if (!notification.MiningSafe)
+                warnings.Add($"bitcoin notification source degraded: {notification.DegradedReason}");
+            else if (!string.IsNullOrWhiteSpace(notification.DegradedReason))
+                warnings.Add($"bitcoin notification latency path degraded: {notification.DegradedReason}");
+        }
+        if (!string.IsNullOrWhiteSpace(_poolConfig.PublicBaseUrl) &&
+            IsPrivatePeerEndpoint(_poolConfig.PublicBaseUrl))
+            warnings.Add("public_base_url advertises a private or loopback endpoint");
         return warnings;
     }
 

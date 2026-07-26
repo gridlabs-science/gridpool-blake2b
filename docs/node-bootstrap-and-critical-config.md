@@ -19,7 +19,13 @@ Peer-observed acceptance acknowledgements are not yet authenticated end-to-end; 
 - `datum_public_host` and optional public port: the real DATUM endpoint advertised to miners.
 - `pool_payout_script`: the operator-controlled address on the selected Bitcoin network.
 - Absolute, persistent paths for state, history, local-adapter token, and service working directory. Do not store state on an ephemeral container layer.
-- Bitcoin Core connectivity and `bitcoin_zmq_endpoint` / raw-block ZMQ endpoint. Confirm the node is caught up.
+- Select `bitcoin_notification_mode` explicitly. Sovereign mining nodes use
+  `attached-node` with authenticated RPC plus both ZMQ topics; intentional
+  node-less relays use `external-fallback`.
+- Configure RPC/ZMQ addresses for the actual native, shared-bridge,
+  host-gateway, or remote-LAN topology. Container loopback is not the host.
+- Run `scripts/check-bitcoin-connectivity.sh` before enabling miners. Confirm
+  RPC is synchronized and `getzmqnotifications` advertises both topics.
 - Ed25519 and X25519 private keys. Back them up offline with the state database; a changed key produces a changed public `nodeId`.
 - `GRIDPOOL_RELEASE_VERSION` when the build informational version lacks a git suffix. Use a value such as `2.2.0+g<commit>`; bare `1.0.0`/`dev` is warned in the summary.
 - Strong `admin_api_key` through an untracked local override or environment when the admin API is enabled. Never commit secrets.
@@ -30,7 +36,7 @@ V2.2 activation remains height **959500**. Rebuilds do not justify changing it.
 
 ```bash
 curl -fsS https://YOUR_NODE/health/ready | jq
-curl -fsS https://YOUR_NODE/api/network/summary | jq '{nodeId,selfEndpoint,releaseVersion,serviceStartedUtc,configWarnings,pulseProofsEnabled,peerLoopsHealthy,outboundRelayHealthy,activeDatumSessionCount,lastDatumSessionOpenedUtc,lastDatumHelloReceivedUtc,lastDatumCoinbaserRequestUtc,lastSuccessfulDatumCoinbaserResponseUtc,lastValidLocalDatumShareUtc,lastDatumSessionClosedUtc,lastDatumSessionCloseReason,lastShareRelayQueuedUtc,lastUdpShareRelayUtc,lastWebSocketShareRelayUtc,lastHttpShareRelayUtc,lastSuccessfulOutboundRelayUtc,shareRelayQueueDepth,localDatumDiagnostics}'
+curl -fsS https://YOUR_NODE/api/network/summary | jq '{nodeId,selfEndpoint,releaseVersion,serviceStartedUtc,configWarnings,bitcoinNotification,pulseProofsEnabled,peerLoopsHealthy,outboundRelayHealthy,activeDatumSessionCount,lastDatumSessionOpenedUtc,lastDatumHelloReceivedUtc,lastDatumCoinbaserRequestUtc,lastSuccessfulDatumCoinbaserResponseUtc,lastValidLocalDatumShareUtc,lastDatumSessionClosedUtc,lastDatumSessionCloseReason,lastShareRelayQueuedUtc,lastUdpShareRelayUtc,lastWebSocketShareRelayUtc,lastHttpShareRelayUtc,lastSuccessfulOutboundRelayUtc,shareRelayQueueDepth,localDatumDiagnostics}'
 systemctl status bootserverapp.service --no-pager
 journalctl -u bootserverapp.service -n 200 --no-pager
 ```

@@ -35,7 +35,8 @@ public class HealthController : ControllerBase
         BootNetworkStatusDto network = _stateService.GetNetworkStatus();
         bool baseReady = network.WinnersCount > 0 && !string.IsNullOrWhiteSpace(network.CurrentStateId);
         bool peerReady = (!_poolConfig.EnablePeerSync || network.PeerLoopsHealthy) && !network.IdentityChanged;
-        bool ready = baseReady && peerReady;
+        bool bitcoinReady = network.BitcoinNotification.MiningSafe;
+        bool ready = baseReady && peerReady && bitcoinReady;
         int statusCode = ready ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable;
 
         return StatusCode(statusCode, new
@@ -52,6 +53,7 @@ public class HealthController : ControllerBase
             peerSyncEnabled = _poolConfig.EnablePeerSync,
             network.PeerLoopsHealthy,
             network.IdentityChanged,
+            bitcoinNotification = network.BitcoinNotification,
             network.OutboundRelayHealthy,
             network.LastPeerPollCompletedUtc,
             network.LastShareRelayDequeuedUtc,

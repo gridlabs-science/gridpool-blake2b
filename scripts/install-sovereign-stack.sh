@@ -37,6 +37,11 @@ BITCOIN_CONF_DIR="${BITCOIN_CONF_DIR:-/etc/bitcoin}"
 BITCOIN_RPC_USER="${BITCOIN_RPC_USER:-datum}"
 BITCOIN_RPC_PASSWORD="${BITCOIN_RPC_PASSWORD:-}"
 BITCOIN_RPC_URL="${BITCOIN_RPC_URL:-http://127.0.0.1:8332}"
+BITCOIN_ZMQ_ENDPOINT="${BITCOIN_ZMQ_ENDPOINT:-tcp://127.0.0.1:28332}"
+BITCOIN_ZMQ_RAWBLOCK_ENDPOINT="${BITCOIN_ZMQ_RAWBLOCK_ENDPOINT:-tcp://127.0.0.1:28333}"
+BITCOIN_RPC_POLL_INTERVAL_SECONDS="${BITCOIN_RPC_POLL_INTERVAL_SECONDS:-5}"
+BITCOIN_RPC_TIMEOUT_SECONDS="${BITCOIN_RPC_TIMEOUT_SECONDS:-3}"
+BITCOIN_RPC_LAG_GRACE_SECONDS="${BITCOIN_RPC_LAG_GRACE_SECONDS:-5}"
 GRID_ALLOW_LOW_RESOURCE_BITCOIN="${GRID_ALLOW_LOW_RESOURCE_BITCOIN:-0}"
 
 GRID_SWAP_MB="${GRID_SWAP_MB:-auto}"
@@ -90,6 +95,8 @@ Options:
   --assumeutxo-stream auto|1|0  Stream HTTP(S) snapshots through a FIFO instead of saving first
   --bitcoin-rpc-url URL         Bitcoin RPC URL for DATUM (default: $BITCOIN_RPC_URL)
                                 Use with --no-bitcoin for edge/proxy installs.
+  --bitcoin-zmq ENDPOINT        Bitcoin hashblock ZMQ endpoint
+  --bitcoin-zmq-rawblock ENDPOINT  Bitcoin rawblock ZMQ endpoint
   --bootstrap-peers LIST        Comma-separated GridPool peer URLs
   --swap-mb MB|auto|0           Swapfile size for low-RAM devices (default: $GRID_SWAP_MB)
   --no-bitcoin                  Skip Bitcoin Core install/config
@@ -105,6 +112,7 @@ Useful environment overrides:
   GRID_BOOT_REPO_URL, GRID_DATUM_REPO_URL
   BITCOIN_NETWORK, GRID_BOOT_NETWORK_ID, GRID_BOOT_STATE_FILE, GRID_POOL_COINBASE_TAG
   BITCOIN_RPC_USER, BITCOIN_RPC_PASSWORD, BITCOIN_RPC_URL, BITCOIN_ASSUMEVALID
+  BITCOIN_ZMQ_ENDPOINT, BITCOIN_ZMQ_RAWBLOCK_ENDPOINT
   BITCOIN_ASSUMEUTXO_SNAPSHOT, BITCOIN_ASSUMEUTXO_STREAM, BITCOIN_ASSUMEUTXO_MIN_HEADERS
   BITCOIN_DBCACHE_MB, BITCOIN_MAX_MEMPOOL_MB
   BOOT_WEB_PORT, BOOT_DATUM_PORT, BOOT_DATUM_PUBLIC_PORT, DATUM_STRATUM_PORT, DATUM_API_PORT
@@ -151,7 +159,6 @@ write_file() {
     cat >"$tmp"
     if (( DRY_RUN )); then
         log "would write $path"
-        sed 's/^/[dry-run-file] /' "$tmp"
         rm -f "$tmp"
         return 0
     fi
@@ -329,6 +336,14 @@ parse_args() {
                 BITCOIN_RPC_URL="${2:-}"
                 shift 2
                 ;;
+            --bitcoin-zmq)
+                BITCOIN_ZMQ_ENDPOINT="${2:-}"
+                shift 2
+                ;;
+            --bitcoin-zmq-rawblock)
+                BITCOIN_ZMQ_RAWBLOCK_ENDPOINT="${2:-}"
+                shift 2
+                ;;
             --bootstrap-peers)
                 GRID_BOOT_BOOTSTRAP_PEERS="${2:-}"
                 GRID_BOOT_BOOTSTRAP_PEERS_WAS_SET=1
@@ -408,6 +423,11 @@ sudo_env_args() {
         BITCOIN_RPC_USER
         BITCOIN_RPC_PASSWORD
         BITCOIN_RPC_URL
+        BITCOIN_ZMQ_ENDPOINT
+        BITCOIN_ZMQ_RAWBLOCK_ENDPOINT
+        BITCOIN_RPC_POLL_INTERVAL_SECONDS
+        BITCOIN_RPC_TIMEOUT_SECONDS
+        BITCOIN_RPC_LAG_GRACE_SECONDS
         GRID_ALLOW_LOW_RESOURCE_BITCOIN
         BOOT_WEB_PORT
         BOOT_DATUM_PORT
@@ -1030,12 +1050,30 @@ install_boot() {
             --arg networkId "$GRID_BOOT_NETWORK_ID" \
             --arg payout "$GRID_POOL_PAYOUT_ADDRESS" \
             --arg tag "$GRID_POOL_COINBASE_TAG" \
+            --arg bitcoinRpcUrl "$BITCOIN_RPC_URL" \
+            --arg bitcoinRpcUsername "$BITCOIN_RPC_USER" \
+            --arg bitcoinRpcPassword "$BITCOIN_RPC_PASSWORD" \
+            --arg bitcoinZmqEndpoint "$BITCOIN_ZMQ_ENDPOINT" \
+            --arg bitcoinZmqRawblockEndpoint "$BITCOIN_ZMQ_RAWBLOCK_ENDPOINT" \
             --argjson webPort "$BOOT_WEB_PORT" \
             --argjson datumPort "$BOOT_DATUM_PORT" \
             --argjson datumPublicPort "$BOOT_DATUM_PUBLIC_PORT" \
+            --argjson bitcoinRpcPollInterval "$BITCOIN_RPC_POLL_INTERVAL_SECONDS" \
+            --argjson bitcoinRpcTimeout "$BITCOIN_RPC_TIMEOUT_SECONDS" \
+            --argjson bitcoinRpcLagGrace "$BITCOIN_RPC_LAG_GRACE_SECONDS" \
             --argjson peers "$peers_json" \
             '$existing * {
                 NotificationSource: "BitcoinZmq",
+                bitcoin_notification_mode: "attached-node",
+                bitcoin_rpc_url: $bitcoinRpcUrl,
+                bitcoin_rpc_username: $bitcoinRpcUsername,
+                bitcoin_rpc_password: $bitcoinRpcPassword,
+                bitcoin_rpc_cookie_file: "",
+                bitcoin_rpc_poll_interval_seconds: $bitcoinRpcPollInterval,
+                bitcoin_rpc_timeout_seconds: $bitcoinRpcTimeout,
+                bitcoin_rpc_lag_grace_seconds: $bitcoinRpcLagGrace,
+                bitcoin_zmq_endpoint: $bitcoinZmqEndpoint,
+                bitcoin_zmq_rawblock_endpoint: $bitcoinZmqRawblockEndpoint,
                 WebUI_Port_http: $webPort,
                 WebUI_Port_https: 0,
                 Datum_Port: $datumPort,
@@ -1304,6 +1342,28 @@ run_self_check() {
     if [[ -x "$boot_dir/scripts/boot-self-check.sh" ]]; then
         "$boot_dir/scripts/boot-self-check.sh" "http://127.0.0.1:${BOOT_WEB_PORT}" || true
     fi
+
+    local checker="$boot_dir/scripts/check-bitcoin-connectivity.sh"
+    if [[ -x "$checker" ]]; then
+        local password_file
+        password_file="$(mktemp)"
+        chmod 0600 "$password_file"
+        printf '%s' "$BITCOIN_RPC_PASSWORD" >"$password_file"
+        "$checker" \
+            --mode attached-node \
+            --rpc-url "$BITCOIN_RPC_URL" \
+            --rpc-username "$BITCOIN_RPC_USER" \
+            --rpc-password-file "$password_file" \
+            --zmq-hashblock "$BITCOIN_ZMQ_ENDPOINT" \
+            --zmq-rawblock "$BITCOIN_ZMQ_RAWBLOCK_ENDPOINT" \
+            --timeout-seconds "$BITCOIN_RPC_TIMEOUT_SECONDS" || {
+                rm -f "$password_file"
+                fail "Bitcoin attached-node self-check failed; GridPool was installed but is not ready for mining"
+            }
+        rm -f "$password_file"
+    else
+        fail "missing Bitcoin connectivity checker at $checker"
+    fi
 }
 
 print_summary() {
@@ -1334,7 +1394,7 @@ Bitcoin mode:
   AssumeUTXO:         ${BITCOIN_ASSUMEUTXO_SNAPSHOT:-not loaded}
 
 Useful commands:
-  $(if (( INSTALL_BITCOIN )); then printf 'sudo systemctl status bitcoind --no-pager'; else printf 'curl --user "%s:%s" --data-binary '\''{"jsonrpc":"1.0","id":"curl","method":"getblockchaininfo","params":[]}'\'' -H "content-type:text/plain;" %s' "$BITCOIN_RPC_USER" "$BITCOIN_RPC_PASSWORD" "$BITCOIN_RPC_URL"; fi)
+  $(if (( INSTALL_BITCOIN )); then printf 'sudo systemctl status bitcoind --no-pager'; else printf 'scripts/check-bitcoin-connectivity.sh --mode attached-node --rpc-url %s --rpc-username %s --rpc-password-file /path/to/password --zmq-hashblock %s --zmq-rawblock %s' "$BITCOIN_RPC_URL" "$BITCOIN_RPC_USER" "$BITCOIN_ZMQ_ENDPOINT" "$BITCOIN_ZMQ_RAWBLOCK_ENDPOINT"; fi)
   sudo systemctl status datum-gateway --no-pager
   sudo journalctl -u datum-gateway -f
   cd ${GRID_HOME}/boot-protocol && sudo docker compose -f docker-compose.sovereign.yml logs -f boot-portal

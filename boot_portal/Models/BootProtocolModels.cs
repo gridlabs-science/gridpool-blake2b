@@ -412,6 +412,7 @@ public class BootNetworkStatusDto
     public bool MiningWorkSafe { get; set; } = true;
     public bool LocalBitcoinLagging { get; set; }
     public string MiningWorkSafetyReason { get; set; } = string.Empty;
+    public BootBitcoinNotificationDto BitcoinNotification { get; set; } = new();
     public string? ProvisionalTipBlockHash { get; set; }
     public string? ProvisionalTipParentBlockHash { get; set; }
     public string? ProvisionalSnapshotId { get; set; }

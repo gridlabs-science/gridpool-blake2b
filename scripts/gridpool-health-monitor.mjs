@@ -679,6 +679,7 @@ function buildAlerts(snapshot, state, config) {
         maybeAddPeerCompatibilityAlerts(alerts, node);
         maybeAddCoinbaseModeAlert(alerts, node);
         maybeAddNodeVersionVisibilityAlert(alerts, node);
+        maybeAddBitcoinNotificationAlert(alerts, node, state);
         maybeAddPeerTipProtectionAlert(alerts, node);
         maybeAddOutboundRelayAlert(alerts, node, config);
     }
@@ -827,6 +828,59 @@ function maybeAddNodeVersionVisibilityAlert(alerts, node) {
         detail: "Upgrade this node before public package release so peers/operators can see consensus and state-bundle schema compatibility.",
         codexEligible: true
     });
+}
+
+function maybeAddBitcoinNotificationAlert(alerts, node, state) {
+    const notification = node.summary?.bitcoinNotification;
+    if (!notification) return;
+
+    const mode = String(notification.mode || "").toLowerCase();
+    if (mode !== "attached-node") return;
+
+    if (notification.miningSafe === false) {
+        alerts.push({
+            severity: "critical",
+            category: "bitcoin-source-degraded",
+            fingerprint: `gridpool:${node.name}:bitcoin-source-degraded`,
+            title: `GridPool ${node.name} attached Bitcoin source is unsafe`,
+            detail: notification.degradedReason || notification.rpc?.lastError ||
+                "Authenticated Bitcoin RPC is not synchronized.",
+            codexEligible: true
+        });
+    } else if (notification.degradedReason) {
+        alerts.push({
+            severity: "warning",
+            category: "bitcoin-zmq-degraded",
+            fingerprint: `gridpool:${node.name}:bitcoin-zmq-degraded`,
+            title: `GridPool ${node.name} Bitcoin ZMQ latency path is degraded`,
+            detail: notification.degradedReason,
+            codexEligible: true
+        });
+    }
+
+    state.bitcoinNotificationCounters ||= {};
+    const previous = state.bitcoinNotificationCounters[node.name] || {};
+    const current = {};
+    for (const topic of notification.zmqTopics || []) {
+        const key = `${topic.topic || "unknown"}|${topic.endpointLabel || ""}`;
+        current[key] = {
+            gaps: Number(topic.sequenceGapCount || 0),
+            resets: Number(topic.resetCount || 0)
+        };
+        const before = previous[key];
+        if (before && (current[key].gaps > Number(before.gaps || 0) ||
+            current[key].resets > Number(before.resets || 0))) {
+            alerts.push({
+                severity: "warning",
+                category: "bitcoin-zmq-sequence-anomaly",
+                fingerprint: `gridpool:${node.name}:bitcoin-zmq-sequence:${key}`,
+                title: `GridPool ${node.name} observed a Bitcoin ZMQ sequence anomaly`,
+                detail: `${key}: gaps ${before.gaps || 0}->${current[key].gaps}, resets ${before.resets || 0}->${current[key].resets}. RPC reconciliation should verify the active tip.`,
+                codexEligible: true
+            });
+        }
+    }
+    state.bitcoinNotificationCounters[node.name] = current;
 }
 
 function maybeAddPeerTipProtectionAlert(alerts, node) {

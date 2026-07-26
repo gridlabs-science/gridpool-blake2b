@@ -10,5 +10,18 @@ services:
     ports:
       - "5000:5000"
       - "3008:3008"
+      - "5001:5001/udp"
+    # Container loopback is this container, not the Docker host. For an attached
+    # Bitcoin node, either join its external network (below), use host networking,
+    # or add host.docker.internal:host-gateway and configure that hostname.
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+    # networks:
+    #   - bitcoin
     volumes:
       - ./data:/data
+
+# networks:
+#   bitcoin:
+#     external: true
+#     name: bitcoin

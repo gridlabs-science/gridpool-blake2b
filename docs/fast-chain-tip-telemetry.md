@@ -2,6 +2,10 @@
 
 Status: measurement plus opt-in stale-work protection beta
 
+Fast peer notifications are not V2.2 consensus inputs. Local authenticated RPC
+and full-node validation remain authoritative; ZMQ, peer WebSocket/UDP headers,
+FIBRE, and any future adapter hints only improve latency or operations.
+
 GridPool can compare how quickly an authenticated peer header reaches a node
 over its encrypted peer transports against the same node's local Bitcoin
 `rawblock` ZMQ notification. By default this remains an observability
@@ -74,6 +78,10 @@ GridPool configuration:
 ```json
 {
   "NotificationSource": "BitcoinZmq",
+  "bitcoin_notification_mode": "attached-node",
+  "bitcoin_rpc_url": "http://127.0.0.1:8332",
+  "bitcoin_rpc_username": "gridpool",
+  "bitcoin_rpc_password": "LOCAL_SECRET",
   "bitcoin_zmq_endpoint": "tcp://127.0.0.1:28332",
   "bitcoin_zmq_rawblock_endpoint": "tcp://127.0.0.1:28333",
   "enable_peer_persistent_sessions": true,
@@ -89,8 +97,9 @@ The operational option defaults to `false` because changing the boundary
 cutoff on only part of a live network can create a short-lived snapshot split.
 Enable it as a coordinated node rollout.
 
-Container networking must allow GridPool to reach those endpoints. The current
-one-shot installer uses host networking for this reason.
+Container networking must allow GridPool to reach RPC and both ZMQ endpoints.
+See `docs/bitcoin-node-connectivity.md`; container loopback never reaches a
+separate host or container.
 
 ## Report
 

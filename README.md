@@ -102,8 +102,9 @@ Notes:
 - To pin a specific published image, set `GRIDPOOL_BOOT_IMAGE`, for example `GRIDPOOL_BOOT_IMAGE=ghcr.io/gridlabs-science/boot-protocol:sha-abc1234 docker compose up -d`.
 - The container is set up for HTTP on the WebUI by default.  Terminate TLS at a reverse proxy, Cloudflare tunnel, or similar edge layer.
 - The image runs as non-root UID/GID `1000` and creates `/data/boot_portal_config.json` from `docker/boot_portal_config.sample.json` if no config exists.
-- The default sample uses `NotificationSource = "MempoolSpace"` so a local `bitcoind` is not required for first boot.
-- If you want local ZMQ block notifications, change the config and make sure the container can reach your Bitcoin node.
+- The default sample explicitly uses `bitcoin_notification_mode = "external-fallback"` so a local `bitcoind` is not required for first boot.
+- Sovereign mining nodes should use `attached-node`: authenticated RPC is the correctness authority, ZMQ is the low-latency path, and five-second RPC reconciliation recovers missed notifications.
+- Container loopback does not reach the Docker host. Follow `docs/bitcoin-node-connectivity.md` for host-network, shared-bridge, host-gateway, remote-LAN, and node-less examples.
 - The mainnet beta bootstrap seed is `https://main.gridpool.net` unless you override `bootstrap_peers`.
 - Testnet4 beta nodes should use `docker/boot_portal_config.testnet4.sample.json`, or set `bitcoin_network = "testnet4"`, `boot_network_id = "testnet4-beta"`, and bootstrap from `https://test.gridpool.net`.
 - Health probes are exposed at `/health/live` and `/health/ready`.

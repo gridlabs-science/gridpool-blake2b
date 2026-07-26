@@ -280,6 +280,12 @@ Tune these fields first:
 
 Current-state and active-snapshot disagreement is one critical incident fingerprint. It alerts on a new divergence edge and repeats at most hourly while unchanged. When current-state bundles are fetchable within the normal request timeout, the alert includes proof-set intersection/side-only counts and the highest-difficulty side-only source.
 
+The summary capture includes the redacted `bitcoinNotification` coordinator
+state. Attached nodes alert when RPC is unreachable/unsynchronized, when the
+ZMQ latency path is missing, or when per-topic sequence gap/reset counters
+increase. Explicit `external-fallback` nodes do not receive local RPC/ZMQ
+alerts.
+
 The installer does not overwrite an existing
 `~/.config/gridpool-health-monitor/config.json`. To adopt new public-node
 checks on an existing install, copy the `nodes` and `thresholds` sections from

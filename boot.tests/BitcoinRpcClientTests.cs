@@ -1,0 +1,116 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using boot_portal.Services;
+
+namespace boot.tests;
+
+[TestClass]
+public sealed class BitcoinRpcClientTests
+{
+    [TestMethod]
+    public async Task ClientParsesBlockchainAndZmqResponsesWithoutEmbeddingCredentialsInUrl()
+    {
+        AuthenticationHeaderValue? observedAuthorization = null;
+        var handler = new CallbackHandler(async request =>
+        {
+            observedAuthorization = request.Headers.Authorization;
+            string body = await request.Content!.ReadAsStringAsync();
+            using JsonDocument document = JsonDocument.Parse(body);
+            string method = document.RootElement.GetProperty("method").GetString()!;
+            string result = method switch
+            {
+                "getblockchaininfo" => """
+                    {"blocks":100,"headers":100,"bestblockhash":"block-100","initialblockdownload":false,"verificationprogress":1.0}
+                    """,
+                "getzmqnotifications" => """
+                    [{"type":"pubhashblock","address":"tcp://0.0.0.0:28332"},{"type":"pubrawblock","address":"tcp://0.0.0.0:28333"}]
+                    """,
+                _ => "\"block-100\""
+            };
+            return JsonResponse($"{{\"result\":{result},\"error\":null,\"id\":1}}");
+        });
+        var config = new PoolConfig
+        {
+            BitcoinRpcUrl = "http://bitcoin:8332",
+            BitcoinRpcUsername = "rpc-user",
+            BitcoinRpcPassword = "rpc-password"
+        };
+        var client = new BitcoinRpcClient(config, new HttpClient(handler));
+
+        BitcoinBlockchainInfo info = await client.GetBlockchainInfoAsync(CancellationToken.None);
+        IReadOnlyList<BitcoinZmqPublisher> topics =
+            await client.GetZmqNotificationsAsync(CancellationToken.None);
+
+        Assert.AreEqual(100L, info.Blocks);
+        Assert.AreEqual("block-100", info.BestBlockHash);
+        CollectionAssert.AreEquivalent(
+            new[] { "pubhashblock", "pubrawblock" },
+            topics.Select(topic => topic.Topic).ToArray());
+        CollectionAssert.AreEquivalent(
+            new[] { "tcp://0.0.0.0:28332", "tcp://0.0.0.0:28333" },
+            topics.Select(topic => topic.Address).ToArray());
+        Assert.AreEqual("Basic", observedAuthorization?.Scheme);
+        Assert.AreEqual(
+            "rpc-user:rpc-password",
+            Encoding.UTF8.GetString(Convert.FromBase64String(observedAuthorization!.Parameter!)));
+        Assert.IsFalse(config.BitcoinRpcUrl.Contains("rpc-password", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task ClientReloadsCookieCredentialsForEveryRequest()
+    {
+        string cookiePath = Path.GetTempFileName();
+        var observedCredentials = new List<string>();
+        try
+        {
+            File.WriteAllText(cookiePath, "user:first");
+            var handler = new CallbackHandler(request =>
+            {
+                observedCredentials.Add(Encoding.UTF8.GetString(Convert.FromBase64String(
+                    request.Headers.Authorization!.Parameter!)));
+                return Task.FromResult(JsonResponse(
+                    "{\"result\":\"block-hash\",\"error\":null,\"id\":1}"));
+            });
+            var client = new BitcoinRpcClient(
+                new PoolConfig
+                {
+                    BitcoinRpcUrl = "http://bitcoin:8332",
+                    BitcoinRpcCookieFile = cookiePath
+                },
+                new HttpClient(handler));
+
+            await client.GetBestBlockHashAsync(CancellationToken.None);
+            File.WriteAllText(cookiePath, "user:second");
+            await client.GetBestBlockHashAsync(CancellationToken.None);
+
+            CollectionAssert.AreEqual(
+                new[] { "user:first", "user:second" },
+                observedCredentials);
+        }
+        finally
+        {
+            File.Delete(cookiePath);
+        }
+    }
+
+    private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent(json, Encoding.UTF8, "application/json")
+    };
+
+    private sealed class CallbackHandler : HttpMessageHandler
+    {
+        private readonly Func<HttpRequestMessage, Task<HttpResponseMessage>> _callback;
+
+        public CallbackHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> callback)
+        {
+            _callback = callback;
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) => _callback(request);
+    }
+}

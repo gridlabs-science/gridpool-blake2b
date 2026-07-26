@@ -7,8 +7,19 @@ GRID_FOUNDATION_PAYOUT_ADDRESS="${GRID_FOUNDATION_PAYOUT_ADDRESS:-bc1qce93hy5rhg
 GRID_TESTNET_PAYOUT_ADDRESS="${GRID_TESTNET_PAYOUT_ADDRESS:-mxt9bYPtfBdzoTeZcHr23QgL4Un45PVvF5}"
 GRID_POOL_PAYOUT_ADDRESS="${GRID_POOL_PAYOUT_ADDRESS:-}"
 BITCOIN_NETWORK="${BITCOIN_NETWORK:-mainnet}"
+BITCOIN_NOTIFICATION_MODE="${BITCOIN_NOTIFICATION_MODE:-attached-node}"
+BITCOIN_TOPOLOGY="${BITCOIN_TOPOLOGY:-host-network}"
+BITCOIN_HOST="${BITCOIN_HOST:-127.0.0.1}"
+BITCOIN_DOCKER_NETWORK="${BITCOIN_DOCKER_NETWORK:-}"
+BITCOIN_RPC_URL="${BITCOIN_RPC_URL:-}"
+BITCOIN_RPC_USERNAME="${BITCOIN_RPC_USERNAME:-}"
+BITCOIN_RPC_PASSWORD_FILE="${BITCOIN_RPC_PASSWORD_FILE:-}"
+BITCOIN_RPC_COOKIE_FILE="${BITCOIN_RPC_COOKIE_FILE:-}"
+BITCOIN_RPC_POLL_INTERVAL_SECONDS="${BITCOIN_RPC_POLL_INTERVAL_SECONDS:-5}"
+BITCOIN_RPC_TIMEOUT_SECONDS="${BITCOIN_RPC_TIMEOUT_SECONDS:-3}"
+BITCOIN_RPC_LAG_GRACE_SECONDS="${BITCOIN_RPC_LAG_GRACE_SECONDS:-5}"
 BITCOIN_ZMQ_ENDPOINT="${BITCOIN_ZMQ_ENDPOINT:-auto}"
-BITCOIN_ZMQ_RAWBLOCK_ENDPOINT="${BITCOIN_ZMQ_RAWBLOCK_ENDPOINT:-tcp://127.0.0.1:28333}"
+BITCOIN_ZMQ_RAWBLOCK_ENDPOINT="${BITCOIN_ZMQ_RAWBLOCK_ENDPOINT:-auto}"
 BOOT_WEB_PORT="${BOOT_WEB_PORT:-5000}"
 BOOT_DATUM_PORT="${BOOT_DATUM_PORT:-3008}"
 BOOT_DATUM_PUBLIC_PORT_WAS_SET=0
@@ -37,9 +48,17 @@ DATUM running, and only need the GridPool node that DATUM connects to.
 Options:
   --payout-address ADDRESS      Slot-0 fallback payout address for this node
   --network mainnet|testnet4    Bitcoin network (default: $BITCOIN_NETWORK)
+  --bitcoin-mode MODE           attached-node or external-fallback
+  --bitcoin-topology TOPOLOGY   host-network, shared-bridge, host-gateway, remote, or node-less
+  --bitcoin-host HOST           Bitcoin host/service name used by auto endpoints
+  --bitcoin-docker-network NAME External Docker network for shared-bridge mode
+  --bitcoin-rpc-url URL         Authenticated Bitcoin JSON-RPC endpoint
+  --bitcoin-rpc-username USER   Bitcoin RPC username
+  --bitcoin-rpc-password-file PATH  File containing the Bitcoin RPC password
+  --bitcoin-rpc-cookie-file PATH    Bitcoin cookie file (host-network/native only)
   --bitcoin-zmq ENDPOINT        Bitcoin ZMQ endpoint, such as tcp://127.0.0.1:28332
-  --bitcoin-zmq-rawblock ENDPOINT  Bitcoin rawblock ZMQ endpoint (default: tcp://127.0.0.1:28333)
-  --no-bitcoin-zmq              Use MempoolSpace notifications instead of local ZMQ
+  --bitcoin-zmq-rawblock ENDPOINT  Bitcoin rawblock ZMQ endpoint
+  --external-fallback           Explicit node-less Mempool.Space mode
   --web-port PORT               Local WebUI port (default: $BOOT_WEB_PORT)
   --datum-port PORT             Local DATUM listener port (default: $BOOT_DATUM_PORT)
   --datum-public-host HOST      Advertised DATUM host (default: detected LAN IP)
@@ -56,7 +75,10 @@ Options:
 
 Environment overrides mirror the option names:
   GRID_HOME, GRID_BOOT_IMAGE, GRID_POOL_PAYOUT_ADDRESS, BITCOIN_NETWORK,
-  BITCOIN_ZMQ_ENDPOINT, BITCOIN_ZMQ_RAWBLOCK_ENDPOINT, BOOT_WEB_PORT, BOOT_DATUM_PORT,
+  BITCOIN_NOTIFICATION_MODE, BITCOIN_TOPOLOGY, BITCOIN_HOST, BITCOIN_DOCKER_NETWORK,
+  BITCOIN_RPC_URL, BITCOIN_RPC_USERNAME, BITCOIN_RPC_PASSWORD_FILE,
+  BITCOIN_RPC_COOKIE_FILE, BITCOIN_ZMQ_ENDPOINT, BITCOIN_ZMQ_RAWBLOCK_ENDPOINT,
+  BOOT_WEB_PORT, BOOT_DATUM_PORT,
   BOOT_DATUM_PUBLIC_HOST, BOOT_DATUM_PUBLIC_PORT, BOOT_PUBLIC_BASE_URL,
   GRID_BOOT_BOOTSTRAP_PEERS, GRID_BOOT_NETWORK_ID, GRID_BOOT_STATE_FILE
 EOF
@@ -98,6 +120,46 @@ parse_args() {
                 BITCOIN_NETWORK="$2"
                 shift 2
                 ;;
+            --bitcoin-mode)
+                [[ $# -ge 2 ]] || fail "--bitcoin-mode requires a value"
+                BITCOIN_NOTIFICATION_MODE="$2"
+                shift 2
+                ;;
+            --bitcoin-topology)
+                [[ $# -ge 2 ]] || fail "--bitcoin-topology requires a value"
+                BITCOIN_TOPOLOGY="$2"
+                shift 2
+                ;;
+            --bitcoin-host)
+                [[ $# -ge 2 ]] || fail "--bitcoin-host requires a value"
+                BITCOIN_HOST="$2"
+                shift 2
+                ;;
+            --bitcoin-docker-network)
+                [[ $# -ge 2 ]] || fail "--bitcoin-docker-network requires a value"
+                BITCOIN_DOCKER_NETWORK="$2"
+                shift 2
+                ;;
+            --bitcoin-rpc-url)
+                [[ $# -ge 2 ]] || fail "--bitcoin-rpc-url requires a value"
+                BITCOIN_RPC_URL="$2"
+                shift 2
+                ;;
+            --bitcoin-rpc-username)
+                [[ $# -ge 2 ]] || fail "--bitcoin-rpc-username requires a value"
+                BITCOIN_RPC_USERNAME="$2"
+                shift 2
+                ;;
+            --bitcoin-rpc-password-file)
+                [[ $# -ge 2 ]] || fail "--bitcoin-rpc-password-file requires a value"
+                BITCOIN_RPC_PASSWORD_FILE="$2"
+                shift 2
+                ;;
+            --bitcoin-rpc-cookie-file)
+                [[ $# -ge 2 ]] || fail "--bitcoin-rpc-cookie-file requires a value"
+                BITCOIN_RPC_COOKIE_FILE="$2"
+                shift 2
+                ;;
             --bitcoin-zmq)
                 [[ $# -ge 2 ]] || fail "--bitcoin-zmq requires a value"
                 BITCOIN_ZMQ_ENDPOINT="$2"
@@ -108,7 +170,9 @@ parse_args() {
                 BITCOIN_ZMQ_RAWBLOCK_ENDPOINT="$2"
                 shift 2
                 ;;
-            --no-bitcoin-zmq)
+            --no-bitcoin-zmq|--external-fallback)
+                BITCOIN_NOTIFICATION_MODE="external-fallback"
+                BITCOIN_TOPOLOGY="node-less"
                 BITCOIN_ZMQ_ENDPOINT=""
                 BITCOIN_ZMQ_RAWBLOCK_ENDPOINT=""
                 shift
@@ -221,16 +285,57 @@ normalize_network_defaults() {
     esac
 }
 
-detect_bitcoin_zmq() {
-    if [[ "$BITCOIN_ZMQ_ENDPOINT" != "auto" ]]; then
-        return
-    fi
+normalize_bitcoin_connectivity() {
+    BITCOIN_NOTIFICATION_MODE="${BITCOIN_NOTIFICATION_MODE,,}"
+    BITCOIN_TOPOLOGY="${BITCOIN_TOPOLOGY,,}"
 
-    if timeout 1 bash -c '</dev/tcp/127.0.0.1/28332' >/dev/null 2>&1; then
-        BITCOIN_ZMQ_ENDPOINT="tcp://127.0.0.1:28332"
-    else
-        BITCOIN_ZMQ_ENDPOINT=""
-    fi
+    case "$BITCOIN_TOPOLOGY" in
+        native|host-network)
+            BITCOIN_HOST="${BITCOIN_HOST:-127.0.0.1}"
+            ;;
+        shared-bridge)
+            [[ -n "$BITCOIN_DOCKER_NETWORK" ]] ||
+                fail "--bitcoin-docker-network is required for shared-bridge topology"
+            [[ "$BITCOIN_HOST" != "127.0.0.1" ]] ||
+                fail "--bitcoin-host must be the Bitcoin service DNS name for shared-bridge topology"
+            ;;
+        host-gateway)
+            BITCOIN_HOST="${BITCOIN_HOST:-host.docker.internal}"
+            [[ "$BITCOIN_HOST" != "127.0.0.1" ]] || BITCOIN_HOST="host.docker.internal"
+            ;;
+        remote)
+            [[ "$BITCOIN_HOST" != "127.0.0.1" ]] ||
+                fail "--bitcoin-host must be the stable LAN hostname/IP for remote topology"
+            ;;
+        node-less)
+            BITCOIN_NOTIFICATION_MODE="external-fallback"
+            ;;
+        *)
+            fail "--bitcoin-topology must be host-network, shared-bridge, host-gateway, remote, or node-less"
+            ;;
+    esac
+
+    case "$BITCOIN_NOTIFICATION_MODE" in
+        attached-node)
+            BITCOIN_RPC_URL="${BITCOIN_RPC_URL:-http://${BITCOIN_HOST}:8332}"
+            [[ "$BITCOIN_ZMQ_ENDPOINT" != "auto" ]] ||
+                BITCOIN_ZMQ_ENDPOINT="tcp://${BITCOIN_HOST}:28332"
+            [[ "$BITCOIN_ZMQ_RAWBLOCK_ENDPOINT" != "auto" ]] ||
+                BITCOIN_ZMQ_RAWBLOCK_ENDPOINT="tcp://${BITCOIN_HOST}:28333"
+            [[ -n "$BITCOIN_RPC_COOKIE_FILE" ||
+               (-n "$BITCOIN_RPC_USERNAME" && -n "$BITCOIN_RPC_PASSWORD_FILE") ]] ||
+                fail "attached-node mode requires --bitcoin-rpc-cookie-file or both --bitcoin-rpc-username and --bitcoin-rpc-password-file"
+            ;;
+        external-fallback)
+            BITCOIN_TOPOLOGY="node-less"
+            BITCOIN_RPC_URL=""
+            BITCOIN_ZMQ_ENDPOINT=""
+            BITCOIN_ZMQ_RAWBLOCK_ENDPOINT=""
+            ;;
+        *)
+            fail "--bitcoin-mode must be attached-node or external-fallback"
+            ;;
+    esac
 }
 
 ensure_docker() {
@@ -279,10 +384,16 @@ write_json_config() {
     local peers_json="$2"
     local notification_source="MempoolSpace"
     local zmq_endpoint="$BITCOIN_ZMQ_ENDPOINT"
-    if [[ -n "$BITCOIN_ZMQ_ENDPOINT" ]]; then
+    local rpc_password=""
+    local rpc_cookie_path="$BITCOIN_RPC_COOKIE_FILE"
+    if [[ "$BITCOIN_NOTIFICATION_MODE" == "attached-node" ]]; then
         notification_source="BitcoinZmq"
-    else
-        zmq_endpoint="tcp://127.0.0.1:28332"
+        if [[ -n "$BITCOIN_RPC_PASSWORD_FILE" ]]; then
+            rpc_password="$(tr -d '\r\n' <"$BITCOIN_RPC_PASSWORD_FILE")"
+        fi
+        if [[ -n "$BITCOIN_RPC_COOKIE_FILE" ]]; then
+            rpc_cookie_path="/run/gridpool/bitcoin.cookie"
+        fi
     fi
 
     python3 - "$config_path" <<PY
@@ -300,6 +411,14 @@ if path.exists():
 
 data.update({
     "NotificationSource": ${notification_source@Q},
+    "bitcoin_notification_mode": ${BITCOIN_NOTIFICATION_MODE@Q},
+    "bitcoin_rpc_url": ${BITCOIN_RPC_URL@Q},
+    "bitcoin_rpc_username": ${BITCOIN_RPC_USERNAME@Q},
+    "bitcoin_rpc_password": ${rpc_password@Q},
+    "bitcoin_rpc_cookie_file": ${rpc_cookie_path@Q},
+    "bitcoin_rpc_poll_interval_seconds": int(${BITCOIN_RPC_POLL_INTERVAL_SECONDS@Q}),
+    "bitcoin_rpc_timeout_seconds": int(${BITCOIN_RPC_TIMEOUT_SECONDS@Q}),
+    "bitcoin_rpc_lag_grace_seconds": int(${BITCOIN_RPC_LAG_GRACE_SECONDS@Q}),
     "WebUI_Port_http": int(${BOOT_WEB_PORT@Q}),
     "WebUI_Port_https": 0,
     "Datum_Port": int(${BOOT_DATUM_PORT@Q}),
@@ -331,20 +450,91 @@ PY
 
 write_compose() {
     local compose_path="$1"
+    local networking=""
+    local cookie_mount=""
+    case "$BITCOIN_TOPOLOGY" in
+        native|host-network)
+            networking="    network_mode: host"
+            ;;
+        shared-bridge)
+            networking="    ports:
+      - \"${BOOT_WEB_PORT}:${BOOT_WEB_PORT}\"
+      - \"${BOOT_DATUM_PORT}:${BOOT_DATUM_PORT}\"
+      - \"5001:5001/udp\"
+    networks:
+      - bitcoin"
+            ;;
+        host-gateway)
+            networking="    ports:
+      - \"${BOOT_WEB_PORT}:${BOOT_WEB_PORT}\"
+      - \"${BOOT_DATUM_PORT}:${BOOT_DATUM_PORT}\"
+      - \"5001:5001/udp\"
+    extra_hosts:
+      - \"host.docker.internal:host-gateway\""
+            ;;
+        remote|node-less)
+            networking="    ports:
+      - \"${BOOT_WEB_PORT}:${BOOT_WEB_PORT}\"
+      - \"${BOOT_DATUM_PORT}:${BOOT_DATUM_PORT}\"
+      - \"5001:5001/udp\""
+            ;;
+    esac
+    if [[ -n "$BITCOIN_RPC_COOKIE_FILE" ]]; then
+        cookie_mount="
+      - ${BITCOIN_RPC_COOKIE_FILE}:/run/gridpool/bitcoin.cookie:ro"
+    fi
     cat >"$compose_path" <<EOF
 services:
   boot-portal:
     image: ${GRID_BOOT_IMAGE}
     container_name: boot-portal
     restart: unless-stopped
-    network_mode: host
+${networking}
     environment:
       BOOT_PORTAL_CONFIG_PATH: /data/boot_portal_config.json
       BOOT_PORTAL_LOCAL_CONFIG_PATH: /data/boot_portal_config.local.json
       BOOT_PORTAL_STATE_PATH: /data/${GRID_BOOT_STATE_FILE}
     volumes:
-      - ./data:/data
+      - ./data:/data${cookie_mount}
+$(if [[ "$BITCOIN_TOPOLOGY" == "shared-bridge" ]]; then cat <<NETWORKS
+networks:
+  bitcoin:
+    external: true
+    name: ${BITCOIN_DOCKER_NETWORK}
+NETWORKS
+fi)
 EOF
+}
+
+preflight_bitcoin() {
+    [[ "$BITCOIN_NOTIFICATION_MODE" == "attached-node" ]] || return 0
+    (( DRY_RUN )) && {
+        log "would run attached-node RPC/ZMQ connectivity preflight"
+        return 0
+    }
+    if [[ "$BITCOIN_TOPOLOGY" == "shared-bridge" || "$BITCOIN_TOPOLOGY" == "host-gateway" ]]; then
+        log "container-scoped Bitcoin connectivity will be verified after GridPool starts"
+        return 0
+    fi
+    local helper
+    helper="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/check-bitcoin-connectivity.sh"
+    [[ -x "$helper" ]] ||
+        fail "missing $helper; clone the repository and run the installer from scripts/ so attached-node preflight can run"
+
+    local args=(
+        --mode attached-node \
+        --rpc-url "$BITCOIN_RPC_URL" \
+        --zmq-hashblock "$BITCOIN_ZMQ_ENDPOINT" \
+        --zmq-rawblock "$BITCOIN_ZMQ_RAWBLOCK_ENDPOINT" \
+        --timeout-seconds "$BITCOIN_RPC_TIMEOUT_SECONDS"
+    )
+    [[ -n "$BITCOIN_RPC_USERNAME" ]] &&
+        args+=(--rpc-username "$BITCOIN_RPC_USERNAME")
+    [[ -n "$BITCOIN_RPC_PASSWORD_FILE" ]] &&
+        args+=(--rpc-password-file "$BITCOIN_RPC_PASSWORD_FILE")
+    [[ -n "$BITCOIN_RPC_COOKIE_FILE" ]] &&
+        args+=(--rpc-cookie-file "$BITCOIN_RPC_COOKIE_FILE")
+    "$helper" "${args[@]}"
 }
 
 configure_ufw() {
@@ -369,6 +559,19 @@ wait_for_http() {
         if (( SECONDS >= deadline )); then
             docker compose -f "$GRID_HOME/boot-node/docker-compose.yml" logs --tail 120 boot-portal >&2 || true
             fail "GridPool WebUI did not become healthy at $url"
+        fi
+        sleep 2
+    done
+}
+
+wait_for_readiness() {
+    local url="$1"
+    local deadline=$((SECONDS + 60))
+    until curl -fsS --max-time 5 "$url" >/dev/null 2>&1; do
+        if (( SECONDS >= deadline )); then
+            curl -sS --max-time 5 "http://127.0.0.1:${BOOT_WEB_PORT}/api/network/summary" \
+                | jq '{bitcoinNotification, configWarnings}' >&2 || true
+            fail "GridPool started, but attached Bitcoin readiness failed. Correct the reported RPC/ZMQ topology before mining."
         fi
         sleep 2
     done
@@ -403,7 +606,10 @@ GridPool node-only install
   DATUM host:        ${BOOT_DATUM_PUBLIC_HOST}
   DATUM port:        ${BOOT_DATUM_PUBLIC_PORT}
   Bitcoin network:   ${BITCOIN_NETWORK}
-  Block notify:      ${BITCOIN_ZMQ_ENDPOINT:-MempoolSpace}
+  Bitcoin mode:     ${BITCOIN_NOTIFICATION_MODE}
+  Bitcoin topology: ${BITCOIN_TOPOLOGY}
+  RPC endpoint:     ${BITCOIN_RPC_URL:-not used}
+  Block notify:     ${BITCOIN_ZMQ_ENDPOINT:-MempoolSpace}
   Bootstrap peers:   ${GRID_BOOT_BOOTSTRAP_PEERS:-none}
   Payout fallback:   ${GRID_POOL_PAYOUT_ADDRESS}
 
@@ -428,10 +634,11 @@ main() {
     valid_port "$BOOT_DATUM_PORT" || fail "--datum-port must be between 1 and 65535"
     valid_port "$BOOT_DATUM_PUBLIC_PORT" || fail "--datum-public-port must be between 1 and 65535"
 
-    detect_bitcoin_zmq
+    normalize_bitcoin_connectivity
     confirm
     ensure_docker
     ensure_python
+    preflight_bitcoin
     configure_ufw
 
     local boot_dir="$GRID_HOME/boot-node"
@@ -447,6 +654,7 @@ main() {
         write_compose "$compose_path"
         chown -R 1000:1000 "$data_dir"
         chmod 0750 "$data_dir"
+        chmod 0600 "$config_path"
     else
         log "would write $config_path"
         log "would write $compose_path"
@@ -472,6 +680,9 @@ EOF
     fi
 
     wait_for_http "http://127.0.0.1:${BOOT_WEB_PORT}/health/live"
+    if [[ "$BITCOIN_NOTIFICATION_MODE" == "attached-node" ]]; then
+        wait_for_readiness "http://127.0.0.1:${BOOT_WEB_PORT}/health/ready"
+    fi
 
     local pubkey
     pubkey="$(read_pubkey || true)"
