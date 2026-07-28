@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Security.Cryptography;
 
 namespace boot_portal.Utils;
 
@@ -10,6 +11,87 @@ public sealed class BitcoinTransactionOutput
 
 public static class BitcoinTransactionParser
 {
+    public static byte[] ComputeTransactionIdHash(byte[] transactionBytes)
+    {
+        if (transactionBytes.Length < 10)
+        {
+            throw new InvalidOperationException("Coinbase transaction is too short.");
+        }
+
+        int offset = 0;
+        SkipBytes(transactionBytes, ref offset, 4); // version
+
+        bool hasWitness = offset + 2 <= transactionBytes.Length &&
+                          transactionBytes[offset] == 0x00 &&
+                          transactionBytes[offset + 1] != 0x00;
+        if (hasWitness)
+        {
+            SkipBytes(transactionBytes, ref offset, 2); // marker + flag
+        }
+
+        int inputsStart = offset;
+        ulong inputCount = ReadVarInt(transactionBytes, ref offset);
+        if (inputCount == 0)
+        {
+            throw new InvalidOperationException("Coinbase transaction has no inputs.");
+        }
+
+        for (ulong i = 0; i < inputCount; i++)
+        {
+            SkipInput(transactionBytes, ref offset);
+        }
+
+        ulong outputCount = ReadVarInt(transactionBytes, ref offset);
+        if (outputCount > 1024)
+        {
+            throw new InvalidOperationException("Coinbase transaction output count is unreasonable.");
+        }
+
+        for (ulong i = 0; i < outputCount; i++)
+        {
+            SkipBytes(transactionBytes, ref offset, 8); // value
+            ulong scriptLength = ReadVarInt(transactionBytes, ref offset);
+            SkipBytes(transactionBytes, ref offset, scriptLength);
+        }
+        int outputsEnd = offset;
+
+        if (hasWitness)
+        {
+            for (ulong i = 0; i < inputCount; i++)
+            {
+                ulong itemCount = ReadVarInt(transactionBytes, ref offset);
+                for (ulong item = 0; item < itemCount; item++)
+                {
+                    ulong itemLength = ReadVarInt(transactionBytes, ref offset);
+                    SkipBytes(transactionBytes, ref offset, itemLength);
+                }
+            }
+        }
+
+        int locktimeOffset = offset;
+        SkipBytes(transactionBytes, ref offset, 4);
+        if (offset != transactionBytes.Length)
+        {
+            throw new InvalidOperationException("Coinbase transaction has trailing bytes.");
+        }
+
+        if (!hasWitness)
+        {
+            return DoubleSha256(transactionBytes);
+        }
+
+        byte[] transactionIdPreimage = new byte[
+            4 +
+            (outputsEnd - inputsStart) +
+            4];
+        transactionBytes.AsSpan(0, 4).CopyTo(transactionIdPreimage);
+        transactionBytes.AsSpan(inputsStart, outputsEnd - inputsStart)
+            .CopyTo(transactionIdPreimage.AsSpan(4));
+        transactionBytes.AsSpan(locktimeOffset, 4)
+            .CopyTo(transactionIdPreimage.AsSpan(transactionIdPreimage.Length - 4));
+        return DoubleSha256(transactionIdPreimage);
+    }
+
     public static List<BitcoinTransactionOutput> ParseOutputs(byte[] transactionBytes)
     {
         if (transactionBytes.Length < 10)
@@ -157,5 +239,10 @@ public static class BitcoinTransactionParser
         {
             throw new InvalidOperationException("Coinbase transaction is truncated.");
         }
+    }
+
+    private static byte[] DoubleSha256(byte[] bytes)
+    {
+        return SHA256.HashData(SHA256.HashData(bytes));
     }
 }
