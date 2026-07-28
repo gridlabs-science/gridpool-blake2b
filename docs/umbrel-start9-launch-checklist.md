@@ -285,16 +285,16 @@ Goal: make installation boring and reversible.
   platform manifests, review history, and release cadence do not clutter or
   implicitly version the consensus implementation. Each wrapper must pin an
   immutable reference-node image digest.
-- [ ] Create the Umbrel package wrapper and sideload it on Detroit.
-- [ ] Create the StartOS package wrapper and sideload it on the local DC node.
-- [ ] Decide how the native SV2 companion obtains templates from appliance
-  Bitcoin services. The current SRI-derived pool uses Bitcoin Core mining IPC;
-  Umbrel/StartOS dependency boundaries generally expose RPC/network services,
-  not a host IPC socket. Add a supported remote template-provider or RPC-backed
-  path rather than bundling a second Bitcoin node.
-- [ ] Package native SV2 as the default/only promised miner-facing transport
-  once that appliance template-provider path is validated. Do not enable DATUM
-  or raw SV1 by default.
+- [x] Create the Umbrel package wrapper in `gridpool-umbrel`; sideload and soak
+  it on Detroit remains open.
+- [x] Create the StartOS package wrapper in `gridpool-startos`; sideload and
+  soak it on the local DC node remains open.
+- [x] Add a standard Bitcoin JSON-RPC template provider to the SRI-derived
+  native SV2 pool. Core 31 operators may prefer IPC, while Bitcoin Knots, older
+  Core, Docker, Umbrel, and StartOS use `getblocktemplate`/`submitblock` without
+  bundling a second Bitcoin node.
+- [x] Package native SV2 as the default and only promised miner-facing
+  transport. DATUM and raw SV1 remain disabled in both appliance wrappers.
 - [x] Provide Docker image tags for stable beta releases.
 - [x] Provide sample config for mainnet beta Docker/manual installs.
 - [x] Provide separate sample config for testnet4 beta installs.
@@ -328,7 +328,16 @@ Current evidence:
 - Main documented node defaults are `5000` WebUI/API and `5001/udp` peer fast
   relay. Port `3008` remains available for experimental DATUM deployments but
   is not part of the initial appliance support promise.
-- Raspberry Pi/full-stack installer docs exist, but appliance packaging is not yet complete enough for Umbrel/Start9 users.
+- Raspberry Pi/full-stack installer docs and both appliance wrapper sources now
+  exist; neither appliance package is release-ready until its sideload canary
+  and upgrade/backup tests pass.
+- `gridpool-sv2-pool` RPC mode passed unit tests, the wider SRI miner-workspace
+  compile, and a live Core 31 mainnet template/tip-transition smoke test.
+- The StartOS package passes TypeScript checking and JavaScript bundling. Final
+  `.s9pk` packing and sideload testing require a reachable StartOS build target.
+- The Umbrel wrapper passes structural/template checks. Its first-run shell
+  configuration is acceptable for sideload testing but must become an in-app
+  payout-address setup screen before official app-store submission.
 
 ## G5.5: Miner Firmware, Rental, And Stratum V2 Compatibility
 
