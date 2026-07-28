@@ -12,16 +12,24 @@ does not weaken the gates below.
 
 - [x] Consensus selection rule audited and frozen for the first packaged beta. V2.2 Monotonic Snapshot Reconciliation is implemented and height-gated for coordinated activation at Bitcoin height `959500`.
 - [x] Protocol/API/state/peer version fields and compatibility checks are implemented.
-- [ ] External multi-node beta runs stably for at least 7 consecutive days. Monitoring is implemented; the clock still needs to run.
+- [ ] A pinned multi-region beta runs stably for at least 7 consecutive days.
+  Main and Oregon are the required soak anchors; other operator nodes add
+  evidence when available but do not control the clock.
 - [ ] Hidden/outbound-only node behavior is clear, observable, and safe.
-- [ ] Install and upgrade paths are repeatable on clean machines.
+- [ ] Umbrel and StartOS sideload packages complete install, upgrade, restart,
+  backup, and recovery canaries on real appliances.
 - [ ] Public docs and UI match V2.2 snapshot-family reconciliation and current operational reality. Core technical docs are updated; the full UI audit remains open.
-- [ ] Firmware and rental compatibility with 300-slot coinbases is tested and documented. The community matrix shell exists, but enough real test rows have not been collected yet.
+- [x] Initial miner-transport support policy is explicit: native SV2 is the
+  only promised production path; Stratum V1 firmware, rental services, and
+  DATUM remain experimental/unsupported unless a specific version is listed as
+  tested.
 - [x] Monitoring catches the failure classes already seen in public beta.
 - [ ] Security/privacy review is complete: no secret logging, private nodes do
   not leak endpoints/IPs, and unauthenticated UI/API fields are intentionally
   classified and redacted.
-- [ ] Repo is clean enough that outside contributors can orient quickly. G6 now has a target architecture map; remaining work is README/docs pruning and more archive passes.
+- [x] Repo and cross-project handbook are organized enough for outside
+  contributors to find current specifications, runtime code, adapters, and
+  archived research.
 
 ## G1: Consensus Selection And State Convergence
 
@@ -59,7 +67,8 @@ Short-term consensus checklist:
 - [x] Decide whether V2.1 state selection plus non-retroactive snapshot boundaries is "good enough for beta" or whether package launch waits for a coordinated V3 rule.
 - [x] Coordinate V2.1 rollout: heal current public-node state first, then deploy code and config with `boot_protocol_version: 21` together on all participating nodes.
 - [x] Deploy V2.2-capable binaries with height-gated activation and pre-activation V2.1 compatibility.
-- [ ] Verify coordinated V2.2 activation at height `959500`, schema transition 2 to 3, and post-activation peer reconnection on every public node.
+- [x] Verify coordinated V2.2 activation at height `959500`, schema transition
+  2 to 3, and post-activation reconnection on participating public nodes.
 - [ ] Complete seven post-activation days without unexplained same-tip divergence, state wipe, or manual branch selection.
 - [x] Resolve the Grid Labs support-fee construction for the reference network:
   support-on only with one canonical `1/300` output; support-off and custom fee
@@ -112,7 +121,8 @@ Current evidence:
 
 Goal: make the current beta boring before inviting one-click installers.
 
-- [x] Monitor at least 2 independently operated mainnet beta nodes.
+- [x] Monitor at least 2 mainnet beta nodes in independent geographic and
+  infrastructure fault domains.
 - [ ] Complete 7 consecutive days of stable external multi-node beta runtime.
 - [x] Monitor at least 1 testnet4 node for real GridPool-block trigger testing.
 - [x] Track DATUM acceptance rate by node and by rejection reason.
@@ -124,32 +134,50 @@ Goal: make the current beta boring before inviting one-click installers.
 - [x] Write compact monitor logs for later Codex/human review.
 - [x] Add `dallas.gridpool.net` to the production monitor config once its deployed version is compatible.
 - [x] Add `detroit.gridpool.net` and incident-start diagnostic capture to the production monitor.
-- [ ] Start the canonical seven-day clock only after all public nodes activate V2.2 and reconverge.
+- [ ] Put Main and Oregon on one pinned, provenanced commit and start the
+  canonical seven-day protocol clock once both are healthy, V2.2-aligned, and
+  converged, with the same consensus-adjacent safety configuration including
+  `enable_peer_tip_stale_protection`. Dallas may participate in explicit
+  `external-fallback` mode.
+  Evomining and Detroit contribute opportunistic evidence when reachable but
+  are not required soak anchors.
 - [ ] Record operator experiments and planned restarts so they are not misclassified as protocol failures.
-- [ ] Add at least one remote StratumRace vantage with an attached Bitcoin node and verified clock health.
+- [x] Add at least one remote StratumRace vantage with an attached Bitcoin node
+  and verified clock health. Oregon is the controlled remote vantage.
 - [ ] Generate a multi-vantage StratumRace report with sample counts, median/p95 timing, missing-event rates, and topology caveats.
+- [ ] Run an overlapping package canary on the Detroit Umbrel and local DC
+  Start9. Package-only changes reset the package canary; they reset the
+  protocol soak only if shared runtime behavior or state compatibility changes.
 
 Completion criteria:
 
 - No unexplained payout mismatch bursts for 7 days.
 - No unexplained state divergence lasting more than 10 minutes.
-- DATUM share acceptance is above 95% after excluding clearly invalid solo fallback or firmware-truncated templates.
-- Any lower acceptance rate has a documented root cause and mitigation.
+- Native SV2 job delivery, slot-0 attribution, accepted-share flow, durable
+  retry, restart recovery, and local block submission are exercised without
+  unexplained failure.
+- Any experimental DATUM/SV1/CKPool observations are labeled by exact adapter
+  and version and are not treated as launch support guarantees.
 - External tester can upgrade from a previous beta release without wiping state.
-- At least one full 300-output coinbase stress run is completed against representative firmware and rental providers before recommending them publicly.
+- No Stratum V1 firmware or rental provider is recommended publicly without an
+  exact full-coinbase test result; lack of matrix coverage does not block an
+  SV2-only package launch.
 
 Current evidence:
 
 - `scripts/gridpool-health-monitor.mjs` compares `mainnet-beta` nodes separately from `testnet4-beta`.
-- Live config currently monitors `main.gridpool.net`, `test.gridpool.net`, `evomining.farted.net`, `dallas.gridpool.net`, and `detroit.gridpool.net`.
+- Live config monitors `main.gridpool.net`, `oregon.gridpool.net`,
+  `test.gridpool.net`, `evomining.farted.net`, `dallas.gridpool.net`, and
+  `detroit.gridpool.net`.
 - DATUM TCP endpoint checks cover `datum.main.gridpool.net:3008`, `datum.test.gridpool.net:3009`, and `datum.dallas.gridpool.net:3008`.
 - Monitor logs are written to `~/.local/state/gridpool-monitor/latest-summary.json`, `latest-consensus.json`, incident bundles, and dated JSONL files.
-- Main, Evomining, Dallas, and Detroit are compared as one mainnet consensus
-  group. The monitor distinguishes different-height propagation lag from
-  same-boundary state divergence.
-- StratumRace records Main's local DATUM, CKPool, Hydrapool, and SV2 timing plus
-  GridPool chain-tip events. Authenticated remote ingestion exists, but the
-  current data set is still effectively single-vantage.
+- Main and Oregon are the required mainnet soak pair. Evomining, Dallas, and
+  Detroit remain in the same comparison group when reachable. The monitor
+  distinguishes different-height propagation lag from same-boundary state
+  divergence.
+- StratumRace records Main and Oregon as controlled vantages, including local
+  mining endpoints and GridPool chain-tip events. Cross-vantage clock quality
+  and sample completeness remain part of the final report.
 
 ## G4: Networking And NAT Readiness
 
@@ -186,9 +214,12 @@ Long-term censorship-resistance posture:
 - [x] Implement opt-in peer-header stale-work protection: validate PoW/parent/freshness/expected mainnet target, freeze a provisional Work Set boundary, pause fresh work after a grace period, quarantine late old-parent proofs, and require local full-node confirmation before activation.
 - [x] Serialize Bitcoin ZMQ notifications and deduplicate paired `hashblock`/`rawblock` delivery so one block cannot create duplicate snapshots or phantom heights.
 - [x] Add an immediate authenticated RPC reconciliation request when a verified peer header indicates `local-bitcoin-lagging`.
-- [ ] Validate the attached-node coordinator on Main, Evomining, and Detroit for at least three blocks each.
+- [ ] Validate the attached-node coordinator on Main and Oregon for at least
+  three blocks each on the exact soak commit. Add Evomining and Detroit samples
+  when those operators restore stable service.
 - [ ] Keep Dallas in explicit `external-fallback` mode and confirm it emits no missing-local-ZMQ warning.
-- [ ] Pass a 24-hour no-intervention canary on one provenanced commit, then reset and begin the seven-day soak.
+- [ ] Pass a 24-hour no-intervention Main/Oregon canary on one provenanced
+  commit, then reset and begin the seven-day protocol soak.
 - [ ] Coordinate enabling `enable_peer_tip_stale_protection` on every active mainnet-beta node; mixed boundary behavior can produce a short-lived snapshot split.
 - [ ] Design any future peer-header snapshot activation as a post-V2.2 consensus
   change with deterministic vectors for competing headers, reorganizations,
@@ -227,8 +258,10 @@ Current evidence:
 - The attached-node coordinator now records ZMQ sequences and publisher
   configuration, polls authenticated RPC, recovers missed blocks in height
   order, and requests immediate reconciliation after a verified peer lead.
-- Installer and runtime contract implementation is complete; public-node
-  recovery, three-block verification, and the canary/soak gates remain open.
+- Installer and runtime contract implementation is complete. Oregon now
+  provides a controlled remote attached-node fault domain; it must be rebuilt
+  with commit provenance and pinned to the same release as Main before the
+  three-block verification and canary begin.
 - Peer-relayed headers remain non-final: stale-work protection may freeze
   provisionally and pause stale work, but only the locally attached Bitcoin node
   can activate a snapshot. Peer headers do not authorize payment transitions or
@@ -240,24 +273,50 @@ Current evidence:
 
 Goal: make installation boring and reversible.
 
-- [ ] Decide package architecture for Umbrel.
-- [ ] Decide package architecture for Start9.
-- [ ] Confirm whether Start9 package should live in this repo or a separate wrapper repo.
+- [x] Decide package architecture for Umbrel: a thin platform wrapper pins the
+  reference-node image, persists `/data`, uses the Umbrel Bitcoin dependency
+  for RPC/ZMQ, keeps the UI private behind the app proxy, and defaults to safe
+  outbound-only peer participation.
+- [x] Decide package architecture for StartOS: a thin platform wrapper pins the
+  same reference-node release, consumes dependency-provided Bitcoin RPC/ZMQ,
+  persists identity/state separately from the image, and exposes private
+  operator actions for backup, restore, and diagnostics.
+- [x] Keep Umbrel and StartOS package definitions outside this runtime repo so
+  platform manifests, review history, and release cadence do not clutter or
+  implicitly version the consensus implementation. Each wrapper must pin an
+  immutable reference-node image digest.
+- [ ] Create the Umbrel package wrapper and sideload it on Detroit.
+- [ ] Create the StartOS package wrapper and sideload it on the local DC node.
+- [ ] Decide how the native SV2 companion obtains templates from appliance
+  Bitcoin services. The current SRI-derived pool uses Bitcoin Core mining IPC;
+  Umbrel/StartOS dependency boundaries generally expose RPC/network services,
+  not a host IPC socket. Add a supported remote template-provider or RPC-backed
+  path rather than bundling a second Bitcoin node.
+- [ ] Package native SV2 as the default/only promised miner-facing transport
+  once that appliance template-provider path is validated. Do not enable DATUM
+  or raw SV1 by default.
 - [x] Provide Docker image tags for stable beta releases.
 - [x] Provide sample config for mainnet beta Docker/manual installs.
 - [x] Provide separate sample config for testnet4 beta installs.
-- [x] Provide safe default ports for UI, DATUM, peer HTTP/WebSocket, and UDP relay.
+- [x] Provide safe default ports for UI, peer HTTP/WebSocket, UDP relay, and the
+  optional experimental DATUM listener.
 - [ ] Provide migration scripts for state files.
 - [ ] Provide backup and restore docs for node identity keys and pool state.
 - [ ] Test fresh install on a clean Linux VM.
 - [ ] Test fresh install on Raspberry Pi 5 or equivalent ARM64 host.
 - [ ] Test upgrade from previous release without wiping state.
 - [ ] Test uninstall leaves keys/state backed up or clearly prompts before deletion.
+- [ ] Run the Umbrel and StartOS package builds for seven days overlapping the
+  protocol soak, including at least one planned restart and one upgrade.
 
 Completion criteria:
 
 - Fresh install reaches the mainnet beta seed and syncs state.
-- Fresh install shows correct DATUM connection info.
+- Fresh install accepts a payout address, uses the platform Bitcoin node, keeps
+  private diagnostics behind platform authentication, and clearly reports
+  outbound-only versus publicly reachable peer status.
+- A mining-enabled package shows correct native SV2 connection information and
+  fails visibly if its Bitcoin template-provider dependency is unavailable.
 - Upgrade preserves node identity and state.
 - Package logs are visible in the platform UI or documented shell path.
 
@@ -266,20 +325,38 @@ Current evidence:
 - Docker sample config exists at `docker/boot_portal_config.sample.json`.
 - Testnet4 sample config exists at `docker/boot_portal_config.testnet4.sample.json`.
 - GitHub Actions publishes branch, tag, SHA, and `latest` images to GHCR; `develop` is available for staging once that branch exists.
-- Main documented defaults are `5000` WebUI/API, `3008` DATUM, and `5001/udp` peer fast relay.
+- Main documented node defaults are `5000` WebUI/API and `5001/udp` peer fast
+  relay. Port `3008` remains available for experimental DATUM deployments but
+  is not part of the initial appliance support promise.
 - Raspberry Pi/full-stack installer docs exist, but appliance packaging is not yet complete enough for Umbrel/Start9 users.
 
 ## G5.5: Miner Firmware, Rental, And Stratum V2 Compatibility
 
-Goal: avoid launching a 300-slot team that silently breaks common ASIC firmware or rental intermediaries.
+Goal: launch with one narrow miner path that avoids the 300-output coinbase
+limit, while preserving honest experimental data about other transports.
+
+Launch support decision:
+
+- Native SV2 firmware connected to `gridpool-sv2-pool` is the only explicitly
+  supported production miner path for the initial appliance beta.
+- Stratum V1 firmware and hashrate rentals are untested and not guaranteed.
+  The compatibility matrix remains a community research project, not a launch
+  gate and not a claim of broad support.
+- DATUM support is deprecated for the initial appliance beta. The server and
+  lab tooling remain available for research, but DATUM is not enabled or
+  advertised by default until upstream offers deterministic forced coinbase
+  selection and the complete path passes sustained testing.
+- GridPool consensus still requires the full payout set. No adapter may
+  truncate, reorder, or silently replace outputs to accommodate firmware.
 
 - [x] Build a repeatable community firmware compatibility matrix shell for the 300-slot beta team.
-- [ ] Test uncondensed 300-output coinbases against known-good sovereign firmware.
-- [ ] Test uncondensed 300-output coinbases against stock/older Bitmain-class firmware if available, and document failure behavior rather than supporting it silently.
-- [ ] Test at least one Whatsminer-class setup, one Bitaxe/AxeOS-class setup, and one alternate firmware path such as ePIC/PowerPlay-BM or VNish/xminer-class firmware.
-- [ ] Test hashrate rental paths before recommending any provider publicly.
+- [ ] Continue community testing of uncondensed 300-output coinbases, but do
+  not block the native-SV2 launch on matrix breadth.
+- [ ] Test specific SV1 firmware and rental paths before recommending that
+  exact version/provider; all untested rows remain explicitly unsupported.
 - [x] Publish a public compatibility table with `works`, `fails`, `untested`, `suspected works`, `suspected fails`, and `requires alternate firmware` states.
-- [ ] Add a UI/API warning when firmware truncation rejects are observed repeatedly from a local DATUM session.
+- [ ] Add a UI/API warning when firmware truncation rejects are observed
+  repeatedly from an explicitly enabled experimental DATUM session.
 - [x] Investigate whether DATUM coinbase-size selection can be made GridPool-safe with existing config. See [datum-gridpool-coinbase-compatibility.md](datum-gridpool-coinbase-compatibility.md).
 - [x] Propose or track a DATUM operating mode that can force or require a large coinbase class for GridPool-compatible templates.
 - [x] Stand up the testnet full-coinbase compatibility endpoint with `coinbase_uncondensed_outputs_enabled: true`, separate state or network ID, and public `/compat` telemetry.
@@ -287,18 +364,30 @@ Goal: avoid launching a 300-slot team that silently breaks common ASIC firmware 
 - [x] Complete the Stratum V2/GridPool integration review in [stratum-v2-gridpool-evaluation.md](stratum-v2-gridpool-evaluation.md).
 - [x] Decide whether Stratum V2 standard-channel/header-only mining is the preferred long-term path for avoiding ASIC coinbase-size constraints.
 - [x] Add GridPool node-side SV2 work-selection API and smoke test. See [stratum-v2-gridpool-integration-plan.md](stratum-v2-gridpool-integration-plan.md) and `GET /api/mining/sv2-work-selection`.
-- [x] Prove a native SV2/JDC path can submit accepted shares into GridPool on mainnet beta with a Bitaxe-class miner.
+- [x] Prove a native SV2 path can submit accepted shares into GridPool on
+  mainnet beta with a Bitaxe-class miner.
 - [x] Replace the overbuilt JDC/JDS experiment with a maintained SRI Pool fork that talks directly to Bitcoin Core and the local GridPool node.
 - [x] Support per-channel slot-0 attribution, a global fallback payout address, batched vardiff telemetry, pulse/reserve proofs, and durable proof retry in the fork.
 - [ ] Run a sustained native-SV2 miner soak against the new `gridpool-sv2-pool` fork and verify slot-0 attribution plus block submission end to end.
 - [ ] Replace temporary SV2 beta keys/config with production-managed keys before broad public advertising.
 - [ ] Document public SV2 endpoint operation, monitoring, restart behavior, and upgrade process.
+- [ ] Validate at least one named native-SV2 ASIC firmware/version through job
+  delivery, accepted shares, restart, snapshot transition, and slot-0
+  attribution; support claims apply only to tested firmware versions.
+- [ ] Remove DATUM connection instructions from the default Umbrel/StartOS
+  onboarding flow and label manual DATUM/SV1 docs experimental.
+- [ ] Update `gridpool.net` connection guidance so native SV2 is the supported
+  appliance path and DATUM/SV1/rentals are clearly experimental.
 
 Completion criteria:
 
-- A miner can check the docs before renting or redirecting hashrate and know whether their firmware path is expected to work with a full 300-slot payout list.
-- The beta website clearly says that firmware/rental support is compatibility-tested, not assumed.
-- The project has a written decision on whether SV2 support is a launch-adjacent priority or a post-Umbrel/Start9 roadmap item.
+- The package and website identify native SV2 as the supported path and do not
+  imply that ordinary SV1, rentals, or DATUM are guaranteed.
+- A miner can check the community matrix before experimenting and distinguish
+  exact tested evidence from unsupported or suspected behavior.
+- A native-SV2 ASIC can mine through a packaged node without receiving the
+  large coinbase transaction, while slot-0 attribution and local block
+  submission remain correct.
 
 Current evidence:
 
@@ -309,6 +398,9 @@ Current evidence:
 - A DATUM PR now exists for `coinbase_selection_mode = "force"` plus known-incompatible client disconnects before oversized work is served.
 - The first recommended lab endpoint shape is `test.gridpool.net/compat`, `datum.test.gridpool.net:3009` for DATUM gateways, and `stratum.test.gridpool.net:3334` for raw Stratum V1 ASICs, backed by testnet uncondensed output mode.
 - Native SV2 is now the preferred long-term path for firmware that cannot safely parse large SV1/DATUM coinbases. The maintained implementation is the `gridpool-sv2-pool` fork: SV2 miners connect directly to the fork, which uses Bitcoin Core IPC and authenticated local GridPool APIs without JDC/JDS.
+- The DATUM PR has not been adopted upstream, so current DATUM behavior cannot
+  be made deterministic from stock configuration. This is the reason for
+  deprecating, rather than deleting, the integration for the initial package.
 
 ## G5.6: Mining Gateway Integrations
 
@@ -392,7 +484,8 @@ Goal: public-facing language must match V2.2 consensus and current operational r
 - [x] Replace or remove the V1-era intro video.
 - [x] Update website FAQ for pool hopping, payout snapshots, block withholding, firmware coinbase limits, and outbound-only nodes.
 - [x] Update node UI terminology:
-  `active payout snapshot`, `unpaid Work Set`, `current shared payout slots`, and `local DATUM hashrate`.
+  `active payout snapshot`, `unpaid Work Set`, `current shared payout slots`,
+  and source-aware `local mining hashrate`.
 - [x] Remove or rename V1 leftovers in Nerd Mode.
 - [x] Add a clear testnet/mainnet visual banner.
 - [x] Add current consensus version and network ID to Nerd Mode.
@@ -486,7 +579,10 @@ Before Umbrel/Start9 launch, answer yes to all:
 - [ ] Can a fresh install sync without handholding?
 - [ ] Can a nontechnical user recover from restart/power loss?
 - [ ] Are public docs accurate enough that users will not connect unsupported firmware and blame the protocol?
-- [ ] Do we know which miner firmware and rental paths can handle a full 300-slot GridPool payout list?
+- [ ] Does at least one explicitly named native-SV2 ASIC firmware/version pass
+  the package soak end to end?
+- [ ] Are SV1 firmware, rentals, and DATUM clearly labeled
+  experimental/unsupported rather than implied to be launch-compatible?
 - [ ] Has the security/privacy review closed secret logging and private-node
   disclosure issues?
 - [x] Have at least two external operators run nodes successfully?

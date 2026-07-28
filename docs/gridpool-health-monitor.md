@@ -252,8 +252,8 @@ Tune these fields first:
 
 - `nodes`: GridPool UI/API endpoints.
   - Use `consensusGroup` to compare only nodes that should agree. Example:
-    `mainnet-beta` for `main.gridpool.net`, `evomining.farted.net`, and
-    `dallas.gridpool.net`, and `testnet4-beta` for `test.gridpool.net`.
+    `mainnet-beta` for `main.gridpool.net`, `oregon.gridpool.net`, and the
+    other public beta nodes, and `testnet4-beta` for `test.gridpool.net`.
   - `minimumPeerCount` is checked per node, but hidden/NATed peers may still
     be visible only through another public node.
   - Lab nodes can suppress noisy expected conditions with:
