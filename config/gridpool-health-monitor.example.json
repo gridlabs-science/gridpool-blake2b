@@ -49,6 +49,7 @@
     "hashrateSpikeMultiplier": 2.0,
     "hashrateSamplesForTrend": 3,
     "minimumHashrateThsForTrend": 1,
+    "localMiningFreshnessMinutes": 20,
     "activeHydrapoolWorkerMaxAgeMinutes": 60,
     "outboundRelayStaleMinutes": 10,
     "peerOutboundAttemptStaleMinutes": 10
@@ -69,7 +70,7 @@
       "minimumPeerCount": 0,
       "suppressCoinbaseModeAlert": true,
       "suppressTeamHashrateAlerts": true,
-      "suppressLocalDatumHashrateAlerts": true
+      "suppressLocalMiningHashrateAlerts": true
     },
     {
       "name": "evomining",
