@@ -205,15 +205,15 @@ function AddressModule(context: DashboardModuleContext) {
 
 function NetworkModule({ summary }: DashboardModuleContext) {
   const { health, snapshot } = summary;
-  const stateMatch = snapshot.currentStateId === snapshot.candidateStateId;
+  const candidatePrepared = Boolean(snapshot.candidateStateId);
   return (
     <Card title="Network convergence" eyebrow="V2.2 merge-forward">
       <div className="metric-grid metric-grid-3">
         <Metric label="Observed peers" value={health.peerCount} />
         <Metric
-          label="Candidate"
-          value={stateMatch ? "aligned" : "converging"}
-          tone={stateMatch ? "good" : "warn"}
+          label="Candidate status"
+          value={candidatePrepared ? "provisional" : "not prepared"}
+          tone={candidatePrepared ? "neutral" : "warn"}
         />
         <Metric label="Snapshot siblings" value={snapshot.familyMemberCount || 1} />
       </div>
@@ -224,7 +224,8 @@ function NetworkModule({ summary }: DashboardModuleContext) {
       </dl>
       <p className="explain">
         Compatible fully validated sibling reserves merge monotonically within the
-        same snapshot family. Peer count and later hashrate do not elect a winner.
+        same snapshot family. The current and candidate IDs normally differ; peer
+        count and later hashrate do not elect a winner.
       </p>
     </Card>
   );

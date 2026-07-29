@@ -43,4 +43,11 @@ describe("V2.2 dashboard language", () => {
     expect(screen.getByText("Order statistic / non-consensus")).toBeInTheDocument();
     expect(screen.getByText("±3.3% RSE")).toBeInTheDocument();
   });
+
+  it("does not treat a distinct candidate ID as divergence", () => {
+    renderModule("network");
+    expect(screen.getByText("Candidate status")).toBeInTheDocument();
+    expect(screen.getByText("provisional")).toBeInTheDocument();
+    expect(screen.queryByText("converging")).not.toBeInTheDocument();
+  });
 });
