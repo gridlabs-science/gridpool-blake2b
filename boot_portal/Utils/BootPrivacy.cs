@@ -91,7 +91,7 @@ public static class BootPrivacy
             .TrimEnd('/');
     }
 
-    private static string KeepPublicDnsHost(string? host)
+    public static string KeepPublicDnsHost(string? host)
     {
         string value = host?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(value) ||

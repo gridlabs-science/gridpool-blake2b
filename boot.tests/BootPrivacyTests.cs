@@ -98,6 +98,16 @@ public sealed class BootPrivacyTests
     }
 
     [DataTestMethod]
+    [DataRow("192.168.1.10", "")]
+    [DataRow("localhost", "")]
+    [DataRow("gridpool-node.local", "")]
+    [DataRow("datum.main.gridpool.net", "datum.main.gridpool.net")]
+    public void PublicDnsHostFilterDropsPrivateOrLocalNames(string host, string expected)
+    {
+        Assert.AreEqual(expected, BootPrivacy.KeepPublicDnsHost(host));
+    }
+
+    [DataTestMethod]
     [DataRow("http://192.168.1.10:5000", "private-endpoint")]
     [DataRow("203.0.113.10:5001", "private-endpoint")]
     [DataRow("", "outbound-only-peer")]

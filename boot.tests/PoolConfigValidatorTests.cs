@@ -22,6 +22,15 @@ public sealed class PoolConfigValidatorTests
     }
 
     [TestMethod]
+    public void DashboardDefaultsToEnabledWithLegacyFallback()
+    {
+        var config = new PoolConfig();
+
+        Assert.IsTrue(config.EnableWebUi);
+        Assert.IsTrue(config.EnableLegacyUi);
+    }
+
+    [TestMethod]
     public void BitcoinNotificationConfigurationRejectsUnsafeOrAmbiguousRpcSettings()
     {
         var config = new PoolConfig

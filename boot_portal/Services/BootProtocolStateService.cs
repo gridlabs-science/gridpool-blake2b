@@ -53,6 +53,7 @@ public class BootProtocolStateService
     private readonly BootPeerLoopHealth _peerLoopHealth;
     private readonly BootPeerIdentity? _peerIdentity;
     private readonly BitcoinNotificationHealth? _bitcoinNotificationHealth;
+    private readonly DashboardTelemetryService? _dashboardTelemetry;
     private bool _identityChanged;
     private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
     private readonly JsonSerializerOptions _compactJsonOptions = new() { WriteIndented = false };
@@ -120,7 +121,8 @@ public class BootProtocolStateService
         ILogger<BootProtocolStateService> logger,
         BootPeerLoopHealth? peerLoopHealth = null,
         BootPeerIdentity? peerIdentity = null,
-        BitcoinNotificationHealth? bitcoinNotificationHealth = null)
+        BitcoinNotificationHealth? bitcoinNotificationHealth = null,
+        DashboardTelemetryService? dashboardTelemetry = null)
     {
         _poolConfig = poolConfig;
         _shareVerifier = shareVerifier;
@@ -129,6 +131,7 @@ public class BootProtocolStateService
         _peerLoopHealth = peerLoopHealth ?? new BootPeerLoopHealth();
         _peerIdentity = peerIdentity;
         _bitcoinNotificationHealth = bitcoinNotificationHealth;
+        _dashboardTelemetry = dashboardTelemetry;
         LoadState();
 
         string? restoredProvisionalHash = null;
@@ -165,6 +168,8 @@ public class BootProtocolStateService
         {
             ScheduleProvisionalTipGraceCheck(restoredProvisionalHash, restoredGeneration);
         }
+
+        _dashboardTelemetry?.ObserveAdmissionFloor(GetWorkSetAdmissionDifficulty(), DateTime.UtcNow);
     }
 
     public ChannelReader<BootShareProof> AcceptedShares => _acceptedShares.Reader;
@@ -275,6 +280,14 @@ public class BootProtocolStateService
         lock (_sync)
         {
             return BuildNetworkStatusNoLock();
+        }
+    }
+
+    public BootNetworkStatusDto GetPublicNetworkStatus()
+    {
+        lock (_sync)
+        {
+            return BootPrivacy.RedactPublicNetworkStatus(BuildNetworkStatusNoLock());
         }
     }
 
@@ -1039,7 +1052,7 @@ public class BootProtocolStateService
 
         if (shouldNotifyNetwork)
         {
-            QueueRealtimeSend(_hubContext.Clients.All.SendAsync("UpdateNetworkState", result.NetworkStatus), "UpdateNetworkState");
+            QueueRealtimeSend(_hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus()), "UpdateNetworkState");
         }
 
         return result;
@@ -2305,6 +2318,7 @@ public class BootProtocolStateService
             proof.StateServiceReceivedUtc = arrivalUtc;
             proof.DifficultyCheckedUtc = difficultyCheckedUtc;
             proof.ValidationCompletedUtc = validationCompletedUtc;
+            double admissionFloorDifficulty = GetWorkSetAdmissionDifficultyNoLock();
 
             int insertIndex = 0;
 
@@ -2511,10 +2525,21 @@ public class BootProtocolStateService
             if (!pulseAccepted)
             {
                 RecordAcceptedShareTelemetryNoLock(proof);
+                _dashboardTelemetry?.ObserveWorkProof(
+                    proof.ShareId,
+                    proof.Source,
+                    proof.Difficulty,
+                    admissionFloorDifficulty,
+                    arrivalUtc);
             }
             else if (!BootPeerSource.TryParsePeerSource(share.Source, out _, out _, out _))
             {
                 _peerLoopHealth.RecordLocalPulse(proof.Timestamp);
+                _dashboardTelemetry?.ObservePulse(proof.ShareId, proof.Source, arrivalUtc);
+            }
+            else
+            {
+                _dashboardTelemetry?.ObservePulse(proof.ShareId, proof.Source, arrivalUtc);
             }
             RecordShareDiagnosticNoLock(
                 share.Source,
@@ -2600,7 +2625,7 @@ public class BootProtocolStateService
 
         if (shouldNotifyNetwork)
         {
-            QueueRealtimeSend(_hubContext.Clients.All.SendAsync("UpdateNetworkState", result.NetworkStatus), "UpdateNetworkState");
+            QueueRealtimeSend(_hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus()), "UpdateNetworkState");
         }
         if (shouldRelay && result.AcceptedProof != null)
         {
@@ -3348,7 +3373,7 @@ public class BootProtocolStateService
         }
 
         await _hubContext.Clients.All.SendAsync("UpdateOnDeck", result.OnDeckList);
-        await _hubContext.Clients.All.SendAsync("UpdateNetworkState", result.NetworkStatus);
+        await _hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus());
         await _hubContext.Clients.All.SendAsync("UpdateRoundHistory", GetRoundHistory());
         if (winnersChanged)
         {
@@ -3415,7 +3440,7 @@ public class BootProtocolStateService
 
         await _hubContext.Clients.All.SendAsync("UpdateWinners", winnersSnapshot);
         await _hubContext.Clients.All.SendAsync("UpdateOnDeck", onDeckSnapshot);
-        await _hubContext.Clients.All.SendAsync("UpdateNetworkState", networkStatus);
+        await _hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus());
         await _hubContext.Clients.All.SendAsync("UpdateRoundHistory", GetRoundHistory());
         await NotifyWinnersListChangedAsync("genesis-reset");
         await NotifyWorkTemplatesInvalidatedAsync("genesis-reset");
@@ -3673,7 +3698,7 @@ public class BootProtocolStateService
             await NotifyWinnersListChangedAsync($"chain-tip:{source}");
         }
 
-        await _hubContext.Clients.All.SendAsync("UpdateNetworkState", status);
+        await _hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus());
         if (!snapshotChanged)
         {
             await NotifyWorkTemplatesInvalidatedAsync($"chain-tip:{source}");
@@ -4038,7 +4063,7 @@ public class BootProtocolStateService
         {
             _logger.LogInformation("Merged candidate reserve proofs from {StateId} via {SourceEndpoint}.", bundle.StateId, sourceEndpoint);
             await _hubContext.Clients.All.SendAsync("UpdateOnDeck", onDeckSnapshot);
-            await _hubContext.Clients.All.SendAsync("UpdateNetworkState", networkStatus);
+            await _hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus());
         }
 
         return imported;
@@ -4349,7 +4374,7 @@ public class BootProtocolStateService
             _logger.LogInformation("Adopted locked state {StateId} from {SourceEndpoint}.", bundle.StateId, sourceEndpoint);
             await _hubContext.Clients.All.SendAsync("UpdateWinners", winnersSnapshot);
             await _hubContext.Clients.All.SendAsync("UpdateOnDeck", onDeckSnapshot);
-            await _hubContext.Clients.All.SendAsync("UpdateNetworkState", networkStatus);
+            await _hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus());
             await _hubContext.Clients.All.SendAsync("UpdateRoundHistory", GetRoundHistory());
             await NotifyWinnersListChangedAsync($"adopted-state:{sourceEndpoint}");
         }
@@ -4568,7 +4593,7 @@ public class BootProtocolStateService
         }
 
         await _hubContext.Clients.All.SendAsync("UpdateOnDeck", onDeckSnapshot);
-        await _hubContext.Clients.All.SendAsync("UpdateNetworkState", networkStatus);
+        await _hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus());
         if (payoutChanged)
         {
             await _hubContext.Clients.All.SendAsync("UpdateWinners", winnersSnapshot);
@@ -4751,7 +4776,7 @@ public class BootProtocolStateService
                 sourceEndpoint);
             await _hubContext.Clients.All.SendAsync("UpdateWinners", winnersSnapshot);
             await _hubContext.Clients.All.SendAsync("UpdateOnDeck", onDeckSnapshot);
-            await _hubContext.Clients.All.SendAsync("UpdateNetworkState", networkStatus);
+            await _hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus());
             await _hubContext.Clients.All.SendAsync("UpdateRoundHistory", GetRoundHistory());
             await NotifyWinnersListChangedAsync($"bootstrap-state:{sourceEndpoint}");
         }
@@ -4807,7 +4832,7 @@ public class BootProtocolStateService
                 "Synced current-round metadata for state {StateId} from {SourceEndpoint}.",
                 stateId,
                 sourceEndpoint);
-            await _hubContext.Clients.All.SendAsync("UpdateNetworkState", networkStatus);
+            await _hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus());
         }
 
         return changed;
@@ -5449,6 +5474,7 @@ public class BootProtocolStateService
     {
         _state.OnDeckProofs = SortAndTrimProofs(_state.OnDeckProofs, _poolConfig.WorkSetReserveLimit);
         _state.OnDeckList = BuildFeeFreePayoutsFromProofs(_state.OnDeckProofs);
+        _dashboardTelemetry?.ObserveAdmissionFloor(GetWorkSetAdmissionDifficultyNoLock(), DateTime.UtcNow);
     }
 
     private bool HasSnapshotContextNoLock(string? snapshotId)
@@ -10649,7 +10675,7 @@ public class BootProtocolStateService
             await NotifyWorkTemplatesInvalidatedAsync("peer-tip-stale-protection");
             if (status != null)
             {
-                await _hubContext.Clients.All.SendAsync("UpdateNetworkState", status);
+                await _hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus());
             }
         });
     }

@@ -1,3 +1,10 @@
+FROM node:24-bookworm-slim AS dashboard-build
+WORKDIR /src/boot_portal/ui
+COPY boot_portal/ui/package.json boot_portal/ui/package-lock.json ./
+RUN npm ci
+COPY boot_portal/ui/ ./
+RUN npm run build
+
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
@@ -5,6 +12,7 @@ COPY boot_portal/boot_portal.csproj boot_portal/
 RUN dotnet restore boot_portal/boot_portal.csproj
 
 COPY . .
+COPY --from=dashboard-build /src/boot_portal/wwwroot/dashboard boot_portal/wwwroot/dashboard
 RUN dotnet publish boot_portal/boot_portal.csproj -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:9.0-bookworm-slim AS runtime

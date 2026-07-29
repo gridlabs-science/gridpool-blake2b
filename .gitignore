@@ -264,6 +264,10 @@ FakesAssemblies/
 # Node.js Tools for Visual Studio
 .ntvs_analysis.dat
 node_modules/
+boot_portal/wwwroot/dashboard/
+boot_portal/ui/test-results/
+boot_portal/ui/playwright-report/
+boot_portal/ui/*.tsbuildinfo
 
 # Typescript v1 declaration files
 typings/

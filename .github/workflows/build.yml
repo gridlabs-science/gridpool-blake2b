@@ -23,6 +23,20 @@ jobs:
       - name: Check tracked secrets and secret logging
         run: node scripts/security-source-check.mjs
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: boot_portal/ui/package-lock.json
+
+      - name: Build and test dashboard
+        working-directory: boot_portal/ui
+        run: |
+          npm ci
+          npm test
+          npm run build
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:

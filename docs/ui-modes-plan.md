@@ -1,5 +1,9 @@
 # GridPool UI Modes Plan
 
+> Superseded by the adaptive [V2.2 Dashboard](dashboard-v22.md). This document
+> is retained to explain the earlier Lottery/Business/Nerd design direction and
+> should not be used as the current implementation specification.
+
 ## Goal
 The current WebUI is excellent for protocol testing, debugging, and ops visibility, but it is too dense for a production-facing mining product. The public UI should support three distinct user mindsets:
 

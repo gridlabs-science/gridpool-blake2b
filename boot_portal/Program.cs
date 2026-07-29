@@ -144,6 +144,12 @@ public class PoolConfig
     [JsonPropertyName("WebUI_Port_https")]
     public int WebUiPortHttps { get; set; } = 0;
 
+    [JsonPropertyName("enable_web_ui")]
+    public bool EnableWebUi { get; set; } = true;
+
+    [JsonPropertyName("enable_legacy_ui")]
+    public bool EnableLegacyUi { get; set; } = true;
+
     [JsonPropertyName("peer_listener_port")]
     public int PeerListenerPort { get; set; } = 0;
 
@@ -705,7 +711,11 @@ public class Program
             Console.WriteLine("=======================================================\n");
 
             //UI Server stuff:
-            var builder = WebApplication.CreateBuilder(args);
+            var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+            {
+                Args = args,
+                WebRootPath = ResolveWebRootPath()
+            });
             builder.Configuration.AddJsonFile(configFilePath, optional: false, reloadOnChange: true);
             if (useLocalConfigOverlay)
             {
@@ -744,12 +754,23 @@ public class Program
             builder.Services.AddRazorPages(); // For serving simple HTML pages
             builder.Services.AddControllers();
             builder.Services.AddSignalR();    // For real-time updates
+            builder.Services.AddResponseCompression(options =>
+            {
+                options.EnableForHttps = true;
+            });
             builder.Services.AddSingleton(_poolConfig);
             builder.Services.AddSingleton<BitcoinNotificationHealth>();
             builder.Services.AddSingleton(new BootPeerIdentity(ed25519Key, x25519Key));
             builder.Services.AddSingleton<BootPeerLoopHealth>();
             builder.Services.AddSingleton<BootShareVerifier>();
+            builder.Services.AddSingleton<DashboardTelemetryService>();
+            builder.Services.AddHostedService(serviceProvider =>
+                serviceProvider.GetRequiredService<DashboardTelemetryService>());
             builder.Services.AddSingleton<BootProtocolStateService>();
+            builder.Services.AddSingleton<DashboardRevisionService>();
+            builder.Services.AddHostedService(serviceProvider =>
+                serviceProvider.GetRequiredService<DashboardRevisionService>());
+            builder.Services.AddSingleton<DashboardReadModelService>();
             builder.Services.AddSingleton<LocalMiningAdapterAuth>();
             builder.Services.AddSingleton<BootPeerSessionManager>();
             builder.Services.AddSingleton<BootPeerUdpRelayService>();
@@ -860,15 +881,75 @@ public class Program
                 await next();
             });
 
-            app.UseStaticFiles(); // Serve static files like CSS, JS, images
+            if (_poolConfig.EnableWebUi)
+            {
+                app.Use(async (context, next) =>
+                {
+                    if (!context.Request.Path.StartsWithSegments("/legacy") &&
+                        !context.Request.Path.StartsWithSegments("/api") &&
+                        !context.Request.Path.StartsWithSegments("/poolStatsHub") &&
+                        !context.Request.Path.StartsWithSegments("/dashboardHub"))
+                    {
+                        context.Response.Headers.ContentSecurityPolicy =
+                            "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; " +
+                            "style-src 'self'; script-src 'self'; font-src 'self'; object-src 'none'; " +
+                            "base-uri 'self'; frame-ancestors 'none'";
+                        context.Response.Headers["Referrer-Policy"] = "no-referrer";
+                        context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+                    }
+
+                    await next();
+                });
+                app.UseResponseCompression();
+                app.UseStaticFiles(new StaticFileOptions
+                {
+                    OnPrepareResponse = context =>
+                    {
+                        if (context.Context.Request.Path.StartsWithSegments("/dashboard/assets"))
+                        {
+                            context.Context.Response.Headers.CacheControl =
+                                "public, max-age=31536000, immutable";
+                        }
+                    }
+                });
+            }
             app.UseWebSockets();
             app.UseRouting();
             app.UseRateLimiter();
-            app.MapRazorPages(); // Use a simple page system
+            if (_poolConfig.EnableWebUi && _poolConfig.EnableLegacyUi)
+            {
+                app.MapRazorPages();
+            }
             app.MapControllers();
 
             // 3. Tell the app where your SignalR Hub lives
-            app.MapHub<PoolStatsHub>("/poolStatsHub"); // This is the URL your JS will use
+            app.MapHub<PoolStatsHub>("/poolStatsHub");
+            app.MapHub<DashboardHub>("/dashboardHub");
+            if (_poolConfig.EnableWebUi)
+            {
+                string dashboardIndexPath = Path.Combine(
+                    app.Environment.WebRootPath,
+                    "dashboard",
+                    "index.html");
+                if (File.Exists(dashboardIndexPath))
+                {
+                    app.MapMethods("/", ["GET", "HEAD"], () =>
+                        Results.File(dashboardIndexPath, "text/html; charset=utf-8"));
+                }
+                else if (_poolConfig.EnableLegacyUi)
+                {
+                    app.MapGet("/", () => Results.Redirect("/legacy"));
+                }
+            }
+            else
+            {
+                app.MapGet("/", () => Results.Json(new
+                {
+                    service = "gridpool",
+                    mode = "headless",
+                    dashboardApi = "/api/dashboard/v1/schema"
+                }));
+            }
             
             // Runs and blocks this thread while all other services run
             // Graceful shutdown is handled by the "AddHostedService" call above
@@ -890,6 +971,22 @@ public class Program
             context.Connection.LocalPort == config.PeerListenerPort &&
             config.PeerListenerPort != config.WebUiPortHttp &&
             config.PeerListenerPort != config.WebUiPortHttps;
+    }
+
+    private static string ResolveWebRootPath()
+    {
+        string[] candidates =
+        [
+            Path.Combine(AppContext.BaseDirectory, "wwwroot"),
+            Path.Combine(Directory.GetCurrentDirectory(), "wwwroot"),
+            Path.Combine(Directory.GetCurrentDirectory(), "boot_portal", "wwwroot"),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "wwwroot"))
+        ];
+
+        return candidates.FirstOrDefault(candidate =>
+                   File.Exists(Path.Combine(candidate, "dashboard", "index.html"))) ??
+               candidates.FirstOrDefault(Directory.Exists) ??
+               candidates[0];
     }
 
     private static bool IsAllowedPeerOnlyPath(PathString path)
