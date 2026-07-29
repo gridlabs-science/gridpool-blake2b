@@ -1,0 +1,95 @@
+name: Dashboard Simulator
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/dashboard-simulator-v1
+      - develop
+    paths:
+      - ".github/workflows/dashboard-simulator.yml"
+      - "boot_portal/ui/**"
+      - "boot_portal/Models/DashboardModels.cs"
+      - "tools/GridPool.DashboardSimulator/**"
+      - "tools/GridPool.DashboardSimulator.Tests/**"
+      - "scripts/run-dashboard-lab.sh"
+  pull_request:
+    paths:
+      - ".github/workflows/dashboard-simulator.yml"
+      - "boot_portal/ui/**"
+      - "boot_portal/Models/DashboardModels.cs"
+      - "tools/GridPool.DashboardSimulator/**"
+      - "tools/GridPool.DashboardSimulator.Tests/**"
+      - "scripts/run-dashboard-lab.sh"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: boot_portal/ui/package-lock.json
+
+      - name: Install dashboard dependencies
+        working-directory: boot_portal/ui
+        run: npm ci
+
+      - name: Build and test dashboard bundles
+        working-directory: boot_portal/ui
+        run: |
+          npm test
+          npm run build
+          npm run simulator:build
+
+      - name: Test simulator engine
+        run: dotnet test tools/GridPool.DashboardSimulator.Tests/GridPool.DashboardSimulator.Tests.csproj
+
+      - name: Install Playwright Chromium
+        working-directory: boot_portal/ui
+        run: npx playwright install --with-deps chromium
+
+      - name: Start simulator
+        env:
+          GRIDPOOL_SIM_DASHBOARD_ROOT: ${{ github.workspace }}/boot_portal/wwwroot/dashboard
+          GRIDPOOL_SIM_LAB_ROOT: ${{ github.workspace }}/tools/GridPool.DashboardSimulator/wwwroot/sim
+          GRIDPOOL_SIM_OPERATOR_KEY: ci-synthetic-key
+          Logging__LogLevel__Microsoft: Warning
+        run: |
+          dotnet run \
+            --project tools/GridPool.DashboardSimulator/GridPool.DashboardSimulator.csproj \
+            --no-build \
+            --no-launch-profile \
+            --urls http://127.0.0.1:5099 > /tmp/gridpool-dashboard-simulator.log 2>&1 &
+          echo "$!" > /tmp/gridpool-dashboard-simulator.pid
+          for attempt in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:5099/api/dashboard/v1/summary >/dev/null && exit 0
+            sleep 1
+          done
+          cat /tmp/gridpool-dashboard-simulator.log
+          exit 1
+
+      - name: Run simulator browser tests
+        working-directory: boot_portal/ui
+        run: npm run test:simulator:e2e
+
+      - name: Verify loopback control boundary
+        run: |
+          curl -fsS http://127.0.0.1:5099/__sim/api/v1/state >/dev/null
+          test "$(curl -sS -o /dev/null -w '%{http_code}' \
+            http://127.0.0.1:5099/api/dashboard/v1/operator)" = "401"
+
+      - name: Upload simulator log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-simulator-log
+          path: /tmp/gridpool-dashboard-simulator.log

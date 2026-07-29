@@ -50,6 +50,7 @@ scripts/gridpool-health-monitor.local.json
 gridpool-health-monitor.local.json
 gridpool-monitor-state/
 simulations/reports/generated/
+tools/GridPool.DashboardSimulator/wwwroot/
 
 # Visual Studio 2015 cache/options directory
 .vs/

@@ -75,6 +75,20 @@ npm run dev
 
 Vite proxies API and SignalR requests to `http://127.0.0.1:5000`.
 
+### Interactive Simulator
+
+The development-only simulator serves the real dashboard against deterministic
+synthetic state, with loopback controls and optional read-only LAN observers:
+
+```bash
+scripts/run-dashboard-lab.sh
+scripts/run-dashboard-lab.sh --lan
+```
+
+It is excluded from the solution, release workflow, production Docker image,
+and node deployments. See `boot_portal/ui/AGENTS.md` for scenarios, actions,
+timeline YAML, API contracts, and extension guidance.
+
 ## Headless And Custom Dashboards
 
 Set:

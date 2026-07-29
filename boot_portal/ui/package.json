@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && vite build",
+    "simulator:build": "tsc --noEmit -p simulator/tsconfig.json && vite build --config vite.simulator.config.ts",
+    "simulator:dev": "vite --config vite.simulator.config.ts",
+    "test:simulator:e2e": "playwright test --config playwright.simulator.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test"
