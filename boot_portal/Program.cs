@@ -129,6 +129,9 @@ public class PoolConfig
     [JsonPropertyName("enable_admin_api")]
     public bool EnableAdminApi { get; set; } = true;
 
+    [JsonPropertyName("public_operator_diagnostics_enabled")]
+    public bool PublicOperatorDiagnosticsEnabled { get; set; } = false;
+
     [JsonPropertyName("max_state_bundle_history")]
     public int MaxStateBundleHistory { get; set; } = 8;
 

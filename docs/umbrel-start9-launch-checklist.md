@@ -75,7 +75,7 @@ Short-term consensus checklist:
   addresses are not interoperable reference-network dialects. Any future change
   requires a coordinated consensus/version decision.
 - [ ] Model and evaluate delayed snapshot activation: build the payout snapshot at a Bitcoin boundary but make it applicable one or more Bitcoin blocks later. Determine whether the added propagation window materially reduces latency-driven snapshot disagreement, and quantify the costs in payout freshness, state retention, work attribution, reorg handling, and implementation complexity before considering a consensus change.
-- [ ] Specify and regression-test GridPool behavior across ordinary one- and two-block Bitcoin reorgs. Define how active snapshots, retained contexts, unpaid Work Set proofs, paid-proof lineage, candidate/current state IDs, and any observed GridPool payment transition roll back or reconcile without double-paying or losing valid unpaid work.
+- [ ] Specify and regression-test GridPool behavior across ordinary one- and two-block Bitcoin reorgs. One-block replacements without a GridPool payment now have deterministic reserve/state-ID regression coverage. The audit in `docs/bitcoin-reorg-regression-audit.md` identifies two blockers before completion: common-ancestor replay for two-block reorgs and a persisted rollback journal for orphaned GridPool payments.
 - [ ] Analyze a sustained Bitcoin ruleset split, including a BIP110-driven chain split scenario. Define how GridPool network IDs, parent validation, peer discovery, state bundles, payout snapshots, and operator-visible warnings prevent proofs from incompatible Bitcoin branches from being merged silently; decide whether branch choice is strictly inherited from each node's attached Bitcoin node or needs explicit GridPool configuration/version separation.
 
 Completion criteria:
@@ -144,7 +144,10 @@ Goal: make the current beta boring before inviting one-click installers.
 - [ ] Record operator experiments and planned restarts so they are not misclassified as protocol failures.
 - [x] Add at least one remote StratumRace vantage with an attached Bitcoin node
   and verified clock health. Oregon is the controlled remote vantage.
-- [ ] Generate a multi-vantage StratumRace report with sample counts, median/p95 timing, missing-event rates, and topology caveats.
+- [x] Generate a multi-vantage StratumRace report with sample counts,
+  median/p95 timing, missing-event rates, and topology caveats. Initial
+  Main/Oregon baseline:
+  `https://github.com/gridlabs-science/stratum-race/blob/main/reports/stratumrace/initial-multivantage-baseline.md`.
 - [ ] Run an overlapping package canary on the Detroit Umbrel and local DC
   Start9. Package-only changes reset the package canary; they reset the
   protocol soak only if shared runtime behavior or state compatibility changes.
@@ -177,7 +180,9 @@ Current evidence:
   divergence.
 - StratumRace records Main and Oregon as controlled vantages, including local
   mining endpoints and GridPool chain-tip events. Cross-vantage clock quality
-  and sample completeness remain part of the final report.
+  and sample completeness are reported in the initial multi-vantage baseline;
+  refresh it after longer soak windows rather than treating the current sample
+  as global performance proof.
 
 ## G4: Networking And NAT Readiness
 
@@ -540,13 +545,14 @@ or cryptographic secrets.
 - [x] Add monitor logs and summaries for top rejection categories and node acceptance rates.
 - [x] Add lab-only uncondensed coinbase output mode for firmware/rental compatibility testing.
 - [x] Remove startup logging of long-term Ed25519 and X25519 private keys.
-- [ ] Search all startup, DATUM, peer, UDP, adapter, and exception paths for
-  secret/session-key/token/password logging and add a regression check.
-- [ ] Inventory unauthenticated API/UI fields and classify each as public,
+- [x] Search startup, DATUM, peer, UDP, adapter, and exception paths for
+  secret/session-key/token/password logging and maintain the source regression check.
+- [x] Inventory unauthenticated API/UI fields and classify each as public,
   peer-protocol, or local-operator-only.
-- [ ] Redact raw IP addresses and private-node endpoints from public UI/API,
-  peer gossip, telemetry exports, and incident bundles.
-- [ ] Put sensitive peer/session/NAT diagnostics behind local/admin access or a
+- [ ] Redact raw IP addresses and private-node endpoints from every disclosure
+  path. Public UI/API and peer gossip are covered; shared/exported incident
+  bundles and default peer/UDP logs still need a sanitizer.
+- [x] Put sensitive peer/session/NAT diagnostics behind local/admin access or a
   redacted public DTO.
 - [x] Enforce owner-only permissions for the config file holding node identity
   keys on Unix; token and package-specific file modes remain part of packaging review.

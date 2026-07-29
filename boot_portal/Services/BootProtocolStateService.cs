@@ -72,6 +72,10 @@ public class BootProtocolStateService
     private readonly Dictionary<string, Queue<DateTime>> _recentPulseByAddress = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _optimisticRelayedShareIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, BitcoinHeaderEvaluation> _localChainTipHeaders = new(StringComparer.OrdinalIgnoreCase);
+    private PreparedSv2CoinbasePlan? _preparedSv2CoinbasePlan;
+    private long _sv2CoinbasePlanBuildCount;
+    private long _sv2CoinbasePlanCacheHitCount;
+    private double _lastSnapshotTransitionDurationMs;
     private long _provisionalTipGeneration;
     private Task? _deferredSaveTask;
     private bool _deferredSavePending;
@@ -98,6 +102,13 @@ public class BootProtocolStateService
 
     private sealed record PeerRelayFirstArrival(DateTime TimestampUtc, string Transport);
     private sealed record SnapshotValidationResult(BootShareValidationResult Validation, string SnapshotId);
+    private sealed record PreparedSv2CoinbasePlan(
+        string CacheKey,
+        List<Sv2CoinbaseOutputDto> Outputs,
+        string OutputsHex,
+        int OutputsBytes,
+        DateTime PreparedUtc,
+        double BuildDurationMs);
 
     public event Func<string, Task>? WinnersListChanged;
     public event Func<string, Task>? WorkTemplatesInvalidated;
@@ -295,30 +306,7 @@ public class BootProtocolStateService
     {
         lock (_sync)
         {
-            List<PayoutInfo> coinbaseOutputs = BuildCoinbaseOutputsNoLock(_state.WinnersList);
-            var serializedOutputs = new List<(ulong Value, byte[] ScriptPubKey)>(coinbaseOutputs.Count);
-            var outputDtos = new List<Sv2CoinbaseOutputDto>(coinbaseOutputs.Count);
-
-            foreach (PayoutInfo payout in coinbaseOutputs)
-            {
-                string normalizedAddress = BitcoinScript.NormalizeAddress(payout.Address);
-                byte[] scriptPubKey = BitcoinScript.AddressToScriptPubKey(normalizedAddress, _poolConfig.BitcoinNetwork);
-                byte[] serializedOutput = BitcoinTransactionSerialization.SerializeTxOutput(payout.Value, scriptPubKey);
-
-                serializedOutputs.Add((payout.Value, scriptPubKey));
-                outputDtos.Add(new Sv2CoinbaseOutputDto
-                {
-                    Value = payout.Value,
-                    Address = normalizedAddress,
-                    ScriptPubKeyHex = Convert.ToHexString(scriptPubKey).ToLowerInvariant(),
-                    OutputHex = Convert.ToHexString(serializedOutput).ToLowerInvariant(),
-                    Username = string.IsNullOrWhiteSpace(payout.Username) ? normalizedAddress : payout.Username,
-                    Difficulty = payout.Difficulty,
-                    DiffString = payout.DiffString
-                });
-            }
-
-            byte[] coinbaseTxOutputs = BitcoinTransactionSerialization.SerializeTxOutputs(serializedOutputs);
+            PreparedSv2CoinbasePlan preparedPlan = GetOrBuildSv2CoinbasePlanNoLock();
             double minimumDifficultyToEnter = GetWorkSetAdmissionDifficultyNoLock();
 
             string planMaterial = string.Join('|',
@@ -335,7 +323,7 @@ public class BootProtocolStateService
                 _poolConfig.SharedWinnerSlotCount,
                 _poolConfig.GridLabsSupportFeeEnabled,
                 Math.Max(1d, _poolConfig.PulseMinDifficulty).ToString("R", System.Globalization.CultureInfo.InvariantCulture),
-                Convert.ToHexString(coinbaseTxOutputs).ToLowerInvariant());
+                preparedPlan.OutputsHex);
             string planId = Convert.ToHexString(
                 System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(planMaterial)))
                 .ToLowerInvariant();
@@ -359,10 +347,15 @@ public class BootProtocolStateService
                 TotalPayoutSlotCount = _poolConfig.TotalPayoutSlotCount,
                 SharedWinnerSlotCount = _poolConfig.SharedWinnerSlotCount,
                 SupportFeeEnabled = _poolConfig.GridLabsSupportFeeEnabled,
-                CoinbaseOutputCount = coinbaseOutputs.Count,
-                CoinbaseTxOutputsBytes = coinbaseTxOutputs.Length,
-                CoinbaseTxOutputsHex = Convert.ToHexString(coinbaseTxOutputs).ToLowerInvariant(),
-                CoinbaseOutputs = outputDtos,
+                CoinbaseOutputCount = preparedPlan.Outputs.Count,
+                CoinbaseTxOutputsBytes = preparedPlan.OutputsBytes,
+                CoinbaseTxOutputsHex = preparedPlan.OutputsHex,
+                CoinbaseOutputs = CloneSv2CoinbaseOutputs(preparedPlan.Outputs),
+                CoinbasePlanPreparedUtc = preparedPlan.PreparedUtc,
+                CoinbasePlanBuildDurationMs = preparedPlan.BuildDurationMs,
+                CoinbasePlanBuildCount = _sv2CoinbasePlanBuildCount,
+                CoinbasePlanCacheHitCount = _sv2CoinbasePlanCacheHitCount,
+                LastSnapshotTransitionDurationMs = _lastSnapshotTransitionDurationMs,
                 MinimumAcceptedDifficulty = 1d,
                 MinimumPulseDifficulty = Math.Max(1d, _poolConfig.PulseMinDifficulty),
                 MinimumDifficultyToEnterReserve = minimumDifficultyToEnter,
@@ -1375,7 +1368,10 @@ public class BootProtocolStateService
             return false;
         }
 
-        return string.Equals(_poolConfig.AdminApiKey, suppliedApiKey, StringComparison.Ordinal);
+        byte[] expected = System.Text.Encoding.UTF8.GetBytes(_poolConfig.AdminApiKey);
+        byte[] supplied = System.Text.Encoding.UTF8.GetBytes(suppliedApiKey ?? string.Empty);
+        return expected.Length == supplied.Length &&
+               System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expected, supplied);
     }
 
     public string GetSelfEndpoint()
@@ -4270,6 +4266,7 @@ public class BootProtocolStateService
             _state.CurrentRoundNumber = Math.Max(0, bundle.CurrentRoundNumber);
             _state.LastRotationUtc = bundle.CreatedAtUtc == default ? DateTime.UtcNow : bundle.CreatedAtUtc;
             _state.WinnersList = ClonePayouts(expectedPayouts);
+            _preparedSv2CoinbasePlan = null;
             _state.CurrentTipBlockHash = observedTipSnapshot ?? currentTipSnapshot;
             _state.CurrentTipBlockHeight = observedTipBlockHeight ?? bundle.LockedByBlockHeight ?? _state.CurrentTipBlockHeight;
             TrimAcceptedParentBlockHashesToRoundNoLock(lockedTipSnapshot, _state.CurrentTipBlockHash);
@@ -4540,6 +4537,7 @@ public class BootProtocolStateService
                 _state.ActiveSnapshotId = reconciledContext.SnapshotId;
                 _state.ActiveSnapshotProofIds = reconciledContext.ProofIds.ToList();
                 _state.WinnersList = ClonePayouts(reconciledContext.WinnersList);
+                _preparedSv2CoinbasePlan = null;
                 _state.CurrentStateId = reconciledContext.SnapshotId;
                 family.MemberSnapshotIds.RemoveAll(id =>
                     string.Equals(id, reconciledContext.SnapshotId, StringComparison.OrdinalIgnoreCase));
@@ -4704,6 +4702,7 @@ public class BootProtocolStateService
             _state.CurrentRoundNumber = Math.Max(0, bundle.CurrentRoundNumber);
             _state.LastRotationUtc = bundle.CreatedAtUtc == default ? DateTime.UtcNow : bundle.CreatedAtUtc;
             _state.WinnersList = ClonePayouts(bundle.WinnersList);
+            _preparedSv2CoinbasePlan = null;
             _state.ActiveSnapshotId = string.IsNullOrWhiteSpace(bundle.ActiveSnapshotId) ? _state.CurrentStateId : bundle.ActiveSnapshotId;
             _state.ActiveSnapshotProofIds = (bundle.ActiveSnapshotProofIds ?? []).ToList();
             _state.LastPaidSnapshotId = bundle.PaidSnapshotId;
@@ -4914,6 +4913,7 @@ public class BootProtocolStateService
         };
 
         _state.WinnersList = BuildGenesisWinnersListNoLock();
+        _preparedSv2CoinbasePlan = null;
         _state.CurrentStateId = ComputeStateIdFromPayoutsNoLock(_state.WinnersList, null);
         _state.ActiveSnapshotId = _state.CurrentStateId;
         _state.ActiveSnapshotProofIds = [];
@@ -5595,6 +5595,7 @@ public class BootProtocolStateService
             _state.ActiveSnapshotId = predecessor.SnapshotId;
             _state.ActiveSnapshotProofIds = predecessor.ProofIds.ToList();
             _state.WinnersList = ClonePayouts(predecessor.WinnersList);
+            _preparedSv2CoinbasePlan = null;
             _state.CurrentStateId = predecessor.SnapshotId;
             _state.CurrentRoundNumber = Math.Max(0, predecessor.CurrentRoundNumber);
             _state.CurrentTipBlockHash = NormalizeCanonicalBlockHash(predecessor.LockedByBlockHash);
@@ -5694,6 +5695,7 @@ public class BootProtocolStateService
         bool advanceRound,
         IReadOnlyCollection<BootShareProof>? frozenProofs = null)
     {
+        var transitionStopwatch = Stopwatch.StartNew();
         string? normalizedBlockHash = NormalizeCanonicalBlockHash(blockHash);
         int nextRoundNumber = advanceRound ? _state.CurrentRoundNumber + 1 : _state.CurrentRoundNumber;
         BootPayoutSnapshotContext context = frozenProofs == null
@@ -5734,6 +5736,8 @@ public class BootProtocolStateService
         _state.PayoutVariant = context.PayoutVariant;
         _state.WinnersList = ClonePayouts(context.WinnersList);
         _state.CurrentStateId = context.SnapshotId;
+        _preparedSv2CoinbasePlan = null;
+        _ = GetOrBuildSv2CoinbasePlanNoLock();
         UpsertSnapshotContextNoLock(context);
         RebuildOnDeckListNoLock();
         _state.CandidateStateId = ComputeCandidateStateIdNoLock();
@@ -5745,7 +5749,76 @@ public class BootProtocolStateService
             normalizedBlockHash,
             blockHeight,
             createdUtc);
+        transitionStopwatch.Stop();
+        _lastSnapshotTransitionDurationMs = transitionStopwatch.Elapsed.TotalMilliseconds;
         return changed;
+    }
+
+    private PreparedSv2CoinbasePlan GetOrBuildSv2CoinbasePlanNoLock()
+    {
+        string cacheKey = string.Join(
+            '|',
+            _state.ActiveSnapshotId,
+            _poolConfig.BitcoinNetwork,
+            _poolConfig.CoinbaseUncondensedOutputsEnabled);
+        if (_preparedSv2CoinbasePlan != null &&
+            string.Equals(
+                _preparedSv2CoinbasePlan.CacheKey,
+                cacheKey,
+                StringComparison.Ordinal))
+        {
+            _sv2CoinbasePlanCacheHitCount++;
+            return _preparedSv2CoinbasePlan;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        List<PayoutInfo> coinbaseOutputs = BuildCoinbaseOutputsNoLock(_state.WinnersList);
+        var serializedOutputs = new List<(ulong Value, byte[] ScriptPubKey)>(coinbaseOutputs.Count);
+        var outputDtos = new List<Sv2CoinbaseOutputDto>(coinbaseOutputs.Count);
+        foreach (PayoutInfo payout in coinbaseOutputs)
+        {
+            string normalizedAddress = BitcoinScript.NormalizeAddress(payout.Address);
+            byte[] scriptPubKey = BitcoinScript.AddressToScriptPubKey(normalizedAddress, _poolConfig.BitcoinNetwork);
+            byte[] serializedOutput = BitcoinTransactionSerialization.SerializeTxOutput(payout.Value, scriptPubKey);
+            serializedOutputs.Add((payout.Value, scriptPubKey));
+            outputDtos.Add(new Sv2CoinbaseOutputDto
+            {
+                Value = payout.Value,
+                Address = normalizedAddress,
+                ScriptPubKeyHex = Convert.ToHexString(scriptPubKey).ToLowerInvariant(),
+                OutputHex = Convert.ToHexString(serializedOutput).ToLowerInvariant(),
+                Username = string.IsNullOrWhiteSpace(payout.Username) ? normalizedAddress : payout.Username,
+                Difficulty = payout.Difficulty,
+                DiffString = payout.DiffString
+            });
+        }
+
+        byte[] serialized = BitcoinTransactionSerialization.SerializeTxOutputs(serializedOutputs);
+        stopwatch.Stop();
+        _sv2CoinbasePlanBuildCount++;
+        _preparedSv2CoinbasePlan = new PreparedSv2CoinbasePlan(
+            cacheKey,
+            outputDtos,
+            Convert.ToHexString(serialized).ToLowerInvariant(),
+            serialized.Length,
+            DateTime.UtcNow,
+            stopwatch.Elapsed.TotalMilliseconds);
+        return _preparedSv2CoinbasePlan;
+    }
+
+    private static List<Sv2CoinbaseOutputDto> CloneSv2CoinbaseOutputs(
+        IEnumerable<Sv2CoinbaseOutputDto> outputs)
+    {
+        return outputs.Select(output => new Sv2CoinbaseOutputDto
+        {
+            Value = output.Value,
+            Address = output.Address,
+            ScriptPubKeyHex = output.ScriptPubKeyHex,
+            OutputHex = output.OutputHex,
+            Username = output.Username,
+            Difficulty = output.Difficulty,
+            DiffString = output.DiffString
+        }).ToList();
     }
 
     private void ApplyPaidSnapshotRemovalNoLock(

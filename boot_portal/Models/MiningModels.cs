@@ -85,6 +85,11 @@ public class Sv2WorkSelectionDto
     public int CoinbaseTxOutputsBytes { get; set; }
     public string CoinbaseTxOutputsHex { get; set; } = string.Empty;
     public List<Sv2CoinbaseOutputDto> CoinbaseOutputs { get; set; } = [];
+    public DateTime CoinbasePlanPreparedUtc { get; set; }
+    public double CoinbasePlanBuildDurationMs { get; set; }
+    public long CoinbasePlanBuildCount { get; set; }
+    public long CoinbasePlanCacheHitCount { get; set; }
+    public double LastSnapshotTransitionDurationMs { get; set; }
     public double MinimumAcceptedDifficulty { get; set; } = 1;
     public double MinimumPulseDifficulty { get; set; } = 1;
     public double MinimumDifficultyToEnterReserve { get; set; } = 1;

@@ -260,6 +260,11 @@ public static class PoolConfigValidator
                 errors.Add("admin_api_key must be a strong non-placeholder value when enable_admin_api is true in production");
             }
 
+            if (config.PublicOperatorDiagnosticsEnabled)
+            {
+                errors.Add("public_operator_diagnostics_enabled must be false in production; use the authenticated admin API");
+            }
+
             if (string.Equals(bitcoinNetwork, BitcoinScript.Mainnet, StringComparison.OrdinalIgnoreCase) &&
                 config.BootProtocolVersion >= 22 &&
                 config.V22ActivationBlockHeight == 0)

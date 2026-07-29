@@ -303,6 +303,25 @@ The installer does not overwrite an existing
 checks on an existing install, copy the `nodes` and `thresholds` sections from
 `config/gridpool-health-monitor.example.json` into the live config.
 
+### Authenticated Operator Diagnostics
+
+Raw miner, session, peer-latency, and protocol diagnostics are admin-only by
+default. Give each monitored node an environment-variable name rather than
+placing its key in the monitor config:
+
+```json
+{
+  "name": "main",
+  "baseUrl": "https://main.gridpool.net",
+  "adminKeyEnv": "GRIDPOOL_MAIN_ADMIN_KEY"
+}
+```
+
+Set that variable in the mode-600 monitor environment file. The monitor sends
+`X-Boot-Admin-Key` for summary, diagnostics, and incident capture requests. A
+monitor without the key still receives the redacted public summary and
+consensus/mining endpoints, but operator-only diagnostic captures return 404.
+
 ## Review Logs
 
 The monitor writes compact logs intended for quick review by a human or Codex:
