@@ -18,7 +18,6 @@ COPY --from=dashboard-build /src/boot_portal/wwwroot/dashboard boot_portal/wwwro
 RUN dotnet publish boot_portal/boot_portal.csproj -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:9.0-bookworm-slim AS runtime
-ARG GRIDPOOL_RELEASE_VERSION
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libsodium23 ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
@@ -27,6 +26,7 @@ RUN apt-get update \
     && mkdir -p /data /app \
     && chown -R boot:boot /data /app
 
+ARG GRIDPOOL_RELEASE_VERSION
 WORKDIR /app
 
 ENV BOOT_PORTAL_CONFIG_PATH=/data/boot_portal_config.json
