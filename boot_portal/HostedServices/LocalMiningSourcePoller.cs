@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using boot_portal.Models;
 using boot_portal.Services;
 
 namespace boot_portal.HostedServices;

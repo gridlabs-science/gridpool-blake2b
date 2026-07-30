@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using boot_portal.Models;
 using boot_portal.Utils;
 
 namespace boot_portal.Services;

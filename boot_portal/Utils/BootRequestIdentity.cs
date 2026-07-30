@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using boot_portal.Models;
 
 namespace boot_portal.Utils;
 

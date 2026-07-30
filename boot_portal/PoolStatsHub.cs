@@ -3,6 +3,7 @@
 using Microsoft.AspNetCore.SignalR;
 using boot_portal.HostedServices; // Namespace where DatumServer lives
 using boot_portal.Services;
+using boot_portal.Models;
 
 public class PoolStatsHub : Hub
 {

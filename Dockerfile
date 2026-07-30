@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY boot_portal/boot_portal.csproj boot_portal/
@@ -7,7 +7,7 @@ RUN dotnet restore boot_portal/boot_portal.csproj
 COPY . .
 RUN dotnet publish boot_portal/boot_portal.csproj -c Release -o /app/publish /p:UseAppHost=false
 
-FROM mcr.microsoft.com/dotnet/aspnet:9.0-bookworm-slim AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-bookworm-slim AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libsodium23 ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \

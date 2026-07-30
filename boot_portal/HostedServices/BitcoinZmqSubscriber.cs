@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading.Channels;
 using boot_portal.Services;
 using boot_portal.Utils;
+using boot_portal.Models;
 
 namespace boot_portal.HostedServices;
 

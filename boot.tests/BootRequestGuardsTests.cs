@@ -1,3 +1,4 @@
+using boot_portal.Models;
 using boot_portal.Utils;
 using Microsoft.AspNetCore.Http;
 

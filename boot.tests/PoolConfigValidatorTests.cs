@@ -1,4 +1,5 @@
 using System.Text;
+using boot_portal.Models;
 using boot_portal.Utils;
 
 namespace boot.tests;
@@ -125,7 +126,8 @@ public sealed class PoolConfigValidatorTests
     {
         var config = new PoolConfig
         {
-            PoolPayoutScript = "not-a-bitcoin-address"
+            PoolPayoutScript = "not-a-bitcoin-address",
+            SetupCompleted = true
         };
 
         List<string> errors = PoolConfigValidator.Validate(config);
@@ -144,7 +146,8 @@ public sealed class PoolConfigValidatorTests
         var config = new PoolConfig
         {
             BitcoinNetwork = BitcoinScript.Mainnet,
-            PoolPayoutScript = testnetAddress
+            PoolPayoutScript = testnetAddress,
+            SetupCompleted = true
         };
 
         List<string> errors = PoolConfigValidator.Validate(config);
@@ -163,7 +166,8 @@ public sealed class PoolConfigValidatorTests
         var validConfig = new PoolConfig
         {
             BitcoinNetwork = BitcoinScript.Testnet4,
-            PoolPayoutScript = testnetAddress
+            PoolPayoutScript = testnetAddress,
+            SetupCompleted = true
         };
 
         CollectionAssert.AreEqual(Array.Empty<string>(), PoolConfigValidator.Validate(validConfig));

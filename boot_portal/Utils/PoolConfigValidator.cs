@@ -43,10 +43,13 @@ public static class PoolConfigValidator
             errors.Add(ex.Message);
         }
 
-        if (!string.IsNullOrWhiteSpace(bitcoinNetwork) &&
-            !BitcoinScript.TryAddressToScriptPubKey(config.PoolPayoutScript, bitcoinNetwork, out _))
+        if (config.SetupCompleted)
         {
-            errors.Add($"pool_payout_script must be a supported Bitcoin payout address for bitcoin_network {bitcoinNetwork}");
+            if (!string.IsNullOrWhiteSpace(bitcoinNetwork) &&
+                !BitcoinScript.TryAddressToScriptPubKey(config.PoolPayoutScript, bitcoinNetwork, out _))
+            {
+                errors.Add($"pool_payout_script must be a supported Bitcoin payout address for bitcoin_network {bitcoinNetwork}");
+            }
         }
 
         int coinbaseTagBytes = Encoding.UTF8.GetByteCount(config.CoinbaseTag ?? string.Empty);
