@@ -49,6 +49,7 @@
     "hashrateSpikeMultiplier": 2.0,
     "hashrateSamplesForTrend": 3,
     "minimumHashrateThsForTrend": 1,
+    "localMiningFreshnessMinutes": 20,
     "activeHydrapoolWorkerMaxAgeMinutes": 60,
     "outboundRelayStaleMinutes": 10,
     "peerOutboundAttemptStaleMinutes": 10
@@ -62,6 +63,13 @@
       "minimumPeerCount": 1
     },
     {
+      "name": "oregon",
+      "baseUrl": "https://oregon.gridpool.net",
+      "critical": true,
+      "consensusGroup": "mainnet-beta",
+      "minimumPeerCount": 1
+    },
+    {
       "name": "testnet4",
       "baseUrl": "https://test.gridpool.net",
       "critical": false,
@@ -69,7 +77,7 @@
       "minimumPeerCount": 0,
       "suppressCoinbaseModeAlert": true,
       "suppressTeamHashrateAlerts": true,
-      "suppressLocalDatumHashrateAlerts": true
+      "suppressLocalMiningHashrateAlerts": true
     },
     {
       "name": "evomining",
@@ -81,6 +89,13 @@
     {
       "name": "dallas",
       "baseUrl": "https://dallas.gridpool.net",
+      "critical": false,
+      "consensusGroup": "mainnet-beta",
+      "minimumPeerCount": 1
+    },
+    {
+      "name": "detroit",
+      "baseUrl": "https://detroit.gridpool.net",
       "critical": false,
       "consensusGroup": "mainnet-beta",
       "minimumPeerCount": 1

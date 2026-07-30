@@ -1,4 +1,5 @@
 using System.Text;
+using System.Net;
 using boot_portal.Models;
 
 namespace boot_portal.Utils;
@@ -13,6 +14,12 @@ public static class PoolConfigValidator
         "sovereign",
         "staging",
         "production"
+    };
+    private static readonly HashSet<string> ValidBitcoinNotificationModes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        string.Empty,
+        BitcoinNotificationModes.AttachedNode,
+        BitcoinNotificationModes.ExternalFallback
     };
 
     public static void ValidateOrThrow(PoolConfig config)
@@ -31,6 +38,30 @@ public static class PoolConfigValidator
         if (!ValidNodeModes.Contains(config.NodeMode))
         {
             errors.Add("node_mode must be one of development, developer-preview, sovereign, staging, or production");
+        }
+
+        if (!ValidBitcoinNotificationModes.Contains(config.BitcoinNotificationMode ?? string.Empty))
+        {
+            errors.Add("bitcoin_notification_mode must be attached-node or external-fallback");
+        }
+
+        ValidatePositive(errors, config.BitcoinRpcPollIntervalSeconds, "bitcoin_rpc_poll_interval_seconds");
+        ValidatePositive(errors, config.BitcoinRpcTimeoutSeconds, "bitcoin_rpc_timeout_seconds");
+        ValidatePositive(errors, config.BitcoinRpcLagGraceSeconds, "bitcoin_rpc_lag_grace_seconds");
+        if (!string.IsNullOrWhiteSpace(config.BitcoinRpcUrl) &&
+            (!Uri.TryCreate(config.BitcoinRpcUrl, UriKind.Absolute, out Uri? rpcUri) ||
+             (rpcUri.Scheme != Uri.UriSchemeHttp && rpcUri.Scheme != Uri.UriSchemeHttps) ||
+             string.IsNullOrWhiteSpace(rpcUri.Host) ||
+             !string.IsNullOrWhiteSpace(rpcUri.UserInfo)))
+        {
+            errors.Add("bitcoin_rpc_url must be an absolute HTTP(S) URL without embedded credentials");
+        }
+
+        if (!string.IsNullOrWhiteSpace(config.BitcoinRpcCookieFile) &&
+            (!string.IsNullOrWhiteSpace(config.BitcoinRpcUsername) ||
+             !string.IsNullOrWhiteSpace(config.BitcoinRpcPassword)))
+        {
+            errors.Add("bitcoin_rpc_cookie_file cannot be combined with bitcoin_rpc_username or bitcoin_rpc_password");
         }
 
         string bitcoinNetwork = string.Empty;
@@ -211,6 +242,10 @@ public static class PoolConfigValidator
             {
                 errors.Add("public_base_url must not use boot.example.com, example.com, or localhost in production");
             }
+            else if (IsPrivatePublicUrl(config.PublicBaseUrl))
+            {
+                errors.Add("public_base_url must not advertise a private or loopback IP address in production");
+            }
 
             if (string.Equals(config.BootNetworkId, "mainnet-beta", StringComparison.OrdinalIgnoreCase) &&
                 !config.EnablePulseProofs)
@@ -255,6 +290,32 @@ public static class PoolConfigValidator
         return string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(host, "boot.example.com", StringComparison.OrdinalIgnoreCase) ||
                host.EndsWith(".example.com", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPrivatePublicUrl(string? value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out Uri? uri) ||
+            !IPAddress.TryParse(uri.Host, out IPAddress? address))
+        {
+            return false;
+        }
+
+        if (IPAddress.IsLoopback(address))
+        {
+            return true;
+        }
+
+        byte[] bytes = address.GetAddressBytes();
+        if (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+        {
+            return bytes[0] == 10 ||
+                   (bytes[0] == 172 && bytes[1] is >= 16 and <= 31) ||
+                   (bytes[0] == 192 && bytes[1] == 168) ||
+                   (bytes[0] == 169 && bytes[1] == 254);
+        }
+
+        return address.IsIPv6LinkLocal || address.IsIPv6SiteLocal ||
+               (bytes.Length == 16 && (bytes[0] & 0xfe) == 0xfc);
     }
 
     private static bool HasStrongAdminKey(string? adminKey)

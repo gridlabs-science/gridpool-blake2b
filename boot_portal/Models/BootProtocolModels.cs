@@ -330,6 +330,9 @@ public class BootNetworkStatusDto
     public string NodeId { get; set; } = string.Empty;
     public bool IdentityChanged { get; set; }
     public string SelfEndpoint { get; set; } = string.Empty;
+    public string DatumPublicHost { get; set; } = string.Empty;
+    public int DatumPublicPort { get; set; }
+    public int DatumListenPort { get; set; }
     public List<string> ConfigWarnings { get; set; } = [];
     public DateTime ServiceStartedUtc { get; set; }
     public int ActiveDatumSessionCount { get; set; }
@@ -409,6 +412,7 @@ public class BootNetworkStatusDto
     public bool MiningWorkSafe { get; set; } = true;
     public bool LocalBitcoinLagging { get; set; }
     public string MiningWorkSafetyReason { get; set; } = string.Empty;
+    public BootBitcoinNotificationDto BitcoinNotification { get; set; } = new();
     public string? ProvisionalTipBlockHash { get; set; }
     public string? ProvisionalTipParentBlockHash { get; set; }
     public string? ProvisionalSnapshotId { get; set; }

@@ -22,6 +22,39 @@ public sealed class PoolConfigValidatorTests
         Assert.IsTrue(new PoolConfig().EnablePulseProofs);
     }
 
+    [TestMethod]
+    public void BitcoinNotificationConfigurationRejectsUnsafeOrAmbiguousRpcSettings()
+    {
+        var config = new PoolConfig
+        {
+            BitcoinNotificationMode = "unknown",
+            BitcoinRpcUrl = "http://user:password@bitcoin:8332",
+            BitcoinRpcCookieFile = "/data/.cookie",
+            BitcoinRpcUsername = "user"
+        };
+
+        List<string> errors = PoolConfigValidator.Validate(config);
+
+        Assert.IsTrue(errors.Any(error => error.Contains("bitcoin_notification_mode", StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(errors.Any(error => error.Contains("bitcoin_rpc_url", StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(errors.Any(error => error.Contains("bitcoin_rpc_cookie_file", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
+    public void ProductionRejectsPrivateAdvertisedEndpoint()
+    {
+        var config = new PoolConfig
+        {
+            NodeMode = "production",
+            PublicBaseUrl = "http://192.168.1.245:5000",
+            DatumPublicHost = "datum.gridpool.net",
+            EnableAdminApi = false
+        };
+
+        Assert.IsTrue(PoolConfigValidator.Validate(config).Any(error =>
+            error.Contains("private", StringComparison.OrdinalIgnoreCase)));
+    }
+
     [DataTestMethod]
     [DataRow("https://boot.example.com")]
     [DataRow("http://localhost:5000")]

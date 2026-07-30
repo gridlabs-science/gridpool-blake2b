@@ -38,14 +38,22 @@ so user-level timers do not accidentally run the old distro `node` binary.
   - actual GridPool block found / payment snapshot paid
   - public nodes in the same consensus group disagreeing on protocol version,
     active snapshot, current state, or candidate state for multiple checks
-  - sustained hashrate drop or spike
-  - local DATUM hashrate with stale outbound share/pulse relay
+- sustained team or fresh local-mining hashrate drop or spike, attributed by
+  active source (`datum`, `ckpool`, `hydrapool`, `sv2`, or direct HTTP) rather
+  than the legacy DATUM-named aggregate field
+- fresh DATUM hashrate with stale outbound share/pulse relay; activity from
+  other local adapters does not trigger a DATUM relay alarm
   - connected peer sessions whose outbound poll attempts and reported state/tip fields are stale
   - high DATUM reject rate on any monitored node
   - new local DATUM miner addresses
   - new Hydrapool Stratum users/workers
   - new GridPool peers
-  - addresses on current/candidate payout lists that are not known through local DATUM, Hydrapool, or the configured allowlist
+- addresses on current/candidate payout lists that are not known through local DATUM, Hydrapool, or the configured allowlist
+
+Endpoint and local-service failures are lifecycle alerts: after the configured
+failure threshold they notify once when opened, then notify once when resolved.
+They are listed again in the morning digest while open instead of repeating all
+day. Other alert categories retain their normal cooldown/escalation behavior.
 
 Protocol V2 creates a new active payout snapshot on every ordinary Bitcoin
 block. Those snapshot changes are recorded for status and digest context, but
@@ -244,13 +252,14 @@ Tune these fields first:
 
 - `nodes`: GridPool UI/API endpoints.
   - Use `consensusGroup` to compare only nodes that should agree. Example:
-    `mainnet-beta` for `main.gridpool.net`, `evomining.farted.net`, and
-    `dallas.gridpool.net`, and `testnet4-beta` for `test.gridpool.net`.
+    `mainnet-beta` for `main.gridpool.net`, `oregon.gridpool.net`, and the
+    other public beta nodes, and `testnet4-beta` for `test.gridpool.net`.
   - `minimumPeerCount` is checked per node, but hidden/NATed peers may still
     be visible only through another public node.
   - Lab nodes can suppress noisy expected conditions with:
     `suppressCoinbaseModeAlert`, `suppressTeamHashrateAlerts`, and
-    `suppressLocalDatumHashrateAlerts`. For example, the long-running
+    `suppressLocalMiningHashrateAlerts`. The former
+    `suppressLocalDatumHashrateAlerts` remains a compatibility alias. For example, the long-running
     testnet4 firmware-compatibility endpoint intentionally serves
     non-standard uncondensed coinbase outputs and may have intermittent test
     hashrate, so those alert types are disabled for that node while endpoint
@@ -272,6 +281,9 @@ Tune these fields first:
 - `thresholds.datumRejectRateMax`: default `0.10`.
 - `thresholds.hashrateDropFraction`: default `0.35`.
 - `thresholds.hashrateSpikeMultiplier`: default `2.0`.
+- `thresholds.localMiningFreshnessMinutes`: default `20`. A local hashrate
+  trend is calculated only from per-miner samples with a recent share inside
+  this window; an inactive node clears its local trend baseline.
 - `thresholds.outboundRelayStaleMinutes`: default `10`.
 - `thresholds.peerOutboundAttemptStaleMinutes`: default `10`.
 - `alertCooldownMinutes`: default `60`.
@@ -279,6 +291,12 @@ Tune these fields first:
   and `relayLimit` bound automatic first-alert diagnostic collection.
 
 Current-state and active-snapshot disagreement is one critical incident fingerprint. It alerts on a new divergence edge and repeats at most hourly while unchanged. When current-state bundles are fetchable within the normal request timeout, the alert includes proof-set intersection/side-only counts and the highest-difficulty side-only source.
+
+The summary capture includes the redacted `bitcoinNotification` coordinator
+state. Attached nodes alert when RPC is unreachable/unsynchronized, when the
+ZMQ latency path is missing, or when per-topic sequence gap/reset counters
+increase. Explicit `external-fallback` nodes do not receive local RPC/ZMQ
+alerts.
 
 The installer does not overwrite an existing
 `~/.config/gridpool-health-monitor/config.json`. To adopt new public-node
@@ -300,7 +318,8 @@ The monitor writes compact logs intended for quick review by a human or Codex:
 
 The JSONL files intentionally omit full state bundles. They preserve the
 important operational facts: endpoint status, version numbers, state IDs,
-snapshot IDs, Work Set counts, hashrate, local DATUM reject rate, peer counts,
+snapshot IDs, Work Set counts, team and source-aware local mining hashrate,
+local DATUM reject rate, peer counts,
 consensus-group divergence, endpoint timing, TCP endpoint status, and compact
 peer relay latency summaries from `/api/network/peer-relay-latency`.
 

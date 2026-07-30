@@ -3,9 +3,11 @@ GridPool is a decentralized reward-sharing protocol for sovereign Bitcoin miners
 
 - It is like P2Pool in spirit, but much simpler: miners coordinate on coinbase payout lists instead of maintaining a secondary blockchain.
 - It is not a traditional pool. It is closer to shared lottery mining: smaller payouts, better odds, and local block-template control.
-- This reference implementation works with DATUM today and exposes generic
-  work-plan/proof APIs used by the early CKPool/AtlasPool and native SV2
-  integrations. Those additional gateways remain public-beta canaries.
+- This reference implementation retains an experimental DATUM server and
+  exposes generic work-plan/proof APIs used by early CKPool/AtlasPool
+  integrations. The initial appliance support target is the separate native
+  `gridpool-sv2-pool`; DATUM, raw Stratum V1, and rental compatibility are not
+  guaranteed.
 
 For cross-project architecture, decisions, research findings, and agent-ready
 context, see the [GridPool handbook](https://github.com/gridlabs-science/gridpool-handbook).
@@ -35,7 +37,10 @@ GridPool is early, and several claims still need rigorous public modeling.
 Historical debugging notes and completed investigations live under `docs/archive/`.
 
 ## GridPool Node Quickstart
-Most miners should start by running only a GridPool node, then pointing an existing DATUM Gateway at it. This keeps Bitcoin and DATUM under your own control while adding the GridPool reward-sharing network layer.
+The manual installer below starts the GridPool reference node. The initial
+Umbrel/StartOS launch target will pair it with native SV2 so compatible miners
+receive header-only work and never need to parse the full 300-output coinbase.
+Those appliance packages are still under development.
 
 On a Linux host with Docker, or on a Raspberry Pi / Ubuntu box where Docker can be installed:
 
@@ -47,35 +52,46 @@ curl -fsSL https://raw.githubusercontent.com/gridlabs-science/boot-protocol/main
 The installer:
 - pulls `ghcr.io/gridlabs-science/boot-protocol:latest`
 - starts the WebUI on port `5000`
-- starts the DATUM-facing GridPool listener on port `3008`
-- advertises your LAN IP and DATUM pubkey in the local WebUI
+- starts the experimental DATUM-facing listener on port `3008`
 - uses local Bitcoin ZMQ notifications if it detects `127.0.0.1:28332`; otherwise it falls back to MempoolSpace notifications for first boot
 
-After install:
+After install, open the local WebUI printed by the script, usually
+`http://LAN_IP:5000`, and confirm the node is synced. Native SV2 mining uses the
+separate [`gridpool-sv2-pool`](https://github.com/gridlabs-science/gridpool-sv2-pool)
+fork. Its appliance-ready Bitcoin template-provider path remains a launch task.
 
-1. Open the local WebUI printed by the script, usually `http://LAN_IP:5000`.
-2. Copy the displayed Pool Host, Pool Port, and Pool Pubkey. Scripts can fetch the same live values from `http://LAN_IP:5000/api/mining/connect-info`.
-3. Paste those into DATUM.
-4. Point ASICs at DATUM's local Stratum V1 listener, not directly at GridPool.
+DATUM remains available for developers and existing beta operators, but it is
+deprecated for the initial appliance launch until deterministic forced coinbase
+selection is available upstream. Raw SV1 firmware and rental services are
+experimental and unsupported unless an exact version has a published
+full-coinbase test result.
 
 Block-submission safety note: with DATUM, your gateway builds the Bitcoin block template from your Bitcoin node and submits any network-valid block directly to that node with Bitcoin RPC `submitblock`. GridPool receives the share proof for reward-sharing/accounting, but it is not the only broadcast path for a found block.
 
 GridPool node ports are intentionally split by role:
 - `5000` is the WebUI and HTTP API.
-- `3008` is the DATUM Gateway upstream connection to GridPool.
-- `23334` is the conventional DATUM Gateway Stratum V1 listener used by ASICs when DATUM is installed locally.
+- `5001/udp` is compact peer relay.
+- `3008` is the optional experimental DATUM Gateway upstream connection.
+- `34265` is the current native SV2 pool default when the separate SV2 service
+  is installed.
 
 `boot-portal` itself is not a native Stratum V1 pool server. If you want to connect ASIC firmware directly without running DATUM, use a compatible gateway such as Hydrapool or the public beta Stratum endpoint when available.
 
-Firmware compatibility warning:
-- The main 300-slot GridPool beta requires miner firmware that can accept large DATUM coinbase templates.
+Firmware compatibility policy:
+- Native SV2 is the only miner transport planned for explicit support in the
+  initial Umbrel/StartOS beta.
+- The main 300-slot GridPool design requires any SV1/DATUM path to preserve the
+  complete payout transaction.
 - Older stock Bitmain firmware and NiceHash-style clients may be fingerprinted by DATUM into small coinbase variants. Those templates omit required GridPool payout outputs, so GridPool rejects the resulting shares as consensus-invalid.
-- Prefer DATUM setups using firmware known to support larger coinbases, such as ePIC / PowerPlay-BM, VNish / xminer-class firmware, Whatsminer-class firmware, Bitaxe, or other firmware that DATUM fingerprints into larger coinbase classes.
-- If older Antminer hardware cannot run compatible alternative firmware, wait for future smaller-team GridPool compatibility tiers rather than mining on the 300-slot beta.
+- Do not assume a manufacturer, firmware family, or rental service works from a
+  suspected DATUM fingerprint class. Only exact tested versions should be
+  recommended.
 - Operators can temporarily set `coinbase_uncondensed_outputs_enabled: true` in non-production lab configs to force DATUM to serve the full uncondensed payout-output set for firmware or rental-provider compatibility testing. Do not use that mode on production nodes.
 - Compatibility results are tracked in `docs/firmware-coinbase-compatibility-matrix.md`. This is a community-maintained matrix; please submit PRs with exact firmware, gateway, and test-mode details.
 
-If you need a full fresh sovereign stack, including pruned Bitcoin Core and DATUM Gateway, use the full-stack installer in `docs/raspberry-pi-one-shot-installer.md`.
+The older full-stack installer, including pruned Bitcoin Core and DATUM
+Gateway, remains available in `docs/raspberry-pi-one-shot-installer.md` for
+experimental/manual deployments. It is not the initial appliance support path.
 
 ## Docker Compose Quickstart
 GridPool includes a basic Docker Compose packaging path for manual public beta testing.
@@ -93,7 +109,7 @@ uses older 15/16-slot toy examples for intuition.
    - `./data/boot_portal_config.json`
    - `./data/pool_state.json`
 4. The WebUI is exposed on port `5000` and the DATUM listener on port `3008`.
-5. Run `scripts/boot-self-check.sh http://127.0.0.1:5000` after startup to verify health, peer state, round state, and local DATUM hashrate.
+5. Run `scripts/boot-self-check.sh http://127.0.0.1:5000` after startup to verify health, peer state, round state, and local mining telemetry.
 
 Notes:
 - The default Docker Compose file pulls the prebuilt image `ghcr.io/gridlabs-science/boot-protocol:latest`.
@@ -102,8 +118,9 @@ Notes:
 - To pin a specific published image, set `GRIDPOOL_BOOT_IMAGE`, for example `GRIDPOOL_BOOT_IMAGE=ghcr.io/gridlabs-science/boot-protocol:sha-abc1234 docker compose up -d`.
 - The container is set up for HTTP on the WebUI by default.  Terminate TLS at a reverse proxy, Cloudflare tunnel, or similar edge layer.
 - The image runs as non-root UID/GID `1000` and creates `/data/boot_portal_config.json` from `docker/boot_portal_config.sample.json` if no config exists.
-- The default sample uses `NotificationSource = "MempoolSpace"` so a local `bitcoind` is not required for first boot.
-- If you want local ZMQ block notifications, change the config and make sure the container can reach your Bitcoin node.
+- The default sample explicitly uses `bitcoin_notification_mode = "external-fallback"` so a local `bitcoind` is not required for first boot.
+- Sovereign mining nodes should use `attached-node`: authenticated RPC is the correctness authority, ZMQ is the low-latency path, and five-second RPC reconciliation recovers missed notifications.
+- Container loopback does not reach the Docker host. Follow `docs/bitcoin-node-connectivity.md` for host-network, shared-bridge, host-gateway, remote-LAN, and node-less examples.
 - The mainnet beta bootstrap seed is `https://main.gridpool.net` unless you override `bootstrap_peers`.
 - Testnet4 beta nodes should use `docker/boot_portal_config.testnet4.sample.json`, or set `bitcoin_network = "testnet4"`, `boot_network_id = "testnet4-beta"`, and bootstrap from `https://test.gridpool.net`.
 - Health probes are exposed at `/health/live` and `/health/ready`.
@@ -113,8 +130,12 @@ Notes:
 - DATUM-server implementers should review `docs/datum-server-compatibility-notes.md` for coinbaser ID, payout snapshot, and share hot-path requirements.
 - Stratum V2 is supported by the separate `gridpool-sv2-pool` SRI fork. It uses this node's work-selection API plus authenticated local telemetry/proof endpoints; JDC/JDS are not required.
 
-## Raspberry Pi Full-Stack Sovereign Install
-For a one-shot Raspberry Pi / Ubuntu install that sets up a pruned Bitcoin Core node, DATUM Gateway, and GridPool together, see `docs/raspberry-pi-one-shot-installer.md`.
+## Experimental Raspberry Pi DATUM Stack
+For a one-shot Raspberry Pi / Ubuntu lab install that sets up a pruned Bitcoin
+Core node, DATUM Gateway, and GridPool together, see
+`docs/raspberry-pi-one-shot-installer.md`. This path is retained for existing
+testers and DATUM research; it is not the supported Umbrel/StartOS onboarding
+path.
 
 The installer entrypoint is:
 

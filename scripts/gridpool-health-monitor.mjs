@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-const SCRIPT_VERSION = 4;
+const SCRIPT_VERSION = 5;
 const DEFAULT_STATE_DIR = path.join(os.homedir(), ".local", "state", "gridpool-monitor");
 const DEFAULT_CONFIG_PATHS = [
     path.join(os.homedir(), ".config", "gridpool-health-monitor", "config.json"),
@@ -56,6 +56,7 @@ const DEFAULT_CONFIG = {
         hashrateSpikeMultiplier: 2.0,
         hashrateSamplesForTrend: 3,
         minimumHashrateThsForTrend: 1,
+        localMiningFreshnessMinutes: 20,
         activeHydrapoolWorkerMaxAgeMinutes: 60,
         outboundRelayStaleMinutes: 10,
         peerOutboundAttemptStaleMinutes: 10
@@ -207,6 +208,7 @@ function loadState(stateDir) {
         failureCounts: {},
         failureFirstSeenUtc: {},
         alertCooldowns: {},
+        openAlertLifecycles: {},
         activeIncidentKeys: [],
         codexCooldowns: {},
         hashrateHistory: {},
@@ -355,7 +357,10 @@ async function collectGridPoolNode(node, config) {
         consensusGroup: node.consensusGroup || "",
         suppressCoinbaseModeAlert: node.suppressCoinbaseModeAlert === true,
         suppressTeamHashrateAlerts: node.suppressTeamHashrateAlerts === true,
-        suppressLocalDatumHashrateAlerts: node.suppressLocalDatumHashrateAlerts === true,
+        // Keep the old option as an alias while the monitor moves from the
+        // legacy DATUM-named summary field to all fresh local mining sources.
+        suppressLocalMiningHashrateAlerts: node.suppressLocalMiningHashrateAlerts === true ||
+            node.suppressLocalDatumHashrateAlerts === true,
         version: null,
         networkKey: ""
     };
@@ -679,6 +684,7 @@ function buildAlerts(snapshot, state, config) {
         maybeAddPeerCompatibilityAlerts(alerts, node);
         maybeAddCoinbaseModeAlert(alerts, node);
         maybeAddNodeVersionVisibilityAlert(alerts, node);
+        maybeAddBitcoinNotificationAlert(alerts, node, state);
         maybeAddPeerTipProtectionAlert(alerts, node);
         maybeAddOutboundRelayAlert(alerts, node, config);
     }
@@ -829,6 +835,59 @@ function maybeAddNodeVersionVisibilityAlert(alerts, node) {
     });
 }
 
+function maybeAddBitcoinNotificationAlert(alerts, node, state) {
+    const notification = node.summary?.bitcoinNotification;
+    if (!notification) return;
+
+    const mode = String(notification.mode || "").toLowerCase();
+    if (mode !== "attached-node") return;
+
+    if (notification.miningSafe === false) {
+        alerts.push({
+            severity: "critical",
+            category: "bitcoin-source-degraded",
+            fingerprint: `gridpool:${node.name}:bitcoin-source-degraded`,
+            title: `GridPool ${node.name} attached Bitcoin source is unsafe`,
+            detail: notification.degradedReason || notification.rpc?.lastError ||
+                "Authenticated Bitcoin RPC is not synchronized.",
+            codexEligible: true
+        });
+    } else if (notification.degradedReason) {
+        alerts.push({
+            severity: "warning",
+            category: "bitcoin-zmq-degraded",
+            fingerprint: `gridpool:${node.name}:bitcoin-zmq-degraded`,
+            title: `GridPool ${node.name} Bitcoin ZMQ latency path is degraded`,
+            detail: notification.degradedReason,
+            codexEligible: true
+        });
+    }
+
+    state.bitcoinNotificationCounters ||= {};
+    const previous = state.bitcoinNotificationCounters[node.name] || {};
+    const current = {};
+    for (const topic of notification.zmqTopics || []) {
+        const key = `${topic.topic || "unknown"}|${topic.endpointLabel || ""}`;
+        current[key] = {
+            gaps: Number(topic.sequenceGapCount || 0),
+            resets: Number(topic.resetCount || 0)
+        };
+        const before = previous[key];
+        if (before && (current[key].gaps > Number(before.gaps || 0) ||
+            current[key].resets > Number(before.resets || 0))) {
+            alerts.push({
+                severity: "warning",
+                category: "bitcoin-zmq-sequence-anomaly",
+                fingerprint: `gridpool:${node.name}:bitcoin-zmq-sequence:${key}`,
+                title: `GridPool ${node.name} observed a Bitcoin ZMQ sequence anomaly`,
+                detail: `${key}: gaps ${before.gaps || 0}->${current[key].gaps}, resets ${before.resets || 0}->${current[key].resets}. RPC reconciliation should verify the active tip.`,
+                codexEligible: true
+            });
+        }
+    }
+    state.bitcoinNotificationCounters[node.name] = current;
+}
+
 function maybeAddPeerTipProtectionAlert(alerts, node) {
     if (!node.summary || node.summary.miningWorkSafe !== false) return;
     alerts.push({
@@ -845,7 +904,8 @@ function maybeAddPeerTipProtectionAlert(alerts, node) {
 function maybeAddOutboundRelayAlert(alerts, node, config) {
     const summary = node.summary;
     if (!summary) return;
-    const localHashrate = Number(summary.localDatumHashrateThs || 0);
+    const datumHashrate = Number((node.localMining || currentLocalMining(node, config)).sources
+        .find(source => source.source === "datum")?.hashrateThs || 0);
     const staleMs = Number(config.thresholds.outboundRelayStaleMinutes || 10) * 60_000;
     const lastLocalShare = parseDate(summary.lastValidLocalDatumShareUtc);
     const datumSessionOpened = parseDate(summary.lastDatumSessionOpenedUtc);
@@ -854,23 +914,23 @@ function maybeAddOutboundRelayAlert(alerts, node, config) {
     const localInputReference = lastLocalShare || datumSessionOpened;
     const localInputStale = localInputReference && Date.now() - localInputReference > staleMs;
     const relayStale = summary.outboundRelayHealthy === false ||
-        (localHashrate > 0 && lastRelay && Date.now() - lastRelay > staleMs);
-    if (localHashrate > 0 && localShareRecent && relayStale) {
+        (datumHashrate > 0 && lastRelay && Date.now() - lastRelay > staleMs);
+    if (datumHashrate > 0 && localShareRecent && relayStale) {
         alerts.push({
             severity: "critical",
             category: "outbound-relay-stale",
             fingerprint: `gridpool:${node.name}:outbound-relay-stale`,
             title: `GridPool ${node.name} has local hashrate but outbound relay is stale`,
-            detail: summary.outboundRelayHealthReason || `localHashrateThs=${localHashrate}; lastSuccessfulOutboundRelayUtc=${summary.lastSuccessfulOutboundRelayUtc || "never"}`,
+            detail: summary.outboundRelayHealthReason || `datumHashrateThs=${datumHashrate}; lastSuccessfulOutboundRelayUtc=${summary.lastSuccessfulOutboundRelayUtc || "never"}`,
             codexEligible: true
         });
-    } else if (localHashrate > 0 && localInputStale && Number(summary.activeDatumSessionCount || 0) > 0) {
+    } else if (datumHashrate > 0 && localInputStale && Number(summary.activeDatumSessionCount || 0) > 0) {
         alerts.push({
             severity: "warning",
             category: "local-datum-share-stale",
             fingerprint: `gridpool:${node.name}:local-datum-share-stale`,
             title: `GridPool ${node.name} DATUM session is alive but miner shares stopped`,
-            detail: `localHashrateThs=${localHashrate}; lastValidLocalDatumShareUtc=${summary.lastValidLocalDatumShareUtc || "never"}; lastCoinbaserResponseUtc=${summary.lastSuccessfulDatumCoinbaserResponseUtc || "never"}. Check the local Stratum worker or rental failover before diagnosing peer relay.`,
+            detail: `datumHashrateThs=${datumHashrate}; lastValidLocalDatumShareUtc=${summary.lastValidLocalDatumShareUtc || "never"}; lastCoinbaserResponseUtc=${summary.lastSuccessfulDatumCoinbaserResponseUtc || "never"}. Check the local Stratum worker or rental failover before diagnosing peer relay.`,
             codexEligible: true
         });
     }
@@ -878,7 +938,15 @@ function maybeAddOutboundRelayAlert(alerts, node, config) {
     const attemptStaleMs = Number(config.thresholds.peerOutboundAttemptStaleMinutes || 10) * 60_000;
     const stalePeers = (node.peerRecords || []).filter(peer => {
         const attempt = parseDate(peer.lastAttemptUtc);
-        return peer.sessionConnected === true && attempt && Date.now() - attempt > attemptStaleMs;
+        const lastSuccess = parseDate(peer.lastSuccessUtc);
+        const lastSeen = parseDate(peer.lastSeenUtc);
+        const lastActivity = [lastSuccess, lastSeen]
+            .filter(Boolean)
+            .reduce((latest, value) => latest && latest > value ? latest : value, null);
+        return peer.sessionConnected === true &&
+            attempt &&
+            Date.now() - attempt > attemptStaleMs &&
+            (!lastActivity || Date.now() - lastActivity > attemptStaleMs);
     });
     if (stalePeers.length > 0) {
         alerts.push({
@@ -1081,7 +1149,6 @@ function maybeAddGridPoolBlockAlerts(alerts, node, state) {
 
 function maybeAddHashrateAlerts(alerts, node, state, config) {
     const observed = Number(node.summary?.currentRoundObservedHashrateThs);
-    const local = Number(node.summary?.localDatumHashrateThs);
 
     if (node.suppressTeamHashrateAlerts !== true) {
         addHashrateSample(state, `${node.name}:team`, observed);
@@ -1089,11 +1156,72 @@ function maybeAddHashrateAlerts(alerts, node, state, config) {
         if (teamAlert) alerts.push(teamAlert);
     }
 
-    if (node.suppressLocalDatumHashrateAlerts !== true) {
-        addHashrateSample(state, `${node.name}:local`, local);
-        const localAlert = trendAlertForSeries(state, `${node.name}:local`, config, `GridPool ${node.name} local DATUM hashrate`);
+    const localMining = currentLocalMining(node, config);
+    node.localMining = localMining;
+    if (node.suppressLocalMiningHashrateAlerts !== true && localMining.hashrateThs > 0) {
+        addHashrateSample(state, `${node.name}:local`, localMining.hashrateThs);
+        const localAlert = trendAlertForSeries(
+            state,
+            `${node.name}:local`,
+            config,
+            `GridPool ${node.name} local mining hashrate`,
+            localMining.description);
         if (localAlert) alerts.push(localAlert);
+    } else if (!localMining.hasFreshSamples) {
+        // Do not compare an eventual reconnect with samples from a prior
+        // mining session. That produces false spike/drop notifications.
+        delete state.hashrateHistory[`${node.name}:local`];
     }
+}
+
+function currentLocalMining(node, config) {
+    const freshnessMinutes = Number(config.thresholds.localMiningFreshnessMinutes || 20);
+    const cutoffMs = Date.now() - (freshnessMinutes * 60_000);
+    const bySource = new Map();
+    let minerCount = 0;
+    let latestShareMs = null;
+
+    for (const miner of node.localMiners || []) {
+        const hashrateThs = Number(miner.currentHashrateThs);
+        const lastShareMs = parseDate(miner.lastShareUtc);
+        if (!Number.isFinite(hashrateThs) || hashrateThs <= 0 || !lastShareMs || lastShareMs < cutoffMs) {
+            continue;
+        }
+
+        const source = String(miner.source || "unknown").trim().toLowerCase() || "unknown";
+        bySource.set(source, (bySource.get(source) || 0) + hashrateThs);
+        minerCount += 1;
+        latestShareMs = latestShareMs == null ? lastShareMs : Math.max(latestShareMs, lastShareMs);
+    }
+
+    // Older nodes did not expose per-miner telemetry. Retain a conservative
+    // DATUM-only fallback for that compatibility case, never when the modern
+    // endpoint positively reports a different local source.
+    if (!Array.isArray(node.localMiners)) {
+        const legacyDatumHashrateThs = Number(node.summary?.localDatumHashrateThs);
+        if (Number.isFinite(legacyDatumHashrateThs) && legacyDatumHashrateThs > 0) {
+            bySource.set("datum", legacyDatumHashrateThs);
+            minerCount = 1;
+        }
+    }
+
+    const sources = [...bySource.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([source, hashrateThs]) => ({ source, hashrateThs }));
+    const hashrateThs = sources.reduce((sum, source) => sum + source.hashrateThs, 0);
+    const latestShareUtc = latestShareMs == null ? null : new Date(latestShareMs).toISOString();
+    const description = hashrateThs > 0
+        ? `Fresh sources: ${sources.map(source => `${source.source}=${formatHashrateThs(source.hashrateThs)}`).join(", ")}; ${minerCount} miner(s); latest share ${latestShareUtc || "unavailable (legacy node telemetry)"}.`
+        : `No local miner has submitted a share in the last ${freshnessMinutes} minute(s).`;
+
+    return {
+        hashrateThs,
+        hasFreshSamples: hashrateThs > 0,
+        sources,
+        minerCount,
+        latestShareUtc,
+        description
+    };
 }
 
 function addHashrateSample(state, key, value) {
@@ -1103,7 +1231,7 @@ function addHashrateSample(state, key, value) {
     state.hashrateHistory[key] = history.slice(-24);
 }
 
-function trendAlertForSeries(state, key, config, label) {
+function trendAlertForSeries(state, key, config, label, context = "") {
     const samplesNeeded = Number(config.thresholds.hashrateSamplesForTrend || 3);
     const history = state.hashrateHistory[key] || [];
     if (history.length < samplesNeeded * 2) return null;
@@ -1124,7 +1252,7 @@ function trendAlertForSeries(state, key, config, label) {
             category: "hashrate-drop",
             fingerprint: `hashrate:${key}:drop`,
             title: `${label} dropped`,
-            detail: `${formatHashrateThs(previousAvg)} -> ${formatHashrateThs(recentAvg)} across ${samplesNeeded} samples.`,
+            detail: `${formatHashrateThs(previousAvg)} -> ${formatHashrateThs(recentAvg)} across ${samplesNeeded} samples.${context ? ` ${context}` : ""}`,
             codexEligible: true
         };
     }
@@ -1135,7 +1263,7 @@ function trendAlertForSeries(state, key, config, label) {
             category: "hashrate-spike",
             fingerprint: `hashrate:${key}:spike`,
             title: `${label} spiked`,
-            detail: `${formatHashrateThs(previousAvg)} -> ${formatHashrateThs(recentAvg)} across ${samplesNeeded} samples.`,
+            detail: `${formatHashrateThs(previousAvg)} -> ${formatHashrateThs(recentAvg)} across ${samplesNeeded} samples.${context ? ` ${context}` : ""}`,
             codexEligible: false
         };
     }
@@ -1397,12 +1525,63 @@ function unionSorted(a, b) {
 function filterAlertsForDelivery(alerts, state, config) {
     const delivered = [];
     const now = Date.now();
+    const nowUtc = currentIso();
     const mutedUntil = parseDate(state.telegram.silencedUntilUtc);
     const muted = mutedUntil && mutedUntil > now;
     const muteCritical = muted && state.telegram.silenceCritical === true;
     const cooldownMs = Number(config.alertCooldownMinutes || 60) * 60_000;
+    state.openAlertLifecycles ||= {};
+
+    const activeLifecycles = new Map(
+        alerts
+            .filter(isLifecycleManagedAlert)
+            .map(alert => [alert.fingerprint, alert]));
+
+    for (const [fingerprint, alert] of activeLifecycles) {
+        const existing = state.openAlertLifecycles[fingerprint];
+        const lifecycle = existing || {
+            severity: alert.severity,
+            category: alert.category,
+            title: alert.title,
+            detail: alert.detail,
+            openedUtc: nowUtc,
+            announcedUtc: null
+        };
+        lifecycle.severity = alert.severity;
+        lifecycle.category = alert.category;
+        lifecycle.title = alert.title;
+        lifecycle.detail = alert.detail;
+        lifecycle.lastSeenUtc = nowUtc;
+        state.openAlertLifecycles[fingerprint] = lifecycle;
+
+        const critical = alert.severity === "critical";
+        const deliveryMuted = muted && (!critical || muteCritical);
+        if ((!existing || !lifecycle.announcedUtc) && !deliveryMuted) {
+            lifecycle.announcedUtc = nowUtc;
+            addDeliveredAlert(delivered, state, alert);
+        }
+    }
+
+    for (const [fingerprint, lifecycle] of Object.entries(state.openAlertLifecycles)) {
+        if (activeLifecycles.has(fingerprint)) continue;
+        delete state.openAlertLifecycles[fingerprint];
+        if (!lifecycle.announcedUtc) continue;
+
+        const resolved = {
+            severity: "info",
+            category: "alert-resolved",
+            fingerprint: `resolved:${fingerprint}:${lifecycle.openedUtc || nowUtc}`,
+            title: `Resolved: ${lifecycle.title}`,
+            detail: `Recovered at ${nowUtc}; open since ${lifecycle.openedUtc || "unknown"}.`,
+            codexEligible: false
+        };
+        if (!(muted && !muteCritical)) {
+            addDeliveredAlert(delivered, state, resolved);
+        }
+    }
 
     for (const alert of alerts) {
+        if (isLifecycleManagedAlert(alert)) continue;
         const critical = alert.severity === "critical" || alert.category === "gridpool-block-found";
         if (muted && (!critical || muteCritical)) continue;
 
@@ -1411,15 +1590,24 @@ function filterAlertsForDelivery(alerts, state, config) {
         if (last && now - last < cooldownMs && (!critical || consensusReminder)) continue;
 
         state.alertCooldowns[alert.fingerprint] = currentIso();
-        delivered.push(alert);
-        state.recentAlerts.unshift({
-            ...alert,
-            utc: currentIso()
-        });
+        addDeliveredAlert(delivered, state, alert);
     }
 
     state.recentAlerts = (state.recentAlerts || []).slice(0, 50);
     return delivered;
+}
+
+function isLifecycleManagedAlert(alert) {
+    return alert.category === "endpoint-down" || alert.category === "service-inactive";
+}
+
+function addDeliveredAlert(delivered, state, alert) {
+    delivered.push(alert);
+    state.recentAlerts ||= [];
+    state.recentAlerts.unshift({
+        ...alert,
+        utc: currentIso()
+    });
 }
 
 function stableIncidentKey(alert) {
@@ -1576,7 +1764,7 @@ function buildAlertMessage(alerts, codexResult = null) {
     return lines.join("\n").trim();
 }
 
-function buildDigest(snapshot, state) {
+function buildDigest(snapshot, state, config = DEFAULT_CONFIG) {
     const lines = [
         `GridPool morning digest: ${snapshot.monitorName}`,
         `Collected: ${snapshot.collectedAtUtc}`,
@@ -1595,11 +1783,12 @@ function buildDigest(snapshot, state) {
     }
 
     for (const node of snapshot.gridpoolNodes || []) {
+        const localMining = node.localMining || currentLocalMining(node, config);
         lines.push(`GridPool ${node.name}: ${node.ok ? "ok" : "problem"}`);
         lines.push(`Snapshot ${node.summary?.currentRoundNumber ?? "--"}; state ${shortId(node.summary?.currentStateId) || "--"}; candidate ${shortId(node.summary?.candidateStateId) || "--"}; tip ${node.summary?.currentTipBlockHeight ?? "--"}; peers ${node.summary?.peerCount ?? "--"}`);
         lines.push(`Last GridPool block ${node.summary?.lastGridPoolBlockHeight ?? "--"}; paid snapshot ${node.summary?.lastPaidSnapshotId || "--"}`);
-        lines.push(`Team hashrate ${node.summary?.currentRoundObservedHashrateDisplay || formatHashrateThs(node.summary?.currentRoundObservedHashrateThs)}; local DATUM ${node.summary?.localDatumHashrateDisplay || formatHashrateThs(node.summary?.localDatumHashrateThs)}`);
-        lines.push(`Local DATUM miners: ${(node.localMiners || []).length}; payout addresses: ${(node.payoutAddresses || []).length}; candidate addresses: ${(node.candidateAddresses || []).length}`);
+        lines.push(`Team hashrate ${node.summary?.currentRoundObservedHashrateDisplay || formatHashrateThs(node.summary?.currentRoundObservedHashrateThs)}; fresh local mining ${formatHashrateThs(localMining.hashrateThs)}`);
+        lines.push(`Local miners: ${localMining.minerCount} fresh / ${(node.localMiners || []).length} tracked; sources: ${localMining.sources.map(source => `${source.source}=${formatHashrateThs(source.hashrateThs)}`).join(", ") || "none"}; payout addresses: ${(node.payoutAddresses || []).length}; candidate addresses: ${(node.candidateAddresses || []).length}`);
         if (node.errors?.length) lines.push(`Errors: ${node.errors.join("; ")}`);
         lines.push("");
     }
@@ -1621,6 +1810,16 @@ function buildDigest(snapshot, state) {
     lines.push(`Services inactive: ${inactiveServices.length ? inactiveServices.map(service => service.name).join(", ") : "none"}`);
     const unknown = state.known?.unknownListAddresses || [];
     lines.push(`Unknown list addresses seen: ${unknown.length ? unknown.slice(0, 6).join(", ") : "none"}`);
+
+    const openAlerts = Object.values(state.openAlertLifecycles || {})
+        .sort((left, right) => String(left.openedUtc || "").localeCompare(String(right.openedUtc || "")));
+    if (openAlerts.length) {
+        lines.push("");
+        lines.push("Open endpoint/service warnings:");
+        for (const alert of openAlerts) {
+            lines.push(`[${String(alert.severity || "warning").toUpperCase()}] ${alert.title} (open since ${alert.openedUtc || "unknown"})`);
+        }
+    }
 
     const recentAlerts = (state.recentAlerts || []).slice(0, 5);
     if (recentAlerts.length) {
@@ -1763,7 +1962,7 @@ async function processTelegramCommands(telegram, state, snapshot, config, stateD
         if (text.startsWith("/status")) {
             await telegram.sendMessage(buildStatusMessage(snapshot), [chatId]);
         } else if (text.startsWith("/digest")) {
-            await telegram.sendMessage(buildDigest(snapshot, state), [chatId]);
+            await telegram.sendMessage(buildDigest(snapshot, state, config), [chatId]);
         } else if (text.startsWith("/help") || text.startsWith("/start") || text.startsWith("/commands")) {
             await telegram.sendMessage(buildHelpMessage(config, state), [chatId]);
         } else if (text.startsWith("/unsilence") || text.startsWith("/unmute")) {
@@ -2079,7 +2278,8 @@ function compactSummary(snapshot, alerts) {
             coinbaseOutputMode: node.summary?.coinbaseOutputMode,
             coinbaseOutputCount: node.summary?.coinbaseOutputCount,
             teamHashrate: node.summary?.currentRoundObservedHashrateDisplay || formatHashrateThs(node.summary?.currentRoundObservedHashrateThs),
-            localDatumHashrate: node.summary?.localDatumHashrateDisplay || formatHashrateThs(node.summary?.localDatumHashrateThs),
+            localMiningHashrate: formatHashrateThs((node.localMining || currentLocalMining(node, DEFAULT_CONFIG)).hashrateThs),
+            localMiningSources: (node.localMining || currentLocalMining(node, DEFAULT_CONFIG)).sources,
             datumAcceptanceRate: datumAcceptanceRate(node.summary?.localDatumDiagnostics),
             localMiners: node.localMiners.length,
             peers: node.summary?.peerCount,
@@ -2220,7 +2420,7 @@ async function main() {
     }
 
     if (shouldSendMorningDigest(state, config, args["force-digest"] === "true")) {
-        await telegram.sendMessage(buildDigest(snapshot, state));
+        await telegram.sendMessage(buildDigest(snapshot, state, config));
         markMorningDigestSent(state, config);
     }
 
@@ -2260,6 +2460,35 @@ function runSelfTests() {
         state,
         { alertCooldownMinutes: 60 });
     if (delivered.length !== 0) throw new Error("consensus divergence reminder cooldown failed");
+
+    const lifecycleState = { telegram: {}, alertCooldowns: {}, openAlertLifecycles: {}, recentAlerts: [] };
+    const endpointDown = [{
+        severity: "warning",
+        category: "endpoint-down",
+        fingerprint: "gridpool:remote:live",
+        title: "GridPool remote live unreachable",
+        detail: "https://remote.example request timed out"
+    }];
+    if (filterAlertsForDelivery(endpointDown, lifecycleState, { alertCooldownMinutes: 60 }).length !== 1) {
+        throw new Error("new endpoint failure was not delivered");
+    }
+    if (filterAlertsForDelivery(endpointDown, lifecycleState, { alertCooldownMinutes: 60 }).length !== 0) {
+        throw new Error("continuing endpoint failure was delivered more than once");
+    }
+    const resolvedLifecycle = filterAlertsForDelivery([], lifecycleState, { alertCooldownMinutes: 60 });
+    if (resolvedLifecycle.length !== 1 || resolvedLifecycle[0].category !== "alert-resolved" ||
+        Object.keys(lifecycleState.openAlertLifecycles).length !== 0) {
+        throw new Error("endpoint recovery lifecycle notification failed");
+    }
+
+    const freshMining = currentLocalMining({ localMiners: [
+        { source: "ckpool", currentHashrateThs: 5, lastShareUtc: currentIso() },
+        { source: "datum", currentHashrateThs: 2, lastShareUtc: currentIso() },
+        { source: "hydrapool", currentHashrateThs: 500, lastShareUtc: new Date(Date.now() - 60 * 60_000).toISOString() }
+    ] }, { thresholds: { localMiningFreshnessMinutes: 20 } });
+    if (freshMining.hashrateThs !== 7 || freshMining.sources.length !== 2 || freshMining.minerCount !== 2) {
+        throw new Error("fresh source-aware local mining calculation failed");
+    }
     const incidentState = { activeIncidentKeys: [] };
     if (selectNewIncidentAlerts(
         [{ severity: "warning", category: "test", fingerprint: "gridpool:a:test" }],
@@ -2329,6 +2558,38 @@ function runSelfTests() {
     }, { thresholds: { outboundRelayStaleMinutes: 10, peerOutboundAttemptStaleMinutes: 10 } });
     if (staleInputAlerts.length !== 1 || staleInputAlerts[0].category !== "local-datum-share-stale") {
         throw new Error("stopped DATUM input was misclassified as an outbound relay failure");
+    }
+
+    const activePeerAlerts = [];
+    maybeAddOutboundRelayAlert(activePeerAlerts, {
+        name: "test",
+        summary: {},
+        peerRecords: [{
+            endpoint: "https://peer.example",
+            sessionConnected: true,
+            lastAttemptUtc: new Date(Date.now() - 20 * 60_000).toISOString(),
+            lastSuccessUtc: new Date(Date.now() - 30_000).toISOString(),
+            lastSeenUtc: new Date(Date.now() - 30_000).toISOString()
+        }]
+    }, { thresholds: { peerOutboundAttemptStaleMinutes: 10 } });
+    if (activePeerAlerts.length !== 0) {
+        throw new Error("active peer traffic was misclassified as frozen outbound polling");
+    }
+
+    const frozenPeerAlerts = [];
+    maybeAddOutboundRelayAlert(frozenPeerAlerts, {
+        name: "test",
+        summary: {},
+        peerRecords: [{
+            endpoint: "https://peer.example",
+            sessionConnected: true,
+            lastAttemptUtc: new Date(Date.now() - 20 * 60_000).toISOString(),
+            lastSuccessUtc: new Date(Date.now() - 20 * 60_000).toISOString(),
+            lastSeenUtc: new Date(Date.now() - 20 * 60_000).toISOString()
+        }]
+    }, { thresholds: { peerOutboundAttemptStaleMinutes: 10 } });
+    if (frozenPeerAlerts.length !== 1 || frozenPeerAlerts[0].category !== "peer-outbound-attempt-stale") {
+        throw new Error("frozen outbound polling was not detected");
     }
     console.log("gridpool-health-monitor self-test: ok");
 }

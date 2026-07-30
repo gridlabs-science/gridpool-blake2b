@@ -228,7 +228,7 @@ public class BootShareVerifier
                 return Invalid($"Share builds on the wrong parent block ({actualPrevBlockHash}).");
             }
 
-            byte[] coinbaseHash = DoubleSha256(coinbaseBytes);
+            byte[] coinbaseHash = BitcoinTransactionParser.ComputeTransactionIdHash(coinbaseBytes);
             byte[] expectedMerkleRoot = headerBytes.AsSpan(36, 32).ToArray();
             byte[] computedMerkleRoot = ComputeMerkleRoot(coinbaseHash, branchBytes);
 

@@ -270,7 +270,17 @@ V3.1 is not implemented. It should wait until V2.1 hidden session relay is stabl
 
 Measurement-only header relay is implemented over encrypted WebSocket sessions and compact encrypted UDP datagrams. Nodes relay the full 80-byte header, record receiver-local transport arrival, and compare it with independent local Bitcoin `rawblock` ZMQ arrival for the exact same hash. Peer announcements do not advance the chain tip, rotate snapshots, invalidate work, or build templates. See `docs/fast-chain-tip-telemetry.md`.
 
+Attached-node hardening uses authenticated RPC as the local correctness
+authority, `hashblock`/`rawblock` ZMQ as the low-latency path, five-second RPC
+reconciliation for missed notifications, and an immediate RPC check after a
+verified peer lead. This transport coordinator does not alter V2.2 consensus.
+See `docs/bitcoin-node-connectivity.md`.
+
 Mining behavior remains research. Header arrival alone does not provide the full block or prove that optimistic empty-block mining is safe.
+
+AtlasPool/Parasite watchers, FIBRE, direct Bitcoin P2P headers, and optimistic
+header-only mining remain adapter or optional-sidecar work. They are not
+reference-node consensus dependencies.
 
 ## Completed V1 Acceptance Criteria
 

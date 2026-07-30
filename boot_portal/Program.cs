@@ -317,6 +317,7 @@ public class Program
             builder.Services.AddControllers();
             builder.Services.AddSignalR();    // For real-time updates
             builder.Services.AddSingleton(_poolConfig);
+            builder.Services.AddSingleton<BitcoinNotificationHealth>();
             builder.Services.AddSingleton(new BootPeerIdentity(ed25519Key, x25519Key));
             builder.Services.AddSingleton<BootPeerLoopHealth>();
             builder.Services.AddSingleton<BootShareVerifier>();
@@ -329,6 +330,15 @@ public class Program
             {
                 client.Timeout = TimeSpan.FromSeconds(Math.Max(2, _poolConfig.PeerRequestTimeoutSeconds));
             });
+            builder.Services.AddHttpClient<BitcoinRpcClient>(client =>
+            {
+                client.Timeout = TimeSpan.FromSeconds(Math.Max(1, _poolConfig.BitcoinRpcTimeoutSeconds));
+            });
+            builder.Logging.AddFilter(
+                "System.Net.Http.HttpClient.BitcoinRpcClient",
+                LogLevel.Warning);
+            builder.Services.AddTransient<IBitcoinRpcClient>(serviceProvider =>
+                serviceProvider.GetRequiredService<BitcoinRpcClient>());
             builder.Services.AddRateLimiter(options =>
             {
                 options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -358,24 +368,22 @@ public class Program
             //builder.Services.AddHostedService<BitcoinZmqSubscriber>();
             // *** START CONFIGURABLE SERVICE SECTION ***
 
-            string notificationSource = (builder.Configuration["NotificationSource"] ?? "MempoolSpace").Trim();
-
-            if (notificationSource.Equals("ZMQ", StringComparison.OrdinalIgnoreCase) ||
-                notificationSource.Equals("BitcoinZmq", StringComparison.OrdinalIgnoreCase) ||
-                notificationSource.Equals("BitcoinZMQ", StringComparison.OrdinalIgnoreCase))
+            string notificationMode = BitcoinNotificationModes.Resolve(_poolConfig);
+            if (notificationMode == BitcoinNotificationModes.AttachedNode)
             {
                 builder.Services.AddHostedService<BitcoinZmqSubscriber>();
-                Console.WriteLine("Block Notification source set to ZMQ");
+                builder.Services.AddHostedService<BitcoinRpcReconciliationService>();
+                Console.WriteLine("Block notification mode set to attached-node (ZMQ + RPC reconciliation)");
             }
-            else if (notificationSource.Equals("MempoolSpace", StringComparison.OrdinalIgnoreCase))
+            else if (notificationMode == BitcoinNotificationModes.ExternalFallback)
             {
                 builder.Services.AddHostedService<MempoolSpaceSocketSubscriber>();
-                Console.WriteLine("Block Notification source set to Mempool.Space Web Socket API");
+                Console.WriteLine("Block notification mode set to external-fallback (Mempool.Space)");
             }
             else
             {
                 throw new InvalidOperationException(
-                    $"Unknown NotificationSource '{notificationSource}'. Expected 'MempoolSpace', 'ZMQ', or 'BitcoinZmq'.");
+                    $"Unknown bitcoin_notification_mode '{notificationMode}'. Expected 'attached-node' or 'external-fallback'.");
             }
 
             // *** END CONFIGURABLE SERVICE SECTION ***
@@ -581,6 +589,15 @@ public class Program
     private static void ApplyPoolConfigDefaults(PoolConfig config)
     {
         config.CoinbaseTag ??= string.Empty;
+        config.NotificationSource = string.IsNullOrWhiteSpace(config.NotificationSource)
+            ? "MempoolSpace"
+            : config.NotificationSource.Trim();
+        config.BitcoinNotificationMode = string.IsNullOrWhiteSpace(config.BitcoinNotificationMode)
+            ? string.Empty
+            : config.BitcoinNotificationMode.Trim().ToLowerInvariant();
+        config.BitcoinRpcUrl = config.BitcoinRpcUrl?.Trim() ?? string.Empty;
+        config.BitcoinRpcUsername = config.BitcoinRpcUsername?.Trim() ?? string.Empty;
+        config.BitcoinRpcCookieFile = config.BitcoinRpcCookieFile?.Trim() ?? string.Empty;
         config.NodeMode = string.IsNullOrWhiteSpace(config.NodeMode)
             ? "development"
             : config.NodeMode.Trim().ToLowerInvariant();

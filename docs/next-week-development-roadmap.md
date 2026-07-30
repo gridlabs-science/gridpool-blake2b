@@ -5,11 +5,13 @@ launch gate; this document orders the next work without expanding that gate.
 
 ## Operating Constraint
 
-The public nodes are V2.2-capable but remain on active consensus V2.1 until
-Bitcoin height `959500`. The meaningful seven-day soak begins only after all
-participating nodes activate consensus version 22, schema version 3, and
-reconverge. During that window, avoid consensus, state, peer, payout, and mining
-hot-path changes except fixes for a demonstrated safety or availability bug.
+V2.2 activated at Bitcoin height `959500`; reachable public nodes now report
+consensus version 22 and schema version 3. The meaningful seven-day protocol
+soak begins after Main and Oregon run one pinned, provenanced commit, pass a
+24-hour no-intervention canary, and reconverge. Evomining and Detroit add useful
+independent evidence when available but do not control the clock. During the
+soak, avoid consensus, state, peer, payout, and mining hot-path changes except
+fixes for a demonstrated safety or availability bug.
 
 An operator experiment, planned restart, or endpoint outage is not a protocol
 failure, but it must be recorded so the soak report can distinguish controlled
@@ -18,19 +20,19 @@ unexplained same-tip divergence, or required state wipe resets the soak clock.
 
 ## Priority Order
 
-### P0: Prepare And Observe The V2.2 Activation
+### P0: Pin The Soak Pair And Start The Clock
 
-1. Freeze the reference-node consensus/networking revision deployed to Main,
-   Evomining, Dallas, and Detroit.
-2. Confirm every node reports software capability 22, activation height
-   `959500`, and the expected pre-activation consensus/schema values 21/2.
-3. Back up state and identity files before activation.
-4. At activation, verify every node changes to consensus/schema 22/3, rejects
-   legacy peers visibly, and converges on current state, candidate state, active
-   snapshot, and snapshot-family metadata.
-5. Start a new seven-day soak ledger at the first fully aligned post-activation
-   sample. Record code/config changes, restarts, miner changes, node lag, and
-   operator experiments.
+1. Freeze one reference-node consensus/networking revision for Main and Oregon.
+2. Rebuild Oregon with commit provenance and confirm both nodes report the same
+   release, consensus/schema 22/3, Bitcoin tip, current state, and candidate
+   state. Align consensus-adjacent safety flags, especially
+   `enable_peer_tip_stale_protection`, before the canary.
+3. Back up state and identity files on both nodes.
+4. Pass a 24-hour no-intervention canary with healthy attached-node RPC/ZMQ,
+   peer sessions, UDP relay, and no unexplained same-tip divergence.
+5. Start a new seven-day soak ledger. Record code/config changes, restarts,
+   miner changes, node lag, and operator experiments. Include Dallas,
+   Evomining, and Detroit whenever reachable without making them required.
 
 ### P0: Remove Prototype-Era Security Exposures
 
@@ -68,11 +70,10 @@ restart the affected stability window.
 **StratumRace multi-vantage collection**
 
 - Keep the existing Main collector running.
-- Add Evomining as the first independent remote collector because it has a
-  local Bitcoin node and has already exposed useful P2P-delay behavior.
-- Add Detroit after its local Bitcoin notification path and clock health are
-  verified. Dallas can measure public endpoint arrivals but is not a useful
-  local-node latency vantage until it has an attached Bitcoin node.
+- Keep Oregon as the controlled remote collector with an attached Bitcoin node.
+- Add Evomining and Detroit after their local Bitcoin notification paths and
+  clock health are verified. Dallas can measure public endpoint arrivals but is
+  not a useful local-node latency vantage until it has an attached Bitcoin node.
 - Verify NTP/clock offset, stable vantage IDs, authenticated ingestion, local
   endpoint labels, GridPool peer-header correlation, and data retention.
 - Do not compare absolute cross-site milliseconds until clock quality is
@@ -90,6 +91,23 @@ restart the affected stability window.
   adapter development environment; use a staging node or bounded canary.
 - Continue the native SV2 soak and verify per-channel slot-0 attribution and
   restart recovery.
+
+### P1: Build Appliance Packages During The Soak
+
+- Create thin, separate Umbrel and StartOS wrapper repositories that pin the
+  exact reference-node image digest.
+- Sideload the Umbrel package on Detroit and the StartOS package on the local DC
+  appliance. Exercise install, state sync, private UI defaults, restart,
+  upgrade, backup, restore, and outbound-only networking.
+- Track package stability separately from protocol stability. A manifest/UI
+  correction resets the package canary; a shared runtime or state change resets
+  the protocol soak.
+- Resolve native SV2 template acquisition across appliance service boundaries.
+  The current SRI-derived pool's local Bitcoin Core IPC dependency cannot be
+  assumed to cross Umbrel/StartOS app boundaries. Do not bundle a second Bitcoin
+  node; add or reuse a supported remote template-provider/RPC path.
+- Initial package support is native SV2 only. DATUM and raw SV1 remain
+  experimental and disabled by default.
 
 ### P2: PublicPool Integration Spike
 
@@ -137,9 +155,9 @@ Deliverables for this week:
 - V2.2 reconciliation events, if any, converge deterministically and remain
   within configured member/context bounds.
 - No unexplained payout mismatch burst or paid-lineage inconsistency.
-- DATUM acceptance remains above 95% after explicitly categorized invalid
-  fallback/firmware input; SV2 and CKPool canaries have explained rejection
-  rates.
+- Native SV2 job delivery, accepted-share flow, durable retry, and restart
+  recovery have no unexplained failure. Experimental DATUM/SV1/CKPool
+  rejection rates are categorized but do not define launch support.
 - Restarts preserve identity, state, peers, and adapter recovery.
 - Outbound-only peer behavior and state-bundle sync have at least one real-node
   validation.
@@ -169,7 +187,7 @@ node scripts/chain-tip-latency-report.mjs \
 1. Fix any soak findings and repeat only the affected stability window.
 2. Merge/deploy the UI refresh after API semantics are frozen.
 3. Implement the PublicPool integration from the reviewed spike.
-4. Resume Umbrel/Start9 packaging: clean installs, backup/restore, upgrades,
-   outbound-only behavior, and ARM64 validation.
-5. Continue firmware/rental compatibility testing; this remains a launch gate
-   independent of V2.2 stability.
+4. Promote the successful Umbrel/StartOS sideload wrappers into reproducible
+   release candidates and finish ARM64 validation.
+5. Continue community firmware/rental compatibility testing without making
+   broad SV1 coverage a gate for the native-SV2 package.
