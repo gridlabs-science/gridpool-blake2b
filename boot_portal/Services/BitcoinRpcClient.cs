@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using boot_portal.Models;
 
 namespace boot_portal.Services;
 

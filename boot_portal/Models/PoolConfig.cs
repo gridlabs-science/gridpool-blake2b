@@ -9,14 +9,17 @@ namespace boot_portal.Models;
 /// </summary>
 public class PoolConfig
 {
+    [JsonPropertyName("NotificationSource")]
+    public string NotificationSource { get; set; } = "MempoolSpace";
+
+    [JsonPropertyName("bitcoin_notification_mode")]
+    public string BitcoinNotificationMode { get; set; } = string.Empty;
+
     [JsonPropertyName("bitcoin_network")]
     public string BitcoinNetwork { get; set; } = BitcoinScript.Mainnet;
 
     [JsonPropertyName("pool_payout_script")]
-    public string PoolPayoutScript { get; set; } = string.Empty;
-
-    [JsonPropertyName("setup_completed")]
-    public bool SetupCompleted { get; set; }
+    public string PoolPayoutScript { get; set; } = "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y"; //TODO: hard coded default address? 
 
     [JsonPropertyName("winners_list_size")]
     public int WinnersListSize { get; set; } = 299;
@@ -392,16 +395,38 @@ public class PoolConfig
     [JsonPropertyName("bitcoin_zmq_rawblock_endpoint")]
     public string BitcoinZmqRawBlockEndpoint { get; set; } = "tcp://127.0.0.1:28333";
 
+    [JsonPropertyName("bitcoin_rpc_url")]
+    public string BitcoinRpcUrl { get; set; } = string.Empty;
+
+    [JsonPropertyName("bitcoin_rpc_username")]
+    public string BitcoinRpcUsername { get; set; } = string.Empty;
+
+    [JsonPropertyName("bitcoin_rpc_password")]
+    public string BitcoinRpcPassword { get; set; } = string.Empty;
+
+    [JsonPropertyName("bitcoin_rpc_cookie_file")]
+    public string BitcoinRpcCookieFile { get; set; } = string.Empty;
+
+    [JsonPropertyName("bitcoin_rpc_poll_interval_seconds")]
+    public int BitcoinRpcPollIntervalSeconds { get; set; } = 5;
+
+    [JsonPropertyName("bitcoin_rpc_timeout_seconds")]
+    public int BitcoinRpcTimeoutSeconds { get; set; } = 3;
+
+    [JsonPropertyName("bitcoin_rpc_lag_grace_seconds")]
+    public int BitcoinRpcLagGraceSeconds { get; set; } = 5;
+
     [JsonPropertyName("stratum_v1_proxy_host")]
     public string StratumV1ProxyHost { get; set; } = string.Empty;
 
     [JsonPropertyName("stratum_v1_proxy_port")]
     public int StratumV1ProxyPort { get; set; } = 0;
 
+    [JsonPropertyName("setup_completed")]
+    public bool SetupCompleted { get; set; } = false;
+
     [JsonIgnore]
     public bool TestingRoundResetEnabled =>
         string.Equals(TestingRoundResetMode, "block_hash_low_nibble", StringComparison.OrdinalIgnoreCase) &&
         TestingRoundResetLowNibbleThreshold > 0;
 }
-
-// Helper functions:
