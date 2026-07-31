@@ -115,6 +115,7 @@
             <p>Finish one-time setup by entering the Bitcoin payout address your node will use. Once saved, this page will not appear again.</p>
 
             <form method="post">
+                @Html.AntiForgeryToken()
                 <label for="PoolPayoutScript">Bitcoin payout address</label>
                 <input asp-for="PoolPayoutScript" id="PoolPayoutScript" autocomplete="off" />
                 <span asp-validation-for="PoolPayoutScript" class="field-validation"></span>

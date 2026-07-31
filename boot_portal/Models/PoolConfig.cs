@@ -19,7 +19,7 @@ public class PoolConfig
     public string BitcoinNetwork { get; set; } = BitcoinScript.Mainnet;
 
     [JsonPropertyName("pool_payout_script")]
-    public string PoolPayoutScript { get; set; } = "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y"; //TODO: hard coded default address? 
+    public string PoolPayoutScript { get; set; }// = "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y"; //TODO: hard coded default address? 
 
     [JsonPropertyName("winners_list_size")]
     public int WinnersListSize { get; set; } = 299;
