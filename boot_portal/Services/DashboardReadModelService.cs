@@ -11,17 +11,20 @@ public sealed class DashboardReadModelService
     private readonly BootProtocolStateService _stateService;
     private readonly DashboardTelemetryService _telemetry;
     private readonly DashboardRevisionService _revision;
+    private readonly DashboardVisualizationJournalService _visualization;
 
     public DashboardReadModelService(
         PoolConfig poolConfig,
         BootProtocolStateService stateService,
         DashboardTelemetryService telemetry,
-        DashboardRevisionService revision)
+        DashboardRevisionService revision,
+        DashboardVisualizationJournalService visualization)
     {
         _poolConfig = poolConfig;
         _stateService = stateService;
         _telemetry = telemetry;
         _revision = revision;
+        _visualization = visualization;
     }
 
     public DashboardSummaryDto BuildSummary(string? windowKey)
@@ -195,6 +198,231 @@ public sealed class DashboardReadModelService
             CoinbaserDiagnostics = status.CoinbaserDiagnostics,
             PeerLoopFaults = status.PeerLoopFaults
         };
+    }
+
+    public DashboardDiagramDto BuildDiagram(bool includeOperatorDetails)
+    {
+        BootNetworkStatusDto fullStatus = _stateService.GetNetworkStatus();
+        BootNetworkStatusDto publicStatus = _stateService.GetPublicNetworkStatus();
+        DashboardDiagramStateProjection projection = _stateService.GetDashboardDiagramState();
+        (long oldest, long latest) = _visualization.Bounds();
+        DashboardDiagramSlotZeroDto observedSlotZero = _visualization.SlotZero();
+        DashboardWorkRateEstimateDto teamEstimate = _telemetry.GetEstimate("24h");
+        double? remoteHashrateThs = teamEstimate.EstimateThs.HasValue
+            ? Math.Max(0, teamEstimate.EstimateThs.Value - (fullStatus.LocalMiningHashrateThs ?? 0))
+            : null;
+        double? remoteRelativeError = remoteHashrateThs is > 0 &&
+            teamEstimate.RelativeStandardErrorPercent.HasValue
+                ? teamEstimate.RelativeStandardErrorPercent.Value *
+                    teamEstimate.EstimateThs!.Value / remoteHashrateThs.Value
+                : null;
+        double? networkDifficulty = CalculateNetworkDifficulty(publicStatus.CurrentTipCompactTarget);
+        var result = new DashboardDiagramDto
+        {
+            GeneratedAtUtc = DateTime.UtcNow,
+            Redacted = !includeOperatorDetails,
+            OldestSequence = oldest,
+            LatestSequence = latest,
+            SlotZero = new DashboardDiagramSlotZeroDto
+            {
+                Verified = observedSlotZero.Verified,
+                Address = observedSlotZero.Address,
+                ObservedUtc = observedSlotZero.ObservedUtc,
+                ProofId = observedSlotZero.ProofId
+            },
+            Grid = new DashboardDiagramGridDto
+            {
+                HashrateThs = remoteHashrateThs,
+                HashrateDisplay = FormatHashrate(remoteHashrateThs),
+                RelativeStandardErrorPercent = remoteRelativeError,
+                Confidence = remoteHashrateThs is > 0 ? teamEstimate.Confidence : "collecting"
+            },
+            Bitcoin = new DashboardDiagramBitcoinDto
+            {
+                Reachable = publicStatus.BitcoinNotification.Rpc.Reachable,
+                Synced = publicStatus.BitcoinNotification.Rpc.Synced,
+                InitialBlockDownload = publicStatus.BitcoinNotification.Rpc.InitialBlockDownload,
+                TipHash = publicStatus.CurrentTipBlockHash ?? string.Empty,
+                TipHeight = publicStatus.CurrentTipBlockHeight,
+                ProvisionalTipHash = publicStatus.ProvisionalTipBlockHash ?? string.Empty,
+                NetworkDifficulty = networkDifficulty,
+                NetworkDifficultyDisplay = FormatNetworkDifficulty(networkDifficulty)
+            },
+            WorkGenerator = BuildWorkGenerator(fullStatus, includeOperatorDetails),
+            WorkSet = projection.WorkSet.Select(proof => new DashboardDiagramProofDto
+            {
+                VisualId = _visualization.VisualId("proof", proof.ProofId),
+                ProofId = proof.ProofId,
+                Rank = proof.Rank,
+                Address = proof.Address,
+                Difficulty = proof.Difficulty,
+                DifficultyDisplay = proof.DifficultyDisplay,
+                FirstSeenUtc = proof.FirstSeenUtc,
+                Locked = proof.Locked
+            }).ToList()
+        };
+
+        if (includeOperatorDetails)
+        {
+            result.Peers = fullStatus.Peers.Select(peer =>
+            {
+                string identity = !string.IsNullOrWhiteSpace(peer.NodeId) ? peer.NodeId : peer.Endpoint;
+                bool connected = peer.SessionConnected ||
+                    string.Equals(peer.Status, "connected", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(peer.Status, "ok", StringComparison.OrdinalIgnoreCase);
+                return new DashboardDiagramPeerDto
+                {
+                    VisualId = _visualization.VisualId("peer", identity),
+                    DisplayName = PublicPeerDisplayName(peer.Endpoint) ?? peer.NodeId,
+                    NodeId = peer.NodeId,
+                    Endpoint = peer.Endpoint,
+                    Status = peer.Status,
+                    Connected = connected,
+                    LatencyMs = peer.LatencyMs,
+                    LastActivityUtc = peer.LastSuccessUtc ?? peer.LastSeenUtc,
+                    CompatibilityStatus = peer.CompatibilityStatus
+                };
+            }).ToList();
+            result.Miners = fullStatus.LocalDatumMiners.Select(miner =>
+            {
+                string identity = $"{miner.Source}:{miner.Address}:{miner.Username}";
+                return new DashboardDiagramMinerDto
+                {
+                    VisualId = _visualization.VisualId("miner", identity),
+                    Address = miner.Address,
+                    Username = miner.Username,
+                    Source = miner.Source,
+                    HashrateThs = miner.CurrentHashrateThs,
+                    HashrateDisplay = miner.CurrentHashrateDisplay,
+                    LastShareUtc = miner.LastShareUtc
+                };
+            }).ToList();
+        }
+        else
+        {
+            result.Peers = fullStatus.Peers.Select(peer =>
+            {
+                string identity = !string.IsNullOrWhiteSpace(peer.NodeId) ? peer.NodeId : peer.Endpoint;
+                bool connected = peer.SessionConnected ||
+                    string.Equals(peer.Status, "connected", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(peer.Status, "ok", StringComparison.OrdinalIgnoreCase);
+                return new DashboardDiagramPeerDto
+                {
+                    VisualId = _visualization.VisualId("peer", identity),
+                    DisplayName = PublicPeerDisplayName(peer.Endpoint) ?? peer.NodeId,
+                    NodeId = peer.NodeId,
+                    Status = connected ? "connected" : "disconnected",
+                    Connected = connected
+                };
+            }).ToList();
+            result.Miners = fullStatus.LocalDatumMiners.Select(miner =>
+            {
+                string identity = $"{miner.Source}:{miner.Address}:{miner.Username}";
+                return new DashboardDiagramMinerDto
+                {
+                    VisualId = _visualization.VisualId("miner", identity),
+                    HashrateThs = miner.CurrentHashrateThs,
+                    HashrateDisplay = miner.CurrentHashrateDisplay
+                };
+            }).ToList();
+        }
+
+        return result;
+    }
+
+    private static DashboardDiagramWorkGeneratorDto BuildWorkGenerator(
+        BootNetworkStatusDto status,
+        bool includeOperatorDetails)
+    {
+        if (!includeOperatorDetails)
+        {
+            List<BootLocalMiningSourceSummaryDto> publicSources = status.LocalMiningSources;
+            return new DashboardDiagramWorkGeneratorDto
+            {
+                DetailAvailable = false,
+                Connected = status.MiningWorkSafe,
+                MinerCount = status.LocalDatumMiners.Count,
+                HashrateThs = status.LocalMiningHashrateThs,
+                HashrateDisplay = status.LocalMiningHashrateDisplay,
+                DisplayName = publicSources.Count == 1
+                    ? publicSources[0].DisplayName
+                    : "Local work generator"
+            };
+        }
+        List<BootLocalMiningSourceSummaryDto> sources = status.LocalMiningSources;
+        return new DashboardDiagramWorkGeneratorDto
+        {
+            DetailAvailable = true,
+            Connected = sources.Any(source => source.ActiveMinerCount > 0),
+            DisplayName = sources.Count == 1
+                ? sources[0].DisplayName
+                : "Local work generator",
+            MinerCount = sources.Sum(source => source.ActiveMinerCount),
+            HashrateThs = status.LocalMiningHashrateThs,
+            HashrateDisplay = status.LocalMiningHashrateDisplay,
+            LastActivityUtc = sources
+                .Where(source => source.LastShareUtc.HasValue)
+                .Select(source => source.LastShareUtc)
+                .DefaultIfEmpty(null)
+                .Max()
+        };
+    }
+
+    private static string? PublicPeerDisplayName(string? endpoint)
+    {
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out Uri? uri))
+        {
+            return null;
+        }
+        return uri.Host.ToLowerInvariant() switch
+        {
+            "dallas.gridpool.net" => "Dallas",
+            "detroit.gridpool.net" => "Detroit",
+            "oregon.gridpool.net" => "Oregon",
+            _ => null
+        };
+    }
+
+    private static double? CalculateNetworkDifficulty(uint? compactTarget)
+    {
+        if (!compactTarget.HasValue)
+        {
+            return null;
+        }
+        BigInteger target = DecodeCompactTarget(compactTarget.Value);
+        if (target <= 0)
+        {
+            return null;
+        }
+        double difficulty = (double)DifficultyOneTarget / (double)target;
+        return double.IsFinite(difficulty) && difficulty > 0 ? difficulty : null;
+    }
+
+    private static string FormatNetworkDifficulty(double? difficulty) => difficulty switch
+    {
+        >= 1e15 => $"{difficulty / 1e15:0.##} Q",
+        >= 1e12 => $"{difficulty / 1e12:0.##} T",
+        >= 1e9 => $"{difficulty / 1e9:0.##} G",
+        > 0 => difficulty.Value.ToString("0.##"),
+        _ => "--"
+    };
+
+    private static string FormatHashrate(double? hashrateThs)
+    {
+        if (!hashrateThs.HasValue || !double.IsFinite(hashrateThs.Value))
+        {
+            return "--";
+        }
+
+        double hashesPerSecond = hashrateThs.Value * 1_000_000_000_000d;
+        string[] units = ["H/s", "kH/s", "MH/s", "GH/s", "TH/s", "PH/s", "EH/s"];
+        int unit = 0;
+        while (hashesPerSecond >= 1000d && unit < units.Length - 1)
+        {
+            hashesPerSecond /= 1000d;
+            unit++;
+        }
+        return $"{hashesPerSecond:0.##} {units[unit]}";
     }
 
     private static double? CalculateSurvivalProbability(double shareDifficulty, uint compactTarget, int slots)

@@ -1,8 +1,12 @@
 import { expect, test } from "@playwright/test";
 
-test("renders the adaptive V2.2 dashboard", async ({ page }) => {
+test("renders the live system map and preserves diagnostic details", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("link", { name: "GridPool home" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "GridPool system map" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "GridPool node wiring diagram" })).toBeVisible();
+  await expect(page.getByRole("listbox", { name: /Work Set/i })).toBeVisible();
+
+  await page.goto("/details");
   await expect(page.getByText("Active payout snapshot")).toBeVisible();
   await expect(page.getByText("Unpaid Work Set")).toBeVisible();
   await expect(page.getByText("Observed team work rate")).toBeVisible();
@@ -19,9 +23,10 @@ test("switches theme and validates address input", async ({ page }) => {
   await page.getByRole("button", { name: /Switch to light theme/i }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 
+  await page.goto("/details");
   await page.getByLabel("Bitcoin payout address").fill("not-a-bitcoin-address");
   await page.getByRole("button", { name: "Locate" }).click();
-  await expect(page.getByText(/not valid for this node/i)).toBeVisible();
+  await expect(page.locator(".notice-bad")).toBeVisible();
 });
 
 test("does not persist operator credentials", async ({ page }) => {

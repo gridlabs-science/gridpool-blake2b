@@ -20,7 +20,8 @@ public static class SimulatorScenarios
         new("regular-boundary", "Regular Bitcoin boundary", "A non-GridPool block advances the snapshot without paid-proof removal."),
         new("gridpool-payment", "GridPool payment", "A GridPool block pays the locked snapshot exactly once."),
         new("shallow-reorg", "Shallow reorganization", "A one-block reorganization rolls back the synthetic boundary."),
-        new("transport-interruption", "Dashboard transport interruption", "HTTP remains available while SignalR invalidations are dropped.")
+        new("transport-interruption", "Dashboard transport interruption", "HTTP remains available while SignalR invalidations are dropped."),
+        new("living-minute-c", "Living minute / concept C", "One home work generator, three miners, an exact full reserve, and a deterministic one-minute visual story.")
     ];
 
     public static SimulatorState Create(string id, int seed = 42)
@@ -38,8 +39,6 @@ public static class SimulatorScenarios
                 state.Peers.Clear();
                 state.Adapters.Clear();
                 state.Work.PoolHashrateThs = 0;
-                state.Work.ObservationCount = 0;
-                state.Reserve.Clear();
                 state.LockedPayouts.Clear();
                 state.Pulse.Accepted = 0;
                 state.Pulse.LastAcceptedUtc = null;
@@ -113,6 +112,35 @@ public static class SimulatorScenarios
             case "transport-interruption":
                 state.Faults.SignalRDrop = true;
                 break;
+            case "living-minute-c":
+                const string homeAddress = "tb1qhome000000000000000000000000000000000";
+                state.Peers =
+                [
+                    Peer("dallas", "https://dallas.gridpool.net", 47, true, true, true, state),
+                    Peer("detroit", "https://detroit.gridpool.net", 22, true, true, true, state),
+                    Peer("private-home-peer", "synthetic://private-peer", 63, true, true, false, state)
+                ];
+                AdapterControl workGenerator = Adapter("sv2", "sv2", "Native SV2", 3, 1_200);
+                workGenerator.Miners =
+                [
+                    Miner("miner-1", "garage-a", homeAddress, 420),
+                    Miner("miner-2", "garage-b", homeAddress, 390),
+                    Miner("miner-3", "shed", homeAddress, 390)
+                ];
+                state.Adapters = [workGenerator];
+                state.Work.PoolHashrateThs = 1_900;
+                state.Work.ObservationCount = 897;
+                FillReserve(state, 897);
+                state.LockedPayouts = state.Reserve.Take(300).Select((proof, index) => new PayoutControl
+                {
+                    ProofId = proof.Id,
+                    Address = proof.Address,
+                    Position = index + 1,
+                    ValueSats = 12_500
+                }).ToList();
+                state.SlotZeroAddress = homeAddress;
+                state.SlotZeroObservedUtc = state.VirtualTimeUtc.AddSeconds(-12);
+                break;
             case "healthy-mesh":
                 break;
             default:
@@ -122,6 +150,67 @@ public static class SimulatorScenarios
         Normalize(state);
         return state;
     }
+
+    public static TimelineDocument LivingMinuteTimeline(int seed = 42) => new()
+    {
+        Version = 1,
+        Name = "living-minute-c",
+        Seed = seed,
+        InitialScenario = "living-minute-c",
+        Events =
+        [
+            new TimelineEvent
+            {
+                At = "5s", Action = "proof.top897", Peer = "dallas",
+                Address = "tb1qdallasminute000000000000000000000000", Rank = 620
+            },
+            new TimelineEvent
+            {
+                At = "10s", Action = "pulse.emit", Peer = "detroit",
+                Transport = "udp"
+            },
+            new TimelineEvent
+            {
+                At = "14s", Action = "miner.activity", Adapter = "sv2",
+                Miner = "miner-2", Count = 3
+            },
+            new TimelineEvent
+            {
+                At = "20s", Action = "proof.top300", Peer = "detroit",
+                Address = "tb1qdetroitminute00000000000000000000000", Rank = 120
+            },
+            new TimelineEvent
+            {
+                At = "25s", Action = "proof.top300", Adapter = "sv2", Miner = "miner-1",
+                Address = "tb1qhome000000000000000000000000000000000", Rank = 250
+            },
+            new TimelineEvent
+            {
+                At = "29s", Action = "peer.disconnect", Peer = "private-home-peer"
+            },
+            new TimelineEvent
+            {
+                At = "34s", Action = "peer.reconnect", Peer = "private-home-peer"
+            },
+            new TimelineEvent
+            {
+                At = "37s", Action = "pulse.emit", Adapter = "sv2", Miner = "miner-3"
+            },
+            new TimelineEvent
+            {
+                At = "41s", Action = "chain.peer-header", Peer = "detroit",
+                Transport = "websocket"
+            },
+            new TimelineEvent { At = "47s", Action = "chain.local-validate" },
+            new TimelineEvent
+            {
+                At = "51s", Action = "proof.block", Adapter = "sv2", Miner = "miner-2",
+                Address = "tb1qhome000000000000000000000000000000000"
+            },
+            new TimelineEvent { At = "55s", Action = "pulse.emit", Adapter = "sv2", Miner = "miner-1" },
+            new TimelineEvent { At = "60s", Action = "timeline.marker" }
+        ]
+    };
 
     public static void Normalize(SimulatorState state)
     {
@@ -137,6 +226,8 @@ public static class SimulatorScenarios
             .ThenBy(proof => proof.Id, StringComparer.Ordinal)
             .Take(897)
             .ToList();
+        EnsureFullReserve(state);
+        state.Work.ObservationCount = Math.Max(state.Work.ObservationCount, state.Reserve.Count);
         if (!state.AdvancedOverrides)
         {
             double local = state.Adapters.Where(adapter => adapter.Connected).Sum(adapter => adapter.HashrateThs);
@@ -171,7 +262,7 @@ public static class SimulatorScenarios
             Adapter("hydra", "hydrapool", "Hydrapool", 1, 130),
             Adapter("http", "http", "Direct HTTP", 1, 15)
         ];
-        FillReserve(state, 240);
+        FillReserve(state, 897);
         state.LockedPayouts = state.Reserve.Take(40).Select((proof, index) => new PayoutControl
         {
             ProofId = proof.Id,
@@ -202,6 +293,33 @@ public static class SimulatorScenarios
         }).ToList();
     }
 
+    private static void EnsureFullReserve(SimulatorState state)
+    {
+        int refill = 0;
+        var known = state.Reserve.Select(proof => proof.Id).ToHashSet(StringComparer.Ordinal);
+        while (state.Reserve.Count < 897)
+        {
+            string id = Id(state.Seed, $"refill-{state.Chain.Round}-{refill++}");
+            if (!known.Add(id))
+            {
+                continue;
+            }
+            int position = state.Reserve.Count;
+            state.Reserve.Add(new ProofControl
+            {
+                Id = id,
+                Address = $"tb1qrefill{position:D4}0000000000000000000000000",
+                Difficulty = state.Work.AdmissionFloorDifficulty *
+                    (1.000001 + (897 - position) / 1_000_000d),
+                FirstSeenUtc = state.VirtualTimeUtc
+            });
+        }
+        state.Reserve = state.Reserve
+            .OrderByDescending(proof => proof.Difficulty)
+            .ThenBy(proof => proof.Id, StringComparer.Ordinal)
+            .ToList();
+    }
+
     private static PeerControl Peer(
         string id, string endpoint, double latency, bool http, bool websocket, bool udp, SimulatorState state) =>
         new()
@@ -225,7 +343,22 @@ public static class SimulatorScenarios
             DisplayName = name,
             ClientCount = clients,
             HashrateThs = hashrate,
-            AcceptedShares = 120
+            AcceptedShares = 120,
+            Miners = Enumerable.Range(1, clients).Select(index => Miner(
+                $"{id}-miner-{index}",
+                $"{id}-worker-{index}",
+                $"tb1q{id}miner{index:D2}0000000000000000000000000",
+                hashrate / Math.Max(1, clients))).ToList()
+        };
+
+    private static MinerControl Miner(string id, string username, string address, double hashrate) =>
+        new()
+        {
+            Id = id,
+            Username = username,
+            Address = address,
+            HashrateThs = hashrate,
+            AcceptedShares = 40
         };
 
     public static string Id(int seed, string value) =>

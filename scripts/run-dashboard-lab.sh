@@ -6,15 +6,16 @@ ui_dir="$repo_root/boot_portal/ui"
 sim_project="$repo_root/tools/GridPool.DashboardSimulator/GridPool.DashboardSimulator.csproj"
 dashboard_root="$repo_root/boot_portal/wwwroot/dashboard"
 lab_root="$repo_root/tools/GridPool.DashboardSimulator/wwwroot/sim"
-bind_host="127.0.0.1"
+bind_host="0.0.0.0"
 port="${GRIDPOOL_SIM_PORT:-5099}"
-lan_mode=false
+lan_mode=true
 
 usage() {
     cat <<'EOF'
-Usage: scripts/run-dashboard-lab.sh [--lan] [--port PORT] [--no-build]
+Usage: scripts/run-dashboard-lab.sh [--lan|--local-only] [--port PORT] [--no-build]
 
-  --lan        Expose the synthetic dashboard to this LAN. Controls stay loopback-only.
+  --lan        Expose the synthetic dashboard to this LAN (the default).
+  --local-only Bind only to loopback and disable phone/LAN observers.
   --port PORT  HTTP port (default: 5099).
   --no-build   Reuse existing dashboard, lab, and .NET builds.
 EOF
@@ -26,6 +27,11 @@ while (($#)); do
         --lan)
             lan_mode=true
             bind_host="0.0.0.0"
+            shift
+            ;;
+        --local-only)
+            lan_mode=false
+            bind_host="127.0.0.1"
             shift
             ;;
         --port)
@@ -94,8 +100,10 @@ if "$lan_mode"; then
     else
         printf 'LAN observer:     http://<this-machine-LAN-IP>:%s/dashboard/\n' "$port"
     fi
-    printf '\nWARNING: --lan exposes synthetic dashboard data and public simulator APIs to the local network.\n'
+    printf '\nWARNING: the simulator exposes synthetic dashboard data and public simulator APIs to the local network.\n'
     printf 'Control pages and mutation APIs remain restricted to loopback.\n\n'
+else
+    printf 'LAN observer:     disabled (omit --local-only to use a phone)\n\n'
 fi
 
 exec dotnet run \

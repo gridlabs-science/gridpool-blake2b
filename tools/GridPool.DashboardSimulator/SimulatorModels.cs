@@ -23,6 +23,8 @@ public sealed class SimulatorState
     public List<ProofControl> Reserve { get; set; } = [];
     public List<PayoutControl> LockedPayouts { get; set; } = [];
     public List<HistoryControl> History { get; set; } = [];
+    public string SlotZeroAddress { get; set; } = string.Empty;
+    public DateTime? SlotZeroObservedUtc { get; set; }
     public List<SimulatorEvent> Events { get; set; } = [];
     public TimelineDocument? Timeline { get; set; }
     public int TimelineCursor { get; set; }
@@ -122,6 +124,17 @@ public sealed class AdapterControl
     public double HashrateThs { get; set; }
     public long AcceptedShares { get; set; }
     public DateTime? LastShareUtc { get; set; }
+    public List<MinerControl> Miners { get; set; } = [];
+}
+
+public sealed class MinerControl
+{
+    public string Id { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string Address { get; set; } = string.Empty;
+    public double HashrateThs { get; set; }
+    public long AcceptedShares { get; set; }
+    public DateTime? LastShareUtc { get; set; }
 }
 
 public sealed class ProofControl
@@ -162,10 +175,12 @@ public sealed class SimulatorAction
     public string Action { get; set; } = string.Empty;
     public string? Peer { get; set; }
     public string? Adapter { get; set; }
+    public string? Miner { get; set; }
     public string? Address { get; set; }
     public string? Transport { get; set; }
     public double? Value { get; set; }
     public int? Count { get; set; }
+    public int? Rank { get; set; }
     public Dictionary<string, JsonElement> Set { get; set; } = [];
 }
 
@@ -184,10 +199,12 @@ public sealed class TimelineEvent
     public string Action { get; set; } = string.Empty;
     public string? Peer { get; set; }
     public string? Adapter { get; set; }
+    public string? Miner { get; set; }
     public string? Address { get; set; }
     public string? Transport { get; set; }
     public double? Value { get; set; }
     public int? Count { get; set; }
+    public int? Rank { get; set; }
 }
 
 public sealed record ScenarioDefinition(string Id, string Name, string Description);

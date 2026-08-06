@@ -169,6 +169,134 @@ export interface DashboardChanged {
   topics: string[];
 }
 
+export interface DiagramSlotZero {
+  verified: boolean;
+  address: string;
+  observedUtc: string | null;
+  proofId: string;
+}
+
+export interface DiagramPeer {
+  visualId: string;
+  displayName: string;
+  nodeId: string;
+  endpoint: string;
+  status: string;
+  connected: boolean;
+  latencyMs: number | null;
+  lastActivityUtc: string | null;
+  compatibilityStatus: string;
+}
+
+export interface DiagramMiner {
+  visualId: string;
+  address: string;
+  username: string;
+  source: string;
+  hashrateThs: number | null;
+  hashrateDisplay: string;
+  lastShareUtc: string | null;
+}
+
+export interface DiagramProof {
+  visualId: string;
+  proofId: string;
+  rank: number;
+  address: string;
+  difficulty: number | null;
+  difficultyDisplay: string;
+  firstSeenUtc: string | null;
+  locked: boolean;
+}
+
+export interface DashboardDiagram {
+  schemaVersion: number;
+  generatedAtUtc: string;
+  redacted: boolean;
+  oldestSequence: number;
+  latestSequence: number;
+  slotZero: DiagramSlotZero;
+  grid: {
+    hashrateThs: number | null;
+    hashrateDisplay: string;
+    relativeStandardErrorPercent: number | null;
+    confidence: "collecting" | "low" | "medium" | "high";
+  };
+  bitcoin: {
+    reachable: boolean;
+    synced: boolean;
+    initialBlockDownload: boolean;
+    tipHash: string;
+    tipHeight: number | null;
+    provisionalTipHash: string;
+    networkDifficulty: number | null;
+    networkDifficultyDisplay: string;
+  };
+  workGenerator: {
+    detailAvailable: boolean;
+    connected: boolean;
+    id: string;
+    displayName: string;
+    minerCount: number;
+    hashrateThs: number | null;
+    hashrateDisplay: string;
+    lastActivityUtc: string | null;
+  };
+  peers: DiagramPeer[];
+  miners: DiagramMiner[];
+  workSet: DiagramProof[];
+}
+
+export type DiagramEventKind =
+  | "proof-admitted"
+  | "local-miner-activity"
+  | "peer-connection"
+  | "peer-header"
+  | "boundary-validated"
+  | "pulse-accepted";
+
+export interface DiagramEvent {
+  sequence: number;
+  timestampUtc: string;
+  kind: DiagramEventKind;
+  sourceKind: string;
+  sourceId: string;
+  sourceVisualId: string;
+  transport: string;
+  visualId: string;
+  proofId: string;
+  address: string;
+  difficulty: number | null;
+  blockQuality: boolean;
+  receivedUtc: string | null;
+  validatedUtc: string | null;
+  mutatedUtc: string | null;
+  rank: number | null;
+  displacedVisualId: string;
+  displacedProofId: string;
+  connected: boolean | null;
+  latencyMs: number | null;
+  acceptedShareDelta: number | null;
+  hashrateThs: number | null;
+  blockHash: string;
+  blockHeight: number | null;
+  snapshotId: string;
+  lockedVisualIds: string[];
+  lockedProofIds: string[];
+}
+
+export interface DiagramEventPage {
+  schemaVersion: number;
+  generatedAtUtc: string;
+  redacted: boolean;
+  oldestSequence: number;
+  latestSequence: number;
+  nextSequence: number;
+  hasMore: boolean;
+  gap: boolean;
+  events: DiagramEvent[];
+}
+
 export interface DashboardState {
   summary: DashboardSummary | null;
   history: DashboardHistory | null;

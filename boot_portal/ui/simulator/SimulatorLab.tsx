@@ -48,6 +48,9 @@ export default function SimulatorLab() {
   const [proofAddress, setProofAddress] = useState(
     "tb1qexampleminer000000000000000000000000"
   );
+  const [testPeer, setTestPeer] = useState("");
+  const [testMiner, setTestMiner] = useState("");
+  const [proofRank, setProofRank] = useState(620);
   const [previewWidth, setPreviewWidth] = useState(62);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -147,6 +150,9 @@ export default function SimulatorLab() {
   const localHashrate = state.adapters
     .filter((adapter) => adapter.connected)
     .reduce((total, adapter) => total + adapter.hashrateThs, 0);
+  const miners = state.adapters.flatMap((adapter) => adapter.miners);
+  const selectedPeer = state.peers.find((peer) => peer.id === testPeer) ?? state.peers[0];
+  const selectedMiner = miners.find((miner) => miner.id === testMiner) ?? miners[0];
 
   return (
     <main className="lab">
@@ -179,6 +185,7 @@ export default function SimulatorLab() {
               <button type="button" className="ghost" onClick={() => post("/reset")}>Reset</button>
             </div>
             <select
+              aria-label="Scenario"
               value={state.scenario}
               onChange={(event) => void post(`/scenarios/${event.target.value}/load`)}
             >
@@ -272,6 +279,11 @@ export default function SimulatorLab() {
                 onChange={(event) => setProofAddress(event.target.value)}
               />
             </label>
+            <ControlNumber
+              label="Deterministic target rank"
+              value={proofRank}
+              onChange={(value) => setProofRank(Math.min(897, Math.max(1, Math.round(value))))}
+            />
             <div className="stat-strip">
               <span>reserve <strong>{state.reserve.length}/897</strong></span>
               <span>locked <strong>{state.lockedPayouts.length}</strong></span>
@@ -327,6 +339,11 @@ export default function SimulatorLab() {
                 <PeerRow
                   peer={peer}
                   key={peer.id}
+                  busy={busy}
+                  setConnected={(connected) => void action({
+                    action: connected ? "peer.reconnect" : "peer.disconnect",
+                    peer: peer.id
+                  })}
                   update={(change) => mutate((draft) => {
                     const target = draft.peers.find((item) => item.id === peer.id)!;
                     Object.assign(target, change);
@@ -385,21 +402,93 @@ export default function SimulatorLab() {
           </section>
 
           <section className="control-section action-grid-section">
-            <p className="kicker">Protocol events</p>
-            <h2>Trigger</h2>
+            <p className="kicker">Implemented motion</p>
+            <h2>Animation checks</h2>
+            <label className="control-number">
+              <span>Test peer</span>
+              <select
+                value={selectedPeer?.id ?? ""}
+                onChange={(event) => setTestPeer(event.target.value)}
+              >
+                {state.peers.map((peer) => (
+                  <option value={peer.id} key={peer.id}>{peer.id}</option>
+                ))}
+              </select>
+            </label>
+            <label className="control-number">
+              <span>Test miner</span>
+              <select
+                value={selectedMiner?.id ?? ""}
+                onChange={(event) => setTestMiner(event.target.value)}
+              >
+                {miners.map((miner) => (
+                  <option value={miner.id} key={miner.id}>{miner.username || miner.id}</option>
+                ))}
+              </select>
+            </label>
+            <p className="description">
+              Proof admissions use the selected rank and displace rank 897 from the full Work Set.
+            </p>
             <div className="action-grid">
-              <button type="button" onClick={() => action({ action: "proof.top897", address: proofAddress })}>Top-897 proof</button>
-              <button type="button" onClick={() => action({ action: "proof.top300", address: proofAddress })}>Top-300 proof</button>
-              <button type="button" onClick={() => action({ action: "proof.block", address: proofAddress })}>Block-quality proof</button>
-              <button type="button" onClick={() => action({ action: "chain.peer-header" })}>Peer header</button>
-              <button type="button" onClick={() => action({ action: "chain.local-validate" })}>Validate local tip</button>
-              <button type="button" onClick={() => action({ action: "chain.invalid-header" })}>Reject header</button>
-              <button type="button" onClick={() => action({ action: "snapshot.regular" })}>Regular boundary</button>
-              <button type="button" onClick={() => action({ action: "snapshot.gridpool-paid" })}>GridPool paid block</button>
-              <button type="button" onClick={() => action({ action: "snapshot.sibling-merge", count: 12 })}>Sibling merge</button>
-              <button type="button" onClick={() => action({ action: "state.diverge", peer: state.peers[0]?.id })}>Diverge peer</button>
-              <button type="button" onClick={() => action({ action: "state.converge" })}>Converge states</button>
-              <button type="button" onClick={() => action({ action: "chain.reorg", count: 1 })}>Shallow reorg</button>
+              <button type="button" onClick={() => action({
+                action: "proof.top897", address: proofAddress, rank: proofRank
+              })} disabled={busy}>Generator proof</button>
+              <button type="button" onClick={() => action({
+                action: "proof.top897", address: proofAddress, peer: selectedPeer?.id, rank: proofRank
+              })} disabled={busy || !selectedPeer}>Peer proof</button>
+              <button type="button" onClick={() => action({
+                action: "proof.top897", address: proofAddress, miner: selectedMiner?.id, rank: proofRank
+              })} disabled={busy || !selectedMiner}>Miner proof</button>
+              <button type="button" onClick={() => action({
+                action: "proof.block", address: proofAddress, rank: 1
+              })} disabled={busy}>Generator block proof</button>
+              <button type="button" onClick={() => action({
+                action: "proof.block", address: proofAddress, peer: selectedPeer?.id, rank: 1
+              })} disabled={busy || !selectedPeer}>Peer block proof</button>
+              <button type="button" onClick={() => action({
+                action: "proof.block", address: proofAddress, miner: selectedMiner?.id, rank: 1
+              })} disabled={busy || !selectedMiner}>Miner block proof</button>
+              <button type="button" onClick={() => action({
+                action: "miner.activity", miner: selectedMiner?.id, count: 3
+              })} disabled={busy || !selectedMiner}>Miner vardiff shares</button>
+              <button type="button" onClick={() => action({ action: "pulse.emit" })} disabled={busy}>
+                Generator pulse
+              </button>
+              <button type="button" onClick={() => action({
+                action: "pulse.emit", peer: selectedPeer?.id
+              })} disabled={busy || !selectedPeer}>Peer pulse</button>
+              <button type="button" onClick={() => action({
+                action: "pulse.emit", miner: selectedMiner?.id
+              })} disabled={busy || !selectedMiner}>Miner pulse</button>
+              <button type="button" onClick={() => action({
+                action: "peer.disconnect", peer: selectedPeer?.id
+              })} disabled={busy || !selectedPeer?.connected}>Disconnect peer</button>
+              <button type="button" onClick={() => action({
+                action: "peer.reconnect", peer: selectedPeer?.id
+              })} disabled={busy || !selectedPeer || selectedPeer.connected}>Reconnect peer</button>
+              <button type="button" onClick={() => action({
+                action: "chain.peer-header", peer: selectedPeer?.id
+              })} disabled={busy || !selectedPeer}>Peer header</button>
+              <button type="button" onClick={() => action({ action: "chain.local-validate" })} disabled={busy}>
+                Validate local tip
+              </button>
+              <button type="button" onClick={() => action({ action: "snapshot.regular" })} disabled={busy}>
+                Regular boundary
+              </button>
+            </div>
+          </section>
+
+          <section className="control-section action-grid-section">
+            <p className="kicker">Telemetry only</p>
+            <h2>Animations not built yet</h2>
+            <p className="description">These controls stay visible as the next animation checklist.</p>
+            <div className="action-grid pending-actions">
+              <button type="button" disabled>Reject header</button>
+              <button type="button" disabled>GridPool paid block</button>
+              <button type="button" disabled>Sibling merge</button>
+              <button type="button" disabled>Diverge peer</button>
+              <button type="button" disabled>Converge states</button>
+              <button type="button" disabled>Shallow reorg</button>
             </div>
           </section>
 
@@ -480,8 +569,10 @@ export default function SimulatorLab() {
   );
 }
 
-function PeerRow({ peer, update }: {
+function PeerRow({ peer, busy, setConnected, update }: {
   peer: PeerControl;
+  busy: boolean;
+  setConnected: (connected: boolean) => void;
   update: (change: Partial<PeerControl>) => void;
 }) {
   return (
@@ -492,7 +583,8 @@ function PeerRow({ peer, update }: {
           <input
             type="checkbox"
             checked={peer.connected}
-            onChange={(event) => update({ connected: event.target.checked })}
+            disabled={busy}
+            onChange={(event) => setConnected(event.target.checked)}
           />
           <span>{peer.connected ? "online" : "offline"}</span>
         </label>

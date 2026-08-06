@@ -63,7 +63,7 @@ public sealed class DashboardTelemetryTests
     [TestMethod]
     public void DuplicateProofsAreCountedOnceAndTelemetrySurvivesRestart()
     {
-        DateTime now = new(2026, 7, 29, 12, 0, 0, DateTimeKind.Utc);
+        DateTime now = DateTime.UtcNow;
         using var temporary = new TemporaryTelemetryPath();
         var service = new DashboardTelemetryService(
             NullLogger<DashboardTelemetryService>.Instance,

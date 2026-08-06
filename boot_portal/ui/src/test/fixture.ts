@@ -1,4 +1,4 @@
-import type { DashboardSummary } from "../types";
+import type { DashboardDiagram, DashboardSummary } from "../types";
 
 export const summaryFixture: DashboardSummary = {
   schemaVersion: 1,
@@ -94,4 +94,78 @@ export const summaryFixture: DashboardSummary = {
     watchtowerAvailable: false,
     modules: []
   }
+};
+
+export const diagramFixture: DashboardDiagram = {
+  schemaVersion: 2,
+  generatedAtUtc: "2026-07-29T12:00:00Z",
+  redacted: false,
+  oldestSequence: 1,
+  latestSequence: 8,
+  slotZero: {
+    verified: true,
+    address: "tb1qhome",
+    observedUtc: "2026-07-29T11:59:30Z",
+    proofId: "proof-local"
+  },
+  grid: {
+    hashrateThs: 1200,
+    hashrateDisplay: "1.2 PH/s",
+    relativeStandardErrorPercent: 6.68,
+    confidence: "high"
+  },
+  bitcoin: {
+    reachable: true,
+    synced: true,
+    initialBlockDownload: false,
+    tipHash: "00000001",
+    tipHeight: 123,
+    provisionalTipHash: "",
+    networkDifficulty: 129_000_000_000_000,
+    networkDifficultyDisplay: "129 T"
+  },
+  workGenerator: {
+    detailAvailable: true,
+    connected: true,
+    id: "work-generator",
+    displayName: "Native SV2",
+    minerCount: 3,
+    hashrateThs: 1200,
+    hashrateDisplay: "1.2 PH/s",
+    lastActivityUtc: "2026-07-29T11:59:30Z"
+  },
+  peers: [
+    {
+      visualId: "peer-dallas",
+      displayName: "Dallas",
+      nodeId: "dallas",
+      endpoint: "https://dallas.gridpool.net",
+      status: "connected",
+      connected: true,
+      latencyMs: 47,
+      lastActivityUtc: "2026-07-29T11:59:59Z",
+      compatibilityStatus: "compatible"
+    }
+  ],
+  miners: [
+    {
+      visualId: "miner-1",
+      address: "tb1qhome",
+      username: "garage-a",
+      source: "sv2",
+      hashrateThs: 400,
+      hashrateDisplay: "400 TH/s",
+      lastShareUtc: "2026-07-29T11:59:30Z"
+    }
+  ],
+  workSet: Array.from({ length: 897 }, (_, index) => ({
+    visualId: `proof-${index + 1}`,
+    proofId: `raw-proof-${index + 1}`,
+    rank: index + 1,
+    address: index === 0 ? "tb1qhome" : "tb1qpeer",
+    difficulty: 10_000 - index,
+    difficultyDisplay: `${10_000 - index}`,
+    firstSeenUtc: "2026-07-29T11:00:00Z",
+    locked: index < 300
+  }))
 };

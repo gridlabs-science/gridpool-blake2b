@@ -69,6 +69,8 @@ export interface SimulatorState {
   };
   peers: PeerControl[];
   adapters: AdapterControl[];
+  slotZeroAddress: string;
+  slotZeroObservedUtc: string | null;
   reserve: Array<{ id: string; address: string; difficulty: number; firstSeenUtc: string }>;
   lockedPayouts: Array<{ proofId: string; address: string; position: number; valueSats: number }>;
   events: Array<{
@@ -105,6 +107,16 @@ export interface AdapterControl {
   hashrateThs: number;
   acceptedShares: number;
   lastShareUtc: string | null;
+  miners: MinerControl[];
+}
+
+export interface MinerControl {
+  id: string;
+  username: string;
+  address: string;
+  hashrateThs: number;
+  acceptedShares: number;
+  lastShareUtc: string | null;
 }
 
 export interface Scenario {
@@ -117,8 +129,10 @@ export interface SimulatorAction {
   action: string;
   peer?: string;
   adapter?: string;
+  miner?: string;
   address?: string;
   transport?: string;
   value?: number;
   count?: number;
+  rank?: number;
 }

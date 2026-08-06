@@ -200,6 +200,158 @@ public sealed class DashboardChangedDto
     public List<string> Topics { get; set; } = [];
 }
 
+public static class DashboardDiagramEventKinds
+{
+    public const string ProofAdmitted = "proof-admitted";
+    public const string LocalMinerActivity = "local-miner-activity";
+    public const string PeerConnection = "peer-connection";
+    public const string PeerHeader = "peer-header";
+    public const string BoundaryValidated = "boundary-validated";
+    public const string PulseAccepted = "pulse-accepted";
+}
+
+public sealed class DashboardDiagramDto
+{
+    public int SchemaVersion { get; set; } = 2;
+    public DateTime GeneratedAtUtc { get; set; }
+    public bool Redacted { get; set; } = true;
+    public long OldestSequence { get; set; }
+    public long LatestSequence { get; set; }
+    public DashboardDiagramSlotZeroDto SlotZero { get; set; } = new();
+    public DashboardDiagramGridDto Grid { get; set; } = new();
+    public DashboardDiagramBitcoinDto Bitcoin { get; set; } = new();
+    public DashboardDiagramWorkGeneratorDto WorkGenerator { get; set; } = new();
+    public List<DashboardDiagramPeerDto> Peers { get; set; } = [];
+    public List<DashboardDiagramMinerDto> Miners { get; set; } = [];
+    public List<DashboardDiagramProofDto> WorkSet { get; set; } = [];
+}
+
+public sealed class DashboardDiagramGridDto
+{
+    public double? HashrateThs { get; set; }
+    public string HashrateDisplay { get; set; } = "--";
+    public double? RelativeStandardErrorPercent { get; set; }
+    public string Confidence { get; set; } = "collecting";
+}
+
+public sealed class DashboardDiagramSlotZeroDto
+{
+    public bool Verified { get; set; }
+    public string Address { get; set; } = string.Empty;
+    public DateTime? ObservedUtc { get; set; }
+    public string ProofId { get; set; } = string.Empty;
+}
+
+public sealed class DashboardDiagramBitcoinDto
+{
+    public bool Reachable { get; set; }
+    public bool Synced { get; set; }
+    public bool InitialBlockDownload { get; set; }
+    public string TipHash { get; set; } = string.Empty;
+    public long? TipHeight { get; set; }
+    public string ProvisionalTipHash { get; set; } = string.Empty;
+    public double? NetworkDifficulty { get; set; }
+    public string NetworkDifficultyDisplay { get; set; } = "--";
+}
+
+public sealed class DashboardDiagramWorkGeneratorDto
+{
+    public bool DetailAvailable { get; set; }
+    public bool Connected { get; set; }
+    public string Id { get; set; } = "work-generator";
+    public string DisplayName { get; set; } = "Work generator";
+    public int MinerCount { get; set; }
+    public double? HashrateThs { get; set; }
+    public string HashrateDisplay { get; set; } = "--";
+    public DateTime? LastActivityUtc { get; set; }
+}
+
+public sealed class DashboardDiagramPeerDto
+{
+    public string VisualId { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string NodeId { get; set; } = string.Empty;
+    public string Endpoint { get; set; } = string.Empty;
+    public string Status { get; set; } = "unknown";
+    public bool Connected { get; set; }
+    public double? LatencyMs { get; set; }
+    public DateTime? LastActivityUtc { get; set; }
+    public string CompatibilityStatus { get; set; } = "unknown";
+}
+
+public sealed class DashboardDiagramMinerDto
+{
+    public string VisualId { get; set; } = string.Empty;
+    public string Address { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string Source { get; set; } = string.Empty;
+    public double? HashrateThs { get; set; }
+    public string HashrateDisplay { get; set; } = "--";
+    public DateTime? LastShareUtc { get; set; }
+}
+
+public sealed class DashboardDiagramProofDto
+{
+    public string VisualId { get; set; } = string.Empty;
+    public string ProofId { get; set; } = string.Empty;
+    public int Rank { get; set; }
+    public string Address { get; set; } = string.Empty;
+    public double? Difficulty { get; set; }
+    public string DifficultyDisplay { get; set; } = "--";
+    public DateTime? FirstSeenUtc { get; set; }
+    public bool Locked { get; set; }
+}
+
+public sealed class DashboardDiagramEventDto
+{
+    public long Sequence { get; set; }
+    public DateTime TimestampUtc { get; set; }
+    public string Kind { get; set; } = string.Empty;
+    public string SourceKind { get; set; } = string.Empty;
+    public string SourceId { get; set; } = string.Empty;
+    public string SourceVisualId { get; set; } = string.Empty;
+    public string Transport { get; set; } = string.Empty;
+    public string VisualId { get; set; } = string.Empty;
+    public string ProofId { get; set; } = string.Empty;
+    public string Address { get; set; } = string.Empty;
+    public double? Difficulty { get; set; }
+    public bool BlockQuality { get; set; }
+    public DateTime? ReceivedUtc { get; set; }
+    public DateTime? ValidatedUtc { get; set; }
+    public DateTime? MutatedUtc { get; set; }
+    public int? Rank { get; set; }
+    public string DisplacedVisualId { get; set; } = string.Empty;
+    public string DisplacedProofId { get; set; } = string.Empty;
+    public bool? Connected { get; set; }
+    public double? LatencyMs { get; set; }
+    public long? AcceptedShareDelta { get; set; }
+    public double? HashrateThs { get; set; }
+    public string BlockHash { get; set; } = string.Empty;
+    public long? BlockHeight { get; set; }
+    public string SnapshotId { get; set; } = string.Empty;
+    public List<string> LockedVisualIds { get; set; } = [];
+    public List<string> LockedProofIds { get; set; } = [];
+}
+
+public sealed class DashboardDiagramEventPageDto
+{
+    public int SchemaVersion { get; set; } = 1;
+    public DateTime GeneratedAtUtc { get; set; }
+    public bool Redacted { get; set; } = true;
+    public long OldestSequence { get; set; }
+    public long LatestSequence { get; set; }
+    public long NextSequence { get; set; }
+    public bool HasMore { get; set; }
+    public bool Gap { get; set; }
+    public List<DashboardDiagramEventDto> Events { get; set; } = [];
+}
+
+public sealed class DashboardDiagramStateProjection
+{
+    public List<DashboardDiagramProofDto> WorkSet { get; set; } = [];
+    public List<string> ActiveSnapshotProofIds { get; set; } = [];
+}
+
 internal sealed class DashboardTelemetryDocument
 {
     public int SchemaVersion { get; set; } = 1;

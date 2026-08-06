@@ -6,7 +6,8 @@ state.
 
 ## Routes
 
-- `/`: current adaptive dashboard.
+- `/`: live GridPool system map.
+- `/details`: adaptive diagnostic module dashboard.
 - `/legacy`: temporary Razor dashboard retained during the testnet evaluation.
 - `/api/dashboard/v1/summary`: redacted public dashboard projection.
 - `/api/dashboard/v1/history`: `6h`, `24h`, or `7d` local telemetry history.
@@ -15,10 +16,33 @@ state.
 - `/api/dashboard/v1/operator`: authenticated local clients, peers, Bitcoin
   notification health, and detailed diagnostics.
 - `/api/dashboard/v1/schema`: machine-readable capability and route manifest.
+- `/api/dashboard/v1/diagram`: redacted exact-rank diagram snapshot.
+- `/api/dashboard/v1/diagram/events`: redacted bounded visualization journal.
+- `/api/dashboard/v1/diagram/operator`: authenticated peer, miner, proof, and Slot-0 detail.
+- `/api/dashboard/v1/diagram/operator/events`: authenticated visualization journal.
 - `/dashboardHub`: revision and changed-topic notifications only.
 
 The hub never broadcasts internal state objects. Clients refetch the explicit
 HTTP projections after receiving an invalidation.
+
+The visualization journal is presentation-only, in memory, and bounded to
+2,048 events or 10 minutes. Cursor gaps force clients to discard queued motion
+and reconcile from a fresh diagram snapshot. The public diagram exposes exact
+Work Set proof IDs, payout addresses, difficulty, arrival time, and verified
+Slot 0 as shared consensus evidence. It exposes peer node IDs and allowlisted
+names for Dallas, Detroit, and Oregon, while peer endpoints/IPs/locations and
+miner identities remain operator-only. Anonymous miner rates, aggregate local
+rate, the estimated remote-pool rate, and Bitcoin network difficulty are public.
+
+Journal proof events expose a public `blockQuality` classification alongside
+their salted proof and source visual IDs. Ordinary work uses a short
+perpendicular tick on the real topology; only Bitcoin block-quality work and
+new chain tips use squares. Retained work travels to its rank and relay peers,
+block-quality work also travels to the attached Bitcoin node, and full-rail
+admission ejects the displaced rank-897 tick. Accepted local-share counts
+produce a bounded three-tick vardiff burst; connection state changes travel
+along the affected peer link. These are presentation effects derived from
+validated journal facts, not new protocol state.
 
 ## Correct Terminology
 
@@ -78,16 +102,18 @@ Vite proxies API and SignalR requests to `http://127.0.0.1:5000`.
 ### Interactive Simulator
 
 The development-only simulator serves the real dashboard against deterministic
-synthetic state, with loopback controls and optional read-only LAN observers:
+synthetic state, with loopback controls and a read-only LAN observer enabled by
+default:
 
 ```bash
 scripts/run-dashboard-lab.sh
-scripts/run-dashboard-lab.sh --lan
+scripts/run-dashboard-lab.sh --local-only
 ```
 
-It is excluded from the solution, release workflow, production Docker image,
-and node deployments. See `boot_portal/ui/AGENTS.md` for scenarios, actions,
-timeline YAML, API contracts, and extension guidance.
+The second command disables LAN access. The simulator is excluded from the
+solution, release workflow, production Docker image, and node deployments. See
+`boot_portal/ui/AGENTS.md` for scenarios, actions, timeline YAML, API contracts,
+and extension guidance.
 
 ## Headless And Custom Dashboards
 

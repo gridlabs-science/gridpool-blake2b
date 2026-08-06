@@ -1,5 +1,7 @@
 using System.Text.Json;
 using boot_portal.Models;
+using boot_portal.Services;
+using boot_portal.Utils;
 namespace GridPool.DashboardSimulator;
 
 public sealed class SimulatorEngine
@@ -7,6 +9,7 @@ public sealed class SimulatorEngine
     private static readonly JsonSerializerOptions CloneOptions = new(JsonSerializerDefaults.Web);
     private readonly object _gate = new();
     private readonly ISimulatorBroadcaster _broadcaster;
+    private readonly DashboardVisualizationJournalService _diagramJournal = new();
     private SimulatorState _state;
 
     public SimulatorEngine(ISimulatorBroadcaster broadcaster)
@@ -30,10 +33,11 @@ public sealed class SimulatorEngine
         SimulatorScenarios.Normalize(state);
         lock (_gate)
         {
+            _diagramJournal.Reset();
             _state = Clone(state);
             Revision++;
         }
-        await BroadcastAsync([topic]);
+        await BroadcastAsync([topic, "diagram", "summary", "reserve", "network", "miners"]);
     }
 
     public Task LoadScenarioAsync(string id)
@@ -43,7 +47,14 @@ public sealed class SimulatorEngine
         {
             seed = _state.Seed;
         }
-        return ReplaceAsync(SimulatorScenarios.Create(id, seed), "scenario");
+        SimulatorState state = SimulatorScenarios.Create(id, seed);
+        if (string.Equals(id, "living-minute-c", StringComparison.OrdinalIgnoreCase))
+        {
+            state.Timeline = SimulatorScenarios.LivingMinuteTimeline(seed);
+            state.LoopTimeline = true;
+            state.Playing = true;
+        }
+        return ReplaceAsync(state, "scenario");
     }
 
     public async Task ApplyAsync(SimulatorAction action, bool timeline = false)
@@ -63,6 +74,7 @@ public sealed class SimulatorEngine
     {
         List<SimulatorAction> due = [];
         bool changed = false;
+        bool timelineReset = false;
         lock (_gate)
         {
             if (!_state.Playing)
@@ -91,6 +103,8 @@ public sealed class SimulatorEngine
                     _state.LoopTimeline && _state.Timeline.Events.Count > 0 && due.Count == 0)
                 {
                     ResetTimelineLocked(true);
+                    Revision++;
+                    timelineReset = true;
                 }
             }
 
@@ -102,7 +116,11 @@ public sealed class SimulatorEngine
 
         if (changed)
         {
-            await BroadcastAsync(["pulse"]);
+            await BroadcastAsync(["pulse", "diagram"]);
+        }
+        if (timelineReset)
+        {
+            await BroadcastAsync(["timeline", "diagram", "summary", "reserve", "network", "miners"]);
         }
         foreach (SimulatorAction action in due)
         {
@@ -310,16 +328,18 @@ public sealed class SimulatorEngine
         SimulatorState state = Read();
         MaybeFail(state);
         Delay(state);
+        string normalized = BitcoinScript.NormalizeAddress(address);
+        _ = BitcoinScript.AddressToScriptPubKey(normalized, state.Node.BitcoinNetwork);
         List<PayoutControl> locked = state.LockedPayouts
-            .Where(item => item.Address.Equals(address, StringComparison.OrdinalIgnoreCase)).ToList();
+            .Where(item => item.Address.Equals(normalized, StringComparison.OrdinalIgnoreCase)).ToList();
         List<(ProofControl Proof, int Position)> provisional = state.Reserve
             .Select((proof, index) => (proof, index + 1))
-            .Where(item => item.proof.Address.Equals(address, StringComparison.OrdinalIgnoreCase)).ToList();
+            .Where(item => item.proof.Address.Equals(normalized, StringComparison.OrdinalIgnoreCase)).ToList();
         double? floor = state.Reserve.Count == 0 ? null : state.Reserve[^1].Difficulty;
         double? best = provisional.Count == 0 ? null : provisional.Max(item => item.Proof.Difficulty);
         return new DashboardAddressDto
         {
-            Address = address,
+            Address = normalized,
             Found = locked.Count > 0 || provisional.Count > 0,
             LockedSlotCount = locked.Count,
             LockedValueSats = (ulong)locked.Sum(item => (decimal)item.ValueSats),
@@ -357,6 +377,19 @@ public sealed class SimulatorEngine
                 EstimationMethod = "simulator-control",
                 LastShareUtc = adapter.LastShareUtc ?? state.VirtualTimeUtc.AddSeconds(-12)
             }).ToList(),
+            LocalMiners = state.Adapters.SelectMany(adapter => adapter.Miners.Select(miner =>
+                new BootLocalDatumMinerSummaryDto
+                {
+                    Address = miner.Address,
+                    Username = miner.Username,
+                    Source = adapter.Kind,
+                    TotalAcceptedShareCount = miner.AcceptedShares,
+                    RecentAcceptedShareCount = (int)Math.Min(int.MaxValue, miner.AcceptedShares),
+                    HashrateSampleCount = miner.AcceptedShares > 0 ? 1 : 0,
+                    CurrentHashrateThs = miner.HashrateThs,
+                    CurrentHashrateDisplay = FormatHashrate(miner.HashrateThs),
+                    LastShareUtc = miner.LastShareUtc
+                })).ToList(),
             Peers = state.Peers.Select(peer => new BootPeerStatus
             {
                 Endpoint = peer.Endpoint,
@@ -429,17 +462,167 @@ public sealed class SimulatorEngine
         };
     }
 
+    public DashboardDiagramDto Diagram(bool operatorDetails)
+    {
+        SimulatorState state = Read();
+        MaybeFail(state);
+        Delay(state);
+        (long oldest, long latest) = _diagramJournal.Bounds(state.VirtualTimeUtc);
+        HashSet<string> locked = state.LockedPayouts
+            .Select(item => item.ProofId)
+            .ToHashSet(StringComparer.Ordinal);
+        double localHashrateThs = state.Adapters
+            .Where(adapter => adapter.Connected)
+            .Sum(adapter => adapter.HashrateThs);
+        double remoteHashrateThs = Math.Max(0, state.Work.PoolHashrateThs - localHashrateThs);
+        double? remoteRelativeError = remoteHashrateThs > 0 && state.Work.ObservationCount > 0
+            ? 100d / Math.Sqrt(state.Work.ObservationCount) * state.Work.PoolHashrateThs / remoteHashrateThs
+            : null;
+        var result = new DashboardDiagramDto
+        {
+            GeneratedAtUtc = state.VirtualTimeUtc,
+            Redacted = !operatorDetails,
+            OldestSequence = oldest,
+            LatestSequence = latest,
+            SlotZero = new DashboardDiagramSlotZeroDto
+            {
+                Verified = !string.IsNullOrWhiteSpace(state.SlotZeroAddress),
+                Address = state.SlotZeroAddress,
+                ObservedUtc = state.SlotZeroObservedUtc
+            },
+            Grid = new DashboardDiagramGridDto
+            {
+                HashrateThs = remoteHashrateThs,
+                HashrateDisplay = FormatHashrate(remoteHashrateThs),
+                RelativeStandardErrorPercent = remoteRelativeError,
+                Confidence = remoteHashrateThs <= 0
+                    ? "collecting"
+                    : state.Work.ObservationCount >= 897
+                    ? "high"
+                    : state.Work.ObservationCount >= 300 ? "medium" : "collecting"
+            },
+            Bitcoin = new DashboardDiagramBitcoinDto
+            {
+                Reachable = state.Node.RpcReachable,
+                Synced = state.Node.RpcSynced,
+                InitialBlockDownload = state.Node.InitialBlockDownload,
+                TipHash = state.Chain.TipHash,
+                TipHeight = state.Chain.Height,
+                ProvisionalTipHash = state.Chain.ProvisionalTipHash,
+                NetworkDifficulty = 129_000_000_000_000d,
+                NetworkDifficultyDisplay = "129 T"
+            },
+            WorkGenerator = new DashboardDiagramWorkGeneratorDto
+            {
+                DetailAvailable = operatorDetails,
+                Connected = state.Adapters.Any(adapter => adapter.Connected),
+                DisplayName = state.Adapters.Count == 1
+                    ? state.Adapters[0].DisplayName
+                    : "Local work generator",
+                MinerCount = state.Adapters.Where(adapter => adapter.Connected).Sum(adapter => adapter.Miners.Count),
+                HashrateThs = localHashrateThs,
+                HashrateDisplay = FormatHashrate(localHashrateThs),
+                LastActivityUtc = operatorDetails
+                    ? state.Adapters.Select(adapter => adapter.LastShareUtc).DefaultIfEmpty(null).Max()
+                    : null
+            },
+            WorkSet = state.Reserve.Select((proof, index) => new DashboardDiagramProofDto
+            {
+                VisualId = _diagramJournal.VisualId("proof", proof.Id),
+                ProofId = proof.Id,
+                Rank = index + 1,
+                Address = proof.Address,
+                Difficulty = proof.Difficulty,
+                DifficultyDisplay = FormatDifficulty(proof.Difficulty),
+                FirstSeenUtc = proof.FirstSeenUtc,
+                Locked = locked.Contains(proof.Id)
+            }).ToList()
+        };
+
+        result.Peers = state.Peers.Select(peer => new DashboardDiagramPeerDto
+        {
+            VisualId = _diagramJournal.VisualId("peer", peer.Id),
+            DisplayName = SimulatorPeerDisplayName(peer),
+            NodeId = peer.Id,
+            Endpoint = operatorDetails ? peer.Endpoint : string.Empty,
+            Status = operatorDetails ? peer.Connected ? "connected" : "disconnected" : "redacted",
+            Connected = peer.Connected,
+            LatencyMs = operatorDetails ? peer.LatencyMs : null,
+            LastActivityUtc = operatorDetails && peer.Connected
+                ? state.VirtualTimeUtc.AddMilliseconds(-peer.LatencyMs)
+                : null,
+            CompatibilityStatus = operatorDetails
+                ? peer.Compatible ? "compatible" : "incompatible"
+                : "redacted"
+        }).ToList();
+        if (operatorDetails)
+        {
+            result.Miners = state.Adapters.SelectMany(adapter => adapter.Miners.Select(miner =>
+                new DashboardDiagramMinerDto
+                {
+                    VisualId = _diagramJournal.VisualId(
+                        "miner",
+                        $"{adapter.Kind}:{miner.Address}:{miner.Username}"),
+                    Address = miner.Address,
+                    Username = miner.Username,
+                    Source = adapter.Kind,
+                    HashrateThs = miner.HashrateThs,
+                    HashrateDisplay = FormatHashrate(miner.HashrateThs),
+                    LastShareUtc = miner.LastShareUtc
+                })).ToList();
+        }
+        else
+        {
+            result.Miners = state.Adapters.SelectMany(adapter => adapter.Miners.Select(miner =>
+                new DashboardDiagramMinerDto
+                {
+                    VisualId = _diagramJournal.VisualId(
+                        "miner",
+                        $"{adapter.Kind}:{miner.Address}:{miner.Username}"),
+                    HashrateThs = miner.HashrateThs,
+                    HashrateDisplay = FormatHashrate(miner.HashrateThs)
+                })).ToList();
+        }
+        return result;
+    }
+
+    private static string SimulatorPeerDisplayName(PeerControl peer) => peer.Endpoint switch
+    {
+        "https://dallas.gridpool.net" => "Dallas",
+        "https://detroit.gridpool.net" => "Detroit",
+        "https://oregon.gridpool.net" => "Oregon",
+        _ => peer.Id
+    };
+
+    public DashboardDiagramEventPageDto DiagramEvents(long after, int limit, bool operatorDetails)
+    {
+        SimulatorState state = Read();
+        MaybeFail(state);
+        Delay(state);
+        return _diagramJournal.Read(
+            Math.Max(0, after),
+            limit,
+            redacted: !operatorDetails,
+            state.VirtualTimeUtc);
+    }
+
     private void ApplyLocked(SimulatorAction action, List<string> topics)
     {
         switch (action.Action.Trim().ToLowerInvariant())
         {
             case "peer.disconnect":
-                FindPeer(action.Peer).Connected = false;
+                PeerControl disconnectedPeer = FindPeer(action.Peer);
+                disconnectedPeer.Connected = false;
+                RecordPeerConnectionLocked(disconnectedPeer);
                 topics.Add("network");
+                topics.Add("diagram");
                 break;
             case "peer.reconnect":
-                FindPeer(action.Peer).Connected = true;
+                PeerControl reconnectedPeer = FindPeer(action.Peer);
+                reconnectedPeer.Connected = true;
+                RecordPeerConnectionLocked(reconnectedPeer);
                 topics.Add("network");
+                topics.Add("diagram");
                 break;
             case "peer.transport":
                 SetTransport(FindPeer(action.Peer), action.Transport, action.Value is not 0);
@@ -463,29 +646,55 @@ public sealed class SimulatorEngine
                 break;
             case "pulse.emit":
             case "proof.heartbeat":
-                EmitPulseLocked();
+                EmitPulseLocked(action);
                 topics.Add("pulse");
+                topics.Add("diagram");
                 break;
             case "proof.top897":
-                AddProofLocked(action.Address, false);
+                AddProofLocked(action, false);
                 topics.Add("reserve");
+                topics.Add("diagram");
                 break;
             case "proof.top300":
-                AddProofLocked(action.Address, true);
+                AddProofLocked(action, true);
                 topics.Add("reserve");
+                topics.Add("diagram");
                 break;
             case "proof.block":
-                AddProofLocked(action.Address, true, true);
+                AddProofLocked(action, true, true);
                 topics.Add("reserve");
+                topics.Add("diagram");
+                break;
+            case "miner.activity":
+                RecordMinerActivityLocked(action);
+                topics.Add("miners");
+                topics.Add("diagram");
                 break;
             case "chain.peer-header":
                 _state.Chain.ProvisionalTipHash = NextId("peer-header");
                 _state.Node.SafetyReason = "Verified peer header received; provisional freeze is active.";
+                _diagramJournal.Append(new DashboardDiagramEventDto
+                {
+                    TimestampUtc = _state.VirtualTimeUtc,
+                    Kind = DashboardDiagramEventKinds.PeerHeader,
+                    SourceKind = "peer",
+                    SourceId = action.Peer ?? _state.Peers.FirstOrDefault()?.Id ?? string.Empty,
+                    SourceVisualId = _diagramJournal.VisualId(
+                        "peer",
+                        action.Peer ?? _state.Peers.FirstOrDefault()?.Id ?? string.Empty),
+                    Transport = action.Transport ?? "websocket",
+                    BlockHash = _state.Chain.ProvisionalTipHash,
+                    BlockHeight = _state.Chain.Height + 1,
+                    ReceivedUtc = _state.VirtualTimeUtc
+                });
                 topics.Add("tip");
+                topics.Add("diagram");
                 break;
             case "chain.local-validate":
                 ValidateTipLocked();
                 topics.Add("tip");
+                topics.Add("snapshot");
+                topics.Add("diagram");
                 break;
             case "chain.invalid-header":
                 _state.Chain.ProvisionalTipHash = string.Empty;
@@ -496,17 +705,20 @@ public sealed class SimulatorEngine
             case "chain.regular-boundary":
                 RotateLocked(false);
                 topics.Add("snapshot");
+                topics.Add("diagram");
                 break;
             case "snapshot.gridpool-paid":
             case "chain.gridpool-payment":
                 RotateLocked(true);
                 topics.Add("snapshot");
                 topics.Add("reserve");
+                topics.Add("diagram");
                 break;
             case "snapshot.sibling-merge":
                 MergeSiblingLocked(action.Count ?? 12);
                 topics.Add("snapshot");
                 topics.Add("reserve");
+                topics.Add("diagram");
                 break;
             case "state.diverge":
                 FindPeer(action.Peer ?? _state.Peers.FirstOrDefault()?.Id).CandidateStateId = NextId("diverge");
@@ -538,6 +750,9 @@ public sealed class SimulatorEngine
                 break;
             case "fault.signalr":
                 _state.Faults.SignalRDrop = action.Value is not 0;
+                break;
+            case "timeline.marker":
+                topics.Add("timeline");
                 break;
             default:
                 throw new ArgumentException($"Unsupported simulator action '{action.Action}'.");
@@ -572,6 +787,18 @@ public sealed class SimulatorEngine
             Position = index + 1,
             ValueSats = 12_500
         }).ToList();
+        _diagramJournal.Append(new DashboardDiagramEventDto
+        {
+            TimestampUtc = _state.VirtualTimeUtc,
+            Kind = DashboardDiagramEventKinds.BoundaryValidated,
+            SourceKind = "bitcoin",
+            SourceId = "local-bitcoin",
+            BlockHash = _state.Chain.TipHash,
+            BlockHeight = _state.Chain.Height,
+            SnapshotId = _state.Chain.ActiveSnapshotId,
+            LockedProofIds = _state.LockedPayouts.Select(item => item.ProofId).ToList(),
+            MutatedUtc = _state.VirtualTimeUtc
+        });
     }
 
     private void ValidateTipLocked()
@@ -594,33 +821,163 @@ public sealed class SimulatorEngine
         int before = _state.Reserve.Count;
         for (int index = 0; index < Math.Max(0, count); index++)
         {
-            AddProofLocked($"tb1qsibling{index:D3}00000000000000000000000", index < 2);
+            AddProofLocked(new SimulatorAction
+            {
+                Address = $"tb1qsibling{index:D3}00000000000000000000000"
+            }, index < 2);
         }
         _state.Chain.UnionAdditions += _state.Reserve.Count - before;
         _state.Chain.FamilyUnionProofs = _state.Reserve.Count;
         _state.Chain.CandidateStateId = NextId("merged-candidate");
     }
 
-    private void AddProofLocked(string? address, bool top300, bool block = false)
+    private void AddProofLocked(SimulatorAction action, bool top300, bool block = false)
     {
         double floor = _state.Reserve.Count == 0
             ? _state.Work.AdmissionFloorDifficulty
             : _state.Reserve[^1].Difficulty;
-        double difficulty = block
-            ? Math.Max(1e12, floor * 10_000)
-            : top300
-                ? Math.Max(floor * 4, _state.Reserve.ElementAtOrDefault(Math.Min(299, _state.Reserve.Count - 1))?.Difficulty * 1.05 ?? floor * 4)
-                : floor * 1.05;
-        _state.Reserve.Add(new ProofControl
+        int? targetRank = action.Rank;
+        double difficulty;
+        if (targetRank.HasValue && _state.Reserve.Count > 0)
         {
-            Id = NextId("proof"),
-            Address = string.IsNullOrWhiteSpace(address)
+            int rank = Math.Clamp(targetRank.Value, 1, Math.Min(897, _state.Reserve.Count + 1));
+            if (rank == 1)
+            {
+                difficulty = _state.Reserve[0].Difficulty * 1.05;
+            }
+            else if (rank > _state.Reserve.Count)
+            {
+                difficulty = Math.Max(floor * 1.001, _state.Work.AdmissionFloorDifficulty);
+            }
+            else
+            {
+                double upper = _state.Reserve[rank - 2].Difficulty;
+                double lower = _state.Reserve[rank - 1].Difficulty;
+                difficulty = lower + (upper - lower) / 2d;
+            }
+        }
+        else
+        {
+            difficulty = block
+                ? Math.Max(1e12, floor * 10_000)
+                : top300
+                    ? Math.Max(floor * 4, _state.Reserve.ElementAtOrDefault(Math.Min(299, _state.Reserve.Count - 1))?.Difficulty * 1.05 ?? floor * 4)
+                    : floor * 1.05;
+        }
+        string id = NextId("proof");
+        string displaced = _state.Reserve.Count >= 897 ? _state.Reserve[^1].Id : string.Empty;
+        var proof = new ProofControl
+        {
+            Id = id,
+            Address = string.IsNullOrWhiteSpace(action.Address)
                 ? "tb1qmanualproof000000000000000000000000"
-                : address,
+                : action.Address,
             Difficulty = difficulty,
             FirstSeenUtc = _state.VirtualTimeUtc
-        });
+        };
+        _state.Reserve.Add(proof);
+        _state.Reserve = _state.Reserve
+            .OrderByDescending(item => item.Difficulty)
+            .ThenBy(item => item.Id, StringComparer.Ordinal)
+            .Take(897)
+            .ToList();
+        int admittedRank = _state.Reserve.FindIndex(item => item.Id == id) + 1;
+        if (admittedRank <= 0)
+        {
+            return;
+        }
         _state.Work.ObservationCount++;
+        (AdapterControl Adapter, MinerControl Miner)? sourceMiner = FindMiner(action.Miner);
+        string sourceKind = !string.IsNullOrWhiteSpace(action.Peer)
+            ? "peer"
+            : sourceMiner.HasValue
+                ? "miner"
+                : "local";
+        string sourceId = action.Peer ?? sourceMiner?.Miner.Id ?? action.Adapter ?? "work-generator";
+        string sourceVisualId = !string.IsNullOrWhiteSpace(action.Peer)
+            ? _diagramJournal.VisualId("peer", action.Peer)
+            : sourceMiner.HasValue
+                ? _diagramJournal.VisualId(
+                    "miner",
+                    $"{sourceMiner.Value.Adapter.Kind}:{sourceMiner.Value.Miner.Address}:{sourceMiner.Value.Miner.Username}")
+                : string.Empty;
+        _diagramJournal.Append(new DashboardDiagramEventDto
+        {
+            TimestampUtc = _state.VirtualTimeUtc,
+            Kind = DashboardDiagramEventKinds.ProofAdmitted,
+            SourceKind = sourceKind,
+            SourceId = sourceId,
+            SourceVisualId = sourceVisualId,
+            Transport = action.Transport ?? (string.IsNullOrWhiteSpace(action.Peer) ? "local" : "websocket"),
+            ProofId = proof.Id,
+            Address = proof.Address,
+            Difficulty = proof.Difficulty,
+            BlockQuality = block,
+            ReceivedUtc = _state.VirtualTimeUtc.AddMilliseconds(-140),
+            ValidatedUtc = _state.VirtualTimeUtc.AddMilliseconds(-30),
+            MutatedUtc = _state.VirtualTimeUtc,
+            Rank = admittedRank,
+            DisplacedProofId = string.Equals(displaced, proof.Id, StringComparison.Ordinal)
+                ? string.Empty
+                : displaced
+        });
+        if (string.IsNullOrWhiteSpace(action.Peer))
+        {
+            _state.SlotZeroAddress = proof.Address;
+            _state.SlotZeroObservedUtc = _state.VirtualTimeUtc;
+        }
+    }
+
+    private void RecordMinerActivityLocked(SimulatorAction action)
+    {
+        (AdapterControl Adapter, MinerControl Miner)? match = _state.Adapters
+            .SelectMany(adapter => adapter.Miners.Select(miner => (Adapter: adapter, Miner: miner)))
+            .Cast<(AdapterControl Adapter, MinerControl Miner)?>()
+            .FirstOrDefault(item => item.HasValue &&
+                item.Value.Miner.Id.Equals(action.Miner, StringComparison.OrdinalIgnoreCase));
+        if (!match.HasValue)
+        {
+            throw new ArgumentException($"Unknown miner '{action.Miner}'.");
+        }
+        long accepted = Math.Max(1, action.Count ?? 1);
+        AdapterControl adapter = match.Value.Adapter;
+        MinerControl miner = match.Value.Miner;
+        miner.AcceptedShares += accepted;
+        miner.LastShareUtc = _state.VirtualTimeUtc;
+        adapter.AcceptedShares += accepted;
+        adapter.LastShareUtc = _state.VirtualTimeUtc;
+        _diagramJournal.Append(new DashboardDiagramEventDto
+        {
+            TimestampUtc = _state.VirtualTimeUtc,
+            Kind = DashboardDiagramEventKinds.LocalMinerActivity,
+            SourceKind = "miner",
+            SourceId = miner.Id,
+            SourceVisualId = _diagramJournal.VisualId(
+                "miner",
+                $"{adapter.Kind}:{miner.Address}:{miner.Username}"),
+            VisualId = _diagramJournal.VisualId(
+                "miner",
+                $"{adapter.Kind}:{miner.Address}:{miner.Username}"),
+            Address = miner.Address,
+            AcceptedShareDelta = accepted,
+            HashrateThs = miner.HashrateThs,
+            ReceivedUtc = _state.VirtualTimeUtc
+        });
+    }
+
+    private void RecordPeerConnectionLocked(PeerControl peer)
+    {
+        _diagramJournal.Append(new DashboardDiagramEventDto
+        {
+            TimestampUtc = _state.VirtualTimeUtc,
+            Kind = DashboardDiagramEventKinds.PeerConnection,
+            SourceKind = "peer",
+            SourceId = peer.Id,
+            SourceVisualId = _diagramJournal.VisualId("peer", peer.Id),
+            VisualId = _diagramJournal.VisualId("peer", peer.Id),
+            Connected = peer.Connected,
+            LatencyMs = peer.LatencyMs
+        });
     }
 
     private bool TickPulseLocked(double elapsed)
@@ -640,12 +997,35 @@ public sealed class SimulatorEngine
         return changed;
     }
 
-    private void EmitPulseLocked()
+    private void EmitPulseLocked(SimulatorAction? action = null)
     {
         _state.Pulse.Accepted++;
         _state.Pulse.LastAcceptedUtc = _state.VirtualTimeUtc;
         _state.Pulse.LastRelayUtc = _state.VirtualTimeUtc;
         _state.Node.OutboundRelayHealthy = true;
+        (AdapterControl Adapter, MinerControl Miner)? sourceMiner = FindMiner(action?.Miner);
+        string sourceKind = !string.IsNullOrWhiteSpace(action?.Peer)
+            ? "peer"
+            : sourceMiner.HasValue
+                ? "miner"
+                : "local";
+        string sourceId = action?.Peer ?? sourceMiner?.Miner.Id ?? "work-generator";
+        string sourceVisualId = !string.IsNullOrWhiteSpace(action?.Peer)
+            ? _diagramJournal.VisualId("peer", action.Peer)
+            : sourceMiner.HasValue
+                ? _diagramJournal.VisualId(
+                    "miner",
+                    $"{sourceMiner.Value.Adapter.Kind}:{sourceMiner.Value.Miner.Address}:{sourceMiner.Value.Miner.Username}")
+                : string.Empty;
+        _diagramJournal.Append(new DashboardDiagramEventDto
+        {
+            TimestampUtc = _state.VirtualTimeUtc,
+            Kind = DashboardDiagramEventKinds.PulseAccepted,
+            SourceKind = sourceKind,
+            SourceId = sourceId,
+            SourceVisualId = sourceVisualId,
+            ReceivedUtc = _state.VirtualTimeUtc
+        });
     }
 
     private void ResetTimelineLocked(bool preservePlaying = false)
@@ -658,6 +1038,7 @@ public sealed class SimulatorEngine
         bool loop = _state.LoopTimeline;
         double speed = _state.Speed;
         _state = SimulatorScenarios.Create(timeline.InitialScenario, timeline.Seed);
+        _diagramJournal.Reset();
         _state.Timeline = timeline;
         _state.LoopTimeline = loop;
         _state.Speed = speed;
@@ -669,10 +1050,12 @@ public sealed class SimulatorEngine
         Dictionary<string, string> arguments = [];
         if (action.Peer != null) arguments["peer"] = action.Peer;
         if (action.Adapter != null) arguments["adapter"] = action.Adapter;
+        if (action.Miner != null) arguments["miner"] = action.Miner;
         if (action.Address != null) arguments["address"] = action.Address;
         if (action.Transport != null) arguments["transport"] = action.Transport;
         if (action.Value != null) arguments["value"] = action.Value.Value.ToString("G");
         if (action.Count != null) arguments["count"] = action.Count.Value.ToString();
+        if (action.Rank != null) arguments["rank"] = action.Rank.Value.ToString();
         _state.Events.Add(new SimulatorEvent
         {
             Sequence = ++_state.Sequence,
@@ -705,6 +1088,19 @@ public sealed class SimulatorEngine
     private PeerControl FindPeer(string? id) =>
         _state.Peers.FirstOrDefault(peer => peer.Id.Equals(id, StringComparison.OrdinalIgnoreCase))
         ?? throw new ArgumentException($"Unknown peer '{id}'.");
+
+    private (AdapterControl Adapter, MinerControl Miner)? FindMiner(string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return null;
+        }
+        return _state.Adapters
+            .SelectMany(adapter => adapter.Miners.Select(miner => (Adapter: adapter, Miner: miner)))
+            .Cast<(AdapterControl Adapter, MinerControl Miner)?>()
+            .FirstOrDefault(item => item.HasValue &&
+                item.Value.Miner.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+    }
 
     private AdapterControl FindAdapter(string? id) =>
         _state.Adapters.FirstOrDefault(adapter => adapter.Id.Equals(id, StringComparison.OrdinalIgnoreCase))
@@ -782,10 +1178,12 @@ public sealed class SimulatorEngine
         Action = item.Action,
         Peer = item.Peer,
         Adapter = item.Adapter,
+        Miner = item.Miner,
         Address = item.Address,
         Transport = item.Transport,
         Value = item.Value,
-        Count = item.Count
+        Count = item.Count,
+        Rank = item.Rank
     };
 
     public static void ValidateTimeline(TimelineDocument timeline)

@@ -766,6 +766,7 @@ public class Program
             builder.Services.AddSingleton<DashboardTelemetryService>();
             builder.Services.AddHostedService(serviceProvider =>
                 serviceProvider.GetRequiredService<DashboardTelemetryService>());
+            builder.Services.AddSingleton<DashboardVisualizationJournalService>();
             builder.Services.AddSingleton<BootProtocolStateService>();
             builder.Services.AddSingleton<DashboardRevisionService>();
             builder.Services.AddHostedService(serviceProvider =>
@@ -934,6 +935,8 @@ public class Program
                 if (File.Exists(dashboardIndexPath))
                 {
                     app.MapMethods("/", ["GET", "HEAD"], () =>
+                        Results.File(dashboardIndexPath, "text/html; charset=utf-8"));
+                    app.MapMethods("/details", ["GET", "HEAD"], () =>
                         Results.File(dashboardIndexPath, "text/html; charset=utf-8"));
                 }
                 else if (_poolConfig.EnableLegacyUi)

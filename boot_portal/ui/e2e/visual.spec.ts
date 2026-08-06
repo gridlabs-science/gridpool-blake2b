@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { summaryFixture } from "../src/test/fixture";
+import { diagramFixture, summaryFixture } from "../src/test/fixture";
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/api/dashboard/v1/summary**", (route) =>
@@ -14,11 +14,27 @@ test.beforeEach(async ({ page }) => {
         points: []
       }
     }));
+  await page.route("**/api/dashboard/v1/diagram/events**", (route) =>
+    route.fulfill({
+      json: {
+        schemaVersion: 1,
+        generatedAtUtc: "2026-07-29T12:00:00Z",
+        redacted: true,
+        oldestSequence: 9,
+        latestSequence: 8,
+        nextSequence: 8,
+        hasMore: false,
+        gap: false,
+        events: []
+      }
+    }));
+  await page.route("**/api/dashboard/v1/diagram", (route) =>
+    route.fulfill({ json: { ...diagramFixture, redacted: true } }));
 });
 
 test("dark dashboard visual", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("link", { name: "GridPool home" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "GridPool system map" })).toBeVisible();
   await expect(page).toHaveScreenshot("dashboard-dark.png", {
     animations: "disabled",
     fullPage: true

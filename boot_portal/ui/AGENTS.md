@@ -93,14 +93,17 @@ Launch locally:
 scripts/run-dashboard-lab.sh
 ```
 
-Expose only the synthetic observer dashboard to the LAN:
+The launcher exposes only the synthetic observer dashboard to the LAN by
+default so a phone can open the printed observer URL. Controls and mutation
+APIs remain loopback-only:
 
 ```bash
-scripts/run-dashboard-lab.sh --lan
+scripts/run-dashboard-lab.sh
 ```
 
-The launcher prints the desktop control URL, preview URL, LAN observer URL, and
-synthetic operator key. `--lan` binds HTTP/SignalR to all interfaces, but
+Use `--local-only` when LAN observation is not wanted. The launcher prints the
+desktop control URL, preview URL, LAN observer URL, and synthetic operator key.
+The default (or explicit `--lan`) binds HTTP/SignalR to all interfaces, but
 middleware rejects `/__sim` and `/__sim/api/*` unless the remote address is
 loopback. There is no permissive CORS; phones load the same LAN origin.
 
@@ -108,6 +111,7 @@ Useful options:
 
 ```bash
 scripts/run-dashboard-lab.sh --port 5199
+scripts/run-dashboard-lab.sh --local-only
 scripts/run-dashboard-lab.sh --no-build
 GRIDPOOL_SIM_OPERATOR_KEY=temporary-value scripts/run-dashboard-lab.sh
 ```
@@ -122,7 +126,8 @@ Coherent mode is the default:
   observation window, and retained proof count;
 - relative standard error is approximately `1 / sqrt(m)`;
 - top-300 proofs are necessarily in the top 897;
-- reserve size is fixed at a maximum of 897;
+- every visual scenario presents an exact 897-proof Work Set, including
+  immediate deterministic refill after paid-proof removal;
 - ordinary Bitcoin boundaries do not remove reserve proofs;
 - GridPool payments remove locked proof IDs once, then retain unpaid work;
 - IDs and scenario data derive deterministically from the seed.
@@ -145,10 +150,11 @@ Action names accepted by `POST /__sim/api/v1/actions`:
 | `adapter.disconnect`, `adapter.reconnect` | `adapter` | Toggle a local adapter |
 | `adapter.hashrate` | `adapter`, `value` | Set adapter TH/s |
 | `pool.hashrate` | `value` | Set team TH/s |
-| `pulse.emit`, `proof.heartbeat` | none | Emit liveness proof |
-| `proof.top897` | optional `address` | Add reserve-quality proof |
-| `proof.top300` | optional `address` | Add top-300 proof |
-| `proof.block` | optional `address` | Add block-quality proof |
+| `pulse.emit`, `proof.heartbeat` | optional `peer` or `miner` | Receive or emit a routed liveness proof |
+| `proof.top897` | optional `address`, `peer`, `rank` | Add reserve-quality proof |
+| `proof.top300` | optional `address`, `peer`, `rank` | Add top-300 proof |
+| `proof.block` | optional `address`, `peer`, `rank` | Add block-quality proof |
+| `miner.activity` | `miner`, optional `count` | Emit authenticated local-miner activity |
 | `chain.peer-header` | none | Freeze a provisional peer-tip boundary |
 | `chain.local-validate` | none | Locally validate and commit the boundary |
 | `chain.invalid-header` | none | Discard the provisional peer header |
@@ -161,6 +167,47 @@ Action names accepted by `POST /__sim/api/v1/actions`:
 | `fault.api` | `value` as 0/1 | Disable/enable dashboard API responses |
 | `fault.api-latency` | milliseconds in `value` | Delay dashboard API responses |
 | `fault.signalr` | `value` as 0/1 | Drop/restore invalidations |
+
+Proof actions also accept optional `peer` and deterministic `rank` arguments
+for honest source-to-rail animation tests. The `living-minute-c` scenario loads
+a looping one-minute timeline with one work generator, three miners, a full
+reserve, two peer proofs, peer connectivity changes, a provisional header,
+local Bitcoin validation, and a block-quality local proof.
+
+## Living System Map
+
+The production landing page is the C-derived SVG system map. The prior module
+dashboard remains at `/details`. Diagram projections are:
+
+- `GET /api/dashboard/v1/diagram`
+- `GET /api/dashboard/v1/diagram/events?after={sequence}`
+- `GET /api/dashboard/v1/diagram/operator`
+- `GET /api/dashboard/v1/diagram/operator/events?after={sequence}`
+
+The public projection exposes Work Set proof IDs, payout addresses, difficulty,
+arrival time, and verified Slot 0 because those are shared consensus evidence.
+It also exposes peer protocol node IDs and allowlisted names for the advertised
+Dallas, Detroit, and Oregon public nodes. Private peer endpoints, IP addresses,
+locations, miner names, payout attribution, and transport diagnostics remain
+operator-only. Anonymous miner hashrate, aggregate local hashrate, estimated
+remote-pool hashrate, and network difficulty are public. Operator routes require
+the admin header and remain `no-store`. SignalR carries only a `diagram`
+invalidation topic.
+
+Diagram events carry a process-salted source visual ID separately from proof
+identity so motion begins at the honest anonymous peer or operator-only miner
+dot. The visualization journal is in-memory, holds at most 2,048 entries for at most
+10 minutes, and is not consensus state. Slot 0 is shown only after a locally
+submitted Work proof has completed full validation; it is derived from that
+proof's actual coinbase output and resets on service restart.
+
+Ordinary shares use short perpendicular ticks. Bitcoin block-quality proofs and
+new chain tips alone use square packets. Retained work follows the source to the
+Work Set and relay paths; block-quality work additionally follows the real
+generator-to-Bitcoin or peer-to-GridPool-to-Bitcoin path. Full-rail admission
+shows the displaced rank-897 tick leaving the rail. Authenticated vardiff
+batches render at most three staggered ticks, and peer connection changes use a
+small round marker along their actual link before the endpoint pulse.
 
 Built-in scenarios are exposed by `GET /__sim/api/v1/scenarios` and cover cold
 start, healthy mesh, sovereign operation, full reserve, small-miner retention,
@@ -246,8 +293,8 @@ docker run --rm gridpool-dashboard-boundary sh -c \
 ## Troubleshooting
 
 - Missing dashboard assets: run without `--no-build`.
-- Phone cannot connect: use `--lan`, the printed LAN address, and permit the
-  selected TCP port in the host firewall.
+- Phone cannot connect: use the printed LAN address, confirm `--local-only` was
+  not supplied, and permit the selected TCP port in the host firewall.
 - Phone receives 403 on `/__sim`: expected; controls are desktop-only.
 - Dashboard updates only every 15 seconds: SignalR fault injection may be on.
 - Operator view is locked: use the synthetic key printed by the launcher.

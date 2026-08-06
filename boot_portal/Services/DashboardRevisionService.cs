@@ -1,4 +1,5 @@
 using boot_portal.Models;
+using boot_portal.Utils;
 using Microsoft.AspNetCore.SignalR;
 
 namespace boot_portal.Services;
@@ -7,6 +8,7 @@ public sealed class DashboardRevisionService : BackgroundService
 {
     private readonly BootProtocolStateService _stateService;
     private readonly IHubContext<DashboardHub> _hubContext;
+    private readonly DashboardVisualizationJournalService _visualization;
     private readonly ILogger<DashboardRevisionService> _logger;
     private DashboardFingerprint? _last;
     private long _revision;
@@ -14,10 +16,12 @@ public sealed class DashboardRevisionService : BackgroundService
     public DashboardRevisionService(
         BootProtocolStateService stateService,
         IHubContext<DashboardHub> hubContext,
+        DashboardVisualizationJournalService visualization,
         ILogger<DashboardRevisionService> logger)
     {
         _stateService = stateService;
         _hubContext = hubContext;
+        _visualization = visualization;
         _logger = logger;
     }
 
@@ -30,8 +34,12 @@ public sealed class DashboardRevisionService : BackgroundService
         {
             while (await timer.WaitForNextTickAsync(stoppingToken))
             {
-                BootNetworkStatusDto status = _stateService.GetPublicNetworkStatus();
-                DashboardFingerprint current = DashboardFingerprint.From(status);
+                BootNetworkStatusDto fullStatus = _stateService.GetNetworkStatus();
+                _visualization.ObservePeers(fullStatus.Peers, DateTime.UtcNow);
+                BootNetworkStatusDto status = BootPrivacy.RedactPublicNetworkStatus(fullStatus);
+                DashboardFingerprint current = DashboardFingerprint.From(
+                    status,
+                    _visualization.LatestSequence);
                 List<string> changed = current.DescribeChanges(_last);
                 if (changed.Count == 0)
                 {
@@ -73,9 +81,10 @@ public sealed class DashboardRevisionService : BackgroundService
         bool MiningWorkSafe,
         bool OutboundRelayHealthy,
         DateTime? LastLocalPulseUtc,
-        double? LocalMiningHashrateThs)
+        double? LocalMiningHashrateThs,
+        long DiagramSequence)
     {
-        public static DashboardFingerprint From(BootNetworkStatusDto status) =>
+        public static DashboardFingerprint From(BootNetworkStatusDto status, long diagramSequence) =>
             new(
                 status.CurrentStateId,
                 status.CandidateStateId,
@@ -88,13 +97,14 @@ public sealed class DashboardRevisionService : BackgroundService
                 status.MiningWorkSafe,
                 status.OutboundRelayHealthy,
                 status.LastLocalPulseUtc,
-                status.LocalMiningHashrateThs);
+                status.LocalMiningHashrateThs,
+                diagramSequence);
 
         public List<string> DescribeChanges(DashboardFingerprint? previous)
         {
             if (previous == null)
             {
-                return ["status", "snapshot", "reserve", "network", "pulse", "miners"];
+                return ["status", "snapshot", "reserve", "network", "pulse", "miners", "diagram"];
             }
 
             var topics = new List<string>();
@@ -128,6 +138,10 @@ public sealed class DashboardRevisionService : BackgroundService
             if (LocalMiningHashrateThs != previous.LocalMiningHashrateThs)
             {
                 topics.Add("miners");
+            }
+            if (DiagramSequence != previous.DiagramSequence)
+            {
+                topics.Add("diagram");
             }
 
             return topics.Distinct(StringComparer.Ordinal).ToList();

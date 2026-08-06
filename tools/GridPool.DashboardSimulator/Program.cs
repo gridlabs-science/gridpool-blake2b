@@ -74,6 +74,7 @@ app.Use(async (context, next) =>
 });
 
 app.MapGet("/", () => Results.Redirect("/dashboard/"));
+app.MapGet("/details", () => ServeSpaFile(dashboardRoot, null));
 app.MapGet("/dashboard/{**path}", (string? path) =>
     ServeSpaFile(dashboardRoot, path));
 app.MapGet("/__sim/{**path}", (HttpContext context, string? path) =>
@@ -94,6 +95,28 @@ app.MapGet("/api/dashboard/v1/operator", (HttpContext context, SimulatorEngine e
         ? Results.Ok(engine.Operator())
         : Results.Unauthorized();
 });
+app.MapGet("/api/dashboard/v1/diagram", (SimulatorEngine engine) =>
+    Results.Ok(engine.Diagram(operatorDetails: false)));
+app.MapGet("/api/dashboard/v1/diagram/events", (SimulatorEngine engine, long? after, int? limit) =>
+    Results.Ok(engine.DiagramEvents(after ?? 0, limit ?? 256, operatorDetails: false)));
+app.MapGet("/api/dashboard/v1/diagram/operator", (HttpContext context, SimulatorEngine engine) =>
+{
+    string supplied = context.Request.Headers["X-Boot-Admin-Key"].FirstOrDefault() ?? string.Empty;
+    return supplied == simulatorKey
+        ? Results.Ok(engine.Diagram(operatorDetails: true))
+        : Results.Unauthorized();
+});
+app.MapGet("/api/dashboard/v1/diagram/operator/events", (
+    HttpContext context,
+    SimulatorEngine engine,
+    long? after,
+    int? limit) =>
+{
+    string supplied = context.Request.Headers["X-Boot-Admin-Key"].FirstOrDefault() ?? string.Empty;
+    return supplied == simulatorKey
+        ? Results.Ok(engine.DiagramEvents(after ?? 0, limit ?? 256, operatorDetails: true))
+        : Results.Unauthorized();
+});
 app.MapGet("/api/dashboard/v1/schema", () => Results.Ok(new
 {
     schemaVersion = 1,
@@ -103,7 +126,11 @@ app.MapGet("/api/dashboard/v1/schema", () => Results.Ok(new
         summary = "/api/dashboard/v1/summary?window=24h",
         history = "/api/dashboard/v1/history?window=24h",
         address = "/api/dashboard/v1/address/{address}",
-        @operator = "/api/dashboard/v1/operator"
+        @operator = "/api/dashboard/v1/operator",
+        diagram = "/api/dashboard/v1/diagram",
+        diagramEvents = "/api/dashboard/v1/diagram/events?after={sequence}",
+        operatorDiagram = "/api/dashboard/v1/diagram/operator",
+        operatorDiagramEvents = "/api/dashboard/v1/diagram/operator/events?after={sequence}"
     },
     windows = new[] { "6h", "24h", "7d" },
     realtime = new { hub = "/dashboardHub", method = "DashboardChanged" },
@@ -194,10 +221,12 @@ controls.MapGet("/export", (SimulatorEngine engine) =>
             Action = item.Action,
             Peer = item.Arguments.GetValueOrDefault("peer"),
             Adapter = item.Arguments.GetValueOrDefault("adapter"),
+            Miner = item.Arguments.GetValueOrDefault("miner"),
             Address = item.Arguments.GetValueOrDefault("address"),
             Transport = item.Arguments.GetValueOrDefault("transport"),
             Value = double.TryParse(item.Arguments.GetValueOrDefault("value"), out double value) ? value : null,
-            Count = int.TryParse(item.Arguments.GetValueOrDefault("count"), out int count) ? count : null
+            Count = int.TryParse(item.Arguments.GetValueOrDefault("count"), out int count) ? count : null,
+            Rank = int.TryParse(item.Arguments.GetValueOrDefault("rank"), out int rank) ? rank : null
         }).ToList()
     };
     return Results.Text(yamlWriter.Serialize(timeline), "application/yaml");

@@ -71,7 +71,7 @@ code, .kicker, .lab-readout, .stat-strip { font-family: "IBM Plex Mono", monospa
 .control-check { display: flex; align-items: center; gap: 0.55rem; color: #d3d1c9; font-size: 0.76rem; cursor: pointer; }
 .control-check input { accent-color: var(--cyan); }
 .control-number, .control-range { display: grid; gap: 0.35rem; margin-top: 0.7rem; color: var(--muted); font-size: 0.72rem; }
-.control-number input { width: 100%; padding: 0.58rem; }
+.control-number input, .control-number select { width: 100%; padding: 0.58rem; }
 .control-range span { display: flex; justify-content: space-between; }
 .control-range strong { color: var(--cyan); }
 .control-range input { width: 100%; accent-color: var(--cyan); }
@@ -94,6 +94,7 @@ code, .kicker, .lab-readout, .stat-strip { font-family: "IBM Plex Mono", monospa
 .inline-fields input { min-width: 0; padding: 0.4rem; }
 .action-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.45rem; }
 .action-grid button { padding: 0.55rem; background: transparent; color: #f2f0e8; font-size: 0.7rem; }
+.pending-actions button:disabled { opacity: 0.28; cursor: not-allowed; }
 .timeline-section textarea { width: 100%; min-height: 240px; resize: vertical; padding: 0.75rem; font: 0.68rem/1.55 "IBM Plex Mono"; }
 .event-section ol { display: grid; gap: 0.35rem; margin: 0; padding: 0; list-style: none; }
 .event-section li { display: flex; justify-content: space-between; color: var(--muted); font-size: 0.67rem; }

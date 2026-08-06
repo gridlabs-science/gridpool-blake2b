@@ -54,6 +54,7 @@ public class BootProtocolStateService
     private readonly BootPeerIdentity? _peerIdentity;
     private readonly BitcoinNotificationHealth? _bitcoinNotificationHealth;
     private readonly DashboardTelemetryService? _dashboardTelemetry;
+    private readonly DashboardVisualizationJournalService? _dashboardVisualization;
     private bool _identityChanged;
     private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
     private readonly JsonSerializerOptions _compactJsonOptions = new() { WriteIndented = false };
@@ -122,7 +123,8 @@ public class BootProtocolStateService
         BootPeerLoopHealth? peerLoopHealth = null,
         BootPeerIdentity? peerIdentity = null,
         BitcoinNotificationHealth? bitcoinNotificationHealth = null,
-        DashboardTelemetryService? dashboardTelemetry = null)
+        DashboardTelemetryService? dashboardTelemetry = null,
+        DashboardVisualizationJournalService? dashboardVisualization = null)
     {
         _poolConfig = poolConfig;
         _shareVerifier = shareVerifier;
@@ -132,6 +134,7 @@ public class BootProtocolStateService
         _peerIdentity = peerIdentity;
         _bitcoinNotificationHealth = bitcoinNotificationHealth;
         _dashboardTelemetry = dashboardTelemetry;
+        _dashboardVisualization = dashboardVisualization;
         LoadState();
 
         string? restoredProvisionalHash = null;
@@ -264,6 +267,31 @@ public class BootProtocolStateService
         lock (_sync)
         {
             return ClonePayouts(_state.OnDeckList);
+        }
+    }
+
+    public DashboardDiagramStateProjection GetDashboardDiagramState()
+    {
+        lock (_sync)
+        {
+            HashSet<string> locked = _state.ActiveSnapshotProofIds
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return new DashboardDiagramStateProjection
+            {
+                ActiveSnapshotProofIds = _state.ActiveSnapshotProofIds.ToList(),
+                WorkSet = _state.OnDeckProofs.Select((proof, index) => new DashboardDiagramProofDto
+                {
+                    ProofId = proof.ShareId,
+                    Rank = index + 1,
+                    Address = proof.MinerAddress,
+                    Difficulty = proof.Difficulty,
+                    DifficultyDisplay = string.IsNullOrWhiteSpace(proof.DiffString)
+                        ? ClientHandler.FormatDifficulty(proof.Difficulty)
+                        : proof.DiffString,
+                    FirstSeenUtc = proof.StateServiceReceivedUtc ?? proof.Timestamp,
+                    Locked = locked.Contains(proof.ShareId)
+                }).ToList()
+            };
         }
     }
 
@@ -2495,6 +2523,9 @@ public class BootProtocolStateService
 
             if (affectedOnDeck)
             {
+                string displacedProofId = _state.OnDeckProofs.Count >= _poolConfig.WorkSetReserveLimit
+                    ? _state.OnDeckProofs[^1].ShareId
+                    : string.Empty;
                 _state.OnDeckProofs.Insert(insertIndex, proof);
 
                 _state.OnDeckProofs = _state.OnDeckProofs
@@ -2508,6 +2539,72 @@ public class BootProtocolStateService
                 }
 
                 RebuildOnDeckListNoLock();
+                insertIndex = _state.OnDeckProofs.FindIndex(item =>
+                    string.Equals(item.ShareId, proof.ShareId, StringComparison.OrdinalIgnoreCase));
+                if (insertIndex < 0)
+                {
+                    displacedProofId = proof.ShareId;
+                }
+                proof.DiffString = string.IsNullOrWhiteSpace(proof.DiffString)
+                    ? ClientHandler.FormatDifficulty(proof.Difficulty)
+                    : proof.DiffString;
+                bool diagramPeerSource = BootPeerSource.TryParsePeerSource(
+                    share.Source,
+                    out string transport,
+                    out string endpoint,
+                    out string nodeId);
+                string diagramMinerIdentity = string.IsNullOrWhiteSpace(proof.Username)
+                    ? proof.MinerAddress
+                    : proof.Username.Trim();
+                string diagramSourceId = !string.IsNullOrWhiteSpace(nodeId)
+                    ? nodeId
+                    : !string.IsNullOrWhiteSpace(endpoint)
+                        ? endpoint
+                        : diagramPeerSource
+                            ? share.Source
+                            : diagramMinerIdentity;
+                string diagramSourceKind = diagramPeerSource
+                    ? "peer"
+                    : localGatewaySource
+                        ? "miner"
+                        : "local";
+                string diagramSourceVisualId = diagramPeerSource
+                    ? _dashboardVisualization?.VisualId("peer", diagramSourceId) ?? string.Empty
+                    : localGatewaySource
+                        ? _dashboardVisualization?.VisualId(
+                            "miner",
+                            $"{share.Source.Trim().ToLowerInvariant()}:{proof.MinerAddress}:{diagramMinerIdentity}") ?? string.Empty
+                        : string.Empty;
+                _dashboardVisualization?.Append(new DashboardDiagramEventDto
+                {
+                    TimestampUtc = DateTime.UtcNow,
+                    Kind = DashboardDiagramEventKinds.ProofAdmitted,
+                    SourceKind = diagramSourceKind,
+                    SourceId = diagramSourceId,
+                    SourceVisualId = diagramSourceVisualId,
+                    Transport = transport,
+                    ProofId = proof.ShareId,
+                    Address = proof.MinerAddress,
+                    Difficulty = proof.Difficulty,
+                    BlockQuality = validation.IsBlock,
+                    ReceivedUtc = transportReceivedUtc,
+                    ValidatedUtc = validationCompletedUtc,
+                    MutatedUtc = DateTime.UtcNow,
+                    Rank = insertIndex >= 0 ? insertIndex + 1 : null,
+                    DisplacedProofId = string.Equals(
+                        displacedProofId,
+                        proof.ShareId,
+                        StringComparison.OrdinalIgnoreCase)
+                        ? string.Empty
+                        : displacedProofId
+                });
+                if (!peerSource && insertIndex >= 0)
+                {
+                    _dashboardVisualization?.ObserveVerifiedLocalSlotZero(
+                        proof.MinerAddress,
+                        proof.ShareId,
+                        DateTime.UtcNow);
+                }
             }
 
             bool newRecord = false;
@@ -2552,6 +2649,41 @@ public class BootProtocolStateService
                 timestampUtc: proof.Timestamp);
             DateTime stateMutationCompletedUtc = DateTime.UtcNow;
             proof.StateMutationCompletedUtc = stateMutationCompletedUtc;
+            if (pulseAccepted)
+            {
+                bool parsedPeer = BootPeerSource.TryParsePeerSource(
+                    share.Source,
+                    out string pulseTransport,
+                    out string pulseEndpoint,
+                    out string pulseNodeId);
+                string pulseMinerIdentity = string.IsNullOrWhiteSpace(proof.Username)
+                    ? proof.MinerAddress
+                    : proof.Username.Trim();
+                string pulseSourceId = !string.IsNullOrWhiteSpace(pulseNodeId)
+                    ? pulseNodeId
+                    : !string.IsNullOrWhiteSpace(pulseEndpoint)
+                        ? pulseEndpoint
+                        : pulseMinerIdentity;
+                _dashboardVisualization?.Append(new DashboardDiagramEventDto
+                {
+                    TimestampUtc = stateMutationCompletedUtc,
+                    Kind = DashboardDiagramEventKinds.PulseAccepted,
+                    SourceKind = parsedPeer ? "peer" : localGatewaySource ? "miner" : "local",
+                    SourceId = pulseSourceId,
+                    SourceVisualId = parsedPeer
+                        ? _dashboardVisualization?.VisualId("peer", pulseSourceId) ?? string.Empty
+                        : localGatewaySource
+                            ? _dashboardVisualization?.VisualId(
+                                "miner",
+                                $"{share.Source.Trim().ToLowerInvariant()}:{proof.MinerAddress}:{pulseMinerIdentity}") ?? string.Empty
+                            : string.Empty,
+                    Transport = pulseTransport,
+                    ProofId = proof.ShareId,
+                    ReceivedUtc = transportReceivedUtc,
+                    ValidatedUtc = validationCompletedUtc,
+                    MutatedUtc = stateMutationCompletedUtc
+                });
+            }
             RecordPeerRelayObservationNoLock(
                 share.Source,
                 proof.ShareId,
@@ -3151,6 +3283,28 @@ public class BootProtocolStateService
                 result.AcceptedShares += entry.AcceptedShareCount;
                 result.AcceptedWorkDifficulty += entry.AcceptedWorkDifficulty;
                 TrimLocalDatumAddressTrackerNoLock(tracker, entry.WindowEndUtc);
+                if (entry.AcceptedShareCount > 0)
+                {
+                    string minerIdentity = string.IsNullOrWhiteSpace(entry.Username)
+                        ? address
+                        : entry.Username.Trim();
+                    _dashboardVisualization?.Append(new DashboardDiagramEventDto
+                    {
+                        TimestampUtc = entry.WindowEndUtc,
+                        Kind = DashboardDiagramEventKinds.LocalMinerActivity,
+                        SourceKind = "miner",
+                        SourceId = minerIdentity,
+                        SourceVisualId = _dashboardVisualization.VisualId(
+                            "miner",
+                            $"{normalizedSource}:{address}:{minerIdentity}"),
+                        VisualId = _dashboardVisualization.VisualId(
+                            "miner",
+                            $"{normalizedSource}:{address}:{minerIdentity}"),
+                        Address = address,
+                        AcceptedShareDelta = entry.AcceptedShareCount,
+                        ReceivedUtc = DateTime.UtcNow
+                    });
+                }
             }
 
             if (batch.Entries.Count > 0)
@@ -3848,6 +4002,23 @@ public class BootProtocolStateService
                 };
                 _provisionalTipGeneration++;
                 provisionalCreated = true;
+                _dashboardVisualization?.Append(new DashboardDiagramEventDto
+                {
+                    TimestampUtc = receivedUtc,
+                    Kind = DashboardDiagramEventKinds.PeerHeader,
+                    SourceKind = "peer",
+                    SourceId = !string.IsNullOrWhiteSpace(remoteNodeId)
+                        ? remoteNodeId
+                        : remoteEndpoint,
+                    SourceVisualId = _dashboardVisualization.VisualId(
+                        "peer",
+                        !string.IsNullOrWhiteSpace(remoteNodeId) ? remoteNodeId : remoteEndpoint),
+                    Transport = transport,
+                    BlockHash = evaluation.BlockHash,
+                    BlockHeight = announcement.BlockHeight,
+                    SnapshotId = context.SnapshotId,
+                    ReceivedUtc = receivedUtc
+                });
                 RecordNetworkEventNoLock(
                     "peer-tip-provisional",
                     source,
@@ -5775,6 +5946,21 @@ public class BootProtocolStateService
             normalizedBlockHash,
             blockHeight,
             createdUtc);
+        if (!string.IsNullOrWhiteSpace(normalizedBlockHash) && blockHeight.HasValue)
+        {
+            _dashboardVisualization?.Append(new DashboardDiagramEventDto
+            {
+                TimestampUtc = createdUtc,
+                Kind = DashboardDiagramEventKinds.BoundaryValidated,
+                SourceKind = "bitcoin",
+                SourceId = source,
+                BlockHash = normalizedBlockHash,
+                BlockHeight = blockHeight,
+                SnapshotId = context.SnapshotId,
+                LockedProofIds = context.ProofIds.ToList(),
+                MutatedUtc = createdUtc
+            });
+        }
         transitionStopwatch.Stop();
         _lastSnapshotTransitionDurationMs = transitionStopwatch.Elapsed.TotalMilliseconds;
         return changed;

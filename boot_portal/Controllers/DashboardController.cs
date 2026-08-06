@@ -11,13 +11,16 @@ public sealed class DashboardController : ControllerBase
 {
     private readonly BootProtocolStateService _stateService;
     private readonly DashboardReadModelService _dashboard;
+    private readonly DashboardVisualizationJournalService _visualization;
 
     public DashboardController(
         BootProtocolStateService stateService,
-        DashboardReadModelService dashboard)
+        DashboardReadModelService dashboard,
+        DashboardVisualizationJournalService visualization)
     {
         _stateService = stateService;
         _dashboard = dashboard;
+        _visualization = visualization;
     }
 
     [EnableRateLimiting("network-read")]
@@ -63,6 +66,46 @@ public sealed class DashboardController : ControllerBase
     }
 
     [EnableRateLimiting("network-read")]
+    [HttpGet("diagram")]
+    public IActionResult GetDiagram()
+    {
+        Response.Headers.CacheControl = "no-store";
+        return Ok(_dashboard.BuildDiagram(includeOperatorDetails: false));
+    }
+
+    [EnableRateLimiting("network-read")]
+    [HttpGet("diagram/events")]
+    public IActionResult GetDiagramEvents([FromQuery] long after = 0, [FromQuery] int limit = 256)
+    {
+        Response.Headers.CacheControl = "no-store";
+        return Ok(_visualization.Read(Math.Max(0, after), limit, redacted: true));
+    }
+
+    [EnableRateLimiting("network-read")]
+    [HttpGet("diagram/operator")]
+    public IActionResult GetOperatorDiagram()
+    {
+        if (!IsAdminAuthorized())
+        {
+            return Unauthorized(new { status = "rejected", reason = "Missing or invalid admin key" });
+        }
+        Response.Headers.CacheControl = "no-store";
+        return Ok(_dashboard.BuildDiagram(includeOperatorDetails: true));
+    }
+
+    [EnableRateLimiting("network-read")]
+    [HttpGet("diagram/operator/events")]
+    public IActionResult GetOperatorDiagramEvents([FromQuery] long after = 0, [FromQuery] int limit = 256)
+    {
+        if (!IsAdminAuthorized())
+        {
+            return Unauthorized(new { status = "rejected", reason = "Missing or invalid admin key" });
+        }
+        Response.Headers.CacheControl = "no-store";
+        return Ok(_visualization.Read(Math.Max(0, after), limit, redacted: false));
+    }
+
+    [EnableRateLimiting("network-read")]
     [HttpGet("schema")]
     public IActionResult GetSchema() =>
         Ok(new
@@ -73,7 +116,11 @@ public sealed class DashboardController : ControllerBase
                 summary = "/api/dashboard/v1/summary?window=24h",
                 history = "/api/dashboard/v1/history?window=24h",
                 address = "/api/dashboard/v1/address/{address}",
-                @operator = "/api/dashboard/v1/operator"
+                @operator = "/api/dashboard/v1/operator",
+                diagram = "/api/dashboard/v1/diagram",
+                diagramEvents = "/api/dashboard/v1/diagram/events?after={sequence}",
+                operatorDiagram = "/api/dashboard/v1/diagram/operator",
+                operatorDiagramEvents = "/api/dashboard/v1/diagram/operator/events?after={sequence}"
             },
             windows = DashboardWindows.Supported.Keys,
             realtime = new
@@ -88,4 +135,10 @@ public sealed class DashboardController : ControllerBase
                 storageGuidance = "Keep operator credentials in memory only."
             }
         });
+
+    private bool IsAdminAuthorized()
+    {
+        string? apiKey = Request.Headers["X-Boot-Admin-Key"].FirstOrDefault();
+        return _stateService.IsAdminAuthorized(apiKey);
+    }
 }
