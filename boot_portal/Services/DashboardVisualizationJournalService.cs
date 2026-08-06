@@ -360,6 +360,10 @@ public sealed class DashboardVisualizationJournalService
         DashboardDiagramEventDto clone = CloneEvent(item);
         clone.SourceId = string.Empty;
         clone.Transport = string.Empty;
+        if (string.Equals(item.Kind, DashboardDiagramEventKinds.ProofRejected, StringComparison.Ordinal))
+        {
+            clone.Category = RejectionCategory(item.Category, item.Reason);
+        }
         clone.Reason = string.Empty;
         if (!string.Equals(item.Kind, DashboardDiagramEventKinds.ProofAdmitted, StringComparison.Ordinal))
         {
@@ -373,6 +377,21 @@ public sealed class DashboardVisualizationJournalService
             clone.LockedProofIds = [];
         }
         return clone;
+    }
+
+    public static string RejectionCategory(string? category, string? reason = null)
+    {
+        string value = $"{category} {reason}".Trim().ToLowerInvariant();
+        if (value.Contains("rate") || value.Contains("limit")) return "rate-limited";
+        if (value.Contains("previous-parent") || value.Contains("boundary") ||
+            value.Contains("snapshot") || value.Contains("quarant")) return "boundary";
+        if (value.Contains("duplicate") || value.Contains("replay")) return "duplicate";
+        if (value.Contains("difficulty") || value.Contains("floor") || value.Contains("target")) return "below-floor";
+        if (value.Contains("transport") || value.Contains("timeout")) return "transport";
+        if (value.Contains("signature") || value.Contains("coinbase") || value.Contains("payout") ||
+            value.Contains("hash") || value.Contains("proof") || value.Contains("invalid") ||
+            value.Contains("malformed")) return "invalid-proof";
+        return "rejected";
     }
 
     private static DashboardDiagramSlotZeroDto CloneSlotZero(DashboardDiagramSlotZeroDto item) => new()

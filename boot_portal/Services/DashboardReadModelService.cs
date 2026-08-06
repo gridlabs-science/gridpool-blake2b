@@ -287,8 +287,11 @@ public sealed class DashboardReadModelService
             Quality = new DashboardDiagramQualityDto
             {
                 RejectionCategories = localRejected
-                    .Where(item => !string.IsNullOrWhiteSpace(item.RejectionCategory))
-                    .GroupBy(item => item.RejectionCategory!, StringComparer.OrdinalIgnoreCase)
+                    .GroupBy(
+                        item => DashboardVisualizationJournalService.RejectionCategory(
+                            item.RejectionCategory,
+                            item.RejectionReason),
+                        StringComparer.OrdinalIgnoreCase)
                     .Select(group => new BootReasonCountDto { Reason = group.Key, Count = group.Count() })
                     .OrderByDescending(item => item.Count)
                     .ThenBy(item => item.Reason, StringComparer.OrdinalIgnoreCase)

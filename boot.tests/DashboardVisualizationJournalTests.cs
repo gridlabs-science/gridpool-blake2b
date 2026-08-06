@@ -183,6 +183,25 @@ public sealed class DashboardVisualizationJournalTests
     }
 
     [TestMethod]
+    public void PublicRejectionCategoryIsBoundedEvenWhenInternalCategoryIsSentenceLike()
+    {
+        var journal = new DashboardVisualizationJournalService();
+        DateTime now = new(2026, 8, 6, 12, 0, 0, DateTimeKind.Utc);
+        journal.Append(new DashboardDiagramEventDto
+        {
+            TimestampUtc = now,
+            Kind = DashboardDiagramEventKinds.ProofRejected,
+            Category = "Previous-parent proof quarantined after the provisional peer-tip boundary.",
+            Reason = "private proof and source detail"
+        });
+
+        Assert.AreEqual("boundary", journal.Read(0, 10, true, now).Events.Single().Category);
+        Assert.AreEqual(
+            "Previous-parent proof quarantined after the provisional peer-tip boundary.",
+            journal.Read(0, 10, false, now).Events.Single().Category);
+    }
+
+    [TestMethod]
     public void InitialBitcoinPeerObservationSeedsWithoutSyntheticConnectionBurst()
     {
         var journal = new DashboardVisualizationJournalService();
