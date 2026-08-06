@@ -43,7 +43,9 @@ The living diagram follows the same boundary: the Work Set and Slot 0 expose
 their proof IDs, payout addresses, difficulty, and timestamps as public shared
 consensus evidence. Peers expose protocol node IDs; only the exact advertised
 Dallas, Detroit, and Oregon DNS hosts receive friendly names. All other peer
-endpoints, IP addresses, and inferred locations remain operator-only.
+endpoints, IP addresses, and inferred locations remain operator-only. Public
+round-trip latency may control the length of an already-visible anonymous peer
+link; it is not accompanied by endpoint or location data.
 
 Publicly hosting the node UI must not silently convert operator diagnostics into
 a network directory. Private mode should be the package default.

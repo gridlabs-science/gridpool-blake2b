@@ -597,6 +597,9 @@ public sealed class ShareAttributionTests
         Assert.AreEqual(BootProofClasses.Pulse, relayProof!.ProofClass);
         Assert.AreEqual(BootRelayStages.Validated, relayProof.RelayStage);
         Assert.AreEqual(1, relayProof.RelayTtl);
+        Assert.IsTrue(harness.DashboardVisualization.SlotZero().Verified);
+        Assert.AreEqual(SampleSlotZeroAddress, harness.DashboardVisualization.SlotZero().Address);
+        Assert.AreEqual(result.AcceptedProof!.ShareId, harness.DashboardVisualization.SlotZero().ProofId);
     }
 
     [TestMethod]
@@ -2946,6 +2949,7 @@ public sealed class ShareAttributionTests
         public BootProtocolStateService StateService { get; }
         public MiningApiController MiningController { get; }
         public BootPeerController PeerController { get; }
+        public DashboardVisualizationJournalService DashboardVisualization { get; }
         public string StatePath => Path.Combine(_tempDirectory, "pool_state.json");
 
         private TestHarness(
@@ -2953,13 +2957,15 @@ public sealed class ShareAttributionTests
             string? previousStatePath,
             string? previousHistoryPath,
             PoolConfig config,
-            BootProtocolStateService stateService)
+            BootProtocolStateService stateService,
+            DashboardVisualizationJournalService dashboardVisualization)
         {
             _tempDirectory = tempDirectory;
             _previousStatePath = previousStatePath;
             _previousHistoryPath = previousHistoryPath;
             Config = config;
             StateService = stateService;
+            DashboardVisualization = dashboardVisualization;
             MiningController = new MiningApiController(config, stateService, NullLogger<MiningApiController>.Instance)
             {
                 ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
@@ -3049,13 +3055,21 @@ public sealed class ShareAttributionTests
             };
             File.WriteAllText(statePath, JsonSerializer.Serialize(seedState));
 
+            var dashboardVisualization = new DashboardVisualizationJournalService();
             var stateService = new BootProtocolStateService(
                 config,
                 new BootShareVerifier(),
                 new NoOpHubContext(),
-                NullLogger<BootProtocolStateService>.Instance);
+                NullLogger<BootProtocolStateService>.Instance,
+                dashboardVisualization: dashboardVisualization);
 
-            return new TestHarness(tempDirectory, previousStatePath, previousHistoryPath, config, stateService);
+            return new TestHarness(
+                tempDirectory,
+                previousStatePath,
+                previousHistoryPath,
+                config,
+                stateService,
+                dashboardVisualization);
         }
 
         private static BootPeerSessionManager CreatePeerSessionManager(PoolConfig config, BootProtocolStateService stateService)

@@ -193,6 +193,7 @@ public sealed class SimulatorEngineTests
 
         Assert.AreEqual("Dallas", dallas.DisplayName);
         Assert.AreEqual(string.Empty, dallas.Endpoint);
+        Assert.AreEqual(47d, dallas.LatencyMs);
         Assert.AreEqual("private-node-id", privatePeer.DisplayName);
         Assert.AreEqual(string.Empty, privatePeer.Endpoint);
         Assert.IsFalse(privatePeer.DisplayName.Contains("192.168", StringComparison.Ordinal));

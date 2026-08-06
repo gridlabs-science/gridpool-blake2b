@@ -547,7 +547,7 @@ public sealed class SimulatorEngine
             Endpoint = operatorDetails ? peer.Endpoint : string.Empty,
             Status = operatorDetails ? peer.Connected ? "connected" : "disconnected" : "redacted",
             Connected = peer.Connected,
-            LatencyMs = operatorDetails ? peer.LatencyMs : null,
+            LatencyMs = peer.LatencyMs,
             LastActivityUtc = operatorDetails && peer.Connected
                 ? state.VirtualTimeUtc.AddMilliseconds(-peer.LatencyMs)
                 : null,

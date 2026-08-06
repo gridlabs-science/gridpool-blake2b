@@ -189,7 +189,8 @@ arrival time, and verified Slot 0 because those are shared consensus evidence.
 It also exposes peer protocol node IDs and allowlisted names for the advertised
 Dallas, Detroit, and Oregon public nodes. Private peer endpoints, IP addresses,
 locations, miner names, payout attribution, and transport diagnostics remain
-operator-only. Anonymous miner hashrate, aggregate local hashrate, estimated
+operator-only. Public peer latency drives anonymous link length. Anonymous
+miner hashrate, aggregate local hashrate, estimated
 remote-pool hashrate, and network difficulty are public. Operator routes require
 the admin header and remain `no-store`. SignalR carries only a `diagram`
 invalidation topic.
@@ -198,8 +199,8 @@ Diagram events carry a process-salted source visual ID separately from proof
 identity so motion begins at the honest anonymous peer or operator-only miner
 dot. The visualization journal is in-memory, holds at most 2,048 entries for at most
 10 minutes, and is not consensus state. Slot 0 is shown only after a locally
-submitted Work proof has completed full validation; it is derived from that
-proof's actual coinbase output and resets on service restart.
+submitted Work or pulse proof has completed full validation; it is derived from
+that proof's actual coinbase output and resets on service restart.
 
 Ordinary shares use short perpendicular ticks. Bitcoin block-quality proofs and
 new chain tips alone use square packets. Retained work follows the source to the

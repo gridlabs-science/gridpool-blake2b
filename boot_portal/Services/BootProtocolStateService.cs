@@ -2598,13 +2598,14 @@ public class BootProtocolStateService
                         ? string.Empty
                         : displacedProofId
                 });
-                if (!peerSource && insertIndex >= 0)
-                {
-                    _dashboardVisualization?.ObserveVerifiedLocalSlotZero(
-                        proof.MinerAddress,
-                        proof.ShareId,
-                        DateTime.UtcNow);
-                }
+            }
+
+            if (!peerSource)
+            {
+                _dashboardVisualization?.ObserveVerifiedLocalSlotZero(
+                    proof.MinerAddress,
+                    proof.ShareId,
+                    DateTime.UtcNow);
             }
 
             bool newRecord = false;

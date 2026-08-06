@@ -335,12 +335,12 @@ export function SystemMap({
         />
 
         {diagram.grid.hashrateDisplay !== "--" ? (
-          <text className="hashrate-label node-metric" x={layout.grid.x + 17} y={layout.grid.y + 25}>
+          <text className="hashrate-label node-metric" x={layout.grid.x + 12} y={layout.grid.y - 10}>
             {gridHashrateLabel(diagram)}
           </text>
         ) : null}
         {diagram.bitcoin.networkDifficultyDisplay !== "--" ? (
-          <text className="hashrate-label node-metric" textAnchor="end" x={layout.bitcoin.x - 17} y={layout.bitcoin.y + 25}>
+          <text className="hashrate-label node-metric" textAnchor="end" x={layout.bitcoin.x - 12} y={layout.bitcoin.y - 10}>
             {diagram.bitcoin.networkDifficultyDisplay} diff
           </text>
         ) : null}
@@ -845,8 +845,10 @@ function placePeers(peers: DiagramPeer[], layout: Layout) {
   return peers.map((peer, index) => {
     const span = peers.length <= 1 ? 0 : index / (peers.length - 1);
     const angle = (-155 + span * 125) * Math.PI / 180;
-    const latencyFactor = peer.latencyMs == null ? 0.55 : Math.min(1, Math.max(0, peer.latencyMs / 120));
-    const radius = baseRadius * (0.68 + latencyFactor * 0.52);
+    const latencyFactor = peer.latencyMs == null
+      ? 0.4
+      : Math.sqrt(Math.min(1, Math.max(0, peer.latencyMs / 2500)));
+    const radius = baseRadius * (0.55 + latencyFactor * 0.67);
     return {
       peer,
       point: {

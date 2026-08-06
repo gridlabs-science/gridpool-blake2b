@@ -312,7 +312,8 @@ public sealed class DashboardReadModelService
                     DisplayName = PublicPeerDisplayName(peer.Endpoint) ?? peer.NodeId,
                     NodeId = peer.NodeId,
                     Status = connected ? "connected" : "disconnected",
-                    Connected = connected
+                    Connected = connected,
+                    LatencyMs = peer.LatencyMs
                 };
             }).ToList();
             result.Miners = fullStatus.LocalDatumMiners.Select(miner =>

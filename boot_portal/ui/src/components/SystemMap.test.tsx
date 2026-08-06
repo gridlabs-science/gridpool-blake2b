@@ -102,6 +102,8 @@ describe("GridPool system map", () => {
     expect(screen.getByText("129 T diff")).toBeInTheDocument();
     expect(container.querySelectorAll(".hashrate-arc")).toHaveLength(3);
     expect(container.querySelector(".target-aperture")).toBeInTheDocument();
+    expect(screen.getByText(/1.2 PH\/s remote/)).toHaveAttribute("y", "175");
+    expect(screen.getByText("129 T diff")).toHaveAttribute("y", "175");
   });
 
   it("uses unmarked convergence points and renders journal motion itself", () => {
@@ -147,5 +149,29 @@ describe("GridPool system map", () => {
     expect(container.querySelectorAll(".event-block-quality").length).toBeGreaterThan(1);
     expect(Array.from(container.querySelectorAll(".event-block-quality")).every((marker) => marker.tagName === "rect")).toBe(true);
     expect(container.querySelector('[data-route="peer-grid-rail-rank"]')?.tagName).toBe("line");
+  });
+
+  it("uses one latency scale so faster GridPool peers sit closer", () => {
+    const { container } = render(
+      <SystemMap
+        diagram={{
+          ...diagramFixture,
+          peers: [
+            { ...diagramFixture.peers[0], visualId: "fast", latencyMs: 10 },
+            { ...diagramFixture.peers[0], visualId: "slow", nodeId: "slow", latencyMs: 100 }
+          ]
+        }}
+        activeEvent={null}
+        onEventComplete={() => undefined}
+        operatorUnlocked={false}
+      />
+    );
+
+    const links = Array.from(container.querySelectorAll(".peer-constellation .map-link"));
+    const length = (link: Element) => Math.hypot(
+      Number(link.getAttribute("x2")) - Number(link.getAttribute("x1")),
+      Number(link.getAttribute("y2")) - Number(link.getAttribute("y1"))
+    );
+    expect(length(links[0])).toBeLessThan(length(links[1]));
   });
 });
