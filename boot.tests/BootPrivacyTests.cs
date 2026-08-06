@@ -44,6 +44,7 @@ public sealed class BootPrivacyTests
             {
                 DegradedReason = "RPC failed at http://bitcoin.internal:8332",
                 Rpc = new BootBitcoinRpcHealthDto { LastError = "RPC failed at http://127.0.0.1:8332" },
+                Network = new BootBitcoinNetworkHealthDto { LastError = "peer RPC failed at http://127.0.0.1:8332" },
                 ZmqTopics =
                 [
                     new BootBitcoinZmqTopicHealthDto
@@ -75,6 +76,7 @@ public sealed class BootPrivacyTests
         Assert.AreEqual(0, redacted.LocalMiningSources.Count);
         Assert.AreEqual(0, redacted.Peers.Count);
         Assert.AreEqual(string.Empty, redacted.BitcoinNotification.Rpc.LastError);
+        Assert.AreEqual(string.Empty, redacted.BitcoinNotification.Network.LastError);
         Assert.AreEqual("Bitcoin notification source is degraded.", redacted.BitcoinNotification.DegradedReason);
         Assert.AreEqual(string.Empty, redacted.BitcoinNotification.ZmqTopics[0].EndpointLabel);
         Assert.AreEqual(0, redacted.BitcoinNotification.ZmqTopics[0].PublisherEndpointLabels.Count);

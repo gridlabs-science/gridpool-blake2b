@@ -57,6 +57,7 @@ test("living minute animates a stepped journal event", async ({ page }, testInfo
 
 test("living minute routes each event through the system diagram", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "Desktop animation test.");
+  test.setTimeout(75_000);
   await page.request.post("/__sim/api/v1/scenarios/living-minute-c/load");
   await page.request.post("/__sim/api/v1/timeline/pause");
   await page.request.post("/__sim/api/v1/timeline/reset");
@@ -72,8 +73,18 @@ test("living minute routes each event through the system diagram", async ({ page
   };
 
   await stepAndExpectRoutes(["peer-grid-rail-rank", "rail-evict"]);
+  await stepAndExpectRoutes(["miner-generator-rejected"]);
   await stepAndExpectRoutes(["peer-grid"]);
   await stepAndExpectRoutes(["miner-generator", "miner-generator", "miner-generator"]);
+  await stepAndExpectRoutes(["grid-peer-transport"]);
+
+  await page.request.post("/__sim/api/v1/timeline/step");
+  await expect(page.locator(".foundation-unsafe")).toHaveCount(1);
+  await page.waitForTimeout(2_100);
+  await page.request.post("/__sim/api/v1/timeline/step");
+  await expect(page.locator(".foundation-unsafe")).toHaveCount(0);
+  await page.waitForTimeout(2_100);
+
   await stepAndExpectRoutes(["peer-grid-rail-rank", "rail-evict"]);
   await stepAndExpectRoutes([
     "miner-generator-grid-peer",
@@ -82,16 +93,21 @@ test("living minute routes each event through the system diagram", async ({ page
     "miner-generator-rail-rank",
     "rail-evict"
   ]);
-
+  await stepAndExpectRoutes(["peer-grid-bitcoin-rejected"]);
   await stepAndExpectRoutes(["peer-grid-disconnect"]);
   await stepAndExpectRoutes(["grid-peer-connect"]);
+  await stepAndExpectRoutes(["peer-grid-rail-sibling"]);
+  await stepAndExpectRoutes(["grid-peer-state"]);
   await stepAndExpectRoutes([
     "miner-generator-grid-peer",
     "miner-generator-grid-peer",
     "miner-generator-grid-peer"
   ]);
+  await stepAndExpectRoutes(["grid-peer-state"]);
 
   await stepAndExpectRoutes(["peer-grid-bitcoin"]);
+  await stepAndExpectRoutes(["bitcoin-peer-disconnect"]);
+  await stepAndExpectRoutes(["bitcoin-peer-connect"]);
   await page.request.post("/__sim/api/v1/timeline/step");
   const boundaryMarkers = page.locator(".event-marker");
   await expect(boundaryMarkers).toHaveCount(4);
@@ -107,6 +123,8 @@ test("living minute routes each event through the system diagram", async ({ page
   }, { timeout: 1_500 }).toBeGreaterThan(0.05);
   await expect(boundaryMarkers).toHaveCount(0, { timeout: 3_000 });
 
+  await stepAndExpectRoutes(["rail-bitcoin-reorg", "bitcoin-rail-replacement"]);
+
   await stepAndExpectRoutes([
     "miner-generator-grid-peer",
     "miner-generator-grid-peer",
@@ -115,6 +133,9 @@ test("living minute routes each event through the system diagram", async ({ page
     "miner-generator-bitcoin-block",
     "rail-evict"
   ]);
+  await page.request.post("/__sim/api/v1/timeline/step");
+  await expect(page.locator(".paid-snapshot-drain")).toHaveCount(1);
+  await expect(page.locator(".event-marker")).toHaveCount(0, { timeout: 3_000 });
   await stepAndExpectRoutes([
     "miner-generator-grid-peer",
     "miner-generator-grid-peer",

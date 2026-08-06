@@ -77,7 +77,12 @@ public sealed class DashboardTelemetryService : BackgroundService
         string source,
         double difficulty,
         double admissionFloorDifficulty,
-        DateTime receivedUtc)
+        DateTime receivedUtc,
+        string address = "",
+        string username = "",
+        string sourceKind = "",
+        bool enteredWorkSet = true,
+        bool blockQuality = false)
     {
         if (string.IsNullOrWhiteSpace(shareId) ||
             !double.IsFinite(difficulty) ||
@@ -102,14 +107,27 @@ public sealed class DashboardTelemetryService : BackgroundService
                 Source = source?.Trim() ?? string.Empty,
                 Difficulty = difficulty,
                 AdmissionFloorDifficulty = admissionFloorDifficulty,
-                ReceivedUtc = timestamp
+                ReceivedUtc = timestamp,
+                Address = address?.Trim() ?? string.Empty,
+                Username = username?.Trim() ?? string.Empty,
+                SourceKind = sourceKind?.Trim() ?? string.Empty,
+                EnteredWorkSet = enteredWorkSet,
+                BlockQuality = blockQuality
             });
             _dirty = true;
             PruneNoLock(timestamp);
         }
     }
 
-    public void ObservePulse(string shareId, string source, DateTime receivedUtc)
+    public void ObservePulse(
+        string shareId,
+        string source,
+        DateTime receivedUtc,
+        string address = "",
+        string username = "",
+        string sourceKind = "",
+        double difficulty = 0,
+        bool blockQuality = false)
     {
         if (string.IsNullOrWhiteSpace(shareId))
         {
@@ -128,7 +146,12 @@ public sealed class DashboardTelemetryService : BackgroundService
             {
                 ShareId = shareId,
                 Source = source?.Trim() ?? string.Empty,
-                ReceivedUtc = timestamp
+                ReceivedUtc = timestamp,
+                Address = address?.Trim() ?? string.Empty,
+                Username = username?.Trim() ?? string.Empty,
+                SourceKind = sourceKind?.Trim() ?? string.Empty,
+                Difficulty = double.IsFinite(difficulty) && difficulty > 0 ? difficulty : 0,
+                BlockQuality = blockQuality
             });
             _dirty = true;
             PruneNoLock(timestamp);
@@ -197,6 +220,82 @@ public sealed class DashboardTelemetryService : BackgroundService
         return result;
     }
 
+    public DashboardDiagramHistoryDto GetDiagramHistory(
+        string? address,
+        string? windowKey,
+        int limit,
+        bool includeOperatorDetails,
+        DateTime? nowUtc = null)
+    {
+        string normalizedWindow = DashboardWindows.Normalize(windowKey);
+        if (normalizedWindow == "6h")
+        {
+            normalizedWindow = "24h";
+        }
+        DateTime endUtc = NormalizeUtc(nowUtc ?? DateTime.UtcNow);
+        DateTime startUtc = endUtc - DashboardWindows.Supported[normalizedWindow];
+        string normalizedAddress = address?.Trim() ?? string.Empty;
+        int boundedLimit = Math.Clamp(limit, 1, 256);
+        lock (_sync)
+        {
+            IEnumerable<DashboardDiagramProofObservationDto> work = _document.WorkProofs
+                .Where(item => item.ReceivedUtc >= startUtc && item.ReceivedUtc <= endUtc)
+                .Where(item => !string.IsNullOrWhiteSpace(item.Address))
+                .Where(item => string.IsNullOrWhiteSpace(normalizedAddress) ||
+                    string.Equals(item.Address, normalizedAddress, StringComparison.OrdinalIgnoreCase))
+                .Select(item => new DashboardDiagramProofObservationDto
+                {
+                    ProofId = item.ShareId,
+                    Address = item.Address,
+                    SourceKind = item.SourceKind,
+                    Source = includeOperatorDetails ? item.Source : string.Empty,
+                    Username = includeOperatorDetails ? item.Username : string.Empty,
+                    ProofClass = BootProofClasses.Work,
+                    Difficulty = item.Difficulty,
+                    DifficultyDisplay = ClientHandler.FormatDifficulty(item.Difficulty),
+                    TimestampUtc = item.ReceivedUtc,
+                    EnteredWorkSet = item.EnteredWorkSet,
+                    BlockQuality = item.BlockQuality
+                });
+            IEnumerable<DashboardDiagramProofObservationDto> pulses = _document.Pulses
+                .Where(item => item.ReceivedUtc >= startUtc && item.ReceivedUtc <= endUtc && item.Difficulty > 0)
+                .Where(item => !string.IsNullOrWhiteSpace(item.Address))
+                .Where(item => string.IsNullOrWhiteSpace(normalizedAddress) ||
+                    string.Equals(item.Address, normalizedAddress, StringComparison.OrdinalIgnoreCase))
+                .Select(item => new DashboardDiagramProofObservationDto
+                {
+                    ProofId = item.ShareId,
+                    Address = item.Address,
+                    SourceKind = item.SourceKind,
+                    Source = includeOperatorDetails ? item.Source : string.Empty,
+                    Username = includeOperatorDetails ? item.Username : string.Empty,
+                    ProofClass = BootProofClasses.Pulse,
+                    Difficulty = item.Difficulty,
+                    DifficultyDisplay = ClientHandler.FormatDifficulty(item.Difficulty),
+                    TimestampUtc = item.ReceivedUtc,
+                    EnteredWorkSet = false,
+                    BlockQuality = item.BlockQuality
+                });
+            List<DashboardDiagramProofObservationDto> observations = work
+                .Concat(pulses)
+                .OrderByDescending(item => item.Difficulty)
+                .ThenByDescending(item => item.TimestampUtc)
+                .Take(boundedLimit)
+                .ToList();
+            double? best = observations.Count == 0 ? null : observations.Max(item => item.Difficulty);
+            return new DashboardDiagramHistoryDto
+            {
+                Window = normalizedWindow,
+                GeneratedAtUtc = endUtc,
+                Redacted = !includeOperatorDetails,
+                SlotZeroAddress = normalizedAddress,
+                BestDifficulty = best,
+                BestDifficultyDisplay = best.HasValue ? ClientHandler.FormatDifficulty(best.Value) : "--",
+                Proofs = observations
+            };
+        }
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(SaveInterval);
@@ -231,15 +330,18 @@ public sealed class DashboardTelemetryService : BackgroundService
 
             string json = File.ReadAllText(_path);
             DashboardTelemetryDocument? document = JsonSerializer.Deserialize<DashboardTelemetryDocument>(json, _jsonOptions);
-            if (document == null || document.SchemaVersion != 1)
+            if (document == null || document.SchemaVersion is < 1 or > 2)
             {
                 _logger.LogWarning("Ignored unsupported dashboard telemetry document at {Path}.", _path);
                 return NewDocument(trackingStartedUtc);
             }
 
+            bool migrated = document.SchemaVersion == 1;
             document.WorkProofs ??= [];
             document.AdmissionFloors ??= [];
             document.Pulses ??= [];
+            document.SchemaVersion = 2;
+            _dirty |= migrated;
             if (document.TrackingStartedUtc == default)
             {
                 document.TrackingStartedUtc = DateTime.UtcNow;

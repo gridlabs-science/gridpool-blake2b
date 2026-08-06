@@ -37,6 +37,7 @@ public static class SimulatorScenarios
                 state.Node.RpcSynced = false;
                 state.Node.InitialBlockDownload = true;
                 state.Peers.Clear();
+                state.BitcoinPeers.Clear();
                 state.Adapters.Clear();
                 state.Work.PoolHashrateThs = 0;
                 state.LockedPayouts.Clear();
@@ -164,6 +165,7 @@ public static class SimulatorScenarios
                 At = "5s", Action = "proof.top897", Peer = "dallas",
                 Address = "tb1qdallasminute000000000000000000000000", Rank = 620
             },
+            new TimelineEvent { At = "7s", Action = "proof.reject", Miner = "miner-3" },
             new TimelineEvent
             {
                 At = "10s", Action = "pulse.emit", Peer = "detroit",
@@ -174,6 +176,9 @@ public static class SimulatorScenarios
                 At = "14s", Action = "miner.activity", Adapter = "sv2",
                 Miner = "miner-2", Count = 3
             },
+            new TimelineEvent { At = "17s", Action = "peer.transport", Peer = "dallas", Transport = "udp", Value = 0 },
+            new TimelineEvent { At = "18s", Action = "node.safety", Value = 0 },
+            new TimelineEvent { At = "19s", Action = "node.safety", Value = 1 },
             new TimelineEvent
             {
                 At = "20s", Action = "proof.top300", Peer = "detroit",
@@ -184,6 +189,7 @@ public static class SimulatorScenarios
                 At = "25s", Action = "proof.top300", Adapter = "sv2", Miner = "miner-1",
                 Address = "tb1qhome000000000000000000000000000000000", Rank = 250
             },
+            new TimelineEvent { At = "27s", Action = "chain.invalid-header", Peer = "dallas" },
             new TimelineEvent
             {
                 At = "29s", Action = "peer.disconnect", Peer = "private-home-peer"
@@ -192,21 +198,28 @@ public static class SimulatorScenarios
             {
                 At = "34s", Action = "peer.reconnect", Peer = "private-home-peer"
             },
+            new TimelineEvent { At = "35s", Action = "snapshot.sibling-merge", Peer = "detroit", Count = 8 },
+            new TimelineEvent { At = "36s", Action = "state.diverge", Peer = "dallas" },
             new TimelineEvent
             {
                 At = "37s", Action = "pulse.emit", Adapter = "sv2", Miner = "miner-3"
             },
+            new TimelineEvent { At = "38s", Action = "state.converge", Peer = "dallas" },
             new TimelineEvent
             {
                 At = "41s", Action = "chain.peer-header", Peer = "detroit",
                 Transport = "websocket"
             },
+            new TimelineEvent { At = "43s", Action = "bitcoin.peer-disconnect", Peer = "bitcoin-1" },
+            new TimelineEvent { At = "45s", Action = "bitcoin.peer-connect", Peer = "bitcoin-1" },
             new TimelineEvent { At = "47s", Action = "chain.local-validate" },
+            new TimelineEvent { At = "49s", Action = "chain.reorg", Count = 1 },
             new TimelineEvent
             {
                 At = "51s", Action = "proof.block", Adapter = "sv2", Miner = "miner-2",
                 Address = "tb1qhome000000000000000000000000000000000"
             },
+            new TimelineEvent { At = "54s", Action = "snapshot.gridpool-paid" },
             new TimelineEvent { At = "55s", Action = "pulse.emit", Adapter = "sv2", Miner = "miner-1" },
             new TimelineEvent { At = "60s", Action = "timeline.marker" }
         ]
@@ -225,6 +238,12 @@ public static class SimulatorScenarios
             .OrderByDescending(proof => proof.Difficulty)
             .ThenBy(proof => proof.Id, StringComparer.Ordinal)
             .Take(897)
+            .ToList();
+        DateTime historyCutoff = state.VirtualTimeUtc.AddDays(-7);
+        state.ProofHistory = state.ProofHistory
+            .Where(proof => proof.TimestampUtc >= historyCutoff)
+            .OrderBy(proof => proof.TimestampUtc)
+            .TakeLast(100_000)
             .ToList();
         EnsureFullReserve(state);
         state.Work.ObservationCount = Math.Max(state.Work.ObservationCount, state.Reserve.Count);
@@ -254,6 +273,14 @@ public static class SimulatorScenarios
             Peer("detroit", "https://detroit.gridpool.net", 22, true, true, true, state),
             Peer("evomining", "https://evomining.farted.net", 58, true, true, false, state)
         ];
+        state.BitcoinPeers = Enumerable.Range(1, 10).Select(index => new BitcoinPeerControl
+        {
+            Id = $"bitcoin-{index}",
+            Connected = true,
+            Inbound = index % 4 == 0,
+            LatencyMs = 18 + index * 11,
+            ConnectionType = index % 4 == 0 ? "inbound" : "outbound-full-relay"
+        }).ToList();
         state.Adapters =
         [
             Adapter("sv2", "sv2", "Native SV2", 2, 1_100),
@@ -277,6 +304,23 @@ public static class SimulatorScenarios
             ObservationCount = Math.Max(1, 240 - (23 - index) * 4),
             PulseCount = 90 + index
         }).ToList();
+        state.ProofHistory = state.Reserve
+            .Where((_, index) => index % 90 == 0)
+            .Take(12)
+            .Select(proof => new ProofHistoryControl
+            {
+                ProofId = proof.Id,
+                Address = "tb1qexampleminer000000000000000000000000",
+                SourceKind = "gateway",
+                Source = "sv2",
+                Username = "sv2-worker-1",
+                ProofClass = "work",
+                Difficulty = proof.Difficulty,
+                TimestampUtc = proof.FirstSeenUtc,
+                EnteredWorkSet = true
+            }).ToList();
+        state.SlotZeroAddress = "tb1qexampleminer000000000000000000000000";
+        state.SlotZeroObservedUtc = state.VirtualTimeUtc.AddSeconds(-18);
         return state;
     }
 

@@ -47,6 +47,14 @@ endpoints, IP addresses, and inferred locations remain operator-only. Public
 round-trip latency may control the length of an already-visible anonymous peer
 link; it is not accompanied by endpoint or location data.
 
+Bitcoin peer telemetry is anonymous by construction: RPC peer IDs are replaced
+with stable process-local salted visual IDs before projection. The UI may expose
+peer counts, direction/type, latency, liveness, and network hashrate, but never
+Bitcoin peer addresses, bind addresses, user agents, or inferred geography.
+Validated local Slot-0 proof history may expose shared proof evidence publicly;
+worker names, miner endpoints, source transports, and exact rejection detail do
+not cross the operator boundary.
+
 Publicly hosting the node UI must not silently convert operator diagnostics into
 a network directory. Private mode should be the package default.
 

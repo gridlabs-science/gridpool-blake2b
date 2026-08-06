@@ -82,6 +82,16 @@ public sealed class DashboardController : ControllerBase
     }
 
     [EnableRateLimiting("network-read")]
+    [HttpGet("diagram/history")]
+    public IActionResult GetDiagramHistory(
+        [FromQuery] string? window = "24h",
+        [FromQuery] int limit = 256)
+    {
+        Response.Headers.CacheControl = "no-store";
+        return Ok(_dashboard.BuildDiagramHistory(window, limit, includeOperatorDetails: false));
+    }
+
+    [EnableRateLimiting("network-read")]
     [HttpGet("diagram/operator")]
     public IActionResult GetOperatorDiagram()
     {
@@ -106,6 +116,20 @@ public sealed class DashboardController : ControllerBase
     }
 
     [EnableRateLimiting("network-read")]
+    [HttpGet("diagram/operator/history")]
+    public IActionResult GetOperatorDiagramHistory(
+        [FromQuery] string? window = "24h",
+        [FromQuery] int limit = 256)
+    {
+        if (!IsAdminAuthorized())
+        {
+            return Unauthorized(new { status = "rejected", reason = "Missing or invalid admin key" });
+        }
+        Response.Headers.CacheControl = "no-store";
+        return Ok(_dashboard.BuildDiagramHistory(window, limit, includeOperatorDetails: true));
+    }
+
+    [EnableRateLimiting("network-read")]
     [HttpGet("schema")]
     public IActionResult GetSchema() =>
         Ok(new
@@ -119,8 +143,10 @@ public sealed class DashboardController : ControllerBase
                 @operator = "/api/dashboard/v1/operator",
                 diagram = "/api/dashboard/v1/diagram",
                 diagramEvents = "/api/dashboard/v1/diagram/events?after={sequence}",
+                diagramHistory = "/api/dashboard/v1/diagram/history?window=24h&limit=256",
                 operatorDiagram = "/api/dashboard/v1/diagram/operator",
-                operatorDiagramEvents = "/api/dashboard/v1/diagram/operator/events?after={sequence}"
+                operatorDiagramEvents = "/api/dashboard/v1/diagram/operator/events?after={sequence}",
+                operatorDiagramHistory = "/api/dashboard/v1/diagram/operator/history?window=24h&limit=256"
             },
             windows = DashboardWindows.Supported.Keys,
             realtime = new

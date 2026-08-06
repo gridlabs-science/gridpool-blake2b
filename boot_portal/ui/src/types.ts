@@ -186,6 +186,10 @@ export interface DiagramPeer {
   latencyMs: number | null;
   lastActivityUtc: string | null;
   compatibilityStatus: string;
+  transport: string;
+  stateRelation: string;
+  lastInboundUtc: string | null;
+  lastOutboundUtc: string | null;
 }
 
 export interface DiagramMiner {
@@ -196,6 +200,11 @@ export interface DiagramMiner {
   hashrateThs: number | null;
   hashrateDisplay: string;
   lastShareUtc: string | null;
+  lastRejectedUtc: string | null;
+  acceptedCount: number;
+  rejectedCount: number;
+  lastRejectionCategory: string;
+  lastRejectionReason: string;
 }
 
 export interface DiagramProof {
@@ -207,6 +216,7 @@ export interface DiagramProof {
   difficultyDisplay: string;
   firstSeenUtc: string | null;
   locked: boolean;
+  blockQuality: boolean;
 }
 
 export interface DashboardDiagram {
@@ -231,6 +241,20 @@ export interface DashboardDiagram {
     provisionalTipHash: string;
     networkDifficulty: number | null;
     networkDifficultyDisplay: string;
+    networkHashrateHs: number | null;
+    networkHashrateDisplay: string;
+    peerCount: number;
+    inboundPeerCount: number;
+    outboundPeerCount: number;
+    peerTelemetryUtc: string | null;
+    zmqHealthy: boolean;
+    miningSafe: boolean;
+    peers: Array<{
+      visualId: string;
+      inbound: boolean;
+      latencyMs: number | null;
+      connectionType: string;
+    }>;
   };
   workGenerator: {
     detailAvailable: boolean;
@@ -241,6 +265,18 @@ export interface DashboardDiagram {
     hashrateThs: number | null;
     hashrateDisplay: string;
     lastActivityUtc: string | null;
+  };
+  snapshot: {
+    currentStateId: string;
+    candidateStateId: string;
+    activeSnapshotId: string;
+    activeSnapshotFamilyId: string;
+    lockedProofCount: number;
+    paidProofRemovalCount: number;
+    lastRotationUtc: string | null;
+  };
+  quality: {
+    rejectionCategories: Array<{ reason: string; count: number }>;
   };
   peers: DiagramPeer[];
   miners: DiagramMiner[];
@@ -253,7 +289,15 @@ export type DiagramEventKind =
   | "peer-connection"
   | "peer-header"
   | "boundary-validated"
-  | "pulse-accepted";
+  | "pulse-accepted"
+  | "proof-rejected"
+  | "peer-transport"
+  | "peer-state"
+  | "peer-header-rejected"
+  | "sibling-merge"
+  | "chain-reorganization"
+  | "mining-safety"
+  | "bitcoin-peer-connection";
 
 export interface DiagramEvent {
   sequence: number;
@@ -283,6 +327,38 @@ export interface DiagramEvent {
   snapshotId: string;
   lockedVisualIds: string[];
   lockedProofIds: string[];
+  category?: string;
+  reason?: string;
+  previousValue?: string;
+  currentValue?: string;
+  boundaryKind?: string;
+  count?: number;
+  safe?: boolean | null;
+}
+
+export interface DiagramProofObservation {
+  proofId: string;
+  address: string;
+  sourceKind: string;
+  source: string;
+  username: string;
+  proofClass: string;
+  difficulty: number;
+  difficultyDisplay: string;
+  timestampUtc: string;
+  enteredWorkSet: boolean;
+  blockQuality: boolean;
+}
+
+export interface DiagramHistory {
+  schemaVersion: number;
+  window: "24h" | "7d";
+  generatedAtUtc: string;
+  redacted: boolean;
+  slotZeroAddress: string;
+  bestDifficulty: number | null;
+  bestDifficultyDisplay: string;
+  proofs: DiagramProofObservation[];
 }
 
 export interface DiagramEventPage {

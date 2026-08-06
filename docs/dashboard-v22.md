@@ -20,6 +20,10 @@ state.
 - `/api/dashboard/v1/diagram/events`: redacted bounded visualization journal.
 - `/api/dashboard/v1/diagram/operator`: authenticated peer, miner, proof, and Slot-0 detail.
 - `/api/dashboard/v1/diagram/operator/events`: authenticated visualization journal.
+- `/api/dashboard/v1/diagram/history`: public validated proof history for the
+  verified Slot-0 address (`24h` or `7d`, bounded to 256 results).
+- `/api/dashboard/v1/diagram/operator/history`: the same history with local
+  source and worker detail, authenticated by the operator key.
 - `/dashboardHub`: revision and changed-topic notifications only.
 
 The hub never broadcasts internal state objects. Clients refetch the explicit
@@ -34,6 +38,10 @@ names for Dallas, Detroit, and Oregon, while peer endpoints/IPs/locations and
 miner identities remain operator-only. Public peer latency controls anonymous
 link length. Anonymous miner rates, aggregate local
 rate, the estimated remote-pool rate, and Bitcoin network difficulty are public.
+The schema-3 diagram also exposes anonymous Bitcoin peer rays, aggregate peer
+counts, network hashrate, telemetry freshness, mining-safety state, peer state
+relations, miner quality counters, and snapshot lineage. It never exposes
+Bitcoin peer addresses, binds, user agents, or inferred geography.
 
 Journal proof events expose a public `blockQuality` classification alongside
 their salted proof and source visual IDs. Ordinary work uses a short
@@ -44,6 +52,14 @@ admission ejects the displaced rank-897 tick. Accepted local-share counts
 produce a bounded three-tick vardiff burst; connection state changes travel
 along the affected peer link. These are presentation effects derived from
 validated journal facts, not new protocol state.
+
+The Work Set is drawn as one exact-rank, log-difficulty skyline rather than 897
+individual ticks. Rank 300 marks the prospective payout cutoff, network
+difficulty is geometrically connected to Bitcoin, and every verified Slot-0
+match is highlighted. A focused logarithmic chase compares recent local best,
+rank 897, rank 300, pool best, and Bitcoin network difficulty. The observer-only
+`gp>` line can change the history window and focus, inspect a rank, select a rail
+mode, or export a privacy-safe Work Set plus public local-proof history.
 
 ## Correct Terminology
 
@@ -76,6 +92,11 @@ floor, and whether the local window is complete. New or restarted nodes report
 Telemetry is stored separately from consensus state at
 `pool_state.dashboard-telemetry.json` by default and is never included in state
 bundles.
+
+Persistent telemetry schema 2 retains at most seven days and 100,000 Work plus
+100,000 pulse observations. Schema-1 files migrate in place. Legacy unattributed
+observations remain valid for global work-rate estimation but never acquire
+invented address attribution.
 
 ## Building
 

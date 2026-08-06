@@ -54,6 +54,10 @@ Production API:
 | `/api/dashboard/v1/address/{address}` | Public | Locked and provisional positions for one address |
 | `/api/dashboard/v1/operator` | Admin key | Local adapters, peers and detailed diagnostics |
 | `/api/dashboard/v1/schema` | Public | Machine-readable route and capability manifest |
+| `/api/dashboard/v1/diagram` | Public, redacted | Schema-3 system-map snapshot |
+| `/api/dashboard/v1/diagram/events` | Public, redacted | Schema-2 bounded visualization journal |
+| `/api/dashboard/v1/diagram/history` | Public, redacted | Validated Slot-0 proof history for 24h or 7d |
+| `/api/dashboard/v1/diagram/operator*` | Admin key | Diagram snapshot, events, and history with private diagnostics |
 | `/dashboardHub` | Public, redacted | Revision and changed-topic invalidations only |
 
 SignalR never carries complete internal state. `DashboardChanged` tells clients
@@ -164,6 +168,9 @@ Action names accepted by `POST /__sim/api/v1/actions`:
 | `state.diverge` | optional `peer` | Give one peer a divergent candidate |
 | `state.converge` | none | Align peer state IDs |
 | `chain.reorg` | optional `count` | Synthetic shallow reorganization |
+| `proof.reject` | optional `peer` or `miner`, optional `count` | Emit a coalescible validated-proof rejection |
+| `safety.loss`, `safety.recovery` | none | Transition the local Bitcoin mining-safety edge |
+| `bitcoin.peer-connect`, `bitcoin.peer-disconnect` | optional `peer` | Change one anonymous Bitcoin peer ray |
 | `fault.api` | `value` as 0/1 | Disable/enable dashboard API responses |
 | `fault.api-latency` | milliseconds in `value` | Delay dashboard API responses |
 | `fault.signalr` | `value` as 0/1 | Drop/restore invalidations |
@@ -183,6 +190,8 @@ dashboard remains at `/details`. Diagram projections are:
 - `GET /api/dashboard/v1/diagram/events?after={sequence}`
 - `GET /api/dashboard/v1/diagram/operator`
 - `GET /api/dashboard/v1/diagram/operator/events?after={sequence}`
+- `GET /api/dashboard/v1/diagram/history?window=24h|7d&limit=256`
+- `GET /api/dashboard/v1/diagram/operator/history?window=24h|7d&limit=256`
 
 The public projection exposes Work Set proof IDs, payout addresses, difficulty,
 arrival time, and verified Slot 0 because those are shared consensus evidence.
@@ -209,6 +218,14 @@ generator-to-Bitcoin or peer-to-GridPool-to-Bitcoin path. Full-rail admission
 shows the displaced rank-897 tick leaving the rail. Authenticated vardiff
 batches render at most three staggered ticks, and peer connection changes use a
 small round marker along their actual link before the endpoint pulse.
+
+The persistent Work Set rail is a single 897-point log-difficulty skyline.
+Rank 300 marks the prospective payout cutoff; the active snapshot is a thin
+band; Bitcoin network difficulty is a dotted datum connected to the Bitcoin
+anchor. Verified Slot-0 matches are overlaid without rendering 897 separate
+ticks. The contextual chase compares Slot-0 history, ranks 897 and 300, pool
+best, and network difficulty. The in-tab `gp>` command line controls the window,
+focus, rail mode, inspection, and privacy-safe JSON/CSV exports only.
 
 Built-in scenarios are exposed by `GET /__sim/api/v1/scenarios` and cover cold
 start, healthy mesh, sovereign operation, full reserve, small-miner retention,

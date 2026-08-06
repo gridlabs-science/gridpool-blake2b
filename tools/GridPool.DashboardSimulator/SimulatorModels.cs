@@ -19,10 +19,12 @@ public sealed class SimulatorState
     public PulseControls Pulse { get; set; } = new();
     public FaultControls Faults { get; set; } = new();
     public List<PeerControl> Peers { get; set; } = [];
+    public List<BitcoinPeerControl> BitcoinPeers { get; set; } = [];
     public List<AdapterControl> Adapters { get; set; } = [];
     public List<ProofControl> Reserve { get; set; } = [];
     public List<PayoutControl> LockedPayouts { get; set; } = [];
     public List<HistoryControl> History { get; set; } = [];
+    public List<ProofHistoryControl> ProofHistory { get; set; } = [];
     public string SlotZeroAddress { get; set; } = string.Empty;
     public DateTime? SlotZeroObservedUtc { get; set; }
     public List<SimulatorEvent> Events { get; set; } = [];
@@ -50,6 +52,16 @@ public sealed class NodeControls
     public bool PeerLoopsHealthy { get; set; } = true;
     public bool OutboundRelayHealthy { get; set; } = true;
     public bool VersionCompatible { get; set; } = true;
+    public double NetworkHashrateHs { get; set; } = 730e18;
+}
+
+public sealed class BitcoinPeerControl
+{
+    public string Id { get; set; } = string.Empty;
+    public bool Connected { get; set; } = true;
+    public bool Inbound { get; set; }
+    public double? LatencyMs { get; set; }
+    public string ConnectionType { get; set; } = "outbound-full-relay";
 }
 
 public sealed class ChainControls
@@ -135,6 +147,23 @@ public sealed class MinerControl
     public double HashrateThs { get; set; }
     public long AcceptedShares { get; set; }
     public DateTime? LastShareUtc { get; set; }
+    public long RejectedShares { get; set; }
+    public DateTime? LastRejectedUtc { get; set; }
+    public string LastRejectionCategory { get; set; } = string.Empty;
+}
+
+public sealed class ProofHistoryControl
+{
+    public string ProofId { get; set; } = string.Empty;
+    public string Address { get; set; } = string.Empty;
+    public string SourceKind { get; set; } = string.Empty;
+    public string Source { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string ProofClass { get; set; } = "work";
+    public double Difficulty { get; set; }
+    public DateTime TimestampUtc { get; set; }
+    public bool EnteredWorkSet { get; set; }
+    public bool BlockQuality { get; set; }
 }
 
 public sealed class ProofControl
@@ -143,6 +172,7 @@ public sealed class ProofControl
     public string Address { get; set; } = string.Empty;
     public double Difficulty { get; set; }
     public DateTime FirstSeenUtc { get; set; }
+    public bool BlockQuality { get; set; }
 }
 
 public sealed class PayoutControl

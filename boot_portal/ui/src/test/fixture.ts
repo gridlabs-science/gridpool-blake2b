@@ -97,7 +97,7 @@ export const summaryFixture: DashboardSummary = {
 };
 
 export const diagramFixture: DashboardDiagram = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   generatedAtUtc: "2026-07-29T12:00:00Z",
   redacted: false,
   oldestSequence: 1,
@@ -122,7 +122,19 @@ export const diagramFixture: DashboardDiagram = {
     tipHeight: 123,
     provisionalTipHash: "",
     networkDifficulty: 129_000_000_000_000,
-    networkDifficultyDisplay: "129 T"
+    networkDifficultyDisplay: "129 T",
+    networkHashrateHs: 730_000_000_000_000_000_000,
+    networkHashrateDisplay: "730 EH/s",
+    peerCount: 2,
+    inboundPeerCount: 1,
+    outboundPeerCount: 1,
+    peerTelemetryUtc: "2026-07-29T11:59:59Z",
+    zmqHealthy: true,
+    miningSafe: true,
+    peers: [
+      { visualId: "btc-peer-1", inbound: false, latencyMs: 32, connectionType: "outbound-full-relay" },
+      { visualId: "btc-peer-2", inbound: true, latencyMs: 85, connectionType: "inbound" }
+    ]
   },
   workGenerator: {
     detailAvailable: true,
@@ -144,7 +156,11 @@ export const diagramFixture: DashboardDiagram = {
       connected: true,
       latencyMs: 47,
       lastActivityUtc: "2026-07-29T11:59:59Z",
-      compatibilityStatus: "compatible"
+      compatibilityStatus: "compatible",
+      transport: "websocket",
+      stateRelation: "current",
+      lastInboundUtc: "2026-07-29T11:59:59Z",
+      lastOutboundUtc: "2026-07-29T11:59:58Z"
     }
   ],
   miners: [
@@ -155,9 +171,24 @@ export const diagramFixture: DashboardDiagram = {
       source: "sv2",
       hashrateThs: 400,
       hashrateDisplay: "400 TH/s",
-      lastShareUtc: "2026-07-29T11:59:30Z"
+      lastShareUtc: "2026-07-29T11:59:30Z",
+      lastRejectedUtc: null,
+      acceptedCount: 42,
+      rejectedCount: 0,
+      lastRejectionCategory: "",
+      lastRejectionReason: ""
     }
   ],
+  snapshot: {
+    currentStateId: "current",
+    candidateStateId: "candidate",
+    activeSnapshotId: "snapshot",
+    activeSnapshotFamilyId: "family",
+    lockedProofCount: 300,
+    paidProofRemovalCount: 0,
+    lastRotationUtc: "2026-07-29T11:58:00Z"
+  },
+  quality: { rejectionCategories: [] },
   workSet: Array.from({ length: 897 }, (_, index) => ({
     visualId: `proof-${index + 1}`,
     proofId: `raw-proof-${index + 1}`,
@@ -166,6 +197,7 @@ export const diagramFixture: DashboardDiagram = {
     difficulty: 10_000 - index,
     difficultyDisplay: `${10_000 - index}`,
     firstSeenUtc: "2026-07-29T11:00:00Z",
-    locked: index < 300
+    locked: index < 300,
+    blockQuality: false
   }))
 };

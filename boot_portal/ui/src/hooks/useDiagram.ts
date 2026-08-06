@@ -1,23 +1,33 @@
 import { HubConnectionBuilder, HubConnectionState } from "@microsoft/signalr";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 import { dashboardApi } from "../api";
-import type { DashboardChanged, DashboardDiagram, DiagramEvent } from "../types";
+import type { DashboardChanged, DashboardDiagram, DiagramEvent, DiagramHistory } from "../types";
 
 const maximumQueuedEvents = 40;
 
 export function useDiagram(adminKey: string) {
   const [diagram, setDiagram] = useState<DashboardDiagram | null>(null);
+  const [history, setHistory] = useState<DiagramHistory | null>(null);
+  const [windowKey, setWindowKey] = useState<"24h" | "7d">("24h");
   const [events, setEvents] = useState<DiagramEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [stale, setStale] = useState(false);
   const [error, setError] = useState("");
   const cursor = useRef(0);
+  const acknowledgeEvent = useCallback(
+    () => setEvents((current) => current.slice(1)),
+    []
+  );
 
   const refreshSnapshot = useEffectEvent(async () => {
     try {
-      const snapshot = await dashboardApi.diagram(adminKey || undefined);
+      const [snapshot, proofHistory] = await Promise.all([
+        dashboardApi.diagram(adminKey || undefined),
+        dashboardApi.diagramHistory(windowKey, adminKey || undefined)
+      ]);
       cursor.current = snapshot.latestSequence;
       setDiagram(snapshot);
+      setHistory(proofHistory);
       setLoading(false);
       setStale(false);
       setError("");
@@ -86,18 +96,23 @@ export function useDiagram(adminKey: string) {
     });
     connection.onreconnecting(() => setStale(diagram !== null));
     connection.onreconnected(() => void refreshSnapshot());
-    void connection.start().catch(() => setStale(diagram !== null));
+    void connection.start()
+      .then(() => drainEvents())
+      .catch(() => setStale(diagram !== null));
     return () => {
       window.clearInterval(poll);
       if (connection.state !== HubConnectionState.Disconnected) void connection.stop();
     };
-  }, [adminKey]);
+  }, [adminKey, windowKey]);
 
   return {
     diagram,
+    history,
+    windowKey,
+    setWindowKey,
     events,
     activeEvent: events[0] ?? null,
-    acknowledgeEvent: () => setEvents((current) => current.slice(1)),
+    acknowledgeEvent,
     loading,
     stale,
     error,

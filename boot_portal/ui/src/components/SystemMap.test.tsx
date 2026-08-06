@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { vi } from "vitest";
 import { SystemMap } from "./SystemMap";
 import { diagramFixture } from "../test/fixture";
 import type { DiagramEvent } from "../types";
@@ -44,13 +45,16 @@ describe("GridPool system map", () => {
       />
     );
 
-    expect(container.querySelectorAll(".proof-tick")).toHaveLength(897);
+    expect(container.querySelectorAll(".proof-tick")).toHaveLength(0);
+    expect(container.querySelectorAll(".workset-skyline")).toHaveLength(1);
+    expect(container.querySelector(".workset-skyline")?.getAttribute("points")?.split(" ")).toHaveLength(897);
+    expect(container.querySelectorAll(".slot-zero-proof")).toHaveLength(1);
     expect(screen.getByText(/Slot 0 · tb1qhome/)).toBeInTheDocument();
     expect(container.querySelector(".rail-line")).toHaveAttribute("x1", "320");
     expect(container.querySelector(".rail-line")).toHaveAttribute("x2", "1159");
-    expect(container.querySelector(".snapshot-line")).toHaveAttribute("x2", "600");
-    expect(container.querySelectorAll(".proof-tick")[299]).toHaveAttribute("x1", "600");
-    expect(screen.getByText(/Slot 0 · tb1qhome/)).toHaveAttribute("transform", expect.stringContaining("rotate(90"));
+    expect(container.querySelector(".snapshot-line")).toHaveAttribute("x2", "1159");
+    expect(container.querySelector(".prospective-boundary")).toHaveAttribute("x1", "600");
+    expect(screen.getByText(/Slot 0 · tb1qhome/)).toHaveAttribute("transform", expect.stringContaining("rotate(22"));
   });
 
   it("navigates proof ranks as one keyboard composite", () => {
@@ -99,11 +103,11 @@ describe("GridPool system map", () => {
     expect(screen.getByText(/1.2 PH\/s remote/)).toBeInTheDocument();
     expect(screen.getByText("1.2 PH/s local")).toBeInTheDocument();
     expect(screen.getByText("400 TH/s")).toBeInTheDocument();
-    expect(screen.getByText("129 T diff")).toBeInTheDocument();
+    expect(screen.getByText(/730 EH\/s · 129 T diff/)).toBeInTheDocument();
     expect(container.querySelectorAll(".hashrate-arc")).toHaveLength(3);
     expect(container.querySelector(".target-aperture")).toBeInTheDocument();
     expect(screen.getByText(/1.2 PH\/s remote/)).toHaveAttribute("y", "175");
-    expect(screen.getByText("129 T diff")).toHaveAttribute("y", "175");
+    expect(screen.getByText(/730 EH\/s · 129 T diff/)).toHaveAttribute("y", "175");
   });
 
   it("uses unmarked convergence points and renders journal motion itself", () => {
@@ -173,5 +177,136 @@ describe("GridPool system map", () => {
       Number(link.getAttribute("y2")) - Number(link.getAttribute("y1"))
     );
     expect(length(links[0])).toBeLessThan(length(links[1]));
+  });
+
+  it("uses the observer command line to focus the chase without changing node state", () => {
+    const { container } = render(
+      <SystemMap
+        diagram={diagramFixture}
+        history={{
+          schemaVersion: 1,
+          window: "24h",
+          generatedAtUtc: "2026-07-29T12:00:00Z",
+          redacted: true,
+          slotZeroAddress: "tb1qhome",
+          bestDifficulty: 10_000,
+          bestDifficultyDisplay: "10K",
+          proofs: [{
+            proofId: "local-proof",
+            address: "tb1qhome",
+            sourceKind: "miner",
+            source: "",
+            username: "",
+            proofClass: "work",
+            difficulty: 10_000,
+            difficultyDisplay: "10K",
+            timestampUtc: "2026-07-29T11:59:00Z",
+            enteredWorkSet: true,
+            blockQuality: false
+          }]
+        }}
+        historyWindow="24h"
+        onHistoryWindowChange={() => undefined}
+        activeEvent={null}
+        onEventComplete={() => undefined}
+        operatorUnlocked={false}
+      />
+    );
+
+    expect(container.querySelector(".difficulty-chase")).toBeNull();
+    const input = screen.getByLabelText("System map command");
+    fireEvent.change(input, { target: { value: "focus slot0" } });
+    fireEvent.submit(input.closest("form")!);
+    expect(container.querySelector(".difficulty-chase")).toBeInTheDocument();
+    expect(screen.getByText(/focus slot0/)).toBeInTheDocument();
+  });
+
+  it("inverts the asymmetric rail geometry for nearest-rank hit testing", () => {
+    const { container } = render(
+      <SystemMap
+        diagram={diagramFixture}
+        activeEvent={null}
+        onEventComplete={() => undefined}
+        operatorUnlocked={false}
+      />
+    );
+    const hitArea = container.querySelector(".skyline-hit-area") as SVGRectElement;
+    vi.spyOn(hitArea, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      right: 1000,
+      top: 0,
+      bottom: 100,
+      width: 1000,
+      height: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => ({})
+    });
+
+    fireEvent.click(hitArea, { clientX: 334 });
+
+    expect(screen.getByRole("complementary", { name: /Work proof · rank 300/ })).toBeInTheDocument();
+  });
+
+  it("exports only the public Work Set and local-proof history fields", async () => {
+    const createObjectUrl = vi.fn((_blob: Blob) => "blob:test");
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectUrl });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    render(
+      <SystemMap
+        diagram={diagramFixture}
+        history={null}
+        activeEvent={null}
+        onEventComplete={() => undefined}
+        operatorUnlocked
+      />
+    );
+
+    const input = screen.getByLabelText("System map command");
+    fireEvent.change(input, { target: { value: "export json" } });
+    fireEvent.submit(input.closest("form")!);
+
+    expect(createObjectUrl).toHaveBeenCalledOnce();
+    const blob = createObjectUrl.mock.calls[0][0] as Blob;
+    const contents = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error);
+      reader.onload = () => resolve(String(reader.result ?? ""));
+      reader.readAsText(blob);
+    });
+    expect(contents).toContain("\"workSet\"");
+    expect(contents).not.toContain(diagramFixture.peers[0].endpoint);
+    expect(contents).not.toContain(diagramFixture.miners[0].username);
+    delete (URL as unknown as { createObjectURL?: unknown }).createObjectURL;
+    delete (URL as unknown as { revokeObjectURL?: unknown }).revokeObjectURL;
+  });
+
+  it("settles motion immediately for reduced-motion observers", () => {
+    vi.useFakeTimers();
+    const matchMedia = vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      matches: query.includes("prefers-reduced-motion"),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    }));
+    const complete = vi.fn();
+    render(
+      <SystemMap
+        diagram={diagramFixture}
+        activeEvent={proofEvent}
+        onEventComplete={complete}
+        operatorUnlocked={false}
+      />
+    );
+
+    act(() => vi.advanceTimersByTime(180));
+    expect(complete).toHaveBeenCalledOnce();
+    matchMedia.mockRestore();
+    vi.useRealTimers();
   });
 });

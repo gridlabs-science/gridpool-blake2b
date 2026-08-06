@@ -510,7 +510,23 @@ public sealed class SimulatorEngine
                 TipHeight = state.Chain.Height,
                 ProvisionalTipHash = state.Chain.ProvisionalTipHash,
                 NetworkDifficulty = 129_000_000_000_000d,
-                NetworkDifficultyDisplay = "129 T"
+                NetworkDifficultyDisplay = "129 T",
+                NetworkHashrateHs = state.Node.NetworkHashrateHs,
+                NetworkHashrateDisplay = FormatHashesPerSecond(state.Node.NetworkHashrateHs),
+                PeerCount = state.BitcoinPeers.Count(peer => peer.Connected),
+                InboundPeerCount = state.BitcoinPeers.Count(peer => peer.Connected && peer.Inbound),
+                OutboundPeerCount = state.BitcoinPeers.Count(peer => peer.Connected && !peer.Inbound),
+                PeerTelemetryUtc = state.VirtualTimeUtc,
+                ZmqHealthy = state.Node.ZmqHealthy,
+                MiningSafe = state.Node.MiningSafe,
+                Peers = state.BitcoinPeers.Where(peer => peer.Connected).Take(24).Select(peer =>
+                    new DashboardDiagramBitcoinPeerDto
+                    {
+                        VisualId = _diagramJournal.VisualId("bitcoin-peer", peer.Id),
+                        Inbound = peer.Inbound,
+                        LatencyMs = peer.LatencyMs,
+                        ConnectionType = peer.ConnectionType
+                    }).ToList()
             },
             WorkGenerator = new DashboardDiagramWorkGeneratorDto
             {
@@ -526,6 +542,24 @@ public sealed class SimulatorEngine
                     ? state.Adapters.Select(adapter => adapter.LastShareUtc).DefaultIfEmpty(null).Max()
                     : null
             },
+            Snapshot = new DashboardDiagramSnapshotDto
+            {
+                CurrentStateId = state.Chain.CurrentStateId,
+                CandidateStateId = state.Chain.CandidateStateId,
+                ActiveSnapshotId = state.Chain.ActiveSnapshotId,
+                ActiveSnapshotFamilyId = state.Chain.SnapshotFamilyId,
+                LockedProofCount = state.LockedPayouts.Count,
+                PaidProofRemovalCount = state.Chain.PaidProofRemovals,
+                LastRotationUtc = state.Chain.LastRotationUtc
+            },
+            Quality = new DashboardDiagramQualityDto
+            {
+                RejectionCategories = state.Adapters.SelectMany(adapter => adapter.Miners)
+                    .Where(miner => miner.RejectedShares > 0)
+                    .GroupBy(miner => string.IsNullOrWhiteSpace(miner.LastRejectionCategory) ? "rejected" : miner.LastRejectionCategory)
+                    .Select(group => new BootReasonCountDto { Reason = group.Key, Count = (int)group.Sum(miner => miner.RejectedShares) })
+                    .ToList()
+            },
             WorkSet = state.Reserve.Select((proof, index) => new DashboardDiagramProofDto
             {
                 VisualId = _diagramJournal.VisualId("proof", proof.Id),
@@ -535,7 +569,8 @@ public sealed class SimulatorEngine
                 Difficulty = proof.Difficulty,
                 DifficultyDisplay = FormatDifficulty(proof.Difficulty),
                 FirstSeenUtc = proof.FirstSeenUtc,
-                Locked = locked.Contains(proof.Id)
+                Locked = locked.Contains(proof.Id),
+                BlockQuality = proof.BlockQuality
             }).ToList()
         };
 
@@ -553,7 +588,15 @@ public sealed class SimulatorEngine
                 : null,
             CompatibilityStatus = operatorDetails
                 ? peer.Compatible ? "compatible" : "incompatible"
-                : "redacted"
+                : peer.Compatible ? "compatible" : "incompatible",
+            Transport = peer.Udp ? "udp" : peer.WebSocket ? "websocket" : peer.Http ? "http" : "none",
+            StateRelation = !peer.Compatible
+                ? "incompatible"
+                : peer.CurrentStateId == state.Chain.CurrentStateId
+                    ? "current"
+                    : peer.CandidateStateId == state.Chain.CandidateStateId ? "candidate" : "divergent",
+            LastInboundUtc = peer.Connected ? state.VirtualTimeUtc.AddMilliseconds(-peer.LatencyMs) : null,
+            LastOutboundUtc = peer.Connected ? state.VirtualTimeUtc.AddMilliseconds(-peer.LatencyMs / 2) : null
         }).ToList();
         if (operatorDetails)
         {
@@ -568,7 +611,12 @@ public sealed class SimulatorEngine
                     Source = adapter.Kind,
                     HashrateThs = miner.HashrateThs,
                     HashrateDisplay = FormatHashrate(miner.HashrateThs),
-                    LastShareUtc = miner.LastShareUtc
+                    LastShareUtc = miner.LastShareUtc,
+                    LastRejectedUtc = miner.LastRejectedUtc,
+                    AcceptedCount = miner.AcceptedShares,
+                    RejectedCount = miner.RejectedShares,
+                    LastRejectionCategory = miner.LastRejectionCategory,
+                    LastRejectionReason = miner.LastRejectionCategory
                 })).ToList();
         }
         else
@@ -580,10 +628,56 @@ public sealed class SimulatorEngine
                         "miner",
                         $"{adapter.Kind}:{miner.Address}:{miner.Username}"),
                     HashrateThs = miner.HashrateThs,
-                    HashrateDisplay = FormatHashrate(miner.HashrateThs)
+                    HashrateDisplay = FormatHashrate(miner.HashrateThs),
+                    LastShareUtc = miner.LastShareUtc,
+                    LastRejectedUtc = miner.LastRejectedUtc,
+                    AcceptedCount = miner.AcceptedShares,
+                    RejectedCount = miner.RejectedShares,
+                    LastRejectionCategory = miner.LastRejectionCategory
                 })).ToList();
         }
         return result;
+    }
+
+    public DashboardDiagramHistoryDto DiagramHistory(string? window, int limit, bool operatorDetails)
+    {
+        SimulatorState state = Read();
+        MaybeFail(state);
+        Delay(state);
+        string normalizedWindow = string.Equals(window, "7d", StringComparison.OrdinalIgnoreCase) ? "7d" : "24h";
+        DateTime cutoff = state.VirtualTimeUtc.AddHours(normalizedWindow == "7d" ? -168 : -24);
+        List<DashboardDiagramProofObservationDto> proofs = state.ProofHistory
+            .Where(proof => proof.TimestampUtc >= cutoff)
+            .Where(proof => string.IsNullOrWhiteSpace(state.SlotZeroAddress) ||
+                string.Equals(proof.Address, state.SlotZeroAddress, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(proof => proof.Difficulty)
+            .ThenByDescending(proof => proof.TimestampUtc)
+            .Take(Math.Clamp(limit, 1, 256))
+            .Select(proof => new DashboardDiagramProofObservationDto
+            {
+                ProofId = proof.ProofId,
+                Address = proof.Address,
+                SourceKind = proof.SourceKind,
+                Source = operatorDetails ? proof.Source : string.Empty,
+                Username = operatorDetails ? proof.Username : string.Empty,
+                ProofClass = proof.ProofClass,
+                Difficulty = proof.Difficulty,
+                DifficultyDisplay = FormatDifficulty(proof.Difficulty),
+                TimestampUtc = proof.TimestampUtc,
+                EnteredWorkSet = proof.EnteredWorkSet,
+                BlockQuality = proof.BlockQuality
+            }).ToList();
+        double? best = proofs.Count == 0 ? null : proofs.Max(proof => proof.Difficulty);
+        return new DashboardDiagramHistoryDto
+        {
+            Window = normalizedWindow,
+            GeneratedAtUtc = state.VirtualTimeUtc,
+            Redacted = !operatorDetails,
+            SlotZeroAddress = state.SlotZeroAddress,
+            BestDifficulty = best,
+            BestDifficultyDisplay = best.HasValue ? FormatDifficulty(best.Value) : "--",
+            Proofs = proofs
+        };
     }
 
     private static string SimulatorPeerDisplayName(PeerControl peer) => peer.Endpoint switch
@@ -625,8 +719,22 @@ public sealed class SimulatorEngine
                 topics.Add("diagram");
                 break;
             case "peer.transport":
-                SetTransport(FindPeer(action.Peer), action.Transport, action.Value is not 0);
+                PeerControl transportPeer = FindPeer(action.Peer);
+                string previousTransport = transportPeer.Udp ? "udp" : transportPeer.WebSocket ? "websocket" : transportPeer.Http ? "http" : "none";
+                SetTransport(transportPeer, action.Transport, action.Value is not 0);
+                string currentTransport = transportPeer.Udp ? "udp" : transportPeer.WebSocket ? "websocket" : transportPeer.Http ? "http" : "none";
+                _diagramJournal.Append(new DashboardDiagramEventDto
+                {
+                    TimestampUtc = _state.VirtualTimeUtc,
+                    Kind = DashboardDiagramEventKinds.PeerTransport,
+                    SourceKind = "peer",
+                    SourceId = transportPeer.Id,
+                    SourceVisualId = _diagramJournal.VisualId("peer", transportPeer.Id),
+                    PreviousValue = previousTransport,
+                    CurrentValue = currentTransport
+                });
                 topics.Add("network");
+                topics.Add("diagram");
                 break;
             case "adapter.disconnect":
                 FindAdapter(action.Adapter).Connected = false;
@@ -665,6 +773,11 @@ public sealed class SimulatorEngine
                 topics.Add("reserve");
                 topics.Add("diagram");
                 break;
+            case "proof.reject":
+                RejectProofLocked(action);
+                topics.Add("miners");
+                topics.Add("diagram");
+                break;
             case "miner.activity":
                 RecordMinerActivityLocked(action);
                 topics.Add("miners");
@@ -697,9 +810,24 @@ public sealed class SimulatorEngine
                 topics.Add("diagram");
                 break;
             case "chain.invalid-header":
+                string rejectedHeader = _state.Chain.ProvisionalTipHash;
                 _state.Chain.ProvisionalTipHash = string.Empty;
                 _state.Node.SafetyReason = "Invalid synthetic peer header was discarded.";
+                string rejectedPeer = action.Peer ?? _state.Peers.FirstOrDefault()?.Id ?? string.Empty;
+                _diagramJournal.Append(new DashboardDiagramEventDto
+                {
+                    TimestampUtc = _state.VirtualTimeUtc,
+                    Kind = DashboardDiagramEventKinds.PeerHeaderRejected,
+                    SourceKind = "peer",
+                    SourceId = rejectedPeer,
+                    SourceVisualId = _diagramJournal.VisualId("peer", rejectedPeer),
+                    BlockHash = rejectedHeader,
+                    BlockHeight = _state.Chain.Height + 1,
+                    Category = "header",
+                    Reason = "synthetic invalid header"
+                });
                 topics.Add("tip");
+                topics.Add("diagram");
                 break;
             case "snapshot.regular":
             case "chain.regular-boundary":
@@ -715,14 +843,37 @@ public sealed class SimulatorEngine
                 topics.Add("diagram");
                 break;
             case "snapshot.sibling-merge":
-                MergeSiblingLocked(action.Count ?? 12);
+                string siblingPeer = action.Peer ?? _state.Peers.FirstOrDefault()?.Id ?? string.Empty;
+                MergeSiblingLocked(action.Count ?? 12, siblingPeer);
+                _diagramJournal.Append(new DashboardDiagramEventDto
+                {
+                    TimestampUtc = _state.VirtualTimeUtc,
+                    Kind = DashboardDiagramEventKinds.SiblingMerge,
+                    SourceKind = "peer",
+                    SourceId = siblingPeer,
+                    SourceVisualId = _diagramJournal.VisualId("peer", siblingPeer),
+                    Count = Math.Max(0, action.Count ?? 12),
+                    CurrentValue = _state.Chain.CandidateStateId
+                });
                 topics.Add("snapshot");
                 topics.Add("reserve");
                 topics.Add("diagram");
                 break;
             case "state.diverge":
-                FindPeer(action.Peer ?? _state.Peers.FirstOrDefault()?.Id).CandidateStateId = NextId("diverge");
+                PeerControl divergentPeer = FindPeer(action.Peer ?? _state.Peers.FirstOrDefault()?.Id);
+                divergentPeer.CandidateStateId = NextId("diverge");
+                _diagramJournal.Append(new DashboardDiagramEventDto
+                {
+                    TimestampUtc = _state.VirtualTimeUtc,
+                    Kind = DashboardDiagramEventKinds.PeerState,
+                    SourceKind = "peer",
+                    SourceId = divergentPeer.Id,
+                    SourceVisualId = _diagramJournal.VisualId("peer", divergentPeer.Id),
+                    PreviousValue = "current",
+                    CurrentValue = "divergent"
+                });
                 topics.Add("network");
+                topics.Add("diagram");
                 break;
             case "state.converge":
                 foreach (PeerControl peer in _state.Peers)
@@ -731,16 +882,77 @@ public sealed class SimulatorEngine
                     peer.CandidateStateId = _state.Chain.CandidateStateId;
                 }
                 _state.Chain.Convergences++;
+                _diagramJournal.Append(new DashboardDiagramEventDto
+                {
+                    TimestampUtc = _state.VirtualTimeUtc,
+                    Kind = DashboardDiagramEventKinds.PeerState,
+                    SourceKind = "peer",
+                    SourceId = action.Peer ?? _state.Peers.FirstOrDefault()?.Id ?? string.Empty,
+                    SourceVisualId = _diagramJournal.VisualId("peer", action.Peer ?? _state.Peers.FirstOrDefault()?.Id ?? string.Empty),
+                    PreviousValue = "divergent",
+                    CurrentValue = "current"
+                });
                 topics.Add("network");
+                topics.Add("diagram");
                 break;
             case "chain.reorg":
+                string previousTip = _state.Chain.TipHash;
                 _state.Chain.Height = Math.Max(0, _state.Chain.Height - Math.Max(1, action.Count ?? 1));
                 _state.Chain.TipHash = NextId("reorg-tip");
                 _state.Chain.CurrentStateId = NextId("reorg-state");
                 _state.Chain.CandidateStateId = NextId("reorg-candidate");
                 _state.Chain.Reorganizations++;
+                _diagramJournal.Append(new DashboardDiagramEventDto
+                {
+                    TimestampUtc = _state.VirtualTimeUtc,
+                    Kind = DashboardDiagramEventKinds.ChainReorganization,
+                    SourceKind = "bitcoin",
+                    PreviousValue = previousTip,
+                    CurrentValue = _state.Chain.TipHash,
+                    BlockHash = _state.Chain.TipHash,
+                    BlockHeight = _state.Chain.Height,
+                    Count = Math.Max(1, action.Count ?? 1)
+                });
                 topics.Add("tip");
                 topics.Add("snapshot");
+                topics.Add("diagram");
+                break;
+            case "node.safety":
+                _state.Node.MiningSafe = action.Value is not 0;
+                _state.Node.RpcSynced = _state.Node.MiningSafe;
+                _state.Node.SafetyReason = _state.Node.MiningSafe
+                    ? "Synthetic Bitcoin authority recovered."
+                    : "Synthetic Bitcoin authority is unsafe.";
+                _diagramJournal.Append(new DashboardDiagramEventDto
+                {
+                    TimestampUtc = _state.VirtualTimeUtc,
+                    Kind = DashboardDiagramEventKinds.MiningSafety,
+                    SourceKind = "bitcoin",
+                    Safe = _state.Node.MiningSafe,
+                    Category = _state.Node.MiningSafe ? "recovered" : "unsafe"
+                });
+                topics.Add("tip");
+                topics.Add("diagram");
+                break;
+            case "bitcoin.peer-connect":
+            case "bitcoin.peer-disconnect":
+                BitcoinPeerControl bitcoinPeer = _state.BitcoinPeers.FirstOrDefault(peer =>
+                    peer.Id.Equals(action.Peer, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException($"Unknown Bitcoin peer '{action.Peer}'.");
+                bitcoinPeer.Connected = action.Action.EndsWith("connect", StringComparison.OrdinalIgnoreCase) &&
+                    !action.Action.EndsWith("disconnect", StringComparison.OrdinalIgnoreCase);
+                _diagramJournal.Append(new DashboardDiagramEventDto
+                {
+                    TimestampUtc = _state.VirtualTimeUtc,
+                    Kind = DashboardDiagramEventKinds.BitcoinPeerConnection,
+                    SourceKind = "bitcoin-peer",
+                    SourceId = bitcoinPeer.Id,
+                    SourceVisualId = _diagramJournal.VisualId("bitcoin-peer", bitcoinPeer.Id),
+                    Connected = bitcoinPeer.Connected,
+                    LatencyMs = bitcoinPeer.LatencyMs
+                });
+                topics.Add("network");
+                topics.Add("diagram");
                 break;
             case "fault.api":
                 _state.Faults.ApiFailure = action.Value is not 0;
@@ -796,6 +1008,8 @@ public sealed class SimulatorEngine
             BlockHash = _state.Chain.TipHash,
             BlockHeight = _state.Chain.Height,
             SnapshotId = _state.Chain.ActiveSnapshotId,
+            BoundaryKind = gridPoolPayment ? "gridpool-paid" : "regular",
+            Count = gridPoolPayment ? (int)Math.Min(int.MaxValue, _state.Chain.PaidProofRemovals) : 0,
             LockedProofIds = _state.LockedPayouts.Select(item => item.ProofId).ToList(),
             MutatedUtc = _state.VirtualTimeUtc
         });
@@ -814,7 +1028,7 @@ public sealed class SimulatorEngine
         _state.Node.SafetyReason = "Local full node validated the provisional boundary.";
     }
 
-    private void MergeSiblingLocked(int count)
+    private void MergeSiblingLocked(int count, string peerId)
     {
         _state.Chain.FamilyMembers++;
         _state.Chain.SiblingAdmissions++;
@@ -823,15 +1037,20 @@ public sealed class SimulatorEngine
         {
             AddProofLocked(new SimulatorAction
             {
-                Address = $"tb1qsibling{index:D3}00000000000000000000000"
-            }, index < 2);
+                Address = $"tb1qsibling{index:D3}00000000000000000000000",
+                Peer = peerId
+            }, index < 2, journalEvent: false);
         }
         _state.Chain.UnionAdditions += _state.Reserve.Count - before;
         _state.Chain.FamilyUnionProofs = _state.Reserve.Count;
         _state.Chain.CandidateStateId = NextId("merged-candidate");
     }
 
-    private void AddProofLocked(SimulatorAction action, bool top300, bool block = false)
+    private void AddProofLocked(
+        SimulatorAction action,
+        bool top300,
+        bool block = false,
+        bool journalEvent = true)
     {
         double floor = _state.Reserve.Count == 0
             ? _state.Work.AdmissionFloorDifficulty
@@ -873,7 +1092,8 @@ public sealed class SimulatorEngine
                 ? "tb1qmanualproof000000000000000000000000"
                 : action.Address,
             Difficulty = difficulty,
-            FirstSeenUtc = _state.VirtualTimeUtc
+            FirstSeenUtc = _state.VirtualTimeUtc,
+            BlockQuality = block
         };
         _state.Reserve.Add(proof);
         _state.Reserve = _state.Reserve
@@ -901,31 +1121,79 @@ public sealed class SimulatorEngine
                     "miner",
                     $"{sourceMiner.Value.Adapter.Kind}:{sourceMiner.Value.Miner.Address}:{sourceMiner.Value.Miner.Username}")
                 : string.Empty;
-        _diagramJournal.Append(new DashboardDiagramEventDto
+        if (journalEvent)
         {
-            TimestampUtc = _state.VirtualTimeUtc,
-            Kind = DashboardDiagramEventKinds.ProofAdmitted,
-            SourceKind = sourceKind,
-            SourceId = sourceId,
-            SourceVisualId = sourceVisualId,
-            Transport = action.Transport ?? (string.IsNullOrWhiteSpace(action.Peer) ? "local" : "websocket"),
-            ProofId = proof.Id,
-            Address = proof.Address,
-            Difficulty = proof.Difficulty,
-            BlockQuality = block,
-            ReceivedUtc = _state.VirtualTimeUtc.AddMilliseconds(-140),
-            ValidatedUtc = _state.VirtualTimeUtc.AddMilliseconds(-30),
-            MutatedUtc = _state.VirtualTimeUtc,
-            Rank = admittedRank,
-            DisplacedProofId = string.Equals(displaced, proof.Id, StringComparison.Ordinal)
-                ? string.Empty
-                : displaced
-        });
+            _diagramJournal.Append(new DashboardDiagramEventDto
+            {
+                TimestampUtc = _state.VirtualTimeUtc,
+                Kind = DashboardDiagramEventKinds.ProofAdmitted,
+                SourceKind = sourceKind,
+                SourceId = sourceId,
+                SourceVisualId = sourceVisualId,
+                Transport = action.Transport ?? (string.IsNullOrWhiteSpace(action.Peer) ? "local" : "websocket"),
+                ProofId = proof.Id,
+                Address = proof.Address,
+                Difficulty = proof.Difficulty,
+                BlockQuality = block,
+                ReceivedUtc = _state.VirtualTimeUtc.AddMilliseconds(-140),
+                ValidatedUtc = _state.VirtualTimeUtc.AddMilliseconds(-30),
+                MutatedUtc = _state.VirtualTimeUtc,
+                Rank = admittedRank,
+                DisplacedProofId = string.Equals(displaced, proof.Id, StringComparison.Ordinal)
+                    ? string.Empty
+                    : displaced
+            });
+        }
         if (string.IsNullOrWhiteSpace(action.Peer))
         {
             _state.SlotZeroAddress = proof.Address;
             _state.SlotZeroObservedUtc = _state.VirtualTimeUtc;
+            _state.ProofHistory.Add(new ProofHistoryControl
+            {
+                ProofId = proof.Id,
+                Address = proof.Address,
+                SourceKind = sourceMiner.HasValue ? "gateway" : "local",
+                Source = sourceMiner?.Adapter.Kind ?? "local",
+                Username = sourceMiner?.Miner.Username ?? string.Empty,
+                ProofClass = "work",
+                Difficulty = proof.Difficulty,
+                TimestampUtc = _state.VirtualTimeUtc,
+                EnteredWorkSet = true,
+                BlockQuality = block
+            });
         }
+    }
+
+    private void RejectProofLocked(SimulatorAction action)
+    {
+        (AdapterControl Adapter, MinerControl Miner)? sourceMiner = FindMiner(action.Miner);
+        bool peer = !string.IsNullOrWhiteSpace(action.Peer);
+        string sourceId = peer ? action.Peer! : sourceMiner?.Miner.Id ?? "work-generator";
+        string sourceVisualId = peer
+            ? _diagramJournal.VisualId("peer", sourceId)
+            : sourceMiner.HasValue
+                ? _diagramJournal.VisualId(
+                    "miner",
+                    $"{sourceMiner.Value.Adapter.Kind}:{sourceMiner.Value.Miner.Address}:{sourceMiner.Value.Miner.Username}")
+                : string.Empty;
+        if (sourceMiner.HasValue)
+        {
+            sourceMiner.Value.Miner.RejectedShares++;
+            sourceMiner.Value.Miner.LastRejectedUtc = _state.VirtualTimeUtc;
+            sourceMiner.Value.Miner.LastRejectionCategory = "below-floor";
+        }
+        _diagramJournal.Append(new DashboardDiagramEventDto
+        {
+            TimestampUtc = _state.VirtualTimeUtc,
+            Kind = DashboardDiagramEventKinds.ProofRejected,
+            SourceKind = peer ? "peer" : "miner",
+            SourceId = sourceId,
+            SourceVisualId = sourceVisualId,
+            Category = "below-floor",
+            Reason = "Synthetic proof did not clear the current admission floor.",
+            Difficulty = Math.Max(1, _state.Work.AdmissionFloorDifficulty * 0.75),
+            Count = Math.Max(1, action.Count ?? 1)
+        });
     }
 
     private void RecordMinerActivityLocked(SimulatorAction action)
@@ -1026,6 +1294,23 @@ public sealed class SimulatorEngine
             SourceVisualId = sourceVisualId,
             ReceivedUtc = _state.VirtualTimeUtc
         });
+        if (string.IsNullOrWhiteSpace(action?.Peer))
+        {
+            string proofId = NextId("pulse-history");
+            string address = sourceMiner?.Miner.Address ?? _state.SlotZeroAddress;
+            _state.ProofHistory.Add(new ProofHistoryControl
+            {
+                ProofId = proofId,
+                Address = address,
+                SourceKind = sourceMiner.HasValue ? "gateway" : "local",
+                Source = sourceMiner?.Adapter.Kind ?? "local",
+                Username = sourceMiner?.Miner.Username ?? string.Empty,
+                ProofClass = "pulse",
+                Difficulty = Math.Max(1, _state.Work.AdmissionFloorDifficulty * 0.55),
+                TimestampUtc = _state.VirtualTimeUtc,
+                EnteredWorkSet = false
+            });
+        }
     }
 
     private void ResetTimelineLocked(bool preservePlaying = false)
@@ -1150,6 +1435,13 @@ public sealed class SimulatorEngine
         ths >= 1_000_000 ? $"{ths / 1_000_000:0.##} EH/s" :
         ths >= 1_000 ? $"{ths / 1_000:0.##} PH/s" :
         $"{ths:0.##} TH/s";
+
+    private static string FormatHashesPerSecond(double hashesPerSecond) =>
+        hashesPerSecond >= 1e21 ? $"{hashesPerSecond / 1e21:0.##} ZH/s" :
+        hashesPerSecond >= 1e18 ? $"{hashesPerSecond / 1e18:0.##} EH/s" :
+        hashesPerSecond >= 1e15 ? $"{hashesPerSecond / 1e15:0.##} PH/s" :
+        hashesPerSecond >= 1e12 ? $"{hashesPerSecond / 1e12:0.##} TH/s" :
+        $"{hashesPerSecond:0.##} H/s";
 
     private static string FormatDifficulty(double? difficulty) =>
         difficulty == null ? "--" :

@@ -36,6 +36,7 @@ public sealed class DashboardRevisionService : BackgroundService
             {
                 BootNetworkStatusDto fullStatus = _stateService.GetNetworkStatus();
                 _visualization.ObservePeers(fullStatus.Peers, DateTime.UtcNow);
+                _visualization.ObserveSystemHealth(fullStatus, DateTime.UtcNow);
                 BootNetworkStatusDto status = BootPrivacy.RedactPublicNetworkStatus(fullStatus);
                 DashboardFingerprint current = DashboardFingerprint.From(
                     status,

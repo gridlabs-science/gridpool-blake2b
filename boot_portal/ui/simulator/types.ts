@@ -26,6 +26,7 @@ export interface SimulatorState {
     peerLoopsHealthy: boolean;
     outboundRelayHealthy: boolean;
     versionCompatible: boolean;
+    networkHashrateHs: number;
   };
   chain: {
     height: number;
@@ -68,10 +69,29 @@ export interface SimulatorState {
     signalRDrop: boolean;
   };
   peers: PeerControl[];
+  bitcoinPeers: Array<{
+    id: string;
+    connected: boolean;
+    inbound: boolean;
+    latencyMs: number | null;
+    connectionType: string;
+  }>;
   adapters: AdapterControl[];
   slotZeroAddress: string;
   slotZeroObservedUtc: string | null;
   reserve: Array<{ id: string; address: string; difficulty: number; firstSeenUtc: string }>;
+  proofHistory: Array<{
+    proofId: string;
+    address: string;
+    sourceKind: string;
+    source: string;
+    username: string;
+    proofClass: string;
+    difficulty: number;
+    timestampUtc: string;
+    enteredWorkSet: boolean;
+    blockQuality: boolean;
+  }>;
   lockedPayouts: Array<{ proofId: string; address: string; position: number; valueSats: number }>;
   events: Array<{
     sequence: number;
@@ -107,6 +127,9 @@ export interface AdapterControl {
   hashrateThs: number;
   acceptedShares: number;
   lastShareUtc: string | null;
+  rejectedShares: number;
+  lastRejectedUtc: string | null;
+  lastRejectionCategory: string;
   miners: MinerControl[];
 }
 

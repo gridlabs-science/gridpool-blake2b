@@ -24,6 +24,7 @@ public static class BootPrivacy
         status.Peers.Clear();
 
         status.BitcoinNotification.Rpc.LastError = string.Empty;
+        status.BitcoinNotification.Network.LastError = string.Empty;
         status.BitcoinNotification.DegradedReason =
             string.IsNullOrWhiteSpace(status.BitcoinNotification.DegradedReason)
                 ? string.Empty

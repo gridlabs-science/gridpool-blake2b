@@ -110,6 +110,9 @@ function MapApp() {
       <main className="map-shell">
         <SystemMap
           diagram={live.diagram}
+          history={live.history}
+          historyWindow={live.windowKey}
+          onHistoryWindowChange={live.setWindowKey}
           activeEvent={live.activeEvent}
           onEventComplete={live.acknowledgeEvent}
           operatorUnlocked={Boolean(adminKey)}

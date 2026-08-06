@@ -99,6 +99,8 @@ app.MapGet("/api/dashboard/v1/diagram", (SimulatorEngine engine) =>
     Results.Ok(engine.Diagram(operatorDetails: false)));
 app.MapGet("/api/dashboard/v1/diagram/events", (SimulatorEngine engine, long? after, int? limit) =>
     Results.Ok(engine.DiagramEvents(after ?? 0, limit ?? 256, operatorDetails: false)));
+app.MapGet("/api/dashboard/v1/diagram/history", (SimulatorEngine engine, string? window, int? limit) =>
+    Results.Ok(engine.DiagramHistory(window, limit ?? 256, operatorDetails: false)));
 app.MapGet("/api/dashboard/v1/diagram/operator", (HttpContext context, SimulatorEngine engine) =>
 {
     string supplied = context.Request.Headers["X-Boot-Admin-Key"].FirstOrDefault() ?? string.Empty;
@@ -117,6 +119,17 @@ app.MapGet("/api/dashboard/v1/diagram/operator/events", (
         ? Results.Ok(engine.DiagramEvents(after ?? 0, limit ?? 256, operatorDetails: true))
         : Results.Unauthorized();
 });
+app.MapGet("/api/dashboard/v1/diagram/operator/history", (
+    HttpContext context,
+    SimulatorEngine engine,
+    string? window,
+    int? limit) =>
+{
+    string supplied = context.Request.Headers["X-Boot-Admin-Key"].FirstOrDefault() ?? string.Empty;
+    return supplied == simulatorKey
+        ? Results.Ok(engine.DiagramHistory(window, limit ?? 256, operatorDetails: true))
+        : Results.Unauthorized();
+});
 app.MapGet("/api/dashboard/v1/schema", () => Results.Ok(new
 {
     schemaVersion = 1,
@@ -129,8 +142,10 @@ app.MapGet("/api/dashboard/v1/schema", () => Results.Ok(new
         @operator = "/api/dashboard/v1/operator",
         diagram = "/api/dashboard/v1/diagram",
         diagramEvents = "/api/dashboard/v1/diagram/events?after={sequence}",
+        diagramHistory = "/api/dashboard/v1/diagram/history?window=24h&limit=256",
         operatorDiagram = "/api/dashboard/v1/diagram/operator",
-        operatorDiagramEvents = "/api/dashboard/v1/diagram/operator/events?after={sequence}"
+        operatorDiagramEvents = "/api/dashboard/v1/diagram/operator/events?after={sequence}",
+        operatorDiagramHistory = "/api/dashboard/v1/diagram/operator/history?window=24h&limit=256"
     },
     windows = new[] { "6h", "24h", "7d" },
     realtime = new { hub = "/dashboardHub", method = "DashboardChanged" },

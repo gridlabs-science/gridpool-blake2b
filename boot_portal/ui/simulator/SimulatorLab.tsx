@@ -153,6 +153,7 @@ export default function SimulatorLab() {
   const miners = state.adapters.flatMap((adapter) => adapter.miners);
   const selectedPeer = state.peers.find((peer) => peer.id === testPeer) ?? state.peers[0];
   const selectedMiner = miners.find((miner) => miner.id === testMiner) ?? miners[0];
+  const selectedBitcoinPeer = state.bitcoinPeers[0];
 
   return (
     <main className="lab">
@@ -479,16 +480,21 @@ export default function SimulatorLab() {
           </section>
 
           <section className="control-section action-grid-section">
-            <p className="kicker">Telemetry only</p>
-            <h2>Animations not built yet</h2>
-            <p className="description">These controls stay visible as the next animation checklist.</p>
-            <div className="action-grid pending-actions">
-              <button type="button" disabled>Reject header</button>
-              <button type="button" disabled>GridPool paid block</button>
-              <button type="button" disabled>Sibling merge</button>
-              <button type="button" disabled>Diverge peer</button>
-              <button type="button" disabled>Converge states</button>
-              <button type="button" disabled>Shallow reorg</button>
+            <p className="kicker">Operator health motion</p>
+            <h2>Extended animation checks</h2>
+            <p className="description">Each action emits the same typed diagram event consumed by the production map.</p>
+            <div className="action-grid">
+              <button type="button" onClick={() => action({ action: "proof.reject", miner: selectedMiner?.id })} disabled={busy || !selectedMiner}>Reject miner proof</button>
+              <button type="button" onClick={() => action({ action: "proof.reject", peer: selectedPeer?.id })} disabled={busy || !selectedPeer}>Reject peer proof</button>
+              <button type="button" onClick={() => action({ action: "chain.invalid-header", peer: selectedPeer?.id })} disabled={busy || !selectedPeer}>Reject header</button>
+              <button type="button" onClick={() => action({ action: "snapshot.gridpool-paid" })} disabled={busy}>GridPool paid block</button>
+              <button type="button" onClick={() => action({ action: "snapshot.sibling-merge", peer: selectedPeer?.id, count: 12 })} disabled={busy || !selectedPeer}>Sibling merge</button>
+              <button type="button" onClick={() => action({ action: "state.diverge", peer: selectedPeer?.id })} disabled={busy || !selectedPeer}>Diverge peer</button>
+              <button type="button" onClick={() => action({ action: "state.converge", peer: selectedPeer?.id })} disabled={busy || !selectedPeer}>Converge states</button>
+              <button type="button" onClick={() => action({ action: "chain.reorg", count: 1 })} disabled={busy}>Shallow reorg</button>
+              <button type="button" onClick={() => action({ action: "peer.transport", peer: selectedPeer?.id, transport: "udp", value: 0 })} disabled={busy || !selectedPeer?.udp}>Transport fallback</button>
+              <button type="button" onClick={() => action({ action: "node.safety", value: state.node.miningSafe ? 0 : 1 })} disabled={busy}>{state.node.miningSafe ? "Lose mining safety" : "Recover mining safety"}</button>
+              <button type="button" onClick={() => action({ action: selectedBitcoinPeer?.connected ? "bitcoin.peer-disconnect" : "bitcoin.peer-connect", peer: selectedBitcoinPeer?.id })} disabled={busy || !selectedBitcoinPeer}>{selectedBitcoinPeer?.connected ? "Disconnect Bitcoin peer" : "Reconnect Bitcoin peer"}</button>
             </div>
           </section>
 

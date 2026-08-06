@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { formatAge } from "../format";
 import type {
   DashboardDiagram,
+  DiagramHistory,
   DiagramEvent,
   DiagramMiner,
   DiagramPeer,
@@ -57,11 +58,17 @@ type Selection =
 
 export function SystemMap({
   diagram,
+  history = null,
+  historyWindow = "24h",
+  onHistoryWindowChange = () => undefined,
   activeEvent,
   onEventComplete,
   operatorUnlocked
 }: {
   diagram: DashboardDiagram;
+  history?: DiagramHistory | null;
+  historyWindow?: "24h" | "7d";
+  onHistoryWindowChange?: (value: "24h" | "7d") => void;
   activeEvent: DiagramEvent | null;
   onEventComplete: () => void;
   operatorUnlocked: boolean;
@@ -70,6 +77,10 @@ export function SystemMap({
   const [help, setHelp] = useState(false);
   const [selectedRank, setSelectedRank] = useState(1);
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [railMode, setRailMode] = useState<"auto" | "skyline" | "chase">("auto");
+  const [focus, setFocus] = useState<"none" | "slot0" | "pool" | "bitcoin" | "rank">("none");
+  const [command, setCommand] = useState("");
+  const [commandOutput, setCommandOutput] = useState("");
   const [pendingShares, setPendingShares] = useState<Array<{ sequence: number; rank: number }>>([]);
   const previousSequence = useRef(diagram.latestSequence);
   const layout = narrow ? portrait : desktop;
@@ -123,6 +134,10 @@ export function SystemMap({
     () => placePeers(diagram.peers, layout),
     [diagram.peers, layout]
   );
+  const bitcoinPeers = useMemo(
+    () => placeBitcoinPeers(diagram.bitcoin.peers, layout),
+    [diagram.bitcoin.peers, layout]
+  );
   const miners = useMemo(
     () => placeMiners(diagram.miners, layout),
     [diagram.miners, layout]
@@ -135,7 +150,7 @@ export function SystemMap({
     ...diagram.miners.map((miner) => miner.hashrateThs ?? 0)
   );
   const targetX = rankX(activeEvent?.rank ?? 1, layout);
-  const source = eventSource(activeEvent, peers, miners, layout);
+  const source = eventSource(activeEvent, peers, bitcoinPeers, miners, layout);
 
   const selectProof = (proof: DiagramProof) => {
     setSelectedRank(proof.rank);
@@ -163,6 +178,7 @@ export function SystemMap({
           {help ? "Hide labels" : "Help"}
         </button>
         <span>{diagram.workSet.length} / 897 proofs</span>
+        <span>{historyWindow} proof window</span>
         <span>{diagram.redacted ? "public view" : "operator detail"}</span>
       </div>
 
@@ -178,7 +194,7 @@ export function SystemMap({
           the provisional Work Set, and the locked payout snapshot.
         </desc>
 
-        <g className="map-foundation">
+        <g className={diagram.bitcoin.miningSafe ? "map-foundation" : "map-foundation foundation-unsafe"}>
           <line x1={layout.grid.x} y1={layout.grid.y} x2={layout.bitcoin.x} y2={layout.bitcoin.y} />
           <line x1={layout.grid.x} y1={layout.grid.y} x2={layout.generator.x} y2={layout.generator.y} />
           <line x1={layout.bitcoin.x} y1={layout.bitcoin.y} x2={layout.generator.x} y2={layout.generator.y} />
@@ -206,13 +222,22 @@ export function SystemMap({
           {peers.map(({ peer, point }) => (
             <g key={peer.visualId}>
               <line
-                className={peer.connected ? "map-link link-live" : "map-link link-dormant"}
+                className={`map-link ${peer.connected ? "link-live" : "link-dormant"} state-${peer.stateRelation} transport-${peer.transport || "unknown"}`}
                 x1={layout.grid.x}
                 y1={layout.grid.y}
                 x2={point.x}
                 y2={point.y}
                 style={{ "--link-strength": peer.connected ? 1 : 0.16 } as React.CSSProperties}
               />
+              {peer.stateRelation === "divergent" ? (
+                <line
+                  className="map-link state-shadow"
+                  x1={layout.grid.x}
+                  y1={layout.grid.y + 4}
+                  x2={point.x}
+                  y2={point.y + 4}
+                />
+              ) : null}
               <circle
                 className={peer.connected ? "map-dot peer-dot" : "map-dot peer-dot dot-dormant"}
                 cx={point.x}
@@ -232,10 +257,33 @@ export function SystemMap({
           ))}
         </g>
 
+        <g className="bitcoin-peer-constellation" aria-label={`${diagram.bitcoin.peerCount} Bitcoin peers`}>
+          {bitcoinPeers.map(({ peer, point }) => (
+            <g key={peer.visualId}>
+              <line
+                className="map-link bitcoin-peer-link link-live"
+                x1={layout.bitcoin.x}
+                y1={layout.bitcoin.y}
+                x2={point.x}
+                y2={point.y}
+                style={{ "--link-strength": 0.58 } as React.CSSProperties}
+              />
+              <circle className="map-dot bitcoin-peer-dot" cx={point.x} cy={point.y} r={3} />
+            </g>
+          ))}
+        </g>
+
         <g className="miner-constellation" aria-label={`${diagram.miners.length} local miners`}>
           {miners.map(({ miner, point }) => (
             <g key={miner.visualId}>
-              <line className="map-link link-live" x1={layout.generator.x} y1={layout.generator.y} x2={point.x} y2={point.y} />
+              <line
+                className={`map-link link-live miner-link ${isRecent(miner.lastRejectedUtc, 600) ? "miner-link-rejected" : ""}`}
+                x1={layout.generator.x}
+                y1={layout.generator.y}
+                x2={point.x}
+                y2={point.y}
+                style={{ "--link-strength": freshness(miner.lastShareUtc) } as React.CSSProperties}
+              />
               <HashrateArc
                 point={point}
                 value={miner.hashrateThs}
@@ -260,72 +308,17 @@ export function SystemMap({
           ))}
         </g>
 
-        <g
-          className="workset-rail"
-          role="listbox"
-          aria-label="Provisional unpaid Work Set ranked strongest to weakest"
-          aria-activedescendant={selectedProof ? `proof-${selectedProof.visualId}` : undefined}
-          tabIndex={0}
+        <WorkSetRail
+          diagram={diagram}
+          history={history}
+          layout={layout}
+          selectedRank={selectedRank}
+          railMode={railMode}
+          focus={focus}
+          pendingShares={pendingShares}
           onKeyDown={navigateRail}
-        >
-          <line className="rail-line" x1={layout.railStart} y1={layout.railY} x2={layout.railEnd} y2={layout.railY} />
-          <line className="snapshot-line" x1={layout.railStart} y1={layout.railY - 18} x2={layout.rail.x} y2={layout.railY - 18} />
-          <line
-            className="prospective-line"
-            x1={layout.railStart}
-            y1={layout.railY}
-            x2={rankX(300, layout)}
-            y2={layout.railY}
-          />
-          {diagram.workSet.map((proof) => {
-            const x = rankX(proof.rank, layout);
-            const selected = proof.rank === selectedRank;
-            return (
-              <g id={`proof-${proof.visualId}`} role="option" aria-selected={selected} key={proof.visualId}>
-                <line
-                  className={`proof-tick ${proof.rank <= 300 ? "proof-prospective" : ""} ${selected ? "proof-selected" : ""}`}
-                  x1={x}
-                  y1={layout.railY - (selected ? 9 : 5)}
-                  x2={x}
-                  y2={layout.railY + (selected ? 9 : 5)}
-                  onMouseEnter={() => selectProof(proof)}
-                  onClick={() => selectProof(proof)}
-                />
-                {proof.locked ? (
-                  <line className="locked-tick" x1={x} y1={layout.railY - 22} x2={x} y2={layout.railY - 14} />
-                ) : null}
-              </g>
-            );
-          })}
-          <text className="rank-label" x={layout.railStart} y={layout.railY + 30}>1</text>
-          <text className="rank-label" textAnchor="middle" x={layout.rail.x} y={layout.railY + 30}>300</text>
-          <text className="rank-label" textAnchor="end" x={layout.railEnd} y={layout.railY + 30}>897</text>
-          <line className="slot-zero-tick" x1={layout.railStart - 7} y1={layout.railY - 7} x2={layout.railStart - 7} y2={layout.railY + 7} />
-          <text
-            className="slot-zero-label"
-            textAnchor="start"
-            x={layout.railStart - 18}
-            y={layout.railY + 12}
-            transform={`rotate(90 ${layout.railStart - 18} ${layout.railY + 12})`}
-          >
-            Slot 0 · {diagram.slotZero.verified
-              ? diagram.slotZero.address || "verified / unlock for address"
-              : "awaiting verified local proof"}
-          </text>
-          {pendingShares.map((share) => {
-            const x = rankX(share.rank, layout);
-            return (
-              <line
-                key={share.sequence}
-                className="pending-share"
-                x1={x}
-                y1={layout.railY - 20}
-                x2={x}
-                y2={layout.railY - 8}
-              />
-            );
-          })}
-        </g>
+          onSelect={selectProof}
+        />
 
         <NodeMark
           point={layout.grid}
@@ -341,6 +334,7 @@ export function SystemMap({
         ) : null}
         {diagram.bitcoin.networkDifficultyDisplay !== "--" ? (
           <text className="hashrate-label node-metric" textAnchor="end" x={layout.bitcoin.x - 12} y={layout.bitcoin.y - 10}>
+            {diagram.bitcoin.networkHashrateDisplay !== "--" ? `${diagram.bitcoin.networkHashrateDisplay} · ` : ""}
             {diagram.bitcoin.networkDifficultyDisplay} diff
           </text>
         ) : null}
@@ -379,6 +373,25 @@ export function SystemMap({
         ) : null}
       </svg>
 
+      <MapCommandLine
+        value={command}
+        output={commandOutput}
+        onChange={setCommand}
+        onRun={(value) => runMapCommand(
+          value,
+          diagram,
+          history,
+          setCommandOutput,
+          setRailMode,
+          setFocus,
+          onHistoryWindowChange,
+          (rank) => {
+            const proof = diagram.workSet[rank - 1];
+            if (proof) selectProof(proof);
+          }
+        )}
+      />
+
       <MapDetail
         selection={selection}
         diagram={diagram}
@@ -391,6 +404,318 @@ export function SystemMap({
       </p>
     </section>
   );
+}
+
+function WorkSetRail({
+  diagram,
+  history,
+  layout,
+  selectedRank,
+  railMode,
+  focus,
+  pendingShares,
+  onKeyDown,
+  onSelect
+}: {
+  diagram: DashboardDiagram;
+  history: DiagramHistory | null;
+  layout: Layout;
+  selectedRank: number;
+  railMode: "auto" | "skyline" | "chase";
+  focus: "none" | "slot0" | "pool" | "bitcoin" | "rank";
+  pendingShares: Array<{ sequence: number; rank: number }>;
+  onKeyDown: (event: React.KeyboardEvent<SVGGElement>) => void;
+  onSelect: (proof: DiagramProof) => void;
+}) {
+  const difficulties = diagram.workSet
+    .map((proof) => proof.difficulty ?? 0)
+    .filter((value) => value > 0);
+  const poolBest = difficulties[0] ?? 1;
+  const floor = difficulties.at(-1) ?? 1;
+  const network = diagram.bitcoin.networkDifficulty ?? Math.max(poolBest * 10, floor * 10);
+  const domainMin = Math.max(Number.MIN_VALUE, floor / Math.pow(10, 0.25));
+  const domainMax = Math.max(network, poolBest, domainMin * 10);
+  const top = layout.railY - 112;
+  const yFor = (difficulty: number) => logPosition(difficulty, domainMin, domainMax, layout.railY, top);
+  const skyline = diagram.workSet
+    .map((proof) => `${rankX(proof.rank, layout)},${yFor(proof.difficulty ?? domainMin)}`)
+    .join(" ");
+  const slotProofs = diagram.slotZero.verified
+    ? diagram.workSet.filter((proof) =>
+        proof.address.toLowerCase() === diagram.slotZero.address.toLowerCase())
+    : [];
+  const slotAnchor = slotProofs[0]
+    ? rankX(slotProofs[0].rank, layout)
+    : layout.railStart;
+  const selected = diagram.workSet[selectedRank - 1];
+  const chaseVisible = railMode === "chase" || (railMode === "auto" && focus !== "none");
+  const chaseValues = [
+    { label: "local best", value: history?.bestDifficulty ?? null, kind: "local" },
+    { label: "rank 897", value: floor, kind: "floor" },
+    { label: "rank 300", value: diagram.workSet[299]?.difficulty ?? null, kind: "cutoff" },
+    { label: "pool best", value: poolBest, kind: "pool" },
+    { label: "network", value: diagram.bitcoin.networkDifficulty, kind: "network" }
+  ]
+    .filter((item): item is { label: string; value: number; kind: string } => item.value != null && item.value > 0)
+    .sort((left, right) => left.value - right.value);
+  const chaseY = layout.railY + 74;
+  const chaseX = (difficulty: number) => logPosition(
+    difficulty,
+    domainMin,
+    domainMax,
+    layout.railStart,
+    layout.railEnd
+  );
+  const inspectByPointer = (event: React.MouseEvent<SVGRectElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (event.clientX - bounds.left) / Math.max(1, bounds.width)));
+    const diagramX = layout.railStart + ratio * (layout.railEnd - layout.railStart);
+    const rank = diagramX <= layout.rail.x
+      ? 1 + Math.round(((diagramX - layout.railStart) / Math.max(1, layout.rail.x - layout.railStart)) * 299)
+      : 300 + Math.round(((diagramX - layout.rail.x) / Math.max(1, layout.railEnd - layout.rail.x)) * 597);
+    const boundedRank = Math.min(diagram.workSet.length, Math.max(1, rank));
+    const proof = diagram.workSet[boundedRank - 1];
+    if (proof) onSelect(proof);
+  };
+
+  return (
+    <g
+      className="workset-rail"
+      role="listbox"
+      aria-label="Provisional unpaid Work Set difficulty skyline, ranked strongest to weakest"
+      aria-activedescendant={selected ? `proof-${selected.visualId}` : undefined}
+      tabIndex={0}
+      onKeyDown={onKeyDown}
+    >
+      <line className="network-difficulty-line" x1={layout.railStart} y1={top} x2={layout.railEnd} y2={top} />
+      <line className="network-difficulty-link" x1={layout.railEnd} y1={top} x2={layout.bitcoin.x} y2={layout.bitcoin.y} />
+      <text className="difficulty-label" textAnchor="end" x={layout.railEnd - 5} y={top - 7}>network difficulty</text>
+      <polyline className="workset-skyline" points={skyline} />
+      <line className="rail-line" x1={layout.railStart} y1={layout.railY} x2={layout.railEnd} y2={layout.railY} />
+      <line className="snapshot-line" x1={layout.railStart} y1={layout.railY - 16} x2={layout.railEnd} y2={layout.railY - 16} />
+      <line className="prospective-boundary" x1={rankX(300, layout)} y1={top} x2={rankX(300, layout)} y2={layout.railY + 8} />
+      <text className="closest-label" x={layout.railStart + 7} y={yFor(poolBest) - 8}>closest observed proof</text>
+      {slotProofs.map((proof) => {
+        const x = rankX(proof.rank, layout);
+        const y = yFor(proof.difficulty ?? domainMin);
+        return proof.blockQuality ? (
+          <rect className="slot-zero-proof slot-zero-block" key={proof.visualId} x={x - 4} y={y - 4} width={8} height={8} />
+        ) : (
+          <line className={`slot-zero-proof ${proof.rank <= 300 ? "slot-zero-top300" : ""}`} key={proof.visualId} x1={x} y1={y - 7} x2={x} y2={y + 7} />
+        );
+      })}
+      {selected ? (
+        <line
+          id={`proof-${selected.visualId}`}
+          className="proof-selected skyline-selection"
+          x1={rankX(selected.rank, layout)}
+          y1={yFor(selected.difficulty ?? domainMin) - 12}
+          x2={rankX(selected.rank, layout)}
+          y2={layout.railY + 10}
+        />
+      ) : null}
+      <rect
+        className="skyline-hit-area"
+        x={layout.railStart}
+        y={top}
+        width={layout.railEnd - layout.railStart}
+        height={layout.railY - top + 12}
+        onMouseMove={inspectByPointer}
+        onClick={inspectByPointer}
+      />
+      <text className="rank-label" x={layout.railStart} y={layout.railY + 24}>1</text>
+      <text className="rank-label" textAnchor="middle" x={rankX(300, layout)} y={layout.railY + 24}>300</text>
+      <text className="rank-label" textAnchor="end" x={layout.railEnd} y={layout.railY + 24}>897</text>
+      <line className="slot-zero-tick" x1={slotAnchor} y1={layout.railY - 7} x2={slotAnchor} y2={layout.railY + 7} />
+      <text
+        className="slot-zero-label"
+        x={slotAnchor + 8}
+        y={layout.railY + 35}
+        transform={`rotate(22 ${slotAnchor + 8} ${layout.railY + 35})`}
+      >
+        Slot 0 · {diagram.slotZero.verified ? compactAddress(diagram.slotZero.address) : "awaiting verified local proof"}
+      </text>
+      {pendingShares.map((share) => {
+        const x = rankX(share.rank, layout);
+        return <line key={share.sequence} className="pending-share" x1={x} y1={layout.railY - 30} x2={x} y2={layout.railY - 18} />;
+      })}
+      {chaseVisible ? (
+        <g className="difficulty-chase" aria-label="Focused logarithmic difficulty comparison">
+          <line className="chase-line" x1={layout.railStart} y1={chaseY} x2={layout.railEnd} y2={chaseY} />
+          {(history?.proofs ?? []).slice(0, 64).map((proof) => {
+            const x = chaseX(proof.difficulty);
+            return proof.blockQuality
+              ? <rect className="chase-observation chase-block" key={proof.proofId} x={x - 2.5} y={chaseY - 2.5} width={5} height={5} />
+              : <line className="chase-observation" key={proof.proofId} x1={x} y1={chaseY - 3} x2={x} y2={chaseY + 3} />;
+          })}
+          {chaseValues.map((item, index) => {
+            const x = chaseX(item.value);
+            const above = index % 2 === 0;
+            return (
+              <g key={item.kind} className={`chase-marker chase-${item.kind}`}>
+                <line x1={x} y1={chaseY - 8} x2={x} y2={chaseY + 8} />
+                <text textAnchor={x > layout.railEnd - 100 ? "end" : x < layout.railStart + 100 ? "start" : "middle"} x={x} y={chaseY + (above ? -13 : 23)}>
+                  {item.label}
+                </text>
+              </g>
+            );
+          })}
+        </g>
+      ) : null}
+    </g>
+  );
+}
+
+function logPosition(value: number, minimum: number, maximum: number, start: number, end: number) {
+  const safe = Math.min(maximum, Math.max(minimum, value));
+  const span = Math.log10(maximum) - Math.log10(minimum);
+  const ratio = span <= 0 ? 0 : (Math.log10(safe) - Math.log10(minimum)) / span;
+  return start + ratio * (end - start);
+}
+
+function MapCommandLine({
+  value,
+  output,
+  onChange,
+  onRun
+}: {
+  value: string;
+  output: string;
+  onChange: (value: string) => void;
+  onRun: (value: string) => void;
+}) {
+  return (
+    <form
+      className="map-command-line"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onRun(value);
+        onChange("");
+      }}
+    >
+      <span aria-hidden="true">gp&gt;</span>
+      <input
+        aria-label="System map command"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        autoComplete="off"
+        spellCheck={false}
+        placeholder="help"
+      />
+      <output aria-live="polite">{output}</output>
+    </form>
+  );
+}
+
+function runMapCommand(
+  raw: string,
+  diagram: DashboardDiagram,
+  history: DiagramHistory | null,
+  setOutput: (value: string) => void,
+  setRailMode: (value: "auto" | "skyline" | "chase") => void,
+  setFocus: (value: "none" | "slot0" | "pool" | "bitcoin" | "rank") => void,
+  setWindow: (value: "24h" | "7d") => void,
+  selectRank: (rank: number) => void
+) {
+  const parts = raw.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const [command, arg, value] = parts;
+  if (!command) return;
+  if (command === "help") {
+    setOutput("window 24h|7d · focus slot0|pool|bitcoin|rank N · inspect rank N · history slot0 · rail auto|skyline|chase · export json|csv · clear");
+    return;
+  }
+  if (command === "clear") {
+    setOutput("");
+    setFocus("none");
+    return;
+  }
+  if (command === "window" && (arg === "24h" || arg === "7d")) {
+    setWindow(arg);
+    setOutput(`history window ${arg}`);
+    return;
+  }
+  if (command === "rail" && (arg === "auto" || arg === "skyline" || arg === "chase")) {
+    setRailMode(arg);
+    setOutput(`rail ${arg}`);
+    return;
+  }
+  if (command === "focus" && ["slot0", "pool", "bitcoin"].includes(arg)) {
+    setFocus(arg as "slot0" | "pool" | "bitcoin");
+    setOutput(`focus ${arg}`);
+    return;
+  }
+  if ((command === "focus" || command === "inspect") && arg === "rank") {
+    const rank = Number(value);
+    if (Number.isInteger(rank) && rank >= 1 && rank <= Math.min(897, diagram.workSet.length)) {
+      selectRank(rank);
+      setFocus("rank");
+      const proof = diagram.workSet[rank - 1];
+      setOutput(`rank ${rank} · ${proof.difficultyDisplay} · ${proof.address}`);
+      return;
+    }
+  }
+  if (command === "history" && arg === "slot0") {
+    setFocus("slot0");
+    setOutput(history
+      ? `${history.window} · ${history.proofs.length} retained observations · best ${history.bestDifficultyDisplay}`
+      : "local proof history is still loading");
+    return;
+  }
+  if (command === "export" && (arg === "json" || arg === "csv")) {
+    exportSafeDiagram(arg, diagram, history);
+    setOutput(`exported ${arg}`);
+    return;
+  }
+  setOutput(`unknown command: ${raw.trim()}`);
+}
+
+function exportSafeDiagram(format: "json" | "csv", diagram: DashboardDiagram, history: DiagramHistory | null) {
+  const workSet = diagram.workSet.map((proof) => ({
+    proofId: proof.proofId,
+    rank: proof.rank,
+    address: proof.address,
+    difficulty: proof.difficulty,
+    firstSeenUtc: proof.firstSeenUtc,
+    locked: proof.locked
+  }));
+  const localHistory = (history?.proofs ?? []).map((proof) => ({
+    proofId: proof.proofId,
+    address: proof.address,
+    proofClass: proof.proofClass,
+    difficulty: proof.difficulty,
+    timestampUtc: proof.timestampUtc,
+    enteredWorkSet: proof.enteredWorkSet,
+    blockQuality: proof.blockQuality
+  }));
+  let contents: string;
+  let mime: string;
+  if (format === "json") {
+    contents = JSON.stringify({ exportedAtUtc: new Date().toISOString(), workSet, localHistory }, null, 2);
+    mime = "application/json";
+  } else {
+    const rows = [
+      "collection,proofId,rank,address,difficulty,timestampUtc,enteredWorkSet,blockQuality",
+      ...workSet.map((proof) => ["workset", proof.proofId, proof.rank, proof.address, proof.difficulty ?? "", proof.firstSeenUtc ?? "", true, false].map(csvCell).join(",")),
+      ...localHistory.map((proof) => ["history", proof.proofId, "", proof.address, proof.difficulty, proof.timestampUtc, proof.enteredWorkSet, proof.blockQuality].map(csvCell).join(","))
+    ];
+    contents = rows.join("\n");
+    mime = "text/csv";
+  }
+  const url = URL.createObjectURL(new Blob([contents], { type: mime }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `gridpool-map-${Date.now()}.${format}`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function csvCell(value: unknown) {
+  const text = String(value ?? "");
+  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function compactAddress(value: string) {
+  return value.length <= 28 ? value : `${value.slice(0, 14)}…${value.slice(-8)}`;
 }
 
 function NodeMark({
@@ -500,6 +825,16 @@ function EventGlyph({
           style={{ opacity: flashOpacity }}
         />
       ) : null}
+      {event.kind === "boundary-validated" && event.boundaryKind === "gridpool-paid" ? (
+        <line
+          className="paid-snapshot-drain"
+          x1={railStart + (railEnd - railStart) * progress}
+          y1={rail.y - 16}
+          x2={railEnd}
+          y2={rail.y - 16}
+          style={{ opacity: 1 - progress }}
+        />
+      ) : null}
     </g>
   );
 }
@@ -552,6 +887,63 @@ function eventTraces(
       className: "event-vardiff",
       window: [index * 0.12, 0.66 + index * 0.12] as [number, number]
     }));
+  }
+  if (event.kind === "proof-rejected") {
+    return [{
+      points: event.sourceKind === "peer" ? [source, grid] : [source, generator],
+      milestones: [0, 1],
+      shape: "share",
+      route: event.sourceKind === "peer" ? "peer-grid-rejected" : "miner-generator-rejected",
+      className: "event-rejected",
+      fadeOut: true
+    }];
+  }
+  if (event.kind === "peer-transport" || event.kind === "peer-state") {
+    return [{
+      points: [grid, source],
+      milestones: [0, 1],
+      shape: "connection",
+      route: event.kind === "peer-transport" ? "grid-peer-transport" : "grid-peer-state",
+      className: event.kind === "peer-state" && event.currentValue === "divergent" ? "event-rejected" : "event-state"
+    }];
+  }
+  if (event.kind === "peer-header-rejected") {
+    return [{
+      points: [source, grid, bitcoin],
+      milestones: [0, 0.48, 1],
+      shape: "tip",
+      route: "peer-grid-bitcoin-rejected",
+      className: "event-rejected",
+      fadeOut: true
+    }];
+  }
+  if (event.kind === "sibling-merge") {
+    return [{
+      points: [source, grid, rail],
+      milestones: [0, 0.5, 1],
+      shape: "share",
+      route: "peer-grid-rail-sibling",
+      className: "event-sibling"
+    }];
+  }
+  if (event.kind === "chain-reorganization") {
+    return [
+      { points: [rail, bitcoin], milestones: [0, 1], shape: "tip", route: "rail-bitcoin-reorg", className: "event-rejected", fadeOut: true },
+      { points: [bitcoin, rail], milestones: [0, 1], shape: "tip", route: "bitcoin-rail-replacement", className: "event-state", window: [0.48, 1] }
+    ];
+  }
+  if (event.kind === "bitcoin-peer-connection") {
+    return [{
+      points: event.connected ? [bitcoin, source] : [source, bitcoin],
+      milestones: [0, 1],
+      shape: "connection",
+      route: event.connected ? "bitcoin-peer-connect" : "bitcoin-peer-disconnect",
+      className: event.connected ? "event-connected" : "event-disconnected",
+      fadeOut: !event.connected
+    }];
+  }
+  if (event.kind === "mining-safety") {
+    return [];
   }
   if (event.kind === "pulse-accepted") {
     if (event.sourceKind === "peer") {
@@ -790,18 +1182,25 @@ function MapDetail({
     rows = [
       ["Status", selection.value.connected ? "connected" : "disconnected"],
       ["Node ID", selection.value.nodeId],
-      ["Latency", selection.value.latencyMs == null ? "--" : `${selection.value.latencyMs.toFixed(0)} ms`]
+      ["Latency", selection.value.latencyMs == null ? "--" : `${selection.value.latencyMs.toFixed(0)} ms`],
+      ["Transport", selection.value.transport || "unknown"],
+      ["State", selection.value.stateRelation]
     ];
     if (operatorUnlocked) rows.push(["Endpoint", selection.value.endpoint || "Not published"]);
   } else if (selection.kind === "miner") {
     title = selection.value.username || "Local miner";
-    rows = [["Hashrate", selection.value.hashrateDisplay]];
+    rows = [
+      ["Hashrate", selection.value.hashrateDisplay],
+      ["Accepted", selection.value.acceptedCount.toString()],
+      ["Rejected", selection.value.rejectedCount.toString()]
+    ];
     if (operatorUnlocked) {
       rows.push(
         ["Payout", selection.value.address],
         ["Source", selection.value.source],
         ["Last share", formatAge(selection.value.lastShareUtc)]
       );
+      if (selection.value.lastRejectionReason) rows.push(["Last rejection", selection.value.lastRejectionReason]);
     }
   } else if (selection.kind === "bitcoin") {
     title = "Local Bitcoin node";
@@ -809,7 +1208,11 @@ function MapDetail({
       ["Tip", diagram.bitcoin.tipHeight?.toString() ?? "--"],
       ["RPC", diagram.bitcoin.reachable ? "reachable" : "unreachable"],
       ["Chain", diagram.bitcoin.synced ? "synchronized" : "not synchronized"],
-      ["Difficulty", diagram.bitcoin.networkDifficultyDisplay]
+      ["Difficulty", diagram.bitcoin.networkDifficultyDisplay],
+      ["Network rate", diagram.bitcoin.networkHashrateDisplay],
+      ["Peers", `${diagram.bitcoin.peerCount} (${diagram.bitcoin.inboundPeerCount} in / ${diagram.bitcoin.outboundPeerCount} out)`],
+      ["ZMQ", diagram.bitcoin.zmqHealthy ? "healthy" : "degraded"],
+      ["Mining", diagram.bitcoin.miningSafe ? "safe" : "unsafe"]
     ];
   } else if (selection.kind === "generator") {
     title = diagram.workGenerator.displayName;
@@ -859,6 +1262,25 @@ function placePeers(peers: DiagramPeer[], layout: Layout) {
   });
 }
 
+function placeBitcoinPeers(peers: DashboardDiagram["bitcoin"]["peers"], layout: Layout) {
+  const baseRadius = layout.width < 800 ? 102 : 145;
+  return peers.map((peer, index) => {
+    const span = peers.length <= 1 ? 0.5 : index / (peers.length - 1);
+    const angle = (-25 + span * 125) * Math.PI / 180;
+    const latencyFactor = peer.latencyMs == null
+      ? 0.4
+      : Math.sqrt(Math.min(1, Math.max(0, peer.latencyMs / 2500)));
+    const radius = baseRadius * (0.55 + latencyFactor * 0.67);
+    return {
+      peer,
+      point: {
+        x: layout.bitcoin.x + Math.cos(angle) * radius,
+        y: layout.bitcoin.y + Math.sin(angle) * radius
+      }
+    };
+  });
+}
+
 function placeMiners(miners: DiagramMiner[], layout: Layout) {
   const radius = layout.width < 800 ? 150 : 165;
   return miners.map((miner, index) => {
@@ -885,6 +1307,7 @@ function rankX(rank: number, layout: Layout) {
 function eventSource(
   event: DiagramEvent | null,
   peers: ReturnType<typeof placePeers>,
+  bitcoinPeers: ReturnType<typeof placeBitcoinPeers>,
   miners: ReturnType<typeof placeMiners>,
   layout: Layout
 ) {
@@ -897,6 +1320,9 @@ function eventSource(
       peer.endpoint === event.sourceId
     )?.point ?? peers[0]?.point ?? layout.grid;
   }
+  if (event.sourceKind === "bitcoin-peer") {
+    return bitcoinPeers.find(({ peer }) => peer.visualId === event.sourceVisualId)?.point ?? layout.bitcoin;
+  }
   if (event.sourceKind === "miner") {
     return miners.find(({ miner }) =>
       miner.visualId === event.sourceVisualId ||
@@ -905,6 +1331,17 @@ function eventSource(
     )?.point ?? layout.generator;
   }
   return layout.generator;
+}
+
+function freshness(timestamp: string | null) {
+  if (!timestamp) return 0.28;
+  const ageSeconds = Math.max(0, (Date.now() - Date.parse(timestamp)) / 1000);
+  return Math.max(0.24, Math.exp(-ageSeconds / 180));
+}
+
+function isRecent(timestamp: string | null, maximumAgeSeconds: number) {
+  if (!timestamp) return false;
+  return Date.now() - Date.parse(timestamp) <= maximumAgeSeconds * 1000;
 }
 
 function describeEvent(event: DiagramEvent) {
@@ -917,5 +1354,13 @@ function describeEvent(event: DiagramEvent) {
     case "pulse-accepted": return event.sourceKind === "peer"
       ? "Peer pulse reached the local GridPool node."
       : "Local pulse relayed to connected GridPool peers.";
+    case "proof-rejected": return `${event.sourceKind === "peer" ? "Peer" : "Local"} proof rejected${event.category ? `: ${event.category}` : "."}`;
+    case "peer-transport": return `Peer transport changed from ${event.previousValue || "unknown"} to ${event.currentValue || "unknown"}.`;
+    case "peer-state": return `Peer state relation changed to ${event.currentValue || "unknown"}.`;
+    case "peer-header-rejected": return "Peer header was rejected by local validation.";
+    case "sibling-merge": return `Compatible sibling work merged into the local reserve (${event.count || 0} proofs observed).`;
+    case "chain-reorganization": return `Bitcoin reorganization replaced ${event.count || 1} block boundary.`;
+    case "mining-safety": return event.safe ? "Local Bitcoin authority recovered; mining work is safe." : "Local Bitcoin authority degraded; fresh mining work is unsafe.";
+    case "bitcoin-peer-connection": return `Bitcoin peer ${event.connected ? "connected" : "disconnected"}.`;
   }
 }

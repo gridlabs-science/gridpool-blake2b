@@ -61,9 +61,11 @@ export function useDashboard(windowKey: WindowKey, adminKey: string) {
       setState((current) => ({ ...current, stale: current.summary !== null }));
     });
     connection.onreconnected(() => void refresh(true));
-    void connection.start().catch(() => {
-      setState((current) => ({ ...current, stale: current.summary !== null }));
-    });
+    void connection.start()
+      .then(() => refresh(false))
+      .catch(() => {
+        setState((current) => ({ ...current, stale: current.summary !== null }));
+      });
 
     return () => {
       window.clearInterval(poll);

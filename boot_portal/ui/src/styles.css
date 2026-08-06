@@ -940,6 +940,13 @@ footer div {
   opacity: 0.9;
 }
 
+.foundation-unsafe line:nth-child(3),
+.foundation-unsafe line:nth-child(5) {
+  stroke: var(--warn);
+  stroke-dasharray: 8 9;
+  opacity: 0.46;
+}
+
 .hashrate-arc,
 .target-aperture {
   fill: none;
@@ -982,6 +989,43 @@ footer div {
   stroke-dasharray: 3 7;
 }
 
+.state-divergent,
+.state-incompatible {
+  stroke: var(--warn);
+  stroke-dasharray: 2 6;
+}
+
+.state-shadow {
+  stroke: var(--warn);
+  stroke-dasharray: 1 7;
+  opacity: 0.42;
+  pointer-events: none;
+}
+
+.state-candidate {
+  stroke-dasharray: 8 4;
+}
+
+.transport-http {
+  stroke-dasharray: 10 3;
+}
+
+.transport-unknown {
+  opacity: 0.42;
+}
+
+.bitcoin-peer-link {
+  opacity: 0.58;
+}
+
+.bitcoin-peer-dot {
+  pointer-events: none;
+}
+
+.miner-link-rejected {
+  stroke: color-mix(in srgb, var(--warn) 65%, var(--line-strong));
+}
+
 .map-dot {
   fill: var(--bg);
   stroke: var(--text);
@@ -1009,6 +1053,112 @@ footer div {
 
 .rail-line {
   stroke-width: 1.2;
+}
+
+.workset-skyline {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1.35;
+  vector-effect: non-scaling-stroke;
+  shape-rendering: geometricPrecision;
+}
+
+.network-difficulty-line,
+.network-difficulty-link {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 0.8;
+  stroke-dasharray: 2 6;
+  opacity: 0.58;
+  vector-effect: non-scaling-stroke;
+}
+
+.difficulty-label,
+.closest-label {
+  font-size: 8px !important;
+  fill: var(--faint) !important;
+}
+
+.snapshot-line {
+  stroke: var(--good);
+  stroke-width: 1.2;
+  stroke-dasharray: 2 5;
+  opacity: 0.62;
+}
+
+.paid-snapshot-drain {
+  stroke: var(--good);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.prospective-boundary {
+  stroke: var(--line-strong);
+  stroke-width: 0.8;
+  stroke-dasharray: 1 6;
+  opacity: 0.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.skyline-hit-area {
+  fill: transparent;
+  pointer-events: all;
+  cursor: crosshair;
+}
+
+.skyline-selection {
+  stroke: var(--testnet);
+  stroke-width: 1.4;
+  opacity: 0.78;
+  pointer-events: none;
+}
+
+.slot-zero-proof {
+  stroke: var(--good);
+  stroke-width: 2;
+  opacity: 0.92;
+  vector-effect: non-scaling-stroke;
+}
+
+.slot-zero-top300 {
+  stroke-width: 3;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--good) 70%, transparent));
+}
+
+.slot-zero-block {
+  fill: var(--bg);
+}
+
+.chase-line,
+.chase-marker line,
+.chase-observation {
+  stroke: var(--line-strong);
+  stroke-width: 0.9;
+  vector-effect: non-scaling-stroke;
+}
+
+.chase-observation {
+  stroke: var(--good);
+  opacity: 0.58;
+}
+
+.chase-block {
+  fill: var(--bg);
+  stroke: var(--text);
+}
+
+.chase-marker text {
+  font-size: 8px !important;
+}
+
+.chase-local line,
+.chase-pool line {
+  stroke: var(--good);
+}
+
+.chase-network line {
+  stroke: var(--testnet);
 }
 
 .prospective-line {
@@ -1120,6 +1270,49 @@ footer div {
 .event-disconnected {
   fill: var(--bg) !important;
   stroke: var(--bad) !important;
+}
+
+.event-rejected {
+  fill: var(--warn) !important;
+  stroke: var(--warn) !important;
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--warn) 60%, transparent));
+}
+
+.event-state,
+.event-sibling {
+  fill: var(--good) !important;
+  stroke: var(--good) !important;
+}
+
+.map-command-line {
+  display: grid;
+  grid-template-columns: auto minmax(10rem, 0.45fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 0.55rem;
+  width: min(100%, 75rem);
+  margin: -2.4rem auto 0;
+  padding: 0 1rem;
+  color: var(--faint);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+}
+
+.map-command-line input {
+  min-width: 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0.35rem 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+.map-command-line output {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .event-ripple.event-connected,

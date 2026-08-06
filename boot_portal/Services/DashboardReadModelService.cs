@@ -217,6 +217,12 @@ public sealed class DashboardReadModelService
                     teamEstimate.EstimateThs!.Value / remoteHashrateThs.Value
                 : null;
         double? networkDifficulty = CalculateNetworkDifficulty(publicStatus.CurrentTipCompactTarget);
+        BootShareDiagnosticsSeriesDto rejected = _stateService.GetShareDiagnostics(
+            "24h", source: null, accepted: false, limit: 1000);
+        List<BootShareDiagnosticTelemetry> localRejected = rejected.Events
+            .Where(item => !BootPeerSource.TryParsePeerSource(item.Source, out _, out _, out _))
+            .ToList();
+        BootBitcoinNetworkHealthDto bitcoinNetwork = publicStatus.BitcoinNotification.Network;
         var result = new DashboardDiagramDto
         {
             GeneratedAtUtc = DateTime.UtcNow,
@@ -246,9 +252,49 @@ public sealed class DashboardReadModelService
                 TipHeight = publicStatus.CurrentTipBlockHeight,
                 ProvisionalTipHash = publicStatus.ProvisionalTipBlockHash ?? string.Empty,
                 NetworkDifficulty = networkDifficulty,
-                NetworkDifficultyDisplay = FormatNetworkDifficulty(networkDifficulty)
+                NetworkDifficultyDisplay = FormatNetworkDifficulty(networkDifficulty),
+                NetworkHashrateHs = bitcoinNetwork.NetworkHashrateHs,
+                NetworkHashrateDisplay = FormatHashesPerSecond(bitcoinNetwork.NetworkHashrateHs),
+                PeerCount = bitcoinNetwork.TotalPeerCount,
+                InboundPeerCount = bitcoinNetwork.InboundPeerCount,
+                OutboundPeerCount = bitcoinNetwork.OutboundPeerCount,
+                PeerTelemetryUtc = bitcoinNetwork.LastPeerSuccessUtc,
+                MiningSafe = publicStatus.MiningWorkSafe,
+                ZmqHealthy = publicStatus.BitcoinNotification.ZmqTopics.All(topic =>
+                    !topic.Configured || topic.SubscriberRunning),
+                Peers = bitcoinNetwork.Peers
+                    .OrderBy(peer => peer.Id)
+                    .Take(24)
+                    .Select(peer => new DashboardDiagramBitcoinPeerDto
+                    {
+                        VisualId = _visualization.VisualId("bitcoin-peer", peer.Id.ToString()),
+                        Inbound = peer.Inbound,
+                        LatencyMs = peer.LatencyMs,
+                        ConnectionType = peer.ConnectionType
+                    }).ToList()
             },
             WorkGenerator = BuildWorkGenerator(fullStatus, includeOperatorDetails),
+            Snapshot = new DashboardDiagramSnapshotDto
+            {
+                CurrentStateId = publicStatus.CurrentStateId,
+                CandidateStateId = publicStatus.CandidateStateId,
+                ActiveSnapshotId = publicStatus.ActiveSnapshotId,
+                ActiveSnapshotFamilyId = publicStatus.ActiveSnapshotFamilyId,
+                LockedProofCount = publicStatus.ActiveSnapshotProofCount,
+                PaidProofRemovalCount = projection.LastPaidProofCount,
+                LastRotationUtc = publicStatus.LastRotationUtc
+            },
+            Quality = new DashboardDiagramQualityDto
+            {
+                RejectionCategories = localRejected
+                    .Where(item => !string.IsNullOrWhiteSpace(item.RejectionCategory))
+                    .GroupBy(item => item.RejectionCategory!, StringComparer.OrdinalIgnoreCase)
+                    .Select(group => new BootReasonCountDto { Reason = group.Key, Count = group.Count() })
+                    .OrderByDescending(item => item.Count)
+                    .ThenBy(item => item.Reason, StringComparer.OrdinalIgnoreCase)
+                    .Take(5)
+                    .ToList()
+            },
             WorkSet = projection.WorkSet.Select(proof => new DashboardDiagramProofDto
             {
                 VisualId = _visualization.VisualId("proof", proof.ProofId),
@@ -258,7 +304,8 @@ public sealed class DashboardReadModelService
                 Difficulty = proof.Difficulty,
                 DifficultyDisplay = proof.DifficultyDisplay,
                 FirstSeenUtc = proof.FirstSeenUtc,
-                Locked = proof.Locked
+                Locked = proof.Locked,
+                BlockQuality = networkDifficulty.HasValue && proof.Difficulty >= networkDifficulty
             }).ToList()
         };
 
@@ -280,12 +327,21 @@ public sealed class DashboardReadModelService
                     Connected = connected,
                     LatencyMs = peer.LatencyMs,
                     LastActivityUtc = peer.LastSuccessUtc ?? peer.LastSeenUtc,
-                    CompatibilityStatus = peer.CompatibilityStatus
+                    CompatibilityStatus = peer.CompatibilityStatus,
+                    Transport = peer.ConnectionMode,
+                    StateRelation = StateRelation(peer, fullStatus),
+                    LastInboundUtc = peer.LastSuccessUtc ?? peer.LastSeenUtc,
+                    LastOutboundUtc = peer.LastAttemptUtc
                 };
             }).ToList();
             result.Miners = fullStatus.LocalDatumMiners.Select(miner =>
             {
                 string identity = $"{miner.Source}:{miner.Address}:{miner.Username}";
+                List<BootShareDiagnosticTelemetry> minerRejected = localRejected
+                    .Where(item => string.Equals(item.MinerAddress, miner.Address, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(item => item.TimestampUtc)
+                    .ToList();
+                BootShareDiagnosticTelemetry? lastRejected = minerRejected.LastOrDefault();
                 return new DashboardDiagramMinerDto
                 {
                     VisualId = _visualization.VisualId("miner", identity),
@@ -294,7 +350,12 @@ public sealed class DashboardReadModelService
                     Source = miner.Source,
                     HashrateThs = miner.CurrentHashrateThs,
                     HashrateDisplay = miner.CurrentHashrateDisplay,
-                    LastShareUtc = miner.LastShareUtc
+                    LastShareUtc = miner.LastShareUtc,
+                    AcceptedCount = miner.TotalAcceptedShareCount,
+                    RejectedCount = minerRejected.Count,
+                    LastRejectedUtc = lastRejected?.TimestampUtc,
+                    LastRejectionCategory = lastRejected?.RejectionCategory ?? string.Empty,
+                    LastRejectionReason = lastRejected?.RejectionReason ?? string.Empty
                 };
             }).ToList();
         }
@@ -313,22 +374,66 @@ public sealed class DashboardReadModelService
                     NodeId = peer.NodeId,
                     Status = connected ? "connected" : "disconnected",
                     Connected = connected,
-                    LatencyMs = peer.LatencyMs
+                    LatencyMs = peer.LatencyMs,
+                    Transport = peer.ConnectionMode,
+                    StateRelation = StateRelation(peer, fullStatus),
+                    LastInboundUtc = peer.LastSuccessUtc ?? peer.LastSeenUtc,
+                    LastOutboundUtc = peer.LastAttemptUtc
                 };
             }).ToList();
             result.Miners = fullStatus.LocalDatumMiners.Select(miner =>
             {
                 string identity = $"{miner.Source}:{miner.Address}:{miner.Username}";
+                List<BootShareDiagnosticTelemetry> minerRejected = localRejected
+                    .Where(item => string.Equals(item.MinerAddress, miner.Address, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
                 return new DashboardDiagramMinerDto
                 {
                     VisualId = _visualization.VisualId("miner", identity),
                     HashrateThs = miner.CurrentHashrateThs,
-                    HashrateDisplay = miner.CurrentHashrateDisplay
+                    HashrateDisplay = miner.CurrentHashrateDisplay,
+                    LastShareUtc = miner.LastShareUtc,
+                    AcceptedCount = miner.TotalAcceptedShareCount,
+                    RejectedCount = minerRejected.Count,
+                    LastRejectedUtc = minerRejected.OrderBy(item => item.TimestampUtc).LastOrDefault()?.TimestampUtc,
+                    LastRejectionCategory = minerRejected.OrderBy(item => item.TimestampUtc).LastOrDefault()?.RejectionCategory ?? string.Empty
                 };
             }).ToList();
         }
 
         return result;
+    }
+
+    public DashboardDiagramHistoryDto BuildDiagramHistory(
+        string? windowKey,
+        int limit,
+        bool includeOperatorDetails)
+    {
+        DashboardDiagramSlotZeroDto slotZero = _visualization.SlotZero();
+        return _telemetry.GetDiagramHistory(
+            slotZero.Verified ? slotZero.Address : string.Empty,
+            windowKey,
+            limit,
+            includeOperatorDetails);
+    }
+
+    private static string StateRelation(BootPeerStatus peer, BootNetworkStatusDto local)
+    {
+        if (string.Equals(peer.CompatibilityStatus, "incompatible", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(peer.CompatibilityStatus, "mismatch", StringComparison.OrdinalIgnoreCase))
+        {
+            return "incompatible";
+        }
+        if (string.Equals(peer.LastCurrentStateId, local.CurrentStateId, StringComparison.OrdinalIgnoreCase))
+        {
+            return "current";
+        }
+        if (string.Equals(peer.LastCandidateStateId, local.CandidateStateId, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(peer.LastCurrentStateId, local.CandidateStateId, StringComparison.OrdinalIgnoreCase))
+        {
+            return "candidate";
+        }
+        return string.IsNullOrWhiteSpace(peer.LastCurrentStateId) ? "unknown" : "divergent";
     }
 
     private static DashboardDiagramWorkGeneratorDto BuildWorkGenerator(
@@ -424,6 +529,23 @@ public sealed class DashboardReadModelService
             unit++;
         }
         return $"{hashesPerSecond:0.##} {units[unit]}";
+    }
+
+    private static string FormatHashesPerSecond(double? hashesPerSecond)
+    {
+        if (!hashesPerSecond.HasValue || !double.IsFinite(hashesPerSecond.Value) || hashesPerSecond < 0)
+        {
+            return "--";
+        }
+        double value = hashesPerSecond.Value;
+        string[] units = ["H/s", "kH/s", "MH/s", "GH/s", "TH/s", "PH/s", "EH/s", "ZH/s"];
+        int unit = 0;
+        while (value >= 1000d && unit < units.Length - 1)
+        {
+            value /= 1000d;
+            unit++;
+        }
+        return $"{value:0.##} {units[unit]}";
     }
 
     private static double? CalculateSurvivalProbability(double shareDifficulty, uint compactTarget, int slots)

@@ -153,4 +153,51 @@ public sealed class DashboardVisualizationJournalTests
         Assert.AreEqual(1, page.LatestSequence);
         Assert.AreEqual(0, page.Events.Count);
     }
+
+    [TestMethod]
+    public void RejectionStormsCoalesceAndPublicViewDropsExactReason()
+    {
+        var journal = new DashboardVisualizationJournalService();
+        DateTime now = new(2026, 8, 6, 12, 0, 0, DateTimeKind.Utc);
+        for (int index = 0; index < 4; index++)
+        {
+            journal.Append(new DashboardDiagramEventDto
+            {
+                TimestampUtc = now.AddMilliseconds(index * 100),
+                Kind = DashboardDiagramEventKinds.ProofRejected,
+                SourceKind = "miner",
+                SourceId = "garage",
+                SourceVisualId = journal.VisualId("miner", "garage"),
+                Category = "below-floor",
+                Reason = "exact private diagnostic",
+                Count = 1
+            });
+        }
+
+        DashboardDiagramEventDto publicEvent = journal.Read(0, 10, true, now.AddSeconds(1)).Events.Single();
+        DashboardDiagramEventDto operatorEvent = journal.Read(0, 10, false, now.AddSeconds(1)).Events.Single();
+        Assert.AreEqual(4, publicEvent.Count);
+        Assert.AreEqual("below-floor", publicEvent.Category);
+        Assert.AreEqual(string.Empty, publicEvent.Reason);
+        Assert.AreEqual("exact private diagnostic", operatorEvent.Reason);
+    }
+
+    [TestMethod]
+    public void InitialBitcoinPeerObservationSeedsWithoutSyntheticConnectionBurst()
+    {
+        var journal = new DashboardVisualizationJournalService();
+        DateTime now = new(2026, 8, 6, 12, 0, 0, DateTimeKind.Utc);
+        var status = new BootNetworkStatusDto();
+        status.BitcoinNotification.Network.Peers.Add(new BootBitcoinPeerHealthDto { Id = 7 });
+
+        journal.ObserveSystemHealth(status, now);
+        Assert.AreEqual(0, journal.Read(0, 10, false, now).Events.Count);
+
+        status.BitcoinNotification.Network.Peers.Add(new BootBitcoinPeerHealthDto { Id = 8 });
+        journal.ObserveSystemHealth(status, now.AddSeconds(15));
+
+        DashboardDiagramEventDto connected = journal.Read(0, 10, false, now.AddSeconds(15)).Events.Single();
+        Assert.AreEqual(DashboardDiagramEventKinds.BitcoinPeerConnection, connected.Kind);
+        Assert.IsTrue(connected.Connected);
+    }
 }

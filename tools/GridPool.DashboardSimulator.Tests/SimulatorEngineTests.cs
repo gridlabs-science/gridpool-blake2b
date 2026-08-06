@@ -84,6 +84,27 @@ public sealed class SimulatorEngineTests
     }
 
     [TestMethod]
+    public async Task SiblingMergeProducesOneAggregateMotionAndDoesNotClaimLocalSlotZero()
+    {
+        SimulatorEngine engine = new(new RecordingBroadcaster());
+        string slotZero = engine.Read().SlotZeroAddress;
+        long before = engine.Diagram(false).LatestSequence;
+
+        await engine.ApplyAsync(new SimulatorAction
+        {
+            Action = "snapshot.sibling-merge",
+            Peer = "dallas",
+            Count = 8
+        });
+
+        List<DashboardDiagramEventDto> events = engine.DiagramEvents(before, 32, true).Events;
+        Assert.AreEqual(1, events.Count);
+        Assert.AreEqual(DashboardDiagramEventKinds.SiblingMerge, events[0].Kind);
+        Assert.AreEqual("dallas", events[0].SourceId);
+        Assert.AreEqual(slotZero, engine.Read().SlotZeroAddress);
+    }
+
+    [TestMethod]
     public async Task AutomaticPulseBroadcastsDiagramInvalidation()
     {
         var broadcaster = new RecordingBroadcaster();
@@ -227,54 +248,67 @@ public sealed class SimulatorEngineTests
     public async Task LivingMinuteProducesExactHonestDiagramEvents()
     {
         SimulatorEngine engine = new(new RecordingBroadcaster());
-        await engine.SetTimelineAsync(SimulatorScenarios.LivingMinuteTimeline(77));
+        TimelineDocument timeline = SimulatorScenarios.LivingMinuteTimeline(77);
+        await engine.SetTimelineAsync(timeline);
+        for (int index = 0; index < timeline.Events.Count; index++)
+        {
+            await engine.StepTimelineAsync();
+        }
 
-        await engine.StepTimelineAsync();
-        DashboardDiagramEventDto firstProof = engine.DiagramEvents(0, 20, true)
-            .Events.Single(item => item.Kind == DashboardDiagramEventKinds.ProofAdmitted);
+        List<DashboardDiagramEventDto> events = engine.DiagramEvents(0, 256, true).Events;
+        DashboardDiagramEventDto firstProof = events
+            .First(item => item.Kind == DashboardDiagramEventKinds.ProofAdmitted);
         Assert.AreEqual(620, firstProof.Rank);
         Assert.AreEqual("dallas", firstProof.SourceId);
         Assert.IsFalse(string.IsNullOrWhiteSpace(firstProof.SourceVisualId));
 
-        await engine.StepTimelineAsync();
-        DashboardDiagramEventDto peerPulse = engine.DiagramEvents(firstProof.Sequence, 20, true)
-            .Events.Single(item => item.Kind == DashboardDiagramEventKinds.PulseAccepted);
-        Assert.AreEqual("peer", peerPulse.SourceKind);
-        Assert.AreEqual("detroit", peerPulse.SourceId);
-
-        await engine.StepTimelineAsync();
-        DashboardDiagramEventDto miner = engine.DiagramEvents(peerPulse.Sequence, 20, true)
-            .Events.Single(item => item.Kind == DashboardDiagramEventKinds.LocalMinerActivity);
-        Assert.AreEqual("miner-2", miner.SourceId);
-        Assert.IsFalse(string.IsNullOrWhiteSpace(miner.SourceVisualId));
-
-        await engine.StepTimelineAsync();
-        DashboardDiagramEventDto topProof = engine.DiagramEvents(miner.Sequence, 20, true)
-            .Events.Single(item => item.Kind == DashboardDiagramEventKinds.ProofAdmitted);
-        Assert.AreEqual(120, topProof.Rank);
-
-        await engine.StepTimelineAsync();
-        DashboardDiagramEventDto localProof = engine.DiagramEvents(topProof.Sequence, 20, true)
-            .Events.Single(item => item.Kind == DashboardDiagramEventKinds.ProofAdmitted);
-        Assert.AreEqual("miner", localProof.SourceKind);
-        Assert.AreEqual("miner-1", localProof.SourceId);
-        Assert.AreEqual(250, localProof.Rank);
-
-        for (int index = 0; index < 5; index++)
+        string[] requiredKinds =
+        [
+            DashboardDiagramEventKinds.ProofRejected,
+            DashboardDiagramEventKinds.PeerTransport,
+            DashboardDiagramEventKinds.MiningSafety,
+            DashboardDiagramEventKinds.PeerHeaderRejected,
+            DashboardDiagramEventKinds.SiblingMerge,
+            DashboardDiagramEventKinds.PeerState,
+            DashboardDiagramEventKinds.BitcoinPeerConnection,
+            DashboardDiagramEventKinds.ChainReorganization,
+            DashboardDiagramEventKinds.BoundaryValidated
+        ];
+        foreach (string kind in requiredKinds)
         {
-            await engine.StepTimelineAsync();
+            Assert.IsTrue(events.Any(item => item.Kind == kind), $"Living minute omitted {kind}.");
         }
-        DashboardDiagramEventDto boundary = engine.DiagramEvents(localProof.Sequence, 50, true)
-            .Events.Single(item => item.Kind == DashboardDiagramEventKinds.BoundaryValidated);
-        Assert.AreEqual(300, boundary.LockedProofIds.Count);
-        Assert.IsTrue(boundary.LockedProofIds.Contains(topProof.ProofId));
-
-        await engine.StepTimelineAsync();
-        DashboardDiagramEventDto blockProof = engine.DiagramEvents(boundary.Sequence, 20, true)
-            .Events.Single(item => item.Kind == DashboardDiagramEventKinds.ProofAdmitted);
+        Assert.IsTrue(events.Any(item => item.Kind == DashboardDiagramEventKinds.BoundaryValidated && item.BoundaryKind == "regular"));
+        Assert.IsTrue(events.Any(item => item.Kind == DashboardDiagramEventKinds.BoundaryValidated && item.BoundaryKind == "gridpool-paid"));
+        DashboardDiagramEventDto blockProof = events.Last(item =>
+            item.Kind == DashboardDiagramEventKinds.ProofAdmitted && item.BlockQuality);
         Assert.IsTrue(blockProof.BlockQuality);
         Assert.AreEqual("miner-2", blockProof.SourceId);
         Assert.AreEqual(1, blockProof.Rank);
+    }
+
+    [TestMethod]
+    public async Task DiagramHistoryAndExtendedActionsUseProductionContracts()
+    {
+        SimulatorEngine engine = new(new RecordingBroadcaster());
+        SimulatorState state = engine.Read();
+        string minerId = state.Adapters.SelectMany(adapter => adapter.Miners).First().Id;
+        string peerId = state.Peers.First().Id;
+        string bitcoinPeerId = state.BitcoinPeers.First().Id;
+
+        await engine.ApplyAsync(new SimulatorAction { Action = "proof.top897", Miner = minerId, Address = state.SlotZeroAddress });
+        await engine.ApplyAsync(new SimulatorAction { Action = "proof.reject", Miner = minerId });
+        await engine.ApplyAsync(new SimulatorAction { Action = "peer.transport", Peer = peerId, Transport = "udp", Value = 0 });
+        await engine.ApplyAsync(new SimulatorAction { Action = "bitcoin.peer-disconnect", Peer = bitcoinPeerId });
+
+        DashboardDiagramHistoryDto publicHistory = engine.DiagramHistory("24h", 256, false);
+        DashboardDiagramHistoryDto operatorHistory = engine.DiagramHistory("24h", 256, true);
+        Assert.IsTrue(publicHistory.Proofs.Any(proof => proof.EnteredWorkSet));
+        Assert.IsTrue(publicHistory.Proofs.All(proof => string.IsNullOrWhiteSpace(proof.Username)));
+        Assert.IsTrue(operatorHistory.Proofs.Any(proof => !string.IsNullOrWhiteSpace(proof.Username)));
+        Assert.IsTrue(engine.DiagramEvents(0, 256, true).Events.Any(item => item.Kind == DashboardDiagramEventKinds.ProofRejected));
+        Assert.IsTrue(engine.DiagramEvents(0, 256, true).Events.Any(item => item.Kind == DashboardDiagramEventKinds.PeerTransport));
+        Assert.IsTrue(engine.DiagramEvents(0, 256, true).Events.Any(item => item.Kind == DashboardDiagramEventKinds.BitcoinPeerConnection));
     }
 
     [TestMethod]

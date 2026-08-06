@@ -1,6 +1,7 @@
 import type {
   DashboardAddress,
   DashboardDiagram,
+  DiagramHistory,
   DiagramEventPage,
   DashboardHistory,
   DashboardOperator,
@@ -62,5 +63,12 @@ export const dashboardApi = {
       : request<DiagramEventPage>(
           `/api/dashboard/v1/diagram/events?after=${after}&limit=256`
         ),
+  diagramHistory: (window: "24h" | "7d", adminKey?: string) =>
+    adminKey
+      ? request<DiagramHistory>(
+          `/api/dashboard/v1/diagram/operator/history?window=${window}&limit=256`,
+          adminKey
+        )
+      : request<DiagramHistory>(`/api/dashboard/v1/diagram/history?window=${window}&limit=256`),
   raw: <T>(path: string, adminKey?: string) => request<T>(path, adminKey)
 };

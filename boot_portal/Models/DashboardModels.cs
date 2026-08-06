@@ -208,11 +208,19 @@ public static class DashboardDiagramEventKinds
     public const string PeerHeader = "peer-header";
     public const string BoundaryValidated = "boundary-validated";
     public const string PulseAccepted = "pulse-accepted";
+    public const string ProofRejected = "proof-rejected";
+    public const string PeerTransport = "peer-transport";
+    public const string PeerState = "peer-state";
+    public const string PeerHeaderRejected = "peer-header-rejected";
+    public const string SiblingMerge = "sibling-merge";
+    public const string ChainReorganization = "chain-reorganization";
+    public const string MiningSafety = "mining-safety";
+    public const string BitcoinPeerConnection = "bitcoin-peer-connection";
 }
 
 public sealed class DashboardDiagramDto
 {
-    public int SchemaVersion { get; set; } = 2;
+    public int SchemaVersion { get; set; } = 3;
     public DateTime GeneratedAtUtc { get; set; }
     public bool Redacted { get; set; } = true;
     public long OldestSequence { get; set; }
@@ -221,6 +229,8 @@ public sealed class DashboardDiagramDto
     public DashboardDiagramGridDto Grid { get; set; } = new();
     public DashboardDiagramBitcoinDto Bitcoin { get; set; } = new();
     public DashboardDiagramWorkGeneratorDto WorkGenerator { get; set; } = new();
+    public DashboardDiagramSnapshotDto Snapshot { get; set; } = new();
+    public DashboardDiagramQualityDto Quality { get; set; } = new();
     public List<DashboardDiagramPeerDto> Peers { get; set; } = [];
     public List<DashboardDiagramMinerDto> Miners { get; set; } = [];
     public List<DashboardDiagramProofDto> WorkSet { get; set; } = [];
@@ -252,6 +262,39 @@ public sealed class DashboardDiagramBitcoinDto
     public string ProvisionalTipHash { get; set; } = string.Empty;
     public double? NetworkDifficulty { get; set; }
     public string NetworkDifficultyDisplay { get; set; } = "--";
+    public double? NetworkHashrateHs { get; set; }
+    public string NetworkHashrateDisplay { get; set; } = "--";
+    public int PeerCount { get; set; }
+    public int InboundPeerCount { get; set; }
+    public int OutboundPeerCount { get; set; }
+    public DateTime? PeerTelemetryUtc { get; set; }
+    public bool ZmqHealthy { get; set; }
+    public bool MiningSafe { get; set; }
+    public List<DashboardDiagramBitcoinPeerDto> Peers { get; set; } = [];
+}
+
+public sealed class DashboardDiagramBitcoinPeerDto
+{
+    public string VisualId { get; set; } = string.Empty;
+    public bool Inbound { get; set; }
+    public double? LatencyMs { get; set; }
+    public string ConnectionType { get; set; } = string.Empty;
+}
+
+public sealed class DashboardDiagramSnapshotDto
+{
+    public string CurrentStateId { get; set; } = string.Empty;
+    public string CandidateStateId { get; set; } = string.Empty;
+    public string ActiveSnapshotId { get; set; } = string.Empty;
+    public string ActiveSnapshotFamilyId { get; set; } = string.Empty;
+    public int LockedProofCount { get; set; }
+    public long PaidProofRemovalCount { get; set; }
+    public DateTime? LastRotationUtc { get; set; }
+}
+
+public sealed class DashboardDiagramQualityDto
+{
+    public List<BootReasonCountDto> RejectionCategories { get; set; } = [];
 }
 
 public sealed class DashboardDiagramWorkGeneratorDto
@@ -277,6 +320,10 @@ public sealed class DashboardDiagramPeerDto
     public double? LatencyMs { get; set; }
     public DateTime? LastActivityUtc { get; set; }
     public string CompatibilityStatus { get; set; } = "unknown";
+    public string Transport { get; set; } = string.Empty;
+    public string StateRelation { get; set; } = "unknown";
+    public DateTime? LastInboundUtc { get; set; }
+    public DateTime? LastOutboundUtc { get; set; }
 }
 
 public sealed class DashboardDiagramMinerDto
@@ -288,6 +335,11 @@ public sealed class DashboardDiagramMinerDto
     public double? HashrateThs { get; set; }
     public string HashrateDisplay { get; set; } = "--";
     public DateTime? LastShareUtc { get; set; }
+    public DateTime? LastRejectedUtc { get; set; }
+    public long AcceptedCount { get; set; }
+    public long RejectedCount { get; set; }
+    public string LastRejectionCategory { get; set; } = string.Empty;
+    public string LastRejectionReason { get; set; } = string.Empty;
 }
 
 public sealed class DashboardDiagramProofDto
@@ -300,6 +352,7 @@ public sealed class DashboardDiagramProofDto
     public string DifficultyDisplay { get; set; } = "--";
     public DateTime? FirstSeenUtc { get; set; }
     public bool Locked { get; set; }
+    public bool BlockQuality { get; set; }
 }
 
 public sealed class DashboardDiagramEventDto
@@ -331,11 +384,18 @@ public sealed class DashboardDiagramEventDto
     public string SnapshotId { get; set; } = string.Empty;
     public List<string> LockedVisualIds { get; set; } = [];
     public List<string> LockedProofIds { get; set; } = [];
+    public string Category { get; set; } = string.Empty;
+    public string Reason { get; set; } = string.Empty;
+    public string PreviousValue { get; set; } = string.Empty;
+    public string CurrentValue { get; set; } = string.Empty;
+    public string BoundaryKind { get; set; } = string.Empty;
+    public int Count { get; set; }
+    public bool? Safe { get; set; }
 }
 
 public sealed class DashboardDiagramEventPageDto
 {
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 2;
     public DateTime GeneratedAtUtc { get; set; }
     public bool Redacted { get; set; } = true;
     public long OldestSequence { get; set; }
@@ -346,15 +406,43 @@ public sealed class DashboardDiagramEventPageDto
     public List<DashboardDiagramEventDto> Events { get; set; } = [];
 }
 
+public sealed class DashboardDiagramHistoryDto
+{
+    public int SchemaVersion { get; set; } = 1;
+    public string Window { get; set; } = "24h";
+    public DateTime GeneratedAtUtc { get; set; }
+    public bool Redacted { get; set; } = true;
+    public string SlotZeroAddress { get; set; } = string.Empty;
+    public double? BestDifficulty { get; set; }
+    public string BestDifficultyDisplay { get; set; } = "--";
+    public List<DashboardDiagramProofObservationDto> Proofs { get; set; } = [];
+}
+
+public sealed class DashboardDiagramProofObservationDto
+{
+    public string ProofId { get; set; } = string.Empty;
+    public string Address { get; set; } = string.Empty;
+    public string SourceKind { get; set; } = string.Empty;
+    public string Source { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string ProofClass { get; set; } = string.Empty;
+    public double Difficulty { get; set; }
+    public string DifficultyDisplay { get; set; } = "--";
+    public DateTime TimestampUtc { get; set; }
+    public bool EnteredWorkSet { get; set; }
+    public bool BlockQuality { get; set; }
+}
+
 public sealed class DashboardDiagramStateProjection
 {
     public List<DashboardDiagramProofDto> WorkSet { get; set; } = [];
     public List<string> ActiveSnapshotProofIds { get; set; } = [];
+    public int LastPaidProofCount { get; set; }
 }
 
 internal sealed class DashboardTelemetryDocument
 {
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 2;
     public DateTime TrackingStartedUtc { get; set; }
     public DateTime? WorkDataTruncatedThroughUtc { get; set; }
     public List<DashboardWorkObservation> WorkProofs { get; set; } = [];
@@ -369,6 +457,11 @@ internal sealed class DashboardWorkObservation
     public double Difficulty { get; set; }
     public double AdmissionFloorDifficulty { get; set; } = 1d;
     public DateTime ReceivedUtc { get; set; }
+    public string Address { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string SourceKind { get; set; } = string.Empty;
+    public bool EnteredWorkSet { get; set; }
+    public bool BlockQuality { get; set; }
 }
 
 internal sealed class DashboardFloorObservation
@@ -382,4 +475,9 @@ internal sealed class DashboardPulseObservation
     public string ShareId { get; set; } = string.Empty;
     public string Source { get; set; } = string.Empty;
     public DateTime ReceivedUtc { get; set; }
+    public string Address { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string SourceKind { get; set; } = string.Empty;
+    public double Difficulty { get; set; }
+    public bool BlockQuality { get; set; }
 }

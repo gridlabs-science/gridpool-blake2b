@@ -1,5 +1,6 @@
 using boot_portal.Services;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Text.Json;
 
 namespace boot.tests;
 
@@ -101,6 +102,55 @@ public sealed class DashboardTelemetryTests
         Assert.IsTrue(estimate.Warmup);
         Assert.IsFalse(estimate.CompleteWindow);
         Assert.AreEqual("collecting", estimate.Confidence);
+    }
+
+    [TestMethod]
+    public void DiagramHistoryIncludesValidatedLocalWorkAndPulseWithoutPublicWorkerIdentity()
+    {
+        DateTime now = new(2026, 8, 6, 12, 0, 0, DateTimeKind.Utc);
+        using var temporary = new TemporaryTelemetryPath();
+        var service = new DashboardTelemetryService(
+            NullLogger<DashboardTelemetryService>.Instance,
+            temporary.Path,
+            now.AddDays(-2));
+        service.ObserveWorkProof(
+            "work-1", "sv2", 12_000, 10_000, now.AddHours(-2),
+            "tb1qslotzero", "garage", "miner", true, false);
+        service.ObservePulse(
+            "pulse-1", "sv2", now.AddHours(-1),
+            "tb1qslotzero", "garage", "miner", 8_000, false);
+
+        var publicHistory = service.GetDiagramHistory("tb1qslotzero", "24h", 256, false, now);
+        var operatorHistory = service.GetDiagramHistory("tb1qslotzero", "24h", 256, true, now);
+
+        Assert.AreEqual(2, publicHistory.Proofs.Count);
+        Assert.AreEqual("work-1", publicHistory.Proofs[0].ProofId);
+        Assert.AreEqual(string.Empty, publicHistory.Proofs[0].Source);
+        Assert.AreEqual(string.Empty, publicHistory.Proofs[0].Username);
+        Assert.AreEqual("sv2", operatorHistory.Proofs[0].Source);
+        Assert.AreEqual("garage", operatorHistory.Proofs[0].Username);
+        Assert.IsFalse(publicHistory.Proofs.Single(item => item.ProofId == "pulse-1").EnteredWorkSet);
+    }
+
+    [TestMethod]
+    public void SchemaOneTelemetryMigratesWithoutInventingAddressAttribution()
+    {
+        DateTime now = new(2026, 8, 6, 12, 0, 0, DateTimeKind.Utc);
+        using var temporary = new TemporaryTelemetryPath();
+        File.WriteAllText(temporary.Path, $$"""
+            {"SchemaVersion":1,"TrackingStartedUtc":"{{now.AddDays(-2):O}}","WorkProofs":[{"ShareId":"legacy","Source":"peer","Difficulty":1000,"AdmissionFloorDifficulty":1,"ReceivedUtc":"{{now.AddHours(-1):O}}"}],"AdmissionFloors":[],"Pulses":[]}
+            """);
+
+        var service = new DashboardTelemetryService(
+            NullLogger<DashboardTelemetryService>.Instance,
+            temporary.Path,
+            null);
+
+        Assert.AreEqual(1, service.GetEstimate("24h", now).ObservationCount);
+        Assert.AreEqual(0, service.GetDiagramHistory("tb1qslotzero", "24h", 256, false, now).Proofs.Count);
+        service.FlushForTests();
+        using JsonDocument migrated = JsonDocument.Parse(File.ReadAllText(temporary.Path));
+        Assert.AreEqual(2, migrated.RootElement.GetProperty("SchemaVersion").GetInt32());
     }
 
     private sealed class TemporaryTelemetryPath : IDisposable
