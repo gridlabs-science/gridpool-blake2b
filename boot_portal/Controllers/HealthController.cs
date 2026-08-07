@@ -11,11 +11,16 @@ public class HealthController : ControllerBase
 {
     private readonly PoolConfig _poolConfig;
     private readonly BootProtocolStateService _stateService;
+    private readonly NodeSetupState _setupState;
 
-    public HealthController(PoolConfig poolConfig, BootProtocolStateService stateService)
+    public HealthController(
+        PoolConfig poolConfig,
+        BootProtocolStateService stateService,
+        NodeSetupState setupState)
     {
         _poolConfig = poolConfig;
         _stateService = stateService;
+        _setupState = setupState;
     }
 
     [HttpGet("live")]
@@ -32,6 +37,17 @@ public class HealthController : ControllerBase
     [HttpGet("ready")]
     public IActionResult Ready()
     {
+        if (!_setupState.OperationalAtStartup)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                status = _setupState.RestartRequired ? "restart_required" : "setup_required",
+                miningEnabled = false,
+                restartRequired = _setupState.RestartRequired,
+                timeUtc = DateTime.UtcNow
+            });
+        }
+
         BootNetworkStatusDto network = _stateService.GetNetworkStatus();
         bool baseReady = network.WinnersCount > 0 && !string.IsNullOrWhiteSpace(network.CurrentStateId);
         bool peerReady = (!_poolConfig.EnablePeerSync || network.PeerLoopsHealthy) && !network.IdentityChanged;

@@ -211,7 +211,10 @@ public sealed class PeerPruningTests
         BootProtocolStateService service = CreateService(out PoolConfig config, health);
 
         config.PeerLoopStaleSeconds = 30;
-        var result = (ObjectResult)new HealthController(config, service).Ready();
+        var result = (ObjectResult)new HealthController(
+            config,
+            service,
+            new NodeSetupState(operationalAtStartup: true)).Ready();
         Assert.AreEqual(503, result.StatusCode);
         Assert.IsFalse(service.GetNetworkStatus().PeerLoopsHealthy);
     }

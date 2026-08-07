@@ -18,6 +18,11 @@ public static class BootPortalPaths
             Environment.GetEnvironmentVariable("BOOT_PORTAL_HISTORY_PATH"),
             BuildHistoryFallbackPath(PoolStateFilePath));
 
+    public static string DashboardTelemetryFilePath =>
+        ResolvePath(
+            Environment.GetEnvironmentVariable("BOOT_PORTAL_DASHBOARD_TELEMETRY_PATH"),
+            BuildDashboardTelemetryFallbackPath(PoolStateFilePath));
+
     public static void EnsureParentDirectory(string path)
     {
         string? directory = Path.GetDirectoryName(path);
@@ -59,5 +64,15 @@ public static class BootPortalPaths
         return string.IsNullOrWhiteSpace(directory)
             ? localConfigFileName
             : Path.Combine(directory, localConfigFileName);
+    }
+
+    private static string BuildDashboardTelemetryFallbackPath(string coreStatePath)
+    {
+        string directory = Path.GetDirectoryName(coreStatePath) ?? string.Empty;
+        string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(coreStatePath);
+        string fileName = $"{fileNameWithoutExtension}.dashboard-telemetry.json";
+        return string.IsNullOrWhiteSpace(directory)
+            ? fileName
+            : Path.Combine(directory, fileName);
     }
 }

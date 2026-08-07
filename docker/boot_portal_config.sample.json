@@ -20,6 +20,8 @@
   "Datum_Port": 3008,
   "WebUI_Port_http": 5000,
   "WebUI_Port_https": 0,
+  "enable_web_ui": true,
+  "enable_legacy_ui": true,
   "peer_listener_port": 0,
   "public_base_url": "",
   "datum_public_host": "",

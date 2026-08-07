@@ -1,0 +1,10 @@
+<Project Sdk="MSTest.Sdk/3.6.4">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../GridPool.DashboardSimulator/GridPool.DashboardSimulator.csproj" />
+  </ItemGroup>
+</Project>

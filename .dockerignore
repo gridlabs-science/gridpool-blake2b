@@ -12,6 +12,11 @@ g2-*.json
 **/obj/**
 **/publish/
 **/publish/**
+**/node_modules/
+boot_portal/ui/test-results/
+boot_portal/ui/playwright-report/
+boot_portal/ui/e2e/
+boot_portal/wwwroot/dashboard/
 boot_portal/boot_portal_config.json
 boot_portal/boot_portal_config.local.json
 boot_portal/pool_state.json

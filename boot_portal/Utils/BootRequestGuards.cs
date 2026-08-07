@@ -1,3 +1,5 @@
+using boot_portal.Models;
+
 namespace boot_portal.Utils;
 
 public readonly record struct BootRequestValidationFailure(int StatusCode, string Reason);

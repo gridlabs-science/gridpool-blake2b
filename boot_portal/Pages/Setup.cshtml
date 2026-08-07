@@ -1,0 +1,53 @@
+@page
+@model boot_portal.Pages.SetupModel
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GridPool Setup</title>
+    <link rel="stylesheet" href="/setup.css" />
+</head>
+<body>
+    <header class="truth-bar">
+        <a class="brand" href="/setup" aria-label="GridPool setup">
+            <span class="brand-mark">GP</span>
+            <span>GridPool</span>
+        </a>
+        <span class="network-tag">@Model.BitcoinNetwork</span>
+        <span class="truth-state"><span class="status-dot"></span> setup required</span>
+    </header>
+
+    <main class="setup-shell">
+        <section class="setup-card" aria-labelledby="setup-heading">
+            <p class="eyebrow">Sovereign mining coordination</p>
+            <h1 id="setup-heading">Choose where your work gets paid.</h1>
+
+            @if (Model.RestartRequired)
+            {
+                <p class="lede">The payout address is stored. Restart the GridPool app to start networking and mining services with this configuration.</p>
+                <div class="address-summary">
+                    <span>Locked payout address</span>
+                    <code>@Model.SavedAddress</code>
+                </div>
+                <p class="safety-note">GridPool will remain in setup-only mode until it restarts. No mining work or peer relay is active yet.</p>
+            }
+            else
+            {
+                <p class="lede">This address is the local fallback for slot 0. GridPool validates it against the attached Bitcoin network and will not start mining until setup is complete.</p>
+
+                <form method="post">
+                    @Html.AntiForgeryToken()
+                    <div asp-validation-summary="ModelOnly" class="validation-summary"></div>
+                    <label for="PoolPayoutScript">Bitcoin payout address</label>
+                    <input asp-for="PoolPayoutScript" id="PoolPayoutScript" autocomplete="off" spellcheck="false" autofocus />
+                    <span asp-validation-for="PoolPayoutScript" class="field-validation"></span>
+                    <button type="submit">Lock payout address</button>
+                </form>
+
+                <p class="safety-note">Verify this address carefully. Changing it later requires an authenticated package reconfiguration or a local configuration edit.</p>
+            }
+        </section>
+    </main>
+</body>
+</html>

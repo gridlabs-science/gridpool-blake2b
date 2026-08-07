@@ -12,6 +12,8 @@ public sealed class BitcoinRpcReconciliationService : BackgroundService
     private readonly BootProtocolStateService _stateService;
     private readonly ILogger<BitcoinRpcReconciliationService> _logger;
     private DateTime _lastZmqConfigurationCheckUtc = DateTime.MinValue;
+    private DateTime _lastPeerNetworkCheckUtc = DateTime.MinValue;
+    private DateTime _lastNetworkHashrateCheckUtc = DateTime.MinValue;
 
     public BitcoinRpcReconciliationService(
         PoolConfig config,
@@ -75,6 +77,18 @@ public sealed class BitcoinRpcReconciliationService : BackgroundService
                 info.VerificationProgress,
                 checkUtc);
 
+            if (checkUtc - _lastPeerNetworkCheckUtc >= TimeSpan.FromSeconds(15))
+            {
+                await InspectPeerNetworkAsync(checkUtc, cancellationToken);
+                _lastPeerNetworkCheckUtc = checkUtc;
+            }
+
+            if (checkUtc - _lastNetworkHashrateCheckUtc >= TimeSpan.FromMinutes(1))
+            {
+                await InspectNetworkHashrateAsync(checkUtc, cancellationToken);
+                _lastNetworkHashrateCheckUtc = checkUtc;
+            }
+
             if (checkUtc - _lastZmqConfigurationCheckUtc >= TimeSpan.FromMinutes(1))
             {
                 try
@@ -108,6 +122,43 @@ public sealed class BitcoinRpcReconciliationService : BackgroundService
         {
             _health.RecordRpcFailure(ex.Message, DateTime.UtcNow);
             _logger.LogWarning("Bitcoin RPC reconciliation failed: {Message}", Sanitize(ex.Message));
+        }
+    }
+
+    private async Task InspectPeerNetworkAsync(DateTime checkUtc, CancellationToken cancellationToken)
+    {
+        try
+        {
+            BitcoinNetworkInfo network = await _rpcClient.GetNetworkInfoAsync(cancellationToken);
+            IReadOnlyList<BitcoinPeerInfo> peers = await _rpcClient.GetPeerInfoAsync(cancellationToken);
+            _health.RecordPeerNetworkSuccess(network, peers, checkUtc);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _health.RecordPeerNetworkFailure(ex.Message, checkUtc);
+            _logger.LogDebug("Could not inspect Bitcoin peer health over RPC: {Message}", Sanitize(ex.Message));
+        }
+    }
+
+    private async Task InspectNetworkHashrateAsync(DateTime checkUtc, CancellationToken cancellationToken)
+    {
+        try
+        {
+            _health.RecordNetworkHashrate(
+                await _rpcClient.GetNetworkHashrateAsync(cancellationToken),
+                checkUtc);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("Could not inspect Bitcoin network hashrate over RPC: {Message}", Sanitize(ex.Message));
         }
     }
 

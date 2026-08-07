@@ -1,0 +1,15 @@
+version: 1
+name: peer-tip-recovery
+seed: 42
+initialScenario: healthy-mesh
+events:
+  - at: 5s
+    action: peer.disconnect
+    peer: dallas
+  - at: 8s
+    action: chain.peer-header
+  - at: 10s
+    action: chain.local-validate
+  - at: 14s
+    action: peer.reconnect
+    peer: dallas

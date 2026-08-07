@@ -18,10 +18,11 @@ public static class BitcoinRpcRecoveryPlanner
             return new BitcoinRpcRecoveryPlan([rpcHeight], true, false);
         }
 
-        if (localHeight.Value == rpcHeight &&
-            Utils.BitcoinHashes.AreEquivalent(localHash, rpcBestHash))
+        if (Utils.BitcoinHashes.AreEquivalent(localHash, rpcBestHash))
         {
-            return new BitcoinRpcRecoveryPlan([], false, false);
+            return localHeight.Value == rpcHeight
+                ? new BitcoinRpcRecoveryPlan([], false, false)
+                : new BitcoinRpcRecoveryPlan([rpcHeight], true, false);
         }
 
         if (localHeight.Value > rpcHeight)

@@ -53,6 +53,8 @@ public class BootProtocolStateService
     private readonly BootPeerLoopHealth _peerLoopHealth;
     private readonly BootPeerIdentity? _peerIdentity;
     private readonly BitcoinNotificationHealth? _bitcoinNotificationHealth;
+    private readonly DashboardTelemetryService? _dashboardTelemetry;
+    private readonly DashboardVisualizationJournalService? _dashboardVisualization;
     private bool _identityChanged;
     private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
     private readonly JsonSerializerOptions _compactJsonOptions = new() { WriteIndented = false };
@@ -120,7 +122,9 @@ public class BootProtocolStateService
         ILogger<BootProtocolStateService> logger,
         BootPeerLoopHealth? peerLoopHealth = null,
         BootPeerIdentity? peerIdentity = null,
-        BitcoinNotificationHealth? bitcoinNotificationHealth = null)
+        BitcoinNotificationHealth? bitcoinNotificationHealth = null,
+        DashboardTelemetryService? dashboardTelemetry = null,
+        DashboardVisualizationJournalService? dashboardVisualization = null)
     {
         _poolConfig = poolConfig;
         _shareVerifier = shareVerifier;
@@ -129,6 +133,8 @@ public class BootProtocolStateService
         _peerLoopHealth = peerLoopHealth ?? new BootPeerLoopHealth();
         _peerIdentity = peerIdentity;
         _bitcoinNotificationHealth = bitcoinNotificationHealth;
+        _dashboardTelemetry = dashboardTelemetry;
+        _dashboardVisualization = dashboardVisualization;
         LoadState();
 
         string? restoredProvisionalHash = null;
@@ -165,6 +171,8 @@ public class BootProtocolStateService
         {
             ScheduleProvisionalTipGraceCheck(restoredProvisionalHash, restoredGeneration);
         }
+
+        _dashboardTelemetry?.ObserveAdmissionFloor(GetWorkSetAdmissionDifficulty(), DateTime.UtcNow);
     }
 
     public ChannelReader<BootShareProof> AcceptedShares => _acceptedShares.Reader;
@@ -262,6 +270,32 @@ public class BootProtocolStateService
         }
     }
 
+    public DashboardDiagramStateProjection GetDashboardDiagramState()
+    {
+        lock (_sync)
+        {
+            HashSet<string> locked = _state.ActiveSnapshotProofIds
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return new DashboardDiagramStateProjection
+            {
+                ActiveSnapshotProofIds = _state.ActiveSnapshotProofIds.ToList(),
+                LastPaidProofCount = _state.LastPaidSnapshotProofIds.Count,
+                WorkSet = _state.OnDeckProofs.Select((proof, index) => new DashboardDiagramProofDto
+                {
+                    ProofId = proof.ShareId,
+                    Rank = index + 1,
+                    Address = proof.MinerAddress,
+                    Difficulty = proof.Difficulty,
+                    DifficultyDisplay = string.IsNullOrWhiteSpace(proof.DiffString)
+                        ? ClientHandler.FormatDifficulty(proof.Difficulty)
+                        : proof.DiffString,
+                    FirstSeenUtc = proof.StateServiceReceivedUtc ?? proof.Timestamp,
+                    Locked = locked.Contains(proof.ShareId)
+                }).ToList()
+            };
+        }
+    }
+
     public BestShareRecord GetBestShare()
     {
         lock (_sync)
@@ -275,6 +309,14 @@ public class BootProtocolStateService
         lock (_sync)
         {
             return BuildNetworkStatusNoLock();
+        }
+    }
+
+    public BootNetworkStatusDto GetPublicNetworkStatus()
+    {
+        lock (_sync)
+        {
+            return BootPrivacy.RedactPublicNetworkStatus(BuildNetworkStatusNoLock());
         }
     }
 
@@ -1039,7 +1081,7 @@ public class BootProtocolStateService
 
         if (shouldNotifyNetwork)
         {
-            QueueRealtimeSend(_hubContext.Clients.All.SendAsync("UpdateNetworkState", result.NetworkStatus), "UpdateNetworkState");
+            QueueRealtimeSend(_hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus()), "UpdateNetworkState");
         }
 
         return result;
@@ -2305,6 +2347,7 @@ public class BootProtocolStateService
             proof.StateServiceReceivedUtc = arrivalUtc;
             proof.DifficultyCheckedUtc = difficultyCheckedUtc;
             proof.ValidationCompletedUtc = validationCompletedUtc;
+            double admissionFloorDifficulty = GetWorkSetAdmissionDifficultyNoLock();
 
             int insertIndex = 0;
 
@@ -2481,6 +2524,9 @@ public class BootProtocolStateService
 
             if (affectedOnDeck)
             {
+                string displacedProofId = _state.OnDeckProofs.Count >= _poolConfig.WorkSetReserveLimit
+                    ? _state.OnDeckProofs[^1].ShareId
+                    : string.Empty;
                 _state.OnDeckProofs.Insert(insertIndex, proof);
 
                 _state.OnDeckProofs = _state.OnDeckProofs
@@ -2494,6 +2540,73 @@ public class BootProtocolStateService
                 }
 
                 RebuildOnDeckListNoLock();
+                insertIndex = _state.OnDeckProofs.FindIndex(item =>
+                    string.Equals(item.ShareId, proof.ShareId, StringComparison.OrdinalIgnoreCase));
+                if (insertIndex < 0)
+                {
+                    displacedProofId = proof.ShareId;
+                }
+                proof.DiffString = string.IsNullOrWhiteSpace(proof.DiffString)
+                    ? ClientHandler.FormatDifficulty(proof.Difficulty)
+                    : proof.DiffString;
+                bool diagramPeerSource = BootPeerSource.TryParsePeerSource(
+                    share.Source,
+                    out string transport,
+                    out string endpoint,
+                    out string nodeId);
+                string diagramMinerIdentity = string.IsNullOrWhiteSpace(proof.Username)
+                    ? proof.MinerAddress
+                    : proof.Username.Trim();
+                string diagramSourceId = !string.IsNullOrWhiteSpace(nodeId)
+                    ? nodeId
+                    : !string.IsNullOrWhiteSpace(endpoint)
+                        ? endpoint
+                        : diagramPeerSource
+                            ? share.Source
+                            : diagramMinerIdentity;
+                string diagramSourceKind = diagramPeerSource
+                    ? "peer"
+                    : localGatewaySource
+                        ? "miner"
+                        : "local";
+                string diagramSourceVisualId = diagramPeerSource
+                    ? _dashboardVisualization?.VisualId("peer", diagramSourceId) ?? string.Empty
+                    : localGatewaySource
+                        ? _dashboardVisualization?.VisualId(
+                            "miner",
+                            $"{share.Source.Trim().ToLowerInvariant()}:{proof.MinerAddress}:{diagramMinerIdentity}") ?? string.Empty
+                        : string.Empty;
+                _dashboardVisualization?.Append(new DashboardDiagramEventDto
+                {
+                    TimestampUtc = DateTime.UtcNow,
+                    Kind = DashboardDiagramEventKinds.ProofAdmitted,
+                    SourceKind = diagramSourceKind,
+                    SourceId = diagramSourceId,
+                    SourceVisualId = diagramSourceVisualId,
+                    Transport = transport,
+                    ProofId = proof.ShareId,
+                    Address = proof.MinerAddress,
+                    Difficulty = proof.Difficulty,
+                    BlockQuality = validation.IsBlock,
+                    ReceivedUtc = transportReceivedUtc,
+                    ValidatedUtc = validationCompletedUtc,
+                    MutatedUtc = DateTime.UtcNow,
+                    Rank = insertIndex >= 0 ? insertIndex + 1 : null,
+                    DisplacedProofId = string.Equals(
+                        displacedProofId,
+                        proof.ShareId,
+                        StringComparison.OrdinalIgnoreCase)
+                        ? string.Empty
+                        : displacedProofId
+                });
+            }
+
+            if (!peerSource)
+            {
+                _dashboardVisualization?.ObserveVerifiedLocalSlotZero(
+                    proof.MinerAddress,
+                    proof.ShareId,
+                    DateTime.UtcNow);
             }
 
             bool newRecord = false;
@@ -2511,10 +2624,42 @@ public class BootProtocolStateService
             if (!pulseAccepted)
             {
                 RecordAcceptedShareTelemetryNoLock(proof);
+                _dashboardTelemetry?.ObserveWorkProof(
+                    proof.ShareId,
+                    proof.Source,
+                    proof.Difficulty,
+                    admissionFloorDifficulty,
+                    arrivalUtc,
+                    proof.MinerAddress,
+                    proof.Username,
+                    peerSource ? "peer" : localGatewaySource ? "gateway" : "local",
+                    affectedOnDeck,
+                    validation.IsBlock);
             }
             else if (!BootPeerSource.TryParsePeerSource(share.Source, out _, out _, out _))
             {
                 _peerLoopHealth.RecordLocalPulse(proof.Timestamp);
+                _dashboardTelemetry?.ObservePulse(
+                    proof.ShareId,
+                    proof.Source,
+                    arrivalUtc,
+                    proof.MinerAddress,
+                    proof.Username,
+                    localGatewaySource ? "gateway" : "local",
+                    proof.Difficulty,
+                    validation.IsBlock);
+            }
+            else
+            {
+                _dashboardTelemetry?.ObservePulse(
+                    proof.ShareId,
+                    proof.Source,
+                    arrivalUtc,
+                    proof.MinerAddress,
+                    proof.Username,
+                    "peer",
+                    proof.Difficulty,
+                    validation.IsBlock);
             }
             RecordShareDiagnosticNoLock(
                 share.Source,
@@ -2527,6 +2672,41 @@ public class BootProtocolStateService
                 timestampUtc: proof.Timestamp);
             DateTime stateMutationCompletedUtc = DateTime.UtcNow;
             proof.StateMutationCompletedUtc = stateMutationCompletedUtc;
+            if (pulseAccepted)
+            {
+                bool parsedPeer = BootPeerSource.TryParsePeerSource(
+                    share.Source,
+                    out string pulseTransport,
+                    out string pulseEndpoint,
+                    out string pulseNodeId);
+                string pulseMinerIdentity = string.IsNullOrWhiteSpace(proof.Username)
+                    ? proof.MinerAddress
+                    : proof.Username.Trim();
+                string pulseSourceId = !string.IsNullOrWhiteSpace(pulseNodeId)
+                    ? pulseNodeId
+                    : !string.IsNullOrWhiteSpace(pulseEndpoint)
+                        ? pulseEndpoint
+                        : pulseMinerIdentity;
+                _dashboardVisualization?.Append(new DashboardDiagramEventDto
+                {
+                    TimestampUtc = stateMutationCompletedUtc,
+                    Kind = DashboardDiagramEventKinds.PulseAccepted,
+                    SourceKind = parsedPeer ? "peer" : localGatewaySource ? "miner" : "local",
+                    SourceId = pulseSourceId,
+                    SourceVisualId = parsedPeer
+                        ? _dashboardVisualization?.VisualId("peer", pulseSourceId) ?? string.Empty
+                        : localGatewaySource
+                            ? _dashboardVisualization?.VisualId(
+                                "miner",
+                                $"{share.Source.Trim().ToLowerInvariant()}:{proof.MinerAddress}:{pulseMinerIdentity}") ?? string.Empty
+                            : string.Empty,
+                    Transport = pulseTransport,
+                    ProofId = proof.ShareId,
+                    ReceivedUtc = transportReceivedUtc,
+                    ValidatedUtc = validationCompletedUtc,
+                    MutatedUtc = stateMutationCompletedUtc
+                });
+            }
             RecordPeerRelayObservationNoLock(
                 share.Source,
                 proof.ShareId,
@@ -2600,7 +2780,7 @@ public class BootProtocolStateService
 
         if (shouldNotifyNetwork)
         {
-            QueueRealtimeSend(_hubContext.Clients.All.SendAsync("UpdateNetworkState", result.NetworkStatus), "UpdateNetworkState");
+            QueueRealtimeSend(_hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus()), "UpdateNetworkState");
         }
         if (shouldRelay && result.AcceptedProof != null)
         {
@@ -3126,6 +3306,28 @@ public class BootProtocolStateService
                 result.AcceptedShares += entry.AcceptedShareCount;
                 result.AcceptedWorkDifficulty += entry.AcceptedWorkDifficulty;
                 TrimLocalDatumAddressTrackerNoLock(tracker, entry.WindowEndUtc);
+                if (entry.AcceptedShareCount > 0)
+                {
+                    string minerIdentity = string.IsNullOrWhiteSpace(entry.Username)
+                        ? address
+                        : entry.Username.Trim();
+                    _dashboardVisualization?.Append(new DashboardDiagramEventDto
+                    {
+                        TimestampUtc = entry.WindowEndUtc,
+                        Kind = DashboardDiagramEventKinds.LocalMinerActivity,
+                        SourceKind = "miner",
+                        SourceId = minerIdentity,
+                        SourceVisualId = _dashboardVisualization.VisualId(
+                            "miner",
+                            $"{normalizedSource}:{address}:{minerIdentity}"),
+                        VisualId = _dashboardVisualization.VisualId(
+                            "miner",
+                            $"{normalizedSource}:{address}:{minerIdentity}"),
+                        Address = address,
+                        AcceptedShareDelta = entry.AcceptedShareCount,
+                        ReceivedUtc = DateTime.UtcNow
+                    });
+                }
             }
 
             if (batch.Entries.Count > 0)
@@ -3348,7 +3550,7 @@ public class BootProtocolStateService
         }
 
         await _hubContext.Clients.All.SendAsync("UpdateOnDeck", result.OnDeckList);
-        await _hubContext.Clients.All.SendAsync("UpdateNetworkState", result.NetworkStatus);
+        await _hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus());
         await _hubContext.Clients.All.SendAsync("UpdateRoundHistory", GetRoundHistory());
         if (winnersChanged)
         {
@@ -3415,7 +3617,7 @@ public class BootProtocolStateService
 
         await _hubContext.Clients.All.SendAsync("UpdateWinners", winnersSnapshot);
         await _hubContext.Clients.All.SendAsync("UpdateOnDeck", onDeckSnapshot);
-        await _hubContext.Clients.All.SendAsync("UpdateNetworkState", networkStatus);
+        await _hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus());
         await _hubContext.Clients.All.SendAsync("UpdateRoundHistory", GetRoundHistory());
         await NotifyWinnersListChangedAsync("genesis-reset");
         await NotifyWorkTemplatesInvalidatedAsync("genesis-reset");
@@ -3673,7 +3875,7 @@ public class BootProtocolStateService
             await NotifyWinnersListChangedAsync($"chain-tip:{source}");
         }
 
-        await _hubContext.Clients.All.SendAsync("UpdateNetworkState", status);
+        await _hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus());
         if (!snapshotChanged)
         {
             await NotifyWorkTemplatesInvalidatedAsync($"chain-tip:{source}");
@@ -3700,8 +3902,26 @@ public class BootProtocolStateService
     {
         DateTime receivedUtc = transportReceivedUtc ?? DateTime.UtcNow;
         BitcoinHeaderEvaluation evaluation = BitcoinHashes.EvaluateHeader(announcement.HeaderHex, receivedUtc);
+        string diagramPeerId = !string.IsNullOrWhiteSpace(remoteNodeId) ? remoteNodeId : remoteEndpoint;
+        void RecordHeaderRejection(string reason, string? blockHash)
+        {
+            _dashboardVisualization?.Append(new DashboardDiagramEventDto
+            {
+                TimestampUtc = receivedUtc,
+                Kind = DashboardDiagramEventKinds.PeerHeaderRejected,
+                SourceKind = "peer",
+                SourceId = diagramPeerId,
+                SourceVisualId = _dashboardVisualization.VisualId("peer", diagramPeerId),
+                Transport = transport,
+                BlockHash = blockHash ?? string.Empty,
+                BlockHeight = announcement.BlockHeight,
+                Category = "header",
+                Reason = reason
+            });
+        }
         if (!evaluation.IsValid)
         {
+            RecordHeaderRejection(evaluation.RejectionReason, announcement.BlockHash);
             RecordExternalNetworkEvent(
                 "peer-chain-tip-rejected",
                 string.IsNullOrWhiteSpace(remoteEndpoint) ? $"peer-tip-node:{remoteNodeId}" : $"peer-tip:{remoteEndpoint}",
@@ -3720,6 +3940,7 @@ public class BootProtocolStateService
         if (!string.IsNullOrWhiteSpace(announcement.BlockHash) &&
             !BitcoinHashes.AreEquivalent(evaluation.BlockHash, announcement.BlockHash))
         {
+            RecordHeaderRejection("header hash did not match the announcement", evaluation.BlockHash);
             RecordExternalNetworkEvent(
                 "peer-chain-tip-rejected",
                 string.IsNullOrWhiteSpace(remoteEndpoint) ? $"peer-tip-node:{remoteNodeId}" : $"peer-tip:{remoteEndpoint}",
@@ -3823,6 +4044,23 @@ public class BootProtocolStateService
                 };
                 _provisionalTipGeneration++;
                 provisionalCreated = true;
+                _dashboardVisualization?.Append(new DashboardDiagramEventDto
+                {
+                    TimestampUtc = receivedUtc,
+                    Kind = DashboardDiagramEventKinds.PeerHeader,
+                    SourceKind = "peer",
+                    SourceId = !string.IsNullOrWhiteSpace(remoteNodeId)
+                        ? remoteNodeId
+                        : remoteEndpoint,
+                    SourceVisualId = _dashboardVisualization.VisualId(
+                        "peer",
+                        !string.IsNullOrWhiteSpace(remoteNodeId) ? remoteNodeId : remoteEndpoint),
+                    Transport = transport,
+                    BlockHash = evaluation.BlockHash,
+                    BlockHeight = announcement.BlockHeight,
+                    SnapshotId = context.SnapshotId,
+                    ReceivedUtc = receivedUtc
+                });
                 RecordNetworkEventNoLock(
                     "peer-tip-provisional",
                     source,
@@ -3842,6 +4080,7 @@ public class BootProtocolStateService
 
         if (!string.IsNullOrWhiteSpace(rejection))
         {
+            RecordHeaderRejection(rejection, evaluation.BlockHash);
             RecordExternalNetworkEvent(
                 "peer-chain-tip-rejected",
                 source,
@@ -4037,8 +4276,18 @@ public class BootProtocolStateService
         if (imported)
         {
             _logger.LogInformation("Merged candidate reserve proofs from {StateId} via {SourceEndpoint}.", bundle.StateId, sourceEndpoint);
+            _dashboardVisualization?.Append(new DashboardDiagramEventDto
+            {
+                TimestampUtc = DateTime.UtcNow,
+                Kind = DashboardDiagramEventKinds.SiblingMerge,
+                SourceKind = "peer",
+                SourceId = sourceEndpoint,
+                SourceVisualId = _dashboardVisualization.VisualId("peer", sourceEndpoint),
+                Count = validatedProofs.Count,
+                CurrentValue = networkStatus.CandidateStateId
+            });
             await _hubContext.Clients.All.SendAsync("UpdateOnDeck", onDeckSnapshot);
-            await _hubContext.Clients.All.SendAsync("UpdateNetworkState", networkStatus);
+            await _hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus());
         }
 
         return imported;
@@ -4349,7 +4598,7 @@ public class BootProtocolStateService
             _logger.LogInformation("Adopted locked state {StateId} from {SourceEndpoint}.", bundle.StateId, sourceEndpoint);
             await _hubContext.Clients.All.SendAsync("UpdateWinners", winnersSnapshot);
             await _hubContext.Clients.All.SendAsync("UpdateOnDeck", onDeckSnapshot);
-            await _hubContext.Clients.All.SendAsync("UpdateNetworkState", networkStatus);
+            await _hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus());
             await _hubContext.Clients.All.SendAsync("UpdateRoundHistory", GetRoundHistory());
             await NotifyWinnersListChangedAsync($"adopted-state:{sourceEndpoint}");
         }
@@ -4568,7 +4817,7 @@ public class BootProtocolStateService
         }
 
         await _hubContext.Clients.All.SendAsync("UpdateOnDeck", onDeckSnapshot);
-        await _hubContext.Clients.All.SendAsync("UpdateNetworkState", networkStatus);
+        await _hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus());
         if (payoutChanged)
         {
             await _hubContext.Clients.All.SendAsync("UpdateWinners", winnersSnapshot);
@@ -4751,7 +5000,7 @@ public class BootProtocolStateService
                 sourceEndpoint);
             await _hubContext.Clients.All.SendAsync("UpdateWinners", winnersSnapshot);
             await _hubContext.Clients.All.SendAsync("UpdateOnDeck", onDeckSnapshot);
-            await _hubContext.Clients.All.SendAsync("UpdateNetworkState", networkStatus);
+            await _hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus());
             await _hubContext.Clients.All.SendAsync("UpdateRoundHistory", GetRoundHistory());
             await NotifyWinnersListChangedAsync($"bootstrap-state:{sourceEndpoint}");
         }
@@ -4807,7 +5056,7 @@ public class BootProtocolStateService
                 "Synced current-round metadata for state {StateId} from {SourceEndpoint}.",
                 stateId,
                 sourceEndpoint);
-            await _hubContext.Clients.All.SendAsync("UpdateNetworkState", networkStatus);
+            await _hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus());
         }
 
         return changed;
@@ -5449,6 +5698,7 @@ public class BootProtocolStateService
     {
         _state.OnDeckProofs = SortAndTrimProofs(_state.OnDeckProofs, _poolConfig.WorkSetReserveLimit);
         _state.OnDeckList = BuildFeeFreePayoutsFromProofs(_state.OnDeckProofs);
+        _dashboardTelemetry?.ObserveAdmissionFloor(GetWorkSetAdmissionDifficultyNoLock(), DateTime.UtcNow);
     }
 
     private bool HasSnapshotContextNoLock(string? snapshotId)
@@ -5749,6 +5999,22 @@ public class BootProtocolStateService
             normalizedBlockHash,
             blockHeight,
             createdUtc);
+        if (!string.IsNullOrWhiteSpace(normalizedBlockHash) && blockHeight.HasValue)
+        {
+            _dashboardVisualization?.Append(new DashboardDiagramEventDto
+            {
+                TimestampUtc = createdUtc,
+                Kind = DashboardDiagramEventKinds.BoundaryValidated,
+                SourceKind = "bitcoin",
+                SourceId = source,
+                BlockHash = normalizedBlockHash,
+                BlockHeight = blockHeight,
+                SnapshotId = context.SnapshotId,
+                BoundaryKind = "regular",
+                LockedProofIds = context.ProofIds.ToList(),
+                MutatedUtc = createdUtc
+            });
+        }
         transitionStopwatch.Stop();
         _lastSnapshotTransitionDurationMs = transitionStopwatch.Elapsed.TotalMilliseconds;
         return changed;
@@ -5872,6 +6138,19 @@ public class BootProtocolStateService
             blockHash,
             blockHeight,
             nowUtc);
+        _dashboardVisualization?.Append(new DashboardDiagramEventDto
+        {
+            TimestampUtc = nowUtc,
+            Kind = DashboardDiagramEventKinds.BoundaryValidated,
+            SourceKind = "bitcoin",
+            SourceId = source,
+            BlockHash = blockHash ?? string.Empty,
+            BlockHeight = blockHeight,
+            SnapshotId = paidSnapshotId,
+            BoundaryKind = "gridpool-paid",
+            Count = paidProofIds.Count,
+            LockedProofIds = paidProofIds
+        });
     }
 
     private void UpsertSnapshotContextNoLock(BootPayoutSnapshotContext context)
@@ -7299,6 +7578,33 @@ public class BootProtocolStateService
         if (!accepted)
         {
             _state.RecentRejectedShareDiagnostics.Add(CloneShareDiagnostic(diagnostic));
+            bool peerSource = BootPeerSource.TryParsePeerSource(
+                source,
+                out string transport,
+                out string endpoint,
+                out string nodeId);
+            string sourceId = peerSource
+                ? !string.IsNullOrWhiteSpace(nodeId) ? nodeId : endpoint
+                : string.IsNullOrWhiteSpace(username) ? minerAddress : username;
+            string sourceVisualId = peerSource
+                ? _dashboardVisualization?.VisualId("peer", sourceId) ?? string.Empty
+                : _dashboardVisualization?.VisualId(
+                    "miner",
+                    $"{source.Trim()}:{minerAddress}:{username}") ?? string.Empty;
+            _dashboardVisualization?.Append(new DashboardDiagramEventDto
+            {
+                TimestampUtc = timestampUtc,
+                Kind = DashboardDiagramEventKinds.ProofRejected,
+                SourceKind = peerSource ? "peer" : "miner",
+                SourceId = sourceId,
+                SourceVisualId = sourceVisualId,
+                Transport = transport,
+                Address = minerAddress,
+                Difficulty = difficulty > 0 ? difficulty : null,
+                Category = diagnostic.RejectionCategory ?? "rejected",
+                Reason = rejectionReason ?? string.Empty,
+                Count = 1
+            });
         }
 
         TrimShareDiagnosticsNoLock(timestampUtc);
@@ -10649,7 +10955,7 @@ public class BootProtocolStateService
             await NotifyWorkTemplatesInvalidatedAsync("peer-tip-stale-protection");
             if (status != null)
             {
-                await _hubContext.Clients.All.SendAsync("UpdateNetworkState", status);
+                await _hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus());
             }
         });
     }

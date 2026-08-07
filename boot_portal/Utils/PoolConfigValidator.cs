@@ -1,11 +1,14 @@
 using System.Text;
 using System.Net;
 using boot_portal.Models;
+using System.Text.Json.Nodes;
+using System.Text.Json;
 
 namespace boot_portal.Utils;
 
 public static class PoolConfigValidator
 {
+    private static readonly object SetupWriteGate = new();
     public const int MaxDatumCoinbaseTagBytes = 255;
     private static readonly HashSet<string> ValidNodeModes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -74,10 +77,15 @@ public static class PoolConfigValidator
             errors.Add(ex.Message);
         }
 
-        if (!string.IsNullOrWhiteSpace(bitcoinNetwork) &&
+        if (!string.IsNullOrWhiteSpace(config.PoolPayoutScript) &&
             !BitcoinScript.TryAddressToScriptPubKey(config.PoolPayoutScript, bitcoinNetwork, out _))
         {
             errors.Add($"pool_payout_script must be a supported Bitcoin payout address for bitcoin_network {bitcoinNetwork}");
+        }
+
+        if (!config.EnableWebUi && string.IsNullOrWhiteSpace(config.PoolPayoutScript))
+        {
+            errors.Add("pool_payout_script is required when enable_web_ui is false");
         }
 
         int coinbaseTagBytes = Encoding.UTF8.GetByteCount(config.CoinbaseTag ?? string.Empty);
@@ -274,6 +282,54 @@ public static class PoolConfigValidator
         }
 
         return errors;
+    }
+
+    public static void SaveSetupConfig(PoolConfig config, string payoutAddress)
+    {
+        string normalizedAddress = payoutAddress.Trim();
+        string bitcoinNetwork = BitcoinScript.NormalizeNetwork(config.BitcoinNetwork);
+        if (!BitcoinScript.TryAddressToScriptPubKey(normalizedAddress, bitcoinNetwork, out _))
+        {
+            throw new InvalidOperationException(
+                $"Bitcoin payout address is not valid for bitcoin network {bitcoinNetwork}.");
+        }
+
+        string localConfigPath = BootPortalPaths.LocalConfigFilePath;
+        lock (SetupWriteGate)
+        {
+            JsonObject localConfig = [];
+            if (File.Exists(localConfigPath))
+            {
+                localConfig = JsonNode.Parse(File.ReadAllText(localConfigPath)) as JsonObject ??
+                    throw new InvalidOperationException("The local GridPool configuration is not a JSON object.");
+            }
+
+            localConfig["pool_payout_script"] = normalizedAddress;
+            localConfig["setup_completed"] = true;
+
+            BootPortalPaths.EnsureParentDirectory(localConfigPath);
+            string temporaryPath = $"{localConfigPath}.{Guid.NewGuid():N}.tmp";
+            try
+            {
+                var options = new JsonSerializerOptions { WriteIndented = true };
+                File.WriteAllText(temporaryPath, localConfig.ToJsonString(options) + Environment.NewLine);
+                if (!OperatingSystem.IsWindows())
+                {
+                    File.SetUnixFileMode(
+                        temporaryPath,
+                        UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                }
+
+                File.Move(temporaryPath, localConfigPath, overwrite: true);
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath))
+                {
+                    File.Delete(temporaryPath);
+                }
+            }
+        }
     }
 
     private static bool IsProduction(PoolConfig config)

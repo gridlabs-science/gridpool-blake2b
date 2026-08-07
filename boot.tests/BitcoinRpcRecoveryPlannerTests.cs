@@ -71,4 +71,18 @@ public sealed class BitcoinRpcRecoveryPlannerTests
         Assert.AreEqual(0, plan.Heights.Count);
         Assert.IsFalse(plan.Reorganization);
     }
+
+    [TestMethod]
+    public void MatchingHashRepairsIncorrectPersistedHeight()
+    {
+        BitcoinRpcRecoveryPlan plan = BitcoinRpcRecoveryPlanner.Build(
+            960_134,
+            "AA",
+            146_215,
+            "aa");
+
+        CollectionAssert.AreEqual(new long[] { 146_215 }, plan.Heights.ToArray());
+        Assert.IsTrue(plan.EstablishesBaseline);
+        Assert.IsFalse(plan.Reorganization);
+    }
 }

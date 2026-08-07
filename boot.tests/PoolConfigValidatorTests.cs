@@ -1,4 +1,5 @@
 using System.Text;
+using boot_portal.Models;
 using boot_portal.Utils;
 
 namespace boot.tests;
@@ -19,6 +20,15 @@ public sealed class PoolConfigValidatorTests
     public void PulseProofsDefaultToEnabled()
     {
         Assert.IsTrue(new PoolConfig().EnablePulseProofs);
+    }
+
+    [TestMethod]
+    public void DashboardDefaultsToEnabledWithLegacyFallback()
+    {
+        var config = new PoolConfig();
+
+        Assert.IsTrue(config.EnableWebUi);
+        Assert.IsTrue(config.EnableLegacyUi);
     }
 
     [TestMethod]
@@ -158,7 +168,7 @@ public sealed class PoolConfigValidatorTests
     {
         var config = new PoolConfig
         {
-            PoolPayoutScript = "not-a-bitcoin-address"
+            PoolPayoutScript = "not-a-bitcoin-address",
         };
 
         List<string> errors = PoolConfigValidator.Validate(config);
@@ -177,7 +187,7 @@ public sealed class PoolConfigValidatorTests
         var config = new PoolConfig
         {
             BitcoinNetwork = BitcoinScript.Mainnet,
-            PoolPayoutScript = testnetAddress
+            PoolPayoutScript = testnetAddress,
         };
 
         List<string> errors = PoolConfigValidator.Validate(config);
@@ -196,7 +206,7 @@ public sealed class PoolConfigValidatorTests
         var validConfig = new PoolConfig
         {
             BitcoinNetwork = BitcoinScript.Testnet4,
-            PoolPayoutScript = testnetAddress
+            PoolPayoutScript = testnetAddress,
         };
 
         CollectionAssert.AreEqual(Array.Empty<string>(), PoolConfigValidator.Validate(validConfig));

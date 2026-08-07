@@ -1,4 +1,5 @@
 using boot_portal.Models;
+using boot_portal.Services;
 using boot_portal.Utils;
 
 namespace boot.tests;
@@ -6,6 +7,15 @@ namespace boot.tests;
 [TestClass]
 public sealed class BootPrivacyTests
 {
+    [DataTestMethod]
+    [DataRow("https://dallas.gridpool.net:5000", "Dallas")]
+    [DataRow("https://evomining.farted.net:5000", "evomining.farted.net")]
+    [DataRow("https://private.example.net:5000", null)]
+    public void DiagramOnlyNamesExplicitlyAllowlistedPublicPeers(string endpoint, string? expected)
+    {
+        Assert.AreEqual(expected, DashboardReadModelService.PublicPeerDisplayName(endpoint));
+    }
+
     [TestMethod]
     public void PublicSummaryRedactsPrivateEndpointsMinerIdentitiesAndOperatorDiagnostics()
     {
@@ -44,6 +54,7 @@ public sealed class BootPrivacyTests
             {
                 DegradedReason = "RPC failed at http://bitcoin.internal:8332",
                 Rpc = new BootBitcoinRpcHealthDto { LastError = "RPC failed at http://127.0.0.1:8332" },
+                Network = new BootBitcoinNetworkHealthDto { LastError = "peer RPC failed at http://127.0.0.1:8332" },
                 ZmqTopics =
                 [
                     new BootBitcoinZmqTopicHealthDto
@@ -75,6 +86,7 @@ public sealed class BootPrivacyTests
         Assert.AreEqual(0, redacted.LocalMiningSources.Count);
         Assert.AreEqual(0, redacted.Peers.Count);
         Assert.AreEqual(string.Empty, redacted.BitcoinNotification.Rpc.LastError);
+        Assert.AreEqual(string.Empty, redacted.BitcoinNotification.Network.LastError);
         Assert.AreEqual("Bitcoin notification source is degraded.", redacted.BitcoinNotification.DegradedReason);
         Assert.AreEqual(string.Empty, redacted.BitcoinNotification.ZmqTopics[0].EndpointLabel);
         Assert.AreEqual(0, redacted.BitcoinNotification.ZmqTopics[0].PublisherEndpointLabels.Count);
@@ -95,6 +107,16 @@ public sealed class BootPrivacyTests
         Assert.AreEqual("https://main.gridpool.net", redacted.SelfEndpoint);
         Assert.AreEqual("datum.main.gridpool.net", redacted.DatumPublicHost);
         Assert.AreEqual("udp.main.gridpool.net", redacted.PeerUdpPublicHost);
+    }
+
+    [DataTestMethod]
+    [DataRow("192.168.1.10", "")]
+    [DataRow("localhost", "")]
+    [DataRow("gridpool-node.local", "")]
+    [DataRow("datum.main.gridpool.net", "datum.main.gridpool.net")]
+    public void PublicDnsHostFilterDropsPrivateOrLocalNames(string host, string expected)
+    {
+        Assert.AreEqual(expected, BootPrivacy.KeepPublicDnsHost(host));
     }
 
     [DataTestMethod]

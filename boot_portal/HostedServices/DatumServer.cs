@@ -2,6 +2,7 @@
 using System.Net;
 using System.Net.Sockets;
 using boot_portal.Services;
+using boot_portal.Models;
 using Microsoft.AspNetCore.SignalR;
 using NSec.Cryptography;
 

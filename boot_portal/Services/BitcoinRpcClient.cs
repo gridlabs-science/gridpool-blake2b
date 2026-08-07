@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using boot_portal.Models;
 
 namespace boot_portal.Services;
 
@@ -12,6 +13,8 @@ public sealed record BitcoinBlockchainInfo(
     double? VerificationProgress);
 
 public sealed record BitcoinZmqPublisher(string Topic, string Address);
+public sealed record BitcoinNetworkInfo(int Connections, int ConnectionsIn, int ConnectionsOut);
+public sealed record BitcoinPeerInfo(long Id, bool Inbound, double? PingTimeSeconds, string ConnectionType);
 
 public interface IBitcoinRpcClient
 {
@@ -21,6 +24,9 @@ public interface IBitcoinRpcClient
     Task<string> GetBlockHashAsync(long height, CancellationToken cancellationToken);
     Task<string> GetBlockHeaderHexAsync(string blockHash, CancellationToken cancellationToken);
     Task<IReadOnlyList<BitcoinZmqPublisher>> GetZmqNotificationsAsync(CancellationToken cancellationToken);
+    Task<BitcoinNetworkInfo> GetNetworkInfoAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<BitcoinPeerInfo>> GetPeerInfoAsync(CancellationToken cancellationToken);
+    Task<double?> GetNetworkHashrateAsync(CancellationToken cancellationToken);
 }
 
 public sealed class BitcoinRpcClient : IBitcoinRpcClient
@@ -87,6 +93,43 @@ public sealed class BitcoinRpcClient : IBitcoinRpcClient
                     : string.Empty))
             .Where(publisher => !string.IsNullOrWhiteSpace(publisher.Topic))
             .ToList();
+    }
+
+    public async Task<BitcoinNetworkInfo> GetNetworkInfoAsync(CancellationToken cancellationToken)
+    {
+        JsonElement result = await CallAsync("getnetworkinfo", [], cancellationToken);
+        return new BitcoinNetworkInfo(
+            result.TryGetProperty("connections", out JsonElement connections) ? connections.GetInt32() : 0,
+            result.TryGetProperty("connections_in", out JsonElement inbound) ? inbound.GetInt32() : 0,
+            result.TryGetProperty("connections_out", out JsonElement outbound) ? outbound.GetInt32() : 0);
+    }
+
+    public async Task<IReadOnlyList<BitcoinPeerInfo>> GetPeerInfoAsync(CancellationToken cancellationToken)
+    {
+        JsonElement result = await CallAsync("getpeerinfo", [], cancellationToken);
+        if (result.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return result.EnumerateArray()
+            .Select(item => new BitcoinPeerInfo(
+                item.TryGetProperty("id", out JsonElement id) ? id.GetInt64() : -1,
+                item.TryGetProperty("inbound", out JsonElement inbound) && inbound.GetBoolean(),
+                item.TryGetProperty("pingtime", out JsonElement ping) && ping.ValueKind == JsonValueKind.Number
+                    ? ping.GetDouble()
+                    : null,
+                item.TryGetProperty("connection_type", out JsonElement type)
+                    ? type.GetString() ?? string.Empty
+                    : string.Empty))
+            .Where(peer => peer.Id >= 0)
+            .ToList();
+    }
+
+    public async Task<double?> GetNetworkHashrateAsync(CancellationToken cancellationToken)
+    {
+        JsonElement result = await CallAsync("getnetworkhashps", [], cancellationToken);
+        return result.ValueKind == JsonValueKind.Number ? result.GetDouble() : null;
     }
 
     private async Task<JsonElement> CallAsync(

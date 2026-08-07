@@ -39,6 +39,22 @@ GridPool must distinguish three kinds of information:
    details, miner addresses, session failures, and detailed logs may be visible
    to the local authenticated operator but not the unauthenticated public UI.
 
+The living diagram follows the same boundary: the Work Set and Slot 0 expose
+their proof IDs, payout addresses, difficulty, and timestamps as public shared
+consensus evidence. Peers expose protocol node IDs; only the exact advertised
+Dallas, Detroit, Oregon, and `evomining.farted.net` DNS hosts receive public names. All other peer
+endpoints, IP addresses, and inferred locations remain operator-only. Public
+round-trip latency may control the length of an already-visible anonymous peer
+link; it is not accompanied by endpoint or location data.
+
+Bitcoin peer telemetry is anonymous by construction: RPC peer IDs are replaced
+with stable process-local salted visual IDs before projection. The UI may expose
+peer counts, direction/type, latency, liveness, and network hashrate, but never
+Bitcoin peer addresses, bind addresses, user agents, or inferred geography.
+Validated local Slot-0 proof history may expose shared proof evidence publicly;
+worker names, miner endpoints, source transports, and exact rejection detail do
+not cross the operator boundary.
+
 Publicly hosting the node UI must not silently convert operator diagnostics into
 a network directory. Private mode should be the package default.
 
