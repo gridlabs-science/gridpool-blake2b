@@ -477,7 +477,7 @@ public sealed class DashboardReadModelService
         };
     }
 
-    private static string? PublicPeerDisplayName(string? endpoint)
+    internal static string? PublicPeerDisplayName(string? endpoint)
     {
         if (!Uri.TryCreate(endpoint, UriKind.Absolute, out Uri? uri))
         {
@@ -488,6 +488,7 @@ public sealed class DashboardReadModelService
             "dallas.gridpool.net" => "Dallas",
             "detroit.gridpool.net" => "Detroit",
             "oregon.gridpool.net" => "Oregon",
+            "evomining.farted.net" => "evomining.farted.net",
             _ => null
         };
     }

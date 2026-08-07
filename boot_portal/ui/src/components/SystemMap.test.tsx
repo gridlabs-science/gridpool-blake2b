@@ -100,6 +100,7 @@ describe("GridPool system map", () => {
     );
 
     expect(screen.getByText("Dallas")).toBeInTheDocument();
+    expect(screen.getByText("evomining.farted.net")).toBeInTheDocument();
     expect(screen.getByText(/1.2 PH\/s remote/)).toBeInTheDocument();
     expect(screen.getByText("1.2 PH/s local")).toBeInTheDocument();
     expect(screen.getByText("400 TH/s")).toBeInTheDocument();

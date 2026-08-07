@@ -161,6 +161,21 @@ export const diagramFixture: DashboardDiagram = {
       stateRelation: "current",
       lastInboundUtc: "2026-07-29T11:59:59Z",
       lastOutboundUtc: "2026-07-29T11:59:58Z"
+    },
+    {
+      visualId: "peer-evomining",
+      displayName: "evomining.farted.net",
+      nodeId: "evomining",
+      endpoint: "",
+      status: "connected",
+      connected: true,
+      latencyMs: 62,
+      lastActivityUtc: "2026-07-29T11:59:58Z",
+      compatibilityStatus: "compatible",
+      transport: "websocket",
+      stateRelation: "current",
+      lastInboundUtc: "2026-07-29T11:59:58Z",
+      lastOutboundUtc: "2026-07-29T11:59:57Z"
     }
   ],
   miners: [

@@ -1,4 +1,5 @@
 using boot_portal.Models;
+using boot_portal.Services;
 using boot_portal.Utils;
 
 namespace boot.tests;
@@ -6,6 +7,15 @@ namespace boot.tests;
 [TestClass]
 public sealed class BootPrivacyTests
 {
+    [DataTestMethod]
+    [DataRow("https://dallas.gridpool.net:5000", "Dallas")]
+    [DataRow("https://evomining.farted.net:5000", "evomining.farted.net")]
+    [DataRow("https://private.example.net:5000", null)]
+    public void DiagramOnlyNamesExplicitlyAllowlistedPublicPeers(string endpoint, string? expected)
+    {
+        Assert.AreEqual(expected, DashboardReadModelService.PublicPeerDisplayName(endpoint));
+    }
+
     [TestMethod]
     public void PublicSummaryRedactsPrivateEndpointsMinerIdentitiesAndOperatorDiagnostics()
     {

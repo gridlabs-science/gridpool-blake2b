@@ -34,7 +34,7 @@ The visualization journal is presentation-only, in memory, and bounded to
 and reconcile from a fresh diagram snapshot. The public diagram exposes exact
 Work Set proof IDs, payout addresses, difficulty, arrival time, and verified
 Slot 0 as shared consensus evidence. It exposes peer node IDs and allowlisted
-names for Dallas, Detroit, and Oregon, while peer endpoints/IPs/locations and
+names for Dallas, Detroit, Oregon, and `evomining.farted.net`, while peer endpoints/IPs/locations and
 miner identities remain operator-only. Public peer latency controls anonymous
 link length. Anonymous miner rates, aggregate local
 rate, the estimated remote-pool rate, and Bitcoin network difficulty are public.

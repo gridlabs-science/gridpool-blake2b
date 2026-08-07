@@ -196,7 +196,7 @@ dashboard remains at `/details`. Diagram projections are:
 The public projection exposes Work Set proof IDs, payout addresses, difficulty,
 arrival time, and verified Slot 0 because those are shared consensus evidence.
 It also exposes peer protocol node IDs and allowlisted names for the advertised
-Dallas, Detroit, and Oregon public nodes. Private peer endpoints, IP addresses,
+Dallas, Detroit, Oregon, and `evomining.farted.net` public nodes. Private peer endpoints, IP addresses,
 locations, miner names, payout attribution, and transport diagnostics remain
 operator-only. Public peer latency drives anonymous link length. Anonymous
 miner hashrate, aggregate local hashrate, estimated

@@ -1144,6 +1144,7 @@ function arcPath(point: Point, radius: number, startDegrees: number, endDegrees:
 
 function compactPeerLabel(value: string) {
   if (!value) return "peer";
+  if (value === "evomining.farted.net") return value;
   return value.length <= 18 ? value : `${value.slice(0, 10)}…${value.slice(-5)}`;
 }
 
