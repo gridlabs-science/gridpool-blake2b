@@ -539,31 +539,6 @@ public class Program
         return result;
     }
 
-    public static void SaveSetupConfig(PoolConfig config)
-    {
-        string localConfigPath = BootPortalPaths.LocalConfigFilePath;
-        JsonObject localConfig = [];
-
-        if (File.Exists(localConfigPath))
-        {
-            try
-            {
-                localConfig = JsonNode.Parse(File.ReadAllText(localConfigPath)) as JsonObject ?? new JsonObject();
-            }
-            catch
-            {
-                localConfig = [];
-            }
-        }
-
-        localConfig["pool_payout_script"] = config.PoolPayoutScript;
-        localConfig["setup_completed"] = true;
-
-        BootPortalPaths.EnsureParentDirectory(localConfigPath);
-        var options = new JsonSerializerOptions { WriteIndented = true };
-        File.WriteAllText(localConfigPath, localConfig.ToJsonString(options));
-    }
-
     private static void MergeInto(JsonObject target, JsonObject source)
     {
         foreach ((string key, JsonNode? value) in source)

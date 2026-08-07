@@ -1,5 +1,4 @@
 using boot_portal.Models;
-using boot_portal.Utils;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
@@ -16,22 +15,11 @@ public sealed class IndexModel : PageModel
 
     public IActionResult OnGet()
     {
-        if (!IsSetupComplete())
+        if (!_poolConfig.IsSetupComplete())
         {
             return RedirectToPage("/Setup");
         }
 
         return Page();
-    }
-
-    private bool IsSetupComplete()
-    {
-        if (_poolConfig.SetupCompleted)
-        {
-            return true;
-        }
-
-        return !string.IsNullOrWhiteSpace(_poolConfig.PoolPayoutScript) &&
-               BitcoinScript.TryAddressToScriptPubKey(_poolConfig.PoolPayoutScript, _poolConfig.BitcoinNetwork, out _);
     }
 }

@@ -160,7 +160,6 @@ public sealed class PoolConfigValidatorTests
         var config = new PoolConfig
         {
             PoolPayoutScript = "not-a-bitcoin-address",
-            SetupCompleted = true
         };
 
         List<string> errors = PoolConfigValidator.Validate(config);
@@ -180,7 +179,6 @@ public sealed class PoolConfigValidatorTests
         {
             BitcoinNetwork = BitcoinScript.Mainnet,
             PoolPayoutScript = testnetAddress,
-            SetupCompleted = true
         };
 
         List<string> errors = PoolConfigValidator.Validate(config);
@@ -200,7 +198,6 @@ public sealed class PoolConfigValidatorTests
         {
             BitcoinNetwork = BitcoinScript.Testnet4,
             PoolPayoutScript = testnetAddress,
-            SetupCompleted = true
         };
 
         CollectionAssert.AreEqual(Array.Empty<string>(), PoolConfigValidator.Validate(validConfig));

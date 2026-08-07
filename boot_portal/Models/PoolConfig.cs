@@ -422,8 +422,11 @@ public class PoolConfig
     [JsonPropertyName("stratum_v1_proxy_port")]
     public int StratumV1ProxyPort { get; set; } = 0;
 
-    [JsonPropertyName("setup_completed")]
-    public bool SetupCompleted { get; set; } = false;
+    public bool IsSetupComplete()
+    {
+        return !string.IsNullOrWhiteSpace(PoolPayoutScript) &&
+               BitcoinScript.TryAddressToScriptPubKey(PoolPayoutScript, BitcoinNetwork, out _);
+    }
 
     [JsonIgnore]
     public bool TestingRoundResetEnabled =>

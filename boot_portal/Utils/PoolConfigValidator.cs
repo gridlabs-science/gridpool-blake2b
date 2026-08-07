@@ -1,6 +1,8 @@
 using System.Text;
 using System.Net;
 using boot_portal.Models;
+using System.Text.Json.Nodes;
+using System.Text.Json;
 
 namespace boot_portal.Utils;
 
@@ -74,13 +76,10 @@ public static class PoolConfigValidator
             errors.Add(ex.Message);
         }
 
-        if (config.SetupCompleted)
+        if (!string.IsNullOrWhiteSpace(config.PoolPayoutScript) &&
+            !BitcoinScript.TryAddressToScriptPubKey(config.PoolPayoutScript, bitcoinNetwork, out _))
         {
-            if (!string.IsNullOrWhiteSpace(bitcoinNetwork) &&
-                !BitcoinScript.TryAddressToScriptPubKey(config.PoolPayoutScript, bitcoinNetwork, out _))
-            {
-                errors.Add($"pool_payout_script must be a supported Bitcoin payout address for bitcoin_network {bitcoinNetwork}");
-            }
+            errors.Add($"pool_payout_script must be a supported Bitcoin payout address for bitcoin_network {bitcoinNetwork}");
         }
 
         int coinbaseTagBytes = Encoding.UTF8.GetByteCount(config.CoinbaseTag ?? string.Empty);
@@ -272,6 +271,31 @@ public static class PoolConfigValidator
         }
 
         return errors;
+    }
+
+    public static void SaveSetupConfig(PoolConfig config)
+    {
+        string localConfigPath = BootPortalPaths.LocalConfigFilePath;
+        JsonObject localConfig = [];
+
+        if (File.Exists(localConfigPath))
+        {
+            try
+            {
+                localConfig = JsonNode.Parse(File.ReadAllText(localConfigPath)) as JsonObject ?? new JsonObject();
+            }
+            catch
+            {
+                localConfig = [];
+            }
+        }
+
+        localConfig["pool_payout_script"] = config.PoolPayoutScript;
+        localConfig["setup_completed"] = true;
+
+        BootPortalPaths.EnsureParentDirectory(localConfigPath);
+        var options = new JsonSerializerOptions { WriteIndented = true };
+        File.WriteAllText(localConfigPath, localConfig.ToJsonString(options));
     }
 
     private static bool IsProduction(PoolConfig config)

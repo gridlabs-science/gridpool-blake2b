@@ -18,17 +18,23 @@ public sealed class SetupModel(PoolConfig poolConfig) : PageModel
 
     public IActionResult OnGet()
     {
-        SavedAddress = _poolConfig.PoolPayoutScript;
-        if (_poolConfig.SetupCompleted && !string.IsNullOrWhiteSpace(_poolConfig.PoolPayoutScript))
+        if (_poolConfig.IsSetupComplete())
         {
             return RedirectToPage("/Index");
         }
+
+        SavedAddress = _poolConfig.PoolPayoutScript;
 
         return Page();
     }
 
     public IActionResult OnPost()
     {
+        if (_poolConfig.IsSetupComplete())
+        {
+            return RedirectToPage("/Index");
+        }
+
         if (!ModelState.IsValid)
         {
             return Page();
@@ -42,11 +48,10 @@ public sealed class SetupModel(PoolConfig poolConfig) : PageModel
         }
 
         _poolConfig.PoolPayoutScript = PoolPayoutScript.Trim();
-        _poolConfig.SetupCompleted = true;
 
         try
         {
-            Program.SaveSetupConfig(_poolConfig);
+            PoolConfigValidator.SaveSetupConfig(_poolConfig);
         }
         catch (Exception ex)
         {
