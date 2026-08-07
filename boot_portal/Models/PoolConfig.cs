@@ -4,8 +4,7 @@ using boot_portal.Utils;
 namespace boot_portal.Models;
 
 /// <summary>
-/// This class stores primary configurations like the payout address. It's written on the assumption that each 
-/// user will run their own boot_portal, and not rely on other people's portals
+/// Runtime configuration for a sovereign GridPool node.
 /// </summary>
 public class PoolConfig
 {
@@ -19,7 +18,7 @@ public class PoolConfig
     public string BitcoinNetwork { get; set; } = BitcoinScript.Mainnet;
 
     [JsonPropertyName("pool_payout_script")]
-    public string PoolPayoutScript { get; set; }// = "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y"; //TODO: hard coded default address? 
+    public string PoolPayoutScript { get; set; } = string.Empty;
 
     [JsonPropertyName("winners_list_size")]
     public int WinnersListSize { get; set; } = 299;
@@ -93,6 +92,9 @@ public class PoolConfig
     [JsonPropertyName("enable_admin_api")]
     public bool EnableAdminApi { get; set; } = true;
 
+    [JsonPropertyName("public_operator_diagnostics_enabled")]
+    public bool PublicOperatorDiagnosticsEnabled { get; set; } = false;
+
     [JsonPropertyName("max_state_bundle_history")]
     public int MaxStateBundleHistory { get; set; } = 8;
 
@@ -104,6 +106,12 @@ public class PoolConfig
 
     [JsonPropertyName("WebUI_Port_https")]
     public int WebUiPortHttps { get; set; } = 0;
+
+    [JsonPropertyName("enable_web_ui")]
+    public bool EnableWebUi { get; set; } = true;
+
+    [JsonPropertyName("enable_legacy_ui")]
+    public bool EnableLegacyUi { get; set; } = true;
 
     [JsonPropertyName("peer_listener_port")]
     public int PeerListenerPort { get; set; } = 0;
@@ -422,11 +430,9 @@ public class PoolConfig
     [JsonPropertyName("stratum_v1_proxy_port")]
     public int StratumV1ProxyPort { get; set; } = 0;
 
-    public bool IsSetupComplete()
-    {
-        return !string.IsNullOrWhiteSpace(PoolPayoutScript) &&
-               BitcoinScript.TryAddressToScriptPubKey(PoolPayoutScript, BitcoinNetwork, out _);
-    }
+    public bool IsSetupComplete() =>
+        !string.IsNullOrWhiteSpace(PoolPayoutScript) &&
+        BitcoinScript.TryAddressToScriptPubKey(PoolPayoutScript, BitcoinNetwork, out _);
 
     [JsonIgnore]
     public bool TestingRoundResetEnabled =>

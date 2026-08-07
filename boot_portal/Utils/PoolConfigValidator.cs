@@ -8,6 +8,7 @@ namespace boot_portal.Utils;
 
 public static class PoolConfigValidator
 {
+    private static readonly object SetupWriteGate = new();
     public const int MaxDatumCoinbaseTagBytes = 255;
     private static readonly HashSet<string> ValidNodeModes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -80,6 +81,11 @@ public static class PoolConfigValidator
             !BitcoinScript.TryAddressToScriptPubKey(config.PoolPayoutScript, bitcoinNetwork, out _))
         {
             errors.Add($"pool_payout_script must be a supported Bitcoin payout address for bitcoin_network {bitcoinNetwork}");
+        }
+
+        if (!config.EnableWebUi && string.IsNullOrWhiteSpace(config.PoolPayoutScript))
+        {
+            errors.Add("pool_payout_script is required when enable_web_ui is false");
         }
 
         int coinbaseTagBytes = Encoding.UTF8.GetByteCount(config.CoinbaseTag ?? string.Empty);
@@ -262,6 +268,11 @@ public static class PoolConfigValidator
                 errors.Add("admin_api_key must be a strong non-placeholder value when enable_admin_api is true in production");
             }
 
+            if (config.PublicOperatorDiagnosticsEnabled)
+            {
+                errors.Add("public_operator_diagnostics_enabled must be false in production; use the authenticated admin API");
+            }
+
             if (string.Equals(bitcoinNetwork, BitcoinScript.Mainnet, StringComparison.OrdinalIgnoreCase) &&
                 config.BootProtocolVersion >= 22 &&
                 config.V22ActivationBlockHeight == 0)
@@ -273,29 +284,52 @@ public static class PoolConfigValidator
         return errors;
     }
 
-    public static void SaveSetupConfig(PoolConfig config)
+    public static void SaveSetupConfig(PoolConfig config, string payoutAddress)
     {
-        string localConfigPath = BootPortalPaths.LocalConfigFilePath;
-        JsonObject localConfig = [];
-
-        if (File.Exists(localConfigPath))
+        string normalizedAddress = payoutAddress.Trim();
+        string bitcoinNetwork = BitcoinScript.NormalizeNetwork(config.BitcoinNetwork);
+        if (!BitcoinScript.TryAddressToScriptPubKey(normalizedAddress, bitcoinNetwork, out _))
         {
-            try
-            {
-                localConfig = JsonNode.Parse(File.ReadAllText(localConfigPath)) as JsonObject ?? new JsonObject();
-            }
-            catch
-            {
-                localConfig = [];
-            }
+            throw new InvalidOperationException(
+                $"Bitcoin payout address is not valid for bitcoin network {bitcoinNetwork}.");
         }
 
-        localConfig["pool_payout_script"] = config.PoolPayoutScript;
-        localConfig["setup_completed"] = true;
+        string localConfigPath = BootPortalPaths.LocalConfigFilePath;
+        lock (SetupWriteGate)
+        {
+            JsonObject localConfig = [];
+            if (File.Exists(localConfigPath))
+            {
+                localConfig = JsonNode.Parse(File.ReadAllText(localConfigPath)) as JsonObject ??
+                    throw new InvalidOperationException("The local GridPool configuration is not a JSON object.");
+            }
 
-        BootPortalPaths.EnsureParentDirectory(localConfigPath);
-        var options = new JsonSerializerOptions { WriteIndented = true };
-        File.WriteAllText(localConfigPath, localConfig.ToJsonString(options));
+            localConfig["pool_payout_script"] = normalizedAddress;
+            localConfig["setup_completed"] = true;
+
+            BootPortalPaths.EnsureParentDirectory(localConfigPath);
+            string temporaryPath = $"{localConfigPath}.{Guid.NewGuid():N}.tmp";
+            try
+            {
+                var options = new JsonSerializerOptions { WriteIndented = true };
+                File.WriteAllText(temporaryPath, localConfig.ToJsonString(options) + Environment.NewLine);
+                if (!OperatingSystem.IsWindows())
+                {
+                    File.SetUnixFileMode(
+                        temporaryPath,
+                        UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                }
+
+                File.Move(temporaryPath, localConfigPath, overwrite: true);
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath))
+                {
+                    File.Delete(temporaryPath);
+                }
+            }
+        }
     }
 
     private static bool IsProduction(PoolConfig config)

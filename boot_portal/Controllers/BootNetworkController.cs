@@ -5,6 +5,7 @@ using System.Net;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using boot_portal.Utils;
 
 namespace boot_portal.Controllers;
 
@@ -48,7 +49,10 @@ public class BootNetworkController : ControllerBase
     public IActionResult GetSummary()
     {
         RememberAnnouncedPeer();
-        return Ok(_stateService.GetNetworkStatus());
+        BootNetworkStatusDto status = _stateService.GetNetworkStatus();
+        return Ok(CanViewOperatorDiagnostics()
+            ? status
+            : BootPrivacy.RedactPublicNetworkStatus(status));
     }
 
     [EnableRateLimiting("network-read")]
@@ -70,6 +74,11 @@ public class BootNetworkController : ControllerBase
     [HttpPost("reachability-test")]
     public async Task<IActionResult> RunReachabilityTest([FromBody] BootReachabilityProbeRequest? request, CancellationToken cancellationToken)
     {
+        if (!IsAdminAuthorized())
+        {
+            return NotFound();
+        }
+
         if (request == null || string.IsNullOrWhiteSpace(request.TargetBaseUrl))
         {
             return BadRequest(new { status = "rejected", reason = "targetBaseUrl is required" });
@@ -327,6 +336,11 @@ public class BootNetworkController : ControllerBase
         [FromQuery] int limit = 50,
         [FromQuery] string? window = "24h")
     {
+        if (!CanViewOperatorDiagnostics())
+        {
+            return NotFound();
+        }
+
         return Ok(_stateService.GetLocalDatumMinerSummaries(address, limit, window));
     }
 
@@ -340,6 +354,11 @@ public class BootNetworkController : ControllerBase
         [FromQuery] string? minerAddress = null,
         [FromQuery] string? category = null)
     {
+        if (!CanViewOperatorDiagnostics())
+        {
+            return NotFound();
+        }
+
         return Ok(_stateService.GetShareDiagnostics(window, source, accepted, limit, minerAddress, category));
     }
 
@@ -351,6 +370,11 @@ public class BootNetworkController : ControllerBase
         [FromQuery] string? eventType = null,
         [FromQuery] string? source = null)
     {
+        if (!CanViewOperatorDiagnostics())
+        {
+            return NotFound();
+        }
+
         return Ok(_stateService.GetNetworkEvents(window, limit, eventType, source));
     }
 
@@ -364,6 +388,11 @@ public class BootNetworkController : ControllerBase
         [FromQuery] string? proofClass = null,
         [FromQuery] string? relayStage = null)
     {
+        if (!CanViewOperatorDiagnostics())
+        {
+            return NotFound();
+        }
+
         return Ok(_stateService.GetPeerRelayLatency(window, limit, remoteEndpoint, transport, proofClass, relayStage));
     }
 
@@ -375,6 +404,11 @@ public class BootNetworkController : ControllerBase
         [FromQuery] string? remoteEndpoint = null,
         [FromQuery] bool? temporarySlotZero = null)
     {
+        if (!CanViewOperatorDiagnostics())
+        {
+            return NotFound();
+        }
+
         return Ok(_stateService.GetCoinbaserDiagnostics(window, limit, remoteEndpoint, temporarySlotZero));
     }
 
@@ -387,6 +421,11 @@ public class BootNetworkController : ControllerBase
         [FromQuery] bool? accepted = null,
         [FromQuery] string? reason = null)
     {
+        if (!CanViewOperatorDiagnostics())
+        {
+            return NotFound();
+        }
+
         return Ok(_stateService.GetDatumShareResponses(window, limit, remoteEndpoint, accepted, reason));
     }
 
@@ -399,6 +438,11 @@ public class BootNetworkController : ControllerBase
         [FromQuery] bool? active = null,
         [FromQuery] string? protocol = null)
     {
+        if (!CanViewOperatorDiagnostics())
+        {
+            return NotFound();
+        }
+
         return Ok(_stateService.GetDatumSessions(window, limit, remoteEndpoint, active, protocol));
     }
 
@@ -413,6 +457,11 @@ public class BootNetworkController : ControllerBase
         [FromQuery] string? direction = null,
         [FromQuery] string? messageLabel = null)
     {
+        if (!CanViewOperatorDiagnostics())
+        {
+            return NotFound();
+        }
+
         return Ok(_stateService.GetDatumProtocolEvents(window, limit, sessionId, remoteEndpoint, eventType, direction, messageLabel));
     }
 
@@ -487,5 +536,14 @@ public class BootNetworkController : ControllerBase
 
         _logger.LogWarning("Peer endpoint manually tombstoned via admin API: {Endpoint}", request.Endpoint);
         return Ok(new { status = "removed", endpoint = request.Endpoint });
+    }
+
+    private bool CanViewOperatorDiagnostics() =>
+        _poolConfig.PublicOperatorDiagnosticsEnabled || IsAdminAuthorized();
+
+    private bool IsAdminAuthorized()
+    {
+        string? apiKey = Request.Headers["X-Boot-Admin-Key"].FirstOrDefault();
+        return _stateService.IsAdminAuthorized(apiKey);
     }
 }

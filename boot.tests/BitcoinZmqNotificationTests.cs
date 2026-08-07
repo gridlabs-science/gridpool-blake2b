@@ -171,4 +171,21 @@ public sealed class BitcoinZmqNotificationTests
         Assert.IsTrue(snapshot.DegradedReason.Contains("duplicate", StringComparison.OrdinalIgnoreCase));
         Assert.AreEqual(2, snapshot.ZmqTopics.Single(topic => topic.Topic == "hashblock").PublisherCount);
     }
+
+    [TestMethod]
+    public void BitcoinPeerTelemetryUsesStableProcessLocalVisualIds()
+    {
+        var health = new BitcoinNotificationHealth(new PoolConfig());
+        DateTime nowUtc = DateTime.UtcNow;
+        var network = new BitcoinNetworkInfo(1, 0, 1);
+        var peers = new[] { new BitcoinPeerInfo(7, false, 0.042, "outbound-full-relay") };
+
+        health.RecordPeerNetworkSuccess(network, peers, nowUtc);
+        long first = health.Snapshot(nowUtc).Network.Peers.Single().Id;
+        health.RecordPeerNetworkSuccess(network, peers, nowUtc.AddSeconds(15));
+        long second = health.Snapshot(nowUtc.AddSeconds(15)).Network.Peers.Single().Id;
+
+        Assert.AreNotEqual(7L, first);
+        Assert.AreEqual(first, second);
+    }
 }

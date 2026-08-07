@@ -14,6 +14,7 @@ const trackedFiles = execFileSync("git", ["ls-files", "-z"], {
 const failures = [];
 const logCall = /(?:Console\.Write(?:Line)?|_?logger\.Log(?:Trace|Debug|Information|Warning|Error|Critical))\s*\(/;
 const forbiddenLogMaterial = /(?:Export\s*\(\s*KeyBlobFormat\.RawPrivateKey|ed25519PrivKeyBytes|x25519PrivKeyBytes|testSharedKeyBytes|_channelSharedSecretBytes|_sessionNonceSender|_sessionNonceReceiver|_sendingHeaderKey|_receivingHeaderKey)/;
+const forbiddenSecretLogNames = /(?:AdminApiKey|BitcoinRpcPassword|LocalAdapterToken|Authorization|RpcCookie|CookieValue|PrivateKeyBase64)/;
 
 function stripComments(source) {
     return source
@@ -27,13 +28,17 @@ for (const relativePath of trackedFiles.filter(file => file.endsWith(".cs"))) {
         if (logCall.test(line) && forbiddenLogMaterial.test(line)) {
             failures.push(`${relativePath}:${index + 1}: possible secret key material in logs`);
         }
+        if (logCall.test(line) && forbiddenSecretLogNames.test(line)) {
+            failures.push(`${relativePath}:${index + 1}: possible credential material in logs`);
+        }
     });
 }
 
 const forbiddenConfigKeys = new Set([
     "ed25519_private_key",
     "x25519_private_key",
-    "admin_api_key"
+    "admin_api_key",
+    "bitcoin_rpc_password"
 ]);
 
 function isExplicitPlaceholder(value) {

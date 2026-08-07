@@ -30,6 +30,8 @@ documentation.
   coordinated-upgrade policy.
 - [Security And Privacy Review](security-privacy-review.md): active pre-package
   gate for key handling, public UI/API disclosure, logs, and private-node safety.
+- [V2.2 Dashboard](dashboard-v22.md): adaptive UI, versioned dashboard API,
+  local order-statistic telemetry, privacy boundary, and headless operation.
 
 ## Operators
 
@@ -67,7 +69,8 @@ documentation.
 
 ## Product And Launch Planning
 
-- [UI Modes Plan](ui-modes-plan.md)
+- [UI Modes Plan](ui-modes-plan.md): superseded Lottery/Business/Nerd proposal,
+  retained for design history.
 - [Launch Infrastructure Rollout Plan](launch-infra-plan.md)
 - [Launch Infra Click-Through Checklist](launch-infra-clickthrough.md)
 - [Waiting For Funding And Launch Infrastructure Backlog](waiting-for-funding-backlog.md)

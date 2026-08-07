@@ -597,6 +597,9 @@ public sealed class ShareAttributionTests
         Assert.AreEqual(BootProofClasses.Pulse, relayProof!.ProofClass);
         Assert.AreEqual(BootRelayStages.Validated, relayProof.RelayStage);
         Assert.AreEqual(1, relayProof.RelayTtl);
+        Assert.IsTrue(harness.DashboardVisualization.SlotZero().Verified);
+        Assert.AreEqual(SampleSlotZeroAddress, harness.DashboardVisualization.SlotZero().Address);
+        Assert.AreEqual(result.AcceptedProof!.ShareId, harness.DashboardVisualization.SlotZero().ProofId);
     }
 
     [TestMethod]
@@ -1378,10 +1381,16 @@ public sealed class ShareAttributionTests
     public async Task V22OneBlockReorgCreatesIsolatedReplacementFamilyAndRestoresLineageAsync()
     {
         BootShareProof proof = CreateValidatedProof(SampleHeaderHex, SamplePrevBlockHash, "seed-current");
+        BootShareProof reserveProof = CreateFakeProof(
+            "reserve-proof",
+            Math.Max(1, proof.Difficulty / 2),
+            AlternateAddress,
+            "seed-current");
         BootPayoutSnapshotContext predecessor = CreateSnapshotContext("seed-current", SampleExpectedWinners);
         using var harness = TestHarness.Create(
             sharedWinnerSlotCount: 1,
-            onDeckProofs: [proof],
+            workSetReserveMultiplier: 3,
+            onDeckProofs: [proof, reserveProof],
             snapshotContexts: [predecessor]);
         string removedBoundary = "0000000000000000000000000000000000000000000000000000000000a00501";
         string replacementBoundary = "0000000000000000000000000000000000000000000000000000000000b00501";
@@ -1395,11 +1404,62 @@ public sealed class ShareAttributionTests
             "local-bitcoin-reorg",
             945001);
 
+        BootStateBundle replacementBundle = harness.StateService.GetStateBundle(replacement.CandidateStateId)!;
         Assert.AreNotEqual(removed.ActiveSnapshotFamilyId, replacement.ActiveSnapshotFamilyId);
         Assert.AreNotEqual(removed.ActiveSnapshotId, replacement.ActiveSnapshotId);
+        Assert.AreNotEqual(removed.CurrentStateId, replacement.CurrentStateId);
+        Assert.AreNotEqual(removed.CandidateStateId, replacement.CandidateStateId);
         Assert.AreEqual(replacementBoundary, replacement.CurrentTipBlockHash);
-        Assert.AreEqual(1, replacement.WorkSetCount);
+        Assert.AreEqual(2, replacement.WorkSetCount);
+        CollectionAssert.AreEquivalent(
+            new[] { proof.ShareId, reserveProof.ShareId },
+            replacementBundle.WorkSetProofs.Select(item => item.ShareId).ToArray());
         Assert.AreEqual(2, replacement.CurrentRoundNumber);
+    }
+
+    [TestMethod]
+    public async Task V22RepeatedOneBlockReorgRoundTripsSnapshotAndCandidateIdsWithoutLosingReserveAsync()
+    {
+        BootShareProof[] proofs =
+        [
+            CreateFakeProof("proof-a", 100, SampleSlotZeroAddress, "seed-current"),
+            CreateFakeProof("proof-b", 50, AlternateAddress, "seed-current")
+        ];
+        BootPayoutSnapshotContext predecessor = CreateSnapshotContext("seed-current", SampleExpectedWinners);
+        using var harness = TestHarness.Create(
+            sharedWinnerSlotCount: 1,
+            workSetReserveMultiplier: 3,
+            onDeckProofs: proofs,
+            snapshotContexts: [predecessor]);
+        string boundaryA = "0000000000000000000000000000000000000000000000000000000000a00502";
+        string boundaryB = "0000000000000000000000000000000000000000000000000000000000b00502";
+
+        BootNetworkStatusDto firstA = await harness.StateService.ObserveChainTipAsync(
+            boundaryA,
+            "local-bitcoin",
+            945001);
+        BootNetworkStatusDto replacementB = await harness.StateService.ObserveChainTipAsync(
+            boundaryB,
+            "local-bitcoin-reorg",
+            945001);
+        BootNetworkStatusDto restoredA = await harness.StateService.ObserveChainTipAsync(
+            boundaryA,
+            "local-bitcoin-reorg",
+            945001);
+
+        Assert.AreNotEqual(firstA.ActiveSnapshotFamilyId, replacementB.ActiveSnapshotFamilyId);
+        Assert.AreEqual(firstA.ActiveSnapshotFamilyId, restoredA.ActiveSnapshotFamilyId);
+        Assert.AreEqual(firstA.ActiveSnapshotId, restoredA.ActiveSnapshotId);
+        Assert.AreEqual(firstA.CurrentStateId, restoredA.CurrentStateId);
+        Assert.AreEqual(firstA.CandidateStateId, restoredA.CandidateStateId);
+        Assert.AreEqual(firstA.CurrentRoundNumber, restoredA.CurrentRoundNumber);
+        Assert.AreEqual(proofs.Length, restoredA.WorkSetCount);
+        CollectionAssert.AreEquivalent(
+            proofs.Select(proof => proof.ShareId).ToArray(),
+            harness.StateService.GetStateBundle(restoredA.CandidateStateId)!
+                .WorkSetProofs
+                .Select(proof => proof.ShareId)
+                .ToArray());
     }
 
     [TestMethod]
@@ -1976,6 +2036,10 @@ public sealed class ShareAttributionTests
         Assert.AreEqual(1, response.SchemaVersion);
         Assert.AreEqual(64, response.PlanId.Length);
         Assert.AreEqual(response.PlanId, repeated.PlanId);
+        Assert.AreEqual(response.CoinbasePlanBuildCount, repeated.CoinbasePlanBuildCount);
+        Assert.AreEqual(response.CoinbasePlanCacheHitCount + 1, repeated.CoinbasePlanCacheHitCount);
+        Assert.IsTrue(response.CoinbasePlanBuildDurationMs >= 0);
+        Assert.IsTrue(response.CoinbasePlanPreparedUtc > DateTime.UnixEpoch);
         Assert.AreEqual("coinbase-only", response.Mode);
         Assert.AreEqual(Math.Max(1d, harness.Config.PulseMinDifficulty), response.MinimumPulseDifficulty);
         Assert.AreEqual(harness.Config.BootNetworkId, response.NetworkId);
@@ -1996,6 +2060,7 @@ public sealed class ShareAttributionTests
         harness.Config.CoinbaseUncondensedOutputsEnabled = true;
         Sv2WorkSelectionDto uncondensed = harness.StateService.GetSv2WorkSelectionResponse();
         Assert.AreNotEqual(response.PlanId, uncondensed.PlanId);
+        Assert.AreEqual(response.CoinbasePlanBuildCount + 1, uncondensed.CoinbasePlanBuildCount);
     }
 
     [TestMethod]
@@ -2884,6 +2949,7 @@ public sealed class ShareAttributionTests
         public BootProtocolStateService StateService { get; }
         public MiningApiController MiningController { get; }
         public BootPeerController PeerController { get; }
+        public DashboardVisualizationJournalService DashboardVisualization { get; }
         public string StatePath => Path.Combine(_tempDirectory, "pool_state.json");
 
         private TestHarness(
@@ -2891,13 +2957,15 @@ public sealed class ShareAttributionTests
             string? previousStatePath,
             string? previousHistoryPath,
             PoolConfig config,
-            BootProtocolStateService stateService)
+            BootProtocolStateService stateService,
+            DashboardVisualizationJournalService dashboardVisualization)
         {
             _tempDirectory = tempDirectory;
             _previousStatePath = previousStatePath;
             _previousHistoryPath = previousHistoryPath;
             Config = config;
             StateService = stateService;
+            DashboardVisualization = dashboardVisualization;
             MiningController = new MiningApiController(config, stateService, NullLogger<MiningApiController>.Instance)
             {
                 ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
@@ -2987,13 +3055,21 @@ public sealed class ShareAttributionTests
             };
             File.WriteAllText(statePath, JsonSerializer.Serialize(seedState));
 
+            var dashboardVisualization = new DashboardVisualizationJournalService();
             var stateService = new BootProtocolStateService(
                 config,
                 new BootShareVerifier(),
                 new NoOpHubContext(),
-                NullLogger<BootProtocolStateService>.Instance);
+                NullLogger<BootProtocolStateService>.Instance,
+                dashboardVisualization: dashboardVisualization);
 
-            return new TestHarness(tempDirectory, previousStatePath, previousHistoryPath, config, stateService);
+            return new TestHarness(
+                tempDirectory,
+                previousStatePath,
+                previousHistoryPath,
+                config,
+                stateService,
+                dashboardVisualization);
         }
 
         private static BootPeerSessionManager CreatePeerSessionManager(PoolConfig config, BootProtocolStateService stateService)

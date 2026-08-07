@@ -29,10 +29,32 @@ public sealed class BootBitcoinNotificationDto
     public bool MiningSafe { get; set; } = true;
     public string DegradedReason { get; set; } = string.Empty;
     public BootBitcoinRpcHealthDto Rpc { get; set; } = new();
+    public BootBitcoinNetworkHealthDto Network { get; set; } = new();
     public List<BootBitcoinZmqTopicHealthDto> ZmqTopics { get; set; } = [];
     public long ReconciliationCount { get; set; }
     public long RecoveredMissedBlockCount { get; set; }
     public DateTime? LastReconciliationUtc { get; set; }
+}
+
+public sealed class BootBitcoinNetworkHealthDto
+{
+    public int TotalPeerCount { get; set; }
+    public int InboundPeerCount { get; set; }
+    public int OutboundPeerCount { get; set; }
+    public double? NetworkHashrateHs { get; set; }
+    public DateTime? LastPeerCheckUtc { get; set; }
+    public DateTime? LastPeerSuccessUtc { get; set; }
+    public DateTime? LastHashrateCheckUtc { get; set; }
+    public string LastError { get; set; } = string.Empty;
+    public List<BootBitcoinPeerHealthDto> Peers { get; set; } = [];
+}
+
+public sealed class BootBitcoinPeerHealthDto
+{
+    public long Id { get; set; }
+    public bool Inbound { get; set; }
+    public double? LatencyMs { get; set; }
+    public string ConnectionType { get; set; } = string.Empty;
 }
 
 public sealed class BootBitcoinRpcHealthDto

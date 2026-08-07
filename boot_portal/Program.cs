@@ -15,6 +15,7 @@ using boot_portal.Models;
 using boot_portal.HostedServices;
 using boot_portal.Services;
 using boot_portal.Utils;
+using Microsoft.AspNetCore.RateLimiting;
 using NSec.Cryptography;
 using Microsoft.AspNetCore.SignalR;
 
@@ -58,8 +59,8 @@ public class Program
         ["https://main.gridpool.net", "https://dallas.gridpool.net", "https://detroit.gridpool.net"];
     // TODO: I should optionally load this from config, instead of hard-coded like this.
     private static int DatumPort = 3008;  //Defaults to 3008.  Should get set by config file.
-    public static readonly ulong BLOCK_REWARD = 312_500_000;  //TODO: Need to detect this from the blockchain, so it gracefully handles the next epoch
-    private static int TeamSize = 300;
+    public static ulong BLOCK_REWARD = 312_500_000;  //TODO: Need to detect this from the blockchain, so it gracefully handles the next epoch
+    public static int TeamSize = 300;
 
     public static async Task Main(string[] args)
     {
@@ -87,7 +88,7 @@ public class Program
             var keyExchangeAlgorithm = KeyAgreementAlgorithm.X25519;
 
             // Load config from boot_portal_config.json and an optional adjacent local override if it exists
-            ServerConfig config = new();
+            ServerConfig config = new ServerConfig();
             string configFilePath = BootPortalPaths.ConfigFilePath;
             string localConfigFilePath = BootPortalPaths.LocalConfigFilePath;
             bool localConfigPathExplicit = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("BOOT_PORTAL_LOCAL_CONFIG_PATH"));
@@ -267,8 +268,14 @@ public class Program
 
             //Now load or setup the pool config options, like default payout address and coinbase tag
             PoolConfig _poolConfig = LoadPoolConfig(configFilePath, useLocalConfigOverlay ? localConfigFilePath : null);
-            TeamSize = _poolConfig.TotalPayoutSlotCount;
+            var setupState = new NodeSetupState(_poolConfig.IsSetupComplete());
+            Program.TeamSize = _poolConfig.TotalPayoutSlotCount;
             DatumPort = _poolConfig.DatumPort;
+
+            if (!setupState.OperationalAtStartup)
+            {
+                Console.WriteLine("GridPool is starting in setup-only mode. Mining and peer services are disabled until a payout address is saved and the node restarts.");
+            }
 
             Console.WriteLine("\n====================== IMPORTANT ======================");
             Console.WriteLine("Copy this combined public key (Ed25519 + X25519, hex-encoded) into your DATUM Gateway's config.json:");
@@ -277,7 +284,11 @@ public class Program
             Console.WriteLine("=======================================================\n");
 
             //UI Server stuff:
-            var builder = WebApplication.CreateBuilder(args);
+            var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+            {
+                Args = args,
+                WebRootPath = ResolveWebRootPath()
+            });
             builder.Configuration.AddJsonFile(configFilePath, optional: false, reloadOnChange: true);
             if (useLocalConfigOverlay)
             {
@@ -316,12 +327,21 @@ public class Program
             builder.Services.AddRazorPages(); // For serving simple HTML pages
             builder.Services.AddControllers();
             builder.Services.AddSignalR();    // For real-time updates
+            builder.Services.AddResponseCompression(options =>
+            {
+                options.EnableForHttps = true;
+            });
             builder.Services.AddSingleton(_poolConfig);
+            builder.Services.AddSingleton(setupState);
             builder.Services.AddSingleton<BitcoinNotificationHealth>();
             builder.Services.AddSingleton(new BootPeerIdentity(ed25519Key, x25519Key));
             builder.Services.AddSingleton<BootPeerLoopHealth>();
             builder.Services.AddSingleton<BootShareVerifier>();
+            builder.Services.AddSingleton<DashboardTelemetryService>();
+            builder.Services.AddSingleton<DashboardVisualizationJournalService>();
             builder.Services.AddSingleton<BootProtocolStateService>();
+            builder.Services.AddSingleton<DashboardRevisionService>();
+            builder.Services.AddSingleton<DashboardReadModelService>();
             builder.Services.AddSingleton<LocalMiningAdapterAuth>();
             builder.Services.AddSingleton<BootPeerSessionManager>();
             builder.Services.AddSingleton<BootPeerUdpRelayService>();
@@ -364,59 +384,87 @@ public class Program
                     CreateRateLimitPartition(context, _poolConfig, "admin-write", _poolConfig.AdminRateLimitPerMinute));
             });
             
-            // Start your background services
-            //builder.Services.AddHostedService<BitcoinZmqSubscriber>();
-            // *** START CONFIGURABLE SERVICE SECTION ***
+            if (setupState.OperationalAtStartup)
+            {
+                builder.Services.AddHostedService(serviceProvider =>
+                    serviceProvider.GetRequiredService<DashboardTelemetryService>());
+                builder.Services.AddHostedService(serviceProvider =>
+                    serviceProvider.GetRequiredService<DashboardRevisionService>());
 
-            string notificationMode = BitcoinNotificationModes.Resolve(_poolConfig);
-            if (notificationMode == BitcoinNotificationModes.AttachedNode)
-            {
-                builder.Services.AddHostedService<BitcoinZmqSubscriber>();
-                builder.Services.AddHostedService<BitcoinRpcReconciliationService>();
-                Console.WriteLine("Block notification mode set to attached-node (ZMQ + RPC reconciliation)");
-            }
-            else if (notificationMode == BitcoinNotificationModes.ExternalFallback)
-            {
-                builder.Services.AddHostedService<MempoolSpaceSocketSubscriber>();
-                Console.WriteLine("Block notification mode set to external-fallback (Mempool.Space)");
-            }
-            else
-            {
-                throw new InvalidOperationException(
-                    $"Unknown bitcoin_notification_mode '{notificationMode}'. Expected 'attached-node' or 'external-fallback'.");
-            }
+                string notificationMode = BitcoinNotificationModes.Resolve(_poolConfig);
+                if (notificationMode == BitcoinNotificationModes.AttachedNode)
+                {
+                    builder.Services.AddHostedService<BitcoinZmqSubscriber>();
+                    builder.Services.AddHostedService<BitcoinRpcReconciliationService>();
+                    Console.WriteLine("Block notification mode set to attached-node (ZMQ + RPC reconciliation)");
+                }
+                else if (notificationMode == BitcoinNotificationModes.ExternalFallback)
+                {
+                    builder.Services.AddHostedService<MempoolSpaceSocketSubscriber>();
+                    Console.WriteLine("Block notification mode set to external-fallback (Mempool.Space)");
+                }
+                else
+                {
+                    throw new InvalidOperationException(
+                        $"Unknown bitcoin_notification_mode '{notificationMode}'. Expected 'attached-node' or 'external-fallback'.");
+                }
 
-            // *** END CONFIGURABLE SERVICE SECTION ***
-            builder.Services.AddHostedService<DatumServer>(serviceProvider =>
-            {
-                var logger = serviceProvider.GetRequiredService<ILogger<DatumServer>>();
-                var hubContext = serviceProvider.GetRequiredService<IHubContext<PoolStatsHub>>();
-                var stateService = serviceProvider.GetRequiredService<BootProtocolStateService>();
-                // The 'serviceProvider' allows you to get other services if needed,
-                // but here we just use the local variables from Program.cs
-
-                // We pass in all the necessary constructor arguments here:
-                return new DatumServer(
-                    IPAddress.Any,
-                    DatumPort,
-                    ed25519Key,
-                    x25519Key,
-                    _poolConfig,
-                    stateService,
-                    hubContext,
-                    logger);
-            });
-            builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<BootPeerSessionManager>());
-            builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<BootPeerUdpRelayService>());
-            builder.Services.AddHostedService<BootPeerSyncService>();
-            builder.Services.AddHostedService<LocalMiningSourcePoller>();
+                builder.Services.AddHostedService<DatumServer>(serviceProvider =>
+                {
+                    var logger = serviceProvider.GetRequiredService<ILogger<DatumServer>>();
+                    var hubContext = serviceProvider.GetRequiredService<IHubContext<PoolStatsHub>>();
+                    var stateService = serviceProvider.GetRequiredService<BootProtocolStateService>();
+                    return new DatumServer(
+                        IPAddress.Any,
+                        DatumPort,
+                        ed25519Key,
+                        x25519Key,
+                        _poolConfig,
+                        stateService,
+                        hubContext,
+                        logger);
+                });
+                builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<BootPeerSessionManager>());
+                builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<BootPeerUdpRelayService>());
+                builder.Services.AddHostedService<BootPeerSyncService>();
+                builder.Services.AddHostedService<LocalMiningSourcePoller>();
+            }
 
             var app = builder.Build();
-            _ = app.Services.GetRequiredService<LocalMiningAdapterAuth>();
+            if (setupState.OperationalAtStartup)
+            {
+                _ = app.Services.GetRequiredService<LocalMiningAdapterAuth>();
+            }
 
             // 2. Configure the web app
             app.Use(async (context, next) =>
             {
+                if (!setupState.OperationalAtStartup &&
+                    !NodeSetupPolicy.IsAllowedSetupPath(context.Request.Path))
+                {
+                    if (NodeSetupPolicy.WantsHtml(context.Request))
+                    {
+                        context.Response.Redirect("/setup");
+                    }
+                    else
+                    {
+                        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                        await context.Response.WriteAsJsonAsync(new
+                        {
+                            status = "setup_required",
+                            reason = "Configure a valid payout address and restart GridPool before using mining or peer services."
+                        });
+                    }
+                    return;
+                }
+
+                if (!_poolConfig.EnableLegacyUi &&
+                    context.Request.Path.StartsWithSegments("/legacy", StringComparison.OrdinalIgnoreCase))
+                {
+                    context.Response.StatusCode = StatusCodes.Status404NotFound;
+                    return;
+                }
+
                 if (IsPeerOnlyListenerRequest(context, _poolConfig) &&
                     !IsAllowedPeerOnlyPath(context.Request.Path))
                 {
@@ -432,15 +480,84 @@ public class Program
                 await next();
             });
 
-            app.UseStaticFiles(); // Serve static files like CSS, JS, images
+            if (_poolConfig.EnableWebUi)
+            {
+                app.Use(async (context, next) =>
+                {
+                    if (!context.Request.Path.StartsWithSegments("/legacy") &&
+                        !context.Request.Path.StartsWithSegments("/api") &&
+                        !context.Request.Path.StartsWithSegments("/poolStatsHub") &&
+                        !context.Request.Path.StartsWithSegments("/dashboardHub"))
+                    {
+                        context.Response.Headers.ContentSecurityPolicy =
+                            "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; " +
+                            "style-src 'self'; script-src 'self'; font-src 'self'; object-src 'none'; " +
+                            "base-uri 'self'; frame-ancestors 'none'";
+                        context.Response.Headers["Referrer-Policy"] = "no-referrer";
+                        context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+                    }
+
+                    await next();
+                });
+                app.UseResponseCompression();
+                app.UseStaticFiles(new StaticFileOptions
+                {
+                    OnPrepareResponse = context =>
+                    {
+                        if (context.Context.Request.Path.StartsWithSegments("/dashboard/assets"))
+                        {
+                            context.Context.Response.Headers.CacheControl =
+                                "public, max-age=31536000, immutable";
+                        }
+                    }
+                });
+            }
             app.UseWebSockets();
             app.UseRouting();
             app.UseRateLimiter();
-            app.MapRazorPages(); // Use a simple page system
+            if (_poolConfig.EnableWebUi)
+            {
+                app.MapRazorPages();
+            }
             app.MapControllers();
 
             // 3. Tell the app where your SignalR Hub lives
-            app.MapHub<PoolStatsHub>("/poolStatsHub"); // This is the URL your JS will use
+            app.MapHub<PoolStatsHub>("/poolStatsHub");
+            app.MapHub<DashboardHub>("/dashboardHub");
+            if (_poolConfig.EnableWebUi)
+            {
+                if (!setupState.OperationalAtStartup)
+                {
+                    app.MapMethods("/", ["GET", "HEAD"], () => Results.Redirect("/setup"));
+                }
+                else
+                {
+                    string dashboardIndexPath = Path.Combine(
+                        app.Environment.WebRootPath,
+                        "dashboard",
+                        "index.html");
+                    if (File.Exists(dashboardIndexPath))
+                    {
+                        app.MapMethods("/", ["GET", "HEAD"], () =>
+                            Results.File(dashboardIndexPath, "text/html; charset=utf-8"));
+                        app.MapMethods("/details", ["GET", "HEAD"], () =>
+                            Results.File(dashboardIndexPath, "text/html; charset=utf-8"));
+                    }
+                    else if (_poolConfig.EnableLegacyUi)
+                    {
+                        app.MapGet("/", () => Results.Redirect("/legacy"));
+                    }
+                }
+            }
+            else
+            {
+                app.MapGet("/", () => Results.Json(new
+                {
+                    service = "gridpool",
+                    mode = "headless",
+                    dashboardApi = "/api/dashboard/v1/schema"
+                }));
+            }
             
             // Runs and blocks this thread while all other services run
             // Graceful shutdown is handled by the "AddHostedService" call above
@@ -462,6 +579,22 @@ public class Program
             context.Connection.LocalPort == config.PeerListenerPort &&
             config.PeerListenerPort != config.WebUiPortHttp &&
             config.PeerListenerPort != config.WebUiPortHttps;
+    }
+
+    private static string ResolveWebRootPath()
+    {
+        string[] candidates =
+        [
+            Path.Combine(AppContext.BaseDirectory, "wwwroot"),
+            Path.Combine(Directory.GetCurrentDirectory(), "wwwroot"),
+            Path.Combine(Directory.GetCurrentDirectory(), "boot_portal", "wwwroot"),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "wwwroot"))
+        ];
+
+        return candidates.FirstOrDefault(candidate =>
+                   File.Exists(Path.Combine(candidate, "dashboard", "index.html"))) ??
+               candidates.FirstOrDefault(Directory.Exists) ??
+               candidates[0];
     }
 
     private static bool IsAllowedPeerOnlyPath(PathString path)

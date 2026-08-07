@@ -1,3 +1,12 @@
+ARG GRIDPOOL_RELEASE_VERSION=dev
+
+FROM node:24-bookworm-slim AS dashboard-build
+WORKDIR /src/boot_portal/ui
+COPY boot_portal/ui/package.json boot_portal/ui/package-lock.json ./
+RUN npm ci
+COPY boot_portal/ui/ ./
+RUN npm run build
+
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
@@ -5,21 +14,22 @@ COPY boot_portal/boot_portal.csproj boot_portal/
 RUN dotnet restore boot_portal/boot_portal.csproj
 
 COPY . .
+COPY --from=dashboard-build /src/boot_portal/wwwroot/dashboard boot_portal/wwwroot/dashboard
 RUN dotnet publish boot_portal/boot_portal.csproj -c Release -o /app/publish /p:UseAppHost=false
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-bookworm-slim AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libsodium23 ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd --gid 1000 boot \
-    && useradd --uid 1000 --gid boot --create-home --shell /usr/sbin/nologin boot \
     && mkdir -p /data /app \
-    && chown -R boot:boot /data /app
+    && chown -R 1000:1000 /data /app
 
+ARG GRIDPOOL_RELEASE_VERSION
 WORKDIR /app
 
 ENV BOOT_PORTAL_CONFIG_PATH=/data/boot_portal_config.json
 ENV BOOT_PORTAL_STATE_PATH=/data/pool_state.json
+ENV GRIDPOOL_RELEASE_VERSION=${GRIDPOOL_RELEASE_VERSION}
 
 VOLUME ["/data"]
 
@@ -27,9 +37,9 @@ EXPOSE 5000 3008
 
 COPY --from=build /app/publish .
 COPY docker/boot_portal_config.sample.json /app/defaults/boot_portal_config.sample.json
-RUN chown -R boot:boot /app
+RUN chown -R 1000:1000 /app
 
-USER boot
+USER 1000:1000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://127.0.0.1:5000/health/live || exit 1

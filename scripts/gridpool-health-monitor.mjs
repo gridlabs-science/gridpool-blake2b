@@ -330,6 +330,12 @@ function basicAuthHeader(username, password) {
     return `Basic ${token}`;
 }
 
+function gridPoolAdminHeaders(node) {
+    const envName = String(node?.adminKeyEnv || "").trim();
+    const adminKey = envName ? process.env[envName] || "" : "";
+    return adminKey ? { "X-Boot-Admin-Key": adminKey } : {};
+}
+
 async function fetchJson(baseUrl, pathSuffix, config, options = {}) {
     const result = await fetchWithTimeout(`${normalizeBaseUrl(baseUrl)}${pathSuffix}`, options, config.requestTimeoutMs);
     return result;
@@ -355,6 +361,7 @@ async function collectGridPoolNode(node, config) {
         peerRecords: [],
         peerRelayLatency: null,
         consensusGroup: node.consensusGroup || "",
+        adminKeyEnv: node.adminKeyEnv || "",
         suppressCoinbaseModeAlert: node.suppressCoinbaseModeAlert === true,
         suppressTeamHashrateAlerts: node.suppressTeamHashrateAlerts === true,
         // Keep the old option as an alias while the monitor moves from the
@@ -365,33 +372,36 @@ async function collectGridPoolNode(node, config) {
         networkKey: ""
     };
 
-    const live = await fetchJson(baseUrl, "/health/live", config);
+    const requestOptions = { headers: gridPoolAdminHeaders(node) };
+    const live = await fetchJson(baseUrl, "/health/live", config, requestOptions);
     result.checks.live = compactFetchResult(live);
     if (!live.ok) result.errors.push(`live failed: ${live.error || live.status}`);
 
-    const ready = await fetchJson(baseUrl, "/health/ready", config);
+    const ready = await fetchJson(baseUrl, "/health/ready", config, requestOptions);
     result.checks.ready = compactFetchResult(ready);
     result.ready = ready.json;
     if (!ready.ok) result.errors.push(`ready failed: ${ready.error || ready.status}`);
 
-    const summary = await fetchJson(baseUrl, "/api/network/summary", config);
+    const summary = await fetchJson(baseUrl, "/api/network/summary", config, requestOptions);
     result.checks.summary = compactFetchResult(summary);
     result.summary = summary.json;
     if (!summary.ok || !summary.json) result.errors.push(`summary failed: ${summary.error || summary.status}`);
 
-    const miners = await fetchJson(baseUrl, "/api/network/local-miners?limit=500&window=24h", config);
+    const miners = await fetchJson(baseUrl, "/api/network/local-miners?limit=500&window=24h", config, requestOptions);
     result.checks.localMiners = compactFetchResult(miners);
     result.localMiners = Array.isArray(miners.json?.miners) ? miners.json.miners : [];
-    if (!miners.ok) result.errors.push(`local-miners failed: ${miners.error || miners.status}`);
+    if (!miners.ok && miners.status !== 404) {
+        result.errors.push(`local-miners failed: ${miners.error || miners.status}`);
+    }
 
-    const payouts = await fetchJson(baseUrl, "/api/mining/payouts", config);
+    const payouts = await fetchJson(baseUrl, "/api/mining/payouts", config, requestOptions);
     result.checks.payouts = compactFetchResult(payouts);
     result.payoutAddresses = extractAddresses(payouts.json?.payouts);
     if (!payouts.ok) result.errors.push(`payouts failed: ${payouts.error || payouts.status}`);
 
     const candidateStateId = summary.json?.candidateStateId;
     if (candidateStateId) {
-        const state = await fetchJson(baseUrl, `/api/network/state/${encodeURIComponent(candidateStateId)}`, config);
+        const state = await fetchJson(baseUrl, `/api/network/state/${encodeURIComponent(candidateStateId)}`, config, requestOptions);
         result.checks.candidateState = compactFetchResult(state);
         result.candidateState = state.json;
         result.candidateAddresses = extractAddresses(state.json?.winnersList);
@@ -400,15 +410,17 @@ async function collectGridPoolNode(node, config) {
 
     const currentStateId = summary.json?.currentStateId;
     if (currentStateId) {
-        const state = await fetchJson(baseUrl, `/api/network/state/${encodeURIComponent(currentStateId)}`, config);
+        const state = await fetchJson(baseUrl, `/api/network/state/${encodeURIComponent(currentStateId)}`, config, requestOptions);
         result.checks.currentState = compactFetchResult(state);
         result.currentState = state.json;
     }
 
-    const latency = await fetchJson(baseUrl, "/api/network/peer-relay-latency?window=24h&limit=1000", config);
+    const latency = await fetchJson(baseUrl, "/api/network/peer-relay-latency?window=24h&limit=1000", config, requestOptions);
     result.checks.peerRelayLatency = compactFetchResult(latency);
     result.peerRelayLatency = latency.json;
-    if (!latency.ok) result.errors.push(`peer relay latency failed: ${latency.error || latency.status}`);
+    if (!latency.ok && latency.status !== 404) {
+        result.errors.push(`peer relay latency failed: ${latency.error || latency.status}`);
+    }
 
     result.peerRecords = Array.isArray(summary.json?.peers) ? summary.json.peers : [];
     result.peers = result.peerRecords
@@ -1709,7 +1721,11 @@ async function captureIncidentDiagnostics(alerts, snapshot, stateDir, config) {
     await Promise.all(nodes.map(async node => {
         const nodeDirectory = path.join(directory, "nodes", safeFileComponent(node.name));
         const captures = await Promise.all(endpoints.map(async ([name, suffixPath]) => {
-            const result = await fetchJson(node.baseUrl, suffixPath, config);
+            const result = await fetchJson(
+                node.baseUrl,
+                suffixPath,
+                config,
+                { headers: gridPoolAdminHeaders(node) });
             writeJsonAtomic(path.join(nodeDirectory, `${name}.json`), incidentFetchPayload(result));
             return { name, ok: result.ok, status: result.status, error: result.error || null };
         }));

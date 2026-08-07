@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using boot_portal.Models;
 
@@ -77,6 +78,7 @@ public sealed class BitcoinNotificationHealth
     }
 
     private readonly object _sync = new();
+    private readonly byte[] _bitcoinPeerVisualSalt = RandomNumberGenerator.GetBytes(32);
     private readonly SemaphoreSlim _reconciliationSignal = new(0, 1);
     private readonly Dictionary<string, ZmqTopicState> _zmqTopics = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _mode;
@@ -96,6 +98,15 @@ public sealed class BitcoinNotificationHealth
     private long _reconciliationCount;
     private long _recoveredMissedBlockCount;
     private DateTime? _lastReconciliationUtc;
+    private int _bitcoinPeerCount;
+    private int _bitcoinInboundPeerCount;
+    private int _bitcoinOutboundPeerCount;
+    private double? _networkHashrateHs;
+    private DateTime? _lastPeerCheckUtc;
+    private DateTime? _lastPeerSuccessUtc;
+    private DateTime? _lastHashrateCheckUtc;
+    private string _lastPeerError = string.Empty;
+    private List<BootBitcoinPeerHealthDto> _bitcoinPeers = [];
 
     public BitcoinNotificationHealth(PoolConfig config)
     {
@@ -262,6 +273,55 @@ public sealed class BitcoinNotificationHealth
         }
     }
 
+    public void RecordPeerNetworkSuccess(
+        BitcoinNetworkInfo network,
+        IEnumerable<BitcoinPeerInfo> peers,
+        DateTime timestampUtc)
+    {
+        lock (_sync)
+        {
+            _bitcoinPeerCount = Math.Max(0, network.Connections);
+            _bitcoinInboundPeerCount = Math.Max(0, network.ConnectionsIn);
+            _bitcoinOutboundPeerCount = Math.Max(0, network.ConnectionsOut);
+            _bitcoinPeers = peers
+                .OrderBy(peer => peer.Id)
+                .Take(24)
+                .Select(peer => new BootBitcoinPeerHealthDto
+                {
+                    Id = VisualPeerId(peer.Id),
+                    Inbound = peer.Inbound,
+                    LatencyMs = peer.PingTimeSeconds.HasValue
+                        ? Math.Max(0, peer.PingTimeSeconds.Value * 1000d)
+                        : null,
+                    ConnectionType = peer.ConnectionType
+                })
+                .ToList();
+            _lastPeerCheckUtc = timestampUtc;
+            _lastPeerSuccessUtc = timestampUtc;
+            _lastPeerError = string.Empty;
+        }
+    }
+
+    public void RecordPeerNetworkFailure(string error, DateTime timestampUtc)
+    {
+        lock (_sync)
+        {
+            _lastPeerCheckUtc = timestampUtc;
+            _lastPeerError = SanitizeError(error);
+        }
+    }
+
+    public void RecordNetworkHashrate(double? hashesPerSecond, DateTime timestampUtc)
+    {
+        lock (_sync)
+        {
+            _networkHashrateHs = hashesPerSecond is >= 0 && double.IsFinite(hashesPerSecond.Value)
+                ? hashesPerSecond
+                : null;
+            _lastHashrateCheckUtc = timestampUtc;
+        }
+    }
+
     public bool IsMiningSafe(DateTime nowUtc, out string reason)
     {
         reason = string.Empty;
@@ -301,6 +361,14 @@ public sealed class BitcoinNotificationHealth
         return true;
     }
 
+    private long VisualPeerId(long rpcPeerId)
+    {
+        byte[] material = new byte[_bitcoinPeerVisualSalt.Length + sizeof(long)];
+        Buffer.BlockCopy(_bitcoinPeerVisualSalt, 0, material, 0, _bitcoinPeerVisualSalt.Length);
+        Buffer.BlockCopy(BitConverter.GetBytes(rpcPeerId), 0, material, _bitcoinPeerVisualSalt.Length, sizeof(long));
+        return BitConverter.ToInt64(SHA256.HashData(material), 0) & long.MaxValue;
+    }
+
     public BootBitcoinNotificationDto Snapshot(DateTime nowUtc)
     {
         lock (_sync)
@@ -333,6 +401,24 @@ public sealed class BitcoinNotificationHealth
                     LastCheckUtc = _lastRpcCheckUtc,
                     LastSuccessUtc = _lastRpcSuccessUtc,
                     LastError = _lastRpcError
+                },
+                Network = new BootBitcoinNetworkHealthDto
+                {
+                    TotalPeerCount = _bitcoinPeerCount,
+                    InboundPeerCount = _bitcoinInboundPeerCount,
+                    OutboundPeerCount = _bitcoinOutboundPeerCount,
+                    NetworkHashrateHs = _networkHashrateHs,
+                    LastPeerCheckUtc = _lastPeerCheckUtc,
+                    LastPeerSuccessUtc = _lastPeerSuccessUtc,
+                    LastHashrateCheckUtc = _lastHashrateCheckUtc,
+                    LastError = _lastPeerError,
+                    Peers = _bitcoinPeers.Select(peer => new BootBitcoinPeerHealthDto
+                    {
+                        Id = peer.Id,
+                        Inbound = peer.Inbound,
+                        LatencyMs = peer.LatencyMs,
+                        ConnectionType = peer.ConnectionType
+                    }).ToList()
                 },
                 ZmqTopics = _zmqTopics.Values
                     .OrderBy(topic => topic.Topic, StringComparer.OrdinalIgnoreCase)

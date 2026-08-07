@@ -23,6 +23,15 @@ public sealed class PoolConfigValidatorTests
     }
 
     [TestMethod]
+    public void DashboardDefaultsToEnabledWithLegacyFallback()
+    {
+        var config = new PoolConfig();
+
+        Assert.IsTrue(config.EnableWebUi);
+        Assert.IsTrue(config.EnableLegacyUi);
+    }
+
+    [TestMethod]
     public void BitcoinNotificationConfigurationRejectsUnsafeOrAmbiguousRpcSettings()
     {
         var config = new PoolConfig
@@ -330,5 +339,24 @@ public sealed class PoolConfigValidatorTests
         };
 
         CollectionAssert.AreEqual(Array.Empty<string>(), PoolConfigValidator.Validate(config));
+    }
+
+    [TestMethod]
+    public void ProductionRejectsPublicOperatorDiagnostics()
+    {
+        var config = new PoolConfig
+        {
+            NodeMode = "production",
+            PublicBaseUrl = "https://use1.gridlabs.science",
+            DatumPublicHost = "datum-use1.gridlabs.science",
+            EnableAdminApi = false,
+            PublicOperatorDiagnosticsEnabled = true,
+            TestingRoundResetMode = "none"
+        };
+
+        List<string> errors = PoolConfigValidator.Validate(config);
+
+        Assert.IsTrue(errors.Any(error =>
+            error.Contains("public_operator_diagnostics_enabled", StringComparison.OrdinalIgnoreCase)));
     }
 }

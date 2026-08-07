@@ -50,6 +50,7 @@ scripts/gridpool-health-monitor.local.json
 gridpool-health-monitor.local.json
 gridpool-monitor-state/
 simulations/reports/generated/
+tools/GridPool.DashboardSimulator/wwwroot/
 
 # Visual Studio 2015 cache/options directory
 .vs/
@@ -264,6 +265,10 @@ FakesAssemblies/
 # Node.js Tools for Visual Studio
 .ntvs_analysis.dat
 node_modules/
+boot_portal/wwwroot/dashboard/
+boot_portal/ui/test-results/
+boot_portal/ui/playwright-report/
+boot_portal/ui/*.tsbuildinfo
 
 # Typescript v1 declaration files
 typings/

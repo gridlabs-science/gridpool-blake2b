@@ -96,6 +96,37 @@ public sealed class BitcoinRpcClientTests
         }
     }
 
+    [TestMethod]
+    public async Task ClientParsesPrivacySafeNetworkPeerAndHashrateFields()
+    {
+        var handler = new CallbackHandler(async request =>
+        {
+            using JsonDocument document = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+            string method = document.RootElement.GetProperty("method").GetString()!;
+            string result = method switch
+            {
+                "getnetworkinfo" => "{\"connections\":3,\"connections_in\":1,\"connections_out\":2}",
+                "getpeerinfo" => "[{\"id\":7,\"addr\":\"192.168.1.9:8333\",\"inbound\":false,\"pingtime\":0.042,\"connection_type\":\"outbound-full-relay\"}]",
+                "getnetworkhashps" => "7.3e20",
+                _ => "null"
+            };
+            return JsonResponse($"{{\"result\":{result},\"error\":null,\"id\":1}}");
+        });
+        var client = new BitcoinRpcClient(
+            new PoolConfig { BitcoinRpcUrl = "http://bitcoin:8332" },
+            new HttpClient(handler));
+
+        BitcoinNetworkInfo network = await client.GetNetworkInfoAsync(CancellationToken.None);
+        IReadOnlyList<BitcoinPeerInfo> peers = await client.GetPeerInfoAsync(CancellationToken.None);
+        double? hashrate = await client.GetNetworkHashrateAsync(CancellationToken.None);
+
+        Assert.AreEqual(3, network.Connections);
+        Assert.AreEqual(1, peers.Count);
+        Assert.AreEqual(7L, peers[0].Id);
+        Assert.AreEqual(0.042, peers[0].PingTimeSeconds);
+        Assert.AreEqual(7.3e20, hashrate);
+    }
+
     private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK)
     {
         Content = new StringContent(json, Encoding.UTF8, "application/json")

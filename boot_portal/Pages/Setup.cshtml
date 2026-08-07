@@ -6,135 +6,48 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GridPool Setup</title>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-    <style>
-        body {
-            margin: 0;
-            min-height: 100vh;
-            font-family: 'Roboto Mono', monospace;
-            background: radial-gradient(circle at top left, rgba(88, 240, 124, 0.14), transparent 28rem),
-                        radial-gradient(circle at bottom right, rgba(255, 178, 63, 0.12), transparent 26rem),
-                        #080a0d;
-            color: #f1f4ed;
-        }
-
-        .container {
-            max-width: 720px;
-            margin: 0 auto;
-            padding: 36px 20px 40px;
-        }
-
-        .card {
-            background: rgba(12, 13, 16, 0.95);
-            border: 1px solid rgba(216, 222, 208, 0.14);
-            border-radius: 18px;
-            padding: 34px;
-            box-shadow: 0 28px 80px rgba(0, 0, 0, 0.28);
-        }
-
-        h1 {
-            margin: 0 0 14px;
-            font-size: clamp(2rem, 3vw, 2.8rem);
-            color: #58f07c;
-        }
-
-        p {
-            margin: 0 0 26px;
-            color: #a9b2a7;
-            line-height: 1.7;
-        }
-
-        label {
-            display: block;
-            color: #a9b2a7;
-            font-size: 0.95rem;
-            margin-bottom: 10px;
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
-        }
-
-        input[type="text"] {
-            width: 100%;
-            padding: 15px 16px;
-            border-radius: 12px;
-            border: 1px solid rgba(216, 222, 208, 0.12);
-            background: rgba(5, 6, 8, 0.92);
-            color: #f1f4ed;
-            font-size: 1rem;
-            outline: none;
-            transition: border-color 0.2s ease;
-        }
-
-        input[type="text"]:focus {
-            border-color: #58f07c;
-        }
-
-        .field-validation {
-            color: #ff7d7d;
-            margin-top: 8px;
-            font-size: 0.92rem;
-        }
-
-        .submit-button {
-            margin-top: 24px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 14px 20px;
-            border-radius: 999px;
-            border: none;
-            background: linear-gradient(135deg, #58f07c, #ffb23f);
-            color: #07110b;
-            font-size: 1rem;
-            font-weight: 700;
-            cursor: pointer;
-        }
-
-        .submit-button:hover {
-            opacity: 0.95;
-        }
-
-        .summary {
-            margin-top: 20px;
-            padding: 18px;
-            border-radius: 14px;
-            background: rgba(4, 5, 6, 0.72);
-            border: 1px solid rgba(216, 222, 208, 0.1);
-            color: #a9b2a7;
-        }
-
-        .summary strong {
-            color: #f1f4ed;
-        }
-    </style>
+    <link rel="stylesheet" href="/setup.css" />
 </head>
 <body>
-    <div class="container">
-        <div class="card">
-            <h1>Welcome to GridPool</h1>
-            <p>Finish one-time setup by entering the Bitcoin payout address your node will use. Once saved, this page will not appear again.</p>
+    <header class="truth-bar">
+        <a class="brand" href="/setup" aria-label="GridPool setup">
+            <span class="brand-mark">GP</span>
+            <span>GridPool</span>
+        </a>
+        <span class="network-tag">@Model.BitcoinNetwork</span>
+        <span class="truth-state"><span class="status-dot"></span> setup required</span>
+    </header>
 
-            <form method="post">
-                @Html.AntiForgeryToken()
-                <label for="PoolPayoutScript">Bitcoin payout address</label>
-                <input asp-for="PoolPayoutScript" id="PoolPayoutScript" autocomplete="off" />
-                <span asp-validation-for="PoolPayoutScript" class="field-validation"></span>
+    <main class="setup-shell">
+        <section class="setup-card" aria-labelledby="setup-heading">
+            <p class="eyebrow">Sovereign mining coordination</p>
+            <h1 id="setup-heading">Choose where your work gets paid.</h1>
 
-                <button type="submit" class="submit-button">Save payout address</button>
-            </form>
-
-            @if (Model.SavedAddress != null)
+            @if (Model.RestartRequired)
             {
-                <div class="summary">
-                    <strong>Current payout address:</strong>
-                    <div>@Model.SavedAddress</div>
+                <p class="lede">The payout address is stored. Restart the GridPool app to start networking and mining services with this configuration.</p>
+                <div class="address-summary">
+                    <span>Locked payout address</span>
+                    <code>@Model.SavedAddress</code>
                 </div>
+                <p class="safety-note">GridPool will remain in setup-only mode until it restarts. No mining work or peer relay is active yet.</p>
             }
-        </div>
-    </div>
+            else
+            {
+                <p class="lede">This address is the local fallback for slot 0. GridPool validates it against the attached Bitcoin network and will not start mining until setup is complete.</p>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.0/jquery.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-validate/1.19.5/jquery.validate.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-validate-unobtrusive/4.0.0/jquery.validate.unobtrusive.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+                <form method="post">
+                    @Html.AntiForgeryToken()
+                    <div asp-validation-summary="ModelOnly" class="validation-summary"></div>
+                    <label for="PoolPayoutScript">Bitcoin payout address</label>
+                    <input asp-for="PoolPayoutScript" id="PoolPayoutScript" autocomplete="off" spellcheck="false" autofocus />
+                    <span asp-validation-for="PoolPayoutScript" class="field-validation"></span>
+                    <button type="submit">Lock payout address</button>
+                </form>
+
+                <p class="safety-note">Verify this address carefully. Changing it later requires an authenticated package reconfiguration or a local configuration edit.</p>
+            }
+        </section>
+    </main>
 </body>
 </html>

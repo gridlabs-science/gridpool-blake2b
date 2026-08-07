@@ -1,14 +1,20 @@
 using System.ComponentModel.DataAnnotations;
 using boot_portal.Models;
+using boot_portal.Services;
 using boot_portal.Utils;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
 namespace boot_portal.Pages;
 
-public sealed class SetupModel(PoolConfig poolConfig) : PageModel
+public sealed class SetupModel(
+    PoolConfig poolConfig,
+    NodeSetupState setupState,
+    ILogger<SetupModel> logger) : PageModel
 {
     private readonly PoolConfig _poolConfig = poolConfig;
+    private readonly NodeSetupState _setupState = setupState;
+    private readonly ILogger<SetupModel> _logger = logger;
 
     [BindProperty]
     [Required(ErrorMessage = "Bitcoin payout address is required.")]
@@ -16,23 +22,35 @@ public sealed class SetupModel(PoolConfig poolConfig) : PageModel
 
     public string? SavedAddress { get; private set; }
 
+    public bool RestartRequired => _setupState.RestartRequired;
+
+    public string BitcoinNetwork => BitcoinScript.NormalizeNetwork(_poolConfig.BitcoinNetwork);
+
     public IActionResult OnGet()
     {
-        if (_poolConfig.IsSetupComplete())
+        if (_setupState.OperationalAtStartup)
         {
-            return RedirectToPage("/Index");
+            return Redirect("/");
         }
 
-        SavedAddress = _poolConfig.PoolPayoutScript;
+        SavedAddress = _setupState.RestartRequired
+            ? _setupState.PendingPayoutAddress
+            : _poolConfig.PoolPayoutScript;
 
         return Page();
     }
 
     public IActionResult OnPost()
     {
-        if (_poolConfig.IsSetupComplete())
+        if (_setupState.OperationalAtStartup)
         {
-            return RedirectToPage("/Index");
+            return Redirect("/");
+        }
+
+        if (_setupState.RestartRequired)
+        {
+            SavedAddress = _setupState.PendingPayoutAddress;
+            return Page();
         }
 
         if (!ModelState.IsValid)
@@ -47,18 +65,24 @@ public sealed class SetupModel(PoolConfig poolConfig) : PageModel
             return Page();
         }
 
-        _poolConfig.PoolPayoutScript = PoolPayoutScript.Trim();
+        string payoutAddress = PoolPayoutScript.Trim();
 
         try
         {
-            PoolConfigValidator.SaveSetupConfig(_poolConfig);
+            PoolConfigValidator.SaveSetupConfig(_poolConfig, payoutAddress);
+            _poolConfig.PoolPayoutScript = payoutAddress;
+            _setupState.MarkSaved(payoutAddress);
+            SavedAddress = payoutAddress;
         }
         catch (Exception ex)
         {
-            ModelState.AddModelError(string.Empty, "Failed to save setup configuration: " + ex.Message);
+            _logger.LogError(ex, "Failed to persist the initial GridPool payout address");
+            ModelState.AddModelError(
+                string.Empty,
+                "GridPool could not save the payout address. Check the app data permissions and try again.");
             return Page();
         }
 
-        return RedirectToPage("/Index");
+        return Page();
     }
 }

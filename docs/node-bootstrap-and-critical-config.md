@@ -4,6 +4,13 @@ This is the canonical rebuild checklist for GridPool node operators and automati
 
 ## Automatic Safety
 
+- A node with no valid `pool_payout_script` starts in setup-only mode when the
+  Web UI is enabled. Only `/setup`, `/setup.css`, `/health/live`, and
+  `/health/ready` remain available; Bitcoin notification, DATUM, peer relay,
+  UDP, pulse, synchronization, and local-adapter polling services do not start.
+  Saving the address uses an atomic local override and requires a process
+  restart before operational services are enabled. Headless nodes fail config
+  validation instead of entering setup mode.
 - `mainnet-beta` nodes with an empty bootstrap list seed `main.gridpool.net`, `dallas.gridpool.net`, and `detroit.gridpool.net` (excluding their own endpoint).
 - Pulse proofs default on. Production `mainnet-beta` rejects an explicit pulse-off configuration.
 - Peer polling, share relay, and chain-tip relay run under independent supervisors. WebSocket send-lock and frame writes time out, close the stuck session, and allow HTTP share fallback.
@@ -18,6 +25,11 @@ Peer-observed acceptance acknowledgements are not yet authenticated end-to-end; 
 - `public_base_url`: the real externally reachable HTTPS base URL for a dialable production node. Placeholder/example/localhost values fail production startup.
 - `datum_public_host` and optional public port: the real DATUM endpoint advertised to miners.
 - `pool_payout_script`: the operator-controlled address on the selected Bitcoin network.
+  Appliance packages must treat this as a package-wide setting and render the
+  same fallback address into GridPool and native SV2 before either mining
+  service becomes ready. The first-run `/setup` page cannot rotate an already
+  configured address; use the authenticated package action or edit the local
+  configuration offline and restart all mining services.
 - Absolute, persistent paths for state, history, local-adapter token, and service working directory. Do not store state on an ephemeral container layer.
 - Select `bitcoin_notification_mode` explicitly. Sovereign mining nodes use
   `attached-node` with authenticated RPC plus both ZMQ topics; intentional
