@@ -1241,6 +1241,16 @@ footer div {
   fill: var(--testnet);
 }
 
+.event-gridpool-paid {
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--good) 70%, transparent));
+}
+
+.event-gridpool-paid .event-marker-tip,
+.event-gridpool-paid .snapshot-flash {
+  fill: var(--good) !important;
+  stroke: var(--good) !important;
+}
+
 .event-marker-pulse {
   fill: var(--bg) !important;
   stroke-width: 2.5 !important;
@@ -1287,7 +1297,7 @@ footer div {
 .map-command-line {
   display: grid;
   grid-template-columns: auto minmax(10rem, 0.45fr) minmax(0, 1fr);
-  align-items: center;
+  align-items: start;
   gap: 0.55rem;
   width: min(100%, 75rem);
   margin: -2.4rem auto 0;
@@ -1309,10 +1319,26 @@ footer div {
 }
 
 .map-command-line output {
-  overflow: hidden;
+  min-width: 0;
+  border-left: 1px solid var(--line);
+  padding: 0.25rem 0 0.25rem 0.65rem;
   color: var(--muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.metric-focused {
+  opacity: 1 !important;
+  stroke: var(--good) !important;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--good) 72%, transparent));
+}
+
+.focus-slot0 .slot-zero-proof,
+.focus-rank .skyline-selection,
+.focus-pool .chase-pool line,
+.focus-bitcoin .chase-network line {
+  stroke: var(--good) !important;
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--good) 72%, transparent));
 }
 
 .event-ripple.event-connected,
@@ -1481,6 +1507,15 @@ footer div {
   .system-map {
     height: calc(100vh - 110px);
     min-height: 760px;
+  }
+
+  .map-command-line {
+    grid-template-columns: auto minmax(0, 1fr);
+    margin-top: -2rem;
+  }
+
+  .map-command-line output {
+    grid-column: 1 / -1;
   }
 
   .map-tools {

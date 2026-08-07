@@ -209,6 +209,7 @@ export function SystemMap({
           ceiling={hashrateCeiling}
           maximumRadius={22}
           inferred
+          focused={focus === "pool"}
         />
         <HashrateArc
           point={layout.generator}
@@ -216,7 +217,11 @@ export function SystemMap({
           ceiling={hashrateCeiling}
           maximumRadius={18}
         />
-        <TargetAperture point={layout.bitcoin} difficulty={diagram.bitcoin.networkDifficulty} />
+        <TargetAperture
+          point={layout.bitcoin}
+          difficulty={diagram.bitcoin.networkDifficulty}
+          focused={focus === "bitcoin"}
+        />
 
         <g className="peer-constellation" aria-label={`${diagram.peers.length} peers`}>
           {peers.map(({ peer, point }) => (
@@ -388,7 +393,8 @@ export function SystemMap({
           (rank) => {
             const proof = diagram.workSet[rank - 1];
             if (proof) selectProof(proof);
-          }
+          },
+          (target) => setSelection({ kind: target })
         )}
       />
 
@@ -444,9 +450,7 @@ function WorkSetRail({
     ? diagram.workSet.filter((proof) =>
         proof.address.toLowerCase() === diagram.slotZero.address.toLowerCase())
     : [];
-  const slotAnchor = slotProofs[0]
-    ? rankX(slotProofs[0].rank, layout)
-    : layout.railStart;
+  const slotAnchor = layout.railStart;
   const selected = diagram.workSet[selectedRank - 1];
   const chaseVisible = railMode === "chase" || (railMode === "auto" && focus !== "none");
   const chaseValues = [
@@ -480,7 +484,7 @@ function WorkSetRail({
 
   return (
     <g
-      className="workset-rail"
+      className={`workset-rail focus-${focus}`}
       role="listbox"
       aria-label="Provisional unpaid Work Set difficulty skyline, ranked strongest to weakest"
       aria-activedescendant={selected ? `proof-${selected.visualId}` : undefined}
@@ -615,13 +619,20 @@ function runMapCommand(
   setRailMode: (value: "auto" | "skyline" | "chase") => void,
   setFocus: (value: "none" | "slot0" | "pool" | "bitcoin" | "rank") => void,
   setWindow: (value: "24h" | "7d") => void,
-  selectRank: (rank: number) => void
+  selectRank: (rank: number) => void,
+  selectNode: (target: "grid" | "bitcoin") => void
 ) {
   const parts = raw.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const [command, arg, value] = parts;
   if (!command) return;
   if (command === "help") {
-    setOutput("window 24h|7d · focus slot0|pool|bitcoin|rank N · inspect rank N · history slot0 · rail auto|skyline|chase · export json|csv · clear");
+    setOutput([
+      "observer commands",
+      "  window 24h|7d",
+      "  focus slot0|pool|bitcoin|rank N    inspect rank N",
+      "  history slot0    rail auto|skyline|chase",
+      "  export json|csv    clear"
+    ].join("\n"));
     return;
   }
   if (command === "clear") {
@@ -636,11 +647,14 @@ function runMapCommand(
   }
   if (command === "rail" && (arg === "auto" || arg === "skyline" || arg === "chase")) {
     setRailMode(arg);
+    if (arg !== "chase") setFocus("none");
     setOutput(`rail ${arg}`);
     return;
   }
   if (command === "focus" && ["slot0", "pool", "bitcoin"].includes(arg)) {
     setFocus(arg as "slot0" | "pool" | "bitcoin");
+    if (arg === "pool") selectNode("grid");
+    if (arg === "bitcoin") selectNode("bitcoin");
     setOutput(`focus ${arg}`);
     return;
   }
@@ -648,9 +662,9 @@ function runMapCommand(
     const rank = Number(value);
     if (Number.isInteger(rank) && rank >= 1 && rank <= Math.min(897, diagram.workSet.length)) {
       selectRank(rank);
-      setFocus("rank");
+      if (command === "focus") setFocus("rank");
       const proof = diagram.workSet[rank - 1];
-      setOutput(`rank ${rank} · ${proof.difficultyDisplay} · ${proof.address}`);
+      setOutput(`${command} rank ${rank} · ${proof.difficultyDisplay} · ${proof.address}`);
       return;
     }
   }
@@ -742,25 +756,27 @@ function HashrateArc({
   value,
   ceiling,
   maximumRadius,
-  inferred = false
+  inferred = false,
+  focused = false
 }: {
   point: Point;
   value: number | null;
   ceiling: number;
   maximumRadius: number;
   inferred?: boolean;
+  focused?: boolean;
 }) {
   if (value == null || value <= 0) return null;
   const radius = 5 + Math.sqrt(Math.min(1, value / ceiling)) * (maximumRadius - 5);
   return (
     <path
-      className={`hashrate-arc ${inferred ? "hashrate-inferred" : "hashrate-reported"}`}
+      className={`hashrate-arc ${inferred ? "hashrate-inferred" : "hashrate-reported"} ${focused ? "metric-focused" : ""}`}
       d={arcPath(point, radius, -142, 142)}
     />
   );
 }
 
-function TargetAperture({ point, difficulty }: { point: Point; difficulty: number | null }) {
+function TargetAperture({ point, difficulty, focused = false }: { point: Point; difficulty: number | null; focused?: boolean }) {
   if (difficulty == null || difficulty <= 0) return null;
   const size = Math.max(8, Math.min(15, 17 - Math.log10(difficulty) / 3));
   const arm = 4;
@@ -770,7 +786,7 @@ function TargetAperture({ point, difficulty }: { point: Point; difficulty: numbe
     `M ${point.x - size + arm} ${point.y + size} H ${point.x - size} V ${point.y + size - arm}`,
     `M ${point.x + size - arm} ${point.y + size} H ${point.x + size} V ${point.y + size - arm}`
   ];
-  return <path className="target-aperture" d={corners.join(" ")} />;
+  return <path className={`target-aperture ${focused ? "metric-focused" : ""}`} d={corners.join(" ")} />;
 }
 
 function EventGlyph({
@@ -798,11 +814,13 @@ function EventGlyph({
 }) {
   const progress = useAnimatedProgress(event.sequence);
   const traces = eventTraces(event, source, target, grid, bitcoin, rail, generator, peers, railEnd);
+  const paidBoundary = event.kind === "boundary-validated" && event.boundaryKind === "gridpool-paid";
+  const paidProgress = progressInWindow(progress, [0.58, 1]);
   const flashOpacity = event.kind === "boundary-validated"
     ? snapshotFlashOpacity(progress)
     : 0;
   return (
-    <g className={`event-glyph event-${event.kind}`}>
+    <g className={`event-glyph event-${event.kind} ${paidBoundary ? "event-gridpool-paid" : ""}`}>
       {traces.map((trace, index) => (
         <TraceMarker key={`${trace.shape}-${index}`} trace={trace} progress={progress} />
       ))}
@@ -825,14 +843,14 @@ function EventGlyph({
           style={{ opacity: flashOpacity }}
         />
       ) : null}
-      {event.kind === "boundary-validated" && event.boundaryKind === "gridpool-paid" ? (
+      {paidBoundary && progress >= 0.58 ? (
         <line
           className="paid-snapshot-drain"
-          x1={railStart + (railEnd - railStart) * progress}
+          x1={railStart + (railEnd - railStart) * paidProgress}
           y1={rail.y - 16}
           x2={railEnd}
           y2={rail.y - 16}
-          style={{ opacity: 1 - progress }}
+          style={{ opacity: 1 - paidProgress }}
         />
       ) : null}
     </g>
@@ -1023,7 +1041,7 @@ function eventTraces(
         shape: "tip" as const,
         route: "bitcoin-grid-peer"
       })),
-      { points: [bitcoin, rail], milestones: [0, 1], shape: "tip", route: "bitcoin-rail" }
+      { points: [bitcoin, rail], milestones: [0, 1], shape: "tip", route: "bitcoin-rail", window: [0, 0.58] }
     ];
   }
   return [];

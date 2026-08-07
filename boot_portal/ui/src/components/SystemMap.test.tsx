@@ -54,7 +54,26 @@ describe("GridPool system map", () => {
     expect(container.querySelector(".rail-line")).toHaveAttribute("x2", "1159");
     expect(container.querySelector(".snapshot-line")).toHaveAttribute("x2", "1159");
     expect(container.querySelector(".prospective-boundary")).toHaveAttribute("x1", "600");
+    expect(container.querySelector(".slot-zero-tick")).toHaveAttribute("x1", "320");
     expect(screen.getByText(/Slot 0 · tb1qhome/)).toHaveAttribute("transform", expect.stringContaining("rotate(22"));
+  });
+
+  it("keeps the Slot 0 legend at the rail origin while highlighting its honest proof ranks", () => {
+    const shiftedSlotProofs = diagramFixture.workSet.map((proof, index) => ({
+      ...proof,
+      address: index === 100 ? diagramFixture.slotZero.address : "tb1qpeer"
+    }));
+    const { container } = render(
+      <SystemMap
+        diagram={{ ...diagramFixture, workSet: shiftedSlotProofs }}
+        activeEvent={null}
+        onEventComplete={() => undefined}
+        operatorUnlocked={false}
+      />
+    );
+
+    expect(container.querySelector(".slot-zero-tick")).toHaveAttribute("x1", "320");
+    expect(container.querySelector(".slot-zero-proof")).not.toHaveAttribute("x1", "320");
   });
 
   it("navigates proof ranks as one keyboard composite", () => {
@@ -220,6 +239,56 @@ describe("GridPool system map", () => {
     fireEvent.submit(input.closest("form")!);
     expect(container.querySelector(".difficulty-chase")).toBeInTheDocument();
     expect(screen.getByText(/focus slot0/)).toBeInTheDocument();
+  });
+
+  it("gives observer commands distinct focus, inspect, auto, and multiline-help behavior", () => {
+    const { container } = render(
+      <SystemMap
+        diagram={diagramFixture}
+        history={null}
+        activeEvent={null}
+        onEventComplete={() => undefined}
+        operatorUnlocked={false}
+      />
+    );
+    const input = screen.getByLabelText("System map command");
+    const run = (command: string) => {
+      fireEvent.change(input, { target: { value: command } });
+      fireEvent.submit(input.closest("form")!);
+    };
+
+    run("help");
+    expect(screen.getByText(/observer commands/).textContent).toContain("\n");
+    run("focus bitcoin");
+    expect(screen.getByRole("complementary", { name: "Local Bitcoin node" })).toBeInTheDocument();
+    expect(container.querySelector(".target-aperture")).toHaveClass("metric-focused");
+    expect(container.querySelector(".difficulty-chase")).toBeInTheDocument();
+    run("rail auto");
+    expect(container.querySelector(".difficulty-chase")).toBeNull();
+    run("inspect rank 25");
+    expect(screen.getByText(/inspect rank 25/)).toBeInTheDocument();
+    expect(container.querySelector(".difficulty-chase")).toBeNull();
+    run("focus rank 25");
+    expect(screen.getByText(/focus rank 25/)).toBeInTheDocument();
+    expect(container.querySelector(".difficulty-chase")).toBeInTheDocument();
+  });
+
+  it("colors paid GridPool boundaries green and starts accounting after rail arrival", () => {
+    vi.useFakeTimers();
+    const { container } = render(
+      <SystemMap
+        diagram={diagramFixture}
+        activeEvent={{ ...proofEvent, kind: "boundary-validated", boundaryKind: "gridpool-paid" }}
+        onEventComplete={() => undefined}
+        operatorUnlocked={false}
+      />
+    );
+
+    expect(container.querySelector(".event-gridpool-paid")).toBeInTheDocument();
+    expect(container.querySelector(".paid-snapshot-drain")).toBeNull();
+    act(() => vi.advanceTimersByTime(800));
+    expect(container.querySelector(".paid-snapshot-drain")).toBeInTheDocument();
+    vi.useRealTimers();
   });
 
   it("inverts the asymmetric rail geometry for nearest-rank hit testing", () => {
