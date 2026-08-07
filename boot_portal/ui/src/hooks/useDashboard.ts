@@ -6,6 +6,7 @@ import type {
   DashboardState,
   WindowKey
 } from "../types";
+import { AsyncRefreshGate } from "./AsyncRefreshGate";
 
 const initialState: DashboardState = {
   summary: null,
@@ -48,27 +49,32 @@ export function useDashboard(windowKey: WindowKey, adminKey: string) {
   });
 
   useEffect(() => {
-    void refresh(true);
-    const poll = window.setInterval(() => void refresh(false), 15_000);
+    let disposed = false;
+    const refreshGate = new AsyncRefreshGate(() => refresh(false), 5_000);
+    const poll = window.setInterval(() => refreshGate.request(), 15_000);
     const connection = new HubConnectionBuilder()
       .withUrl("/dashboardHub")
       .withAutomaticReconnect([0, 1000, 3000, 10_000])
       .build();
-    connection.on("DashboardChanged", (_change: DashboardChanged) => {
-      void refresh(false);
+    connection.on("DashboardChanged", (change: DashboardChanged) => {
+      if (change.topics.length) refreshGate.request();
     });
     connection.onreconnecting(() => {
       setState((current) => ({ ...current, stale: current.summary !== null }));
     });
-    connection.onreconnected(() => void refresh(true));
-    void connection.start()
-      .then(() => refresh(false))
-      .catch(() => {
-        setState((current) => ({ ...current, stale: current.summary !== null }));
-      });
+    connection.onreconnected(() => refreshGate.request(true));
+    void refresh(true).then(() => {
+      if (disposed) return;
+      void connection.start()
+        .catch(() => {
+          setState((current) => ({ ...current, stale: current.summary !== null }));
+        });
+    });
 
     return () => {
+      disposed = true;
       window.clearInterval(poll);
+      refreshGate.dispose();
       if (connection.state !== HubConnectionState.Disconnected) {
         void connection.stop();
       }

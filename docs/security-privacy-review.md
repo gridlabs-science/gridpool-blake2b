@@ -110,6 +110,11 @@ a network directory. Private mode should be the package default.
   practical, dropped capabilities, and no host Docker socket access.
 - [ ] Verify TLS termination and trusted-proxy configuration do not permit
   spoofed client IP or authentication bypass.
+- [ ] Configure `trusted_forwarded_proxy_ranges` only for exact local or
+  private reverse-proxy hops. Forwarded client headers are ignored from every
+  other source, and public dashboard reads remain on the separate
+  `dashboard-read` limiter so observer traffic cannot starve health or mining
+  reads.
 - [ ] Produce a minimal port/exposure matrix for public seeds, private home
   nodes, DATUM, SV2, and hosted Stratum gateways.
 

@@ -6,6 +6,12 @@ namespace boot_portal.Utils;
 
 public static class BootRequestIdentity
 {
+    public static string GetRateLimitPartitionKey(HttpContext context, string policyName, PoolConfig? config = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(policyName);
+        return $"{policyName}:{GetClientKey(context, config)}";
+    }
+
     public static string GetClientKey(HttpContext context, PoolConfig? config = null)
     {
         string? forwardedIp = GetForwardedClientIp(context, config);

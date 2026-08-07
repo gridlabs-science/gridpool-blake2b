@@ -376,6 +376,8 @@ public class Program
 
                 options.AddPolicy("network-read", context =>
                     CreateRateLimitPartition(context, _poolConfig, "network-read", _poolConfig.NetworkReadRateLimitPerMinute));
+                options.AddPolicy("dashboard-read", context =>
+                    CreateRateLimitPartition(context, _poolConfig, "dashboard-read", _poolConfig.DashboardReadRateLimitPerMinute));
                 options.AddPolicy("peer-write", context =>
                     CreateRateLimitPartition(context, _poolConfig, "peer-write", _poolConfig.PeerWriteRateLimitPerMinute));
                 options.AddPolicy("mining-write", context =>
@@ -764,9 +766,8 @@ public class Program
 
     private static RateLimitPartition<string> CreateRateLimitPartition(HttpContext context, PoolConfig poolConfig, string policyName, int permitLimit)
     {
-        string clientKey = BootRequestIdentity.GetClientKey(context, poolConfig);
         return RateLimitPartition.GetFixedWindowLimiter(
-            $"{policyName}:{clientKey}",
+            BootRequestIdentity.GetRateLimitPartitionKey(context, policyName, poolConfig),
             _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = Math.Max(1, permitLimit),

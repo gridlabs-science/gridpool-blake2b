@@ -159,6 +159,7 @@ public static class PoolConfigValidator
         ValidateNonNegative(errors, config.PeerPruneAfterSeconds, "peer_prune_after_seconds");
         ValidatePositive(errors, config.PeerPruneFailureCount, "peer_prune_failure_count");
         ValidatePositive(errors, config.NetworkReadRateLimitPerMinute, "network_read_rate_limit_per_minute");
+        ValidatePositive(errors, config.DashboardReadRateLimitPerMinute, "dashboard_read_rate_limit_per_minute");
         ValidatePositive(errors, config.PeerWriteRateLimitPerMinute, "peer_write_rate_limit_per_minute");
         ValidatePositive(errors, config.PeerSessionTarget, "peer_session_target");
         ValidatePositive(errors, config.PeerSessionConnectIntervalSeconds, "peer_session_connect_interval_seconds");

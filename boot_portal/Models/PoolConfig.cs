@@ -185,6 +185,9 @@ public class PoolConfig
     [JsonPropertyName("network_read_rate_limit_per_minute")]
     public int NetworkReadRateLimitPerMinute { get; set; } = 180;
 
+    [JsonPropertyName("dashboard_read_rate_limit_per_minute")]
+    public int DashboardReadRateLimitPerMinute { get; set; } = 180;
+
     [JsonPropertyName("peer_write_rate_limit_per_minute")]
     public int PeerWriteRateLimitPerMinute { get; set; } = 3000;
 

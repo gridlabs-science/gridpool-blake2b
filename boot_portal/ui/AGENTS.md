@@ -65,6 +65,14 @@ which topics changed; clients refetch the typed HTTP projection. Operator keys
 stay in React memory only and must not enter URLs, browser storage, logs, or
 exports.
 
+The production map owns one SignalR connection per tab. Invalidation refreshes
+are coalesced and single-flight: journal reads run at most once per second,
+diagram snapshots at most once per two seconds, and summary/history projections
+on slower targeted schedules. Do not restore per-component connections or
+refetch proof history for hashrate-only changes. Dashboard routes use the
+dedicated `dashboard-read` limiter so observer traffic cannot consume mining or
+health API capacity.
+
 To add a module:
 
 1. Extend a versioned backend projection only when existing data is

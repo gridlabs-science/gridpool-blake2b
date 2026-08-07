@@ -25,7 +25,6 @@ function MapApp() {
   const [adminKey, setAdminKey] = useState("");
   const [adminDraft, setAdminDraft] = useState("");
   const [unlockOpen, setUnlockOpen] = useState(false);
-  const dashboard = useDashboard("24h", adminKey);
   const live = useDiagram(adminKey);
 
   useEffect(() => {
@@ -40,7 +39,7 @@ function MapApp() {
     setUnlockOpen(false);
   };
 
-  if ((dashboard.loading && !dashboard.summary) || (live.loading && !live.diagram)) {
+  if (live.loading && (!live.summary || !live.diagram)) {
     return (
       <main className="loading-screen">
         <div className="loading-mark" aria-hidden="true">GP</div>
@@ -49,18 +48,18 @@ function MapApp() {
     );
   }
 
-  if (!dashboard.summary || !live.diagram) {
+  if (!live.summary || !live.diagram) {
     return (
       <main className="fatal-screen">
         <p className="eyebrow">GridPool system map unavailable</p>
         <h1>The node did not return a coherent diagram.</h1>
-        <p>{live.error || dashboard.error || "Check the node service and try again."}</p>
-        <button type="button" onClick={() => { dashboard.refresh(); void live.refresh(); }}>Retry</button>
+        <p>{live.error || "Check the node service and try again."}</p>
+        <button type="button" onClick={() => void live.refresh()}>Retry</button>
       </main>
     );
   }
 
-  const summary = dashboard.summary;
+  const summary = live.summary;
   const testnet = summary.node.bitcoinNetwork !== "mainnet";
   return (
     <div className={testnet ? "app map-app app-testnet" : "app map-app"}>
@@ -79,8 +78,8 @@ function MapApp() {
           <span>{summary.workRate.estimateDisplay}</span>
         </nav>
         <div className="truth-actions">
-          <span className={live.stale || dashboard.stale ? "freshness freshness-stale" : "freshness"}>
-            {live.stale || dashboard.stale ? "reconnecting" : "live"}
+          <span className={live.stale ? "freshness freshness-stale" : "freshness"}>
+            {live.stale ? "reconnecting" : "live"}
           </span>
           <a className="details-link" href="/details">Details</a>
           <button
@@ -101,9 +100,9 @@ function MapApp() {
         </div>
       </header>
 
-      {live.error || dashboard.error ? (
+      {live.error ? (
         <div className="global-notice" role="status">
-          Showing the last coherent map: {live.error || dashboard.error}
+          Showing the last coherent map: {live.error}
         </div>
       ) : null}
 

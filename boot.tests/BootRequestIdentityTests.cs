@@ -59,4 +59,25 @@ public sealed class BootRequestIdentityTests
         Assert.AreEqual("203.0.113.44", BootRequestIdentity.GetClientKey(trustedContext, config));
         Assert.AreEqual("203.0.113.9", BootRequestIdentity.GetClientKey(untrustedContext, config));
     }
+
+    [TestMethod]
+    public void DashboardAndOperationalReadsUseIndependentClientPartitions()
+    {
+        var config = new PoolConfig
+        {
+            TrustedForwardedProxyRanges = ["127.0.0.1/32"]
+        };
+        var proxied = new DefaultHttpContext();
+        proxied.Connection.RemoteIpAddress = IPAddress.Loopback;
+        proxied.Request.Headers["CF-Connecting-IP"] = "203.0.113.88";
+        var local = new DefaultHttpContext();
+        local.Connection.RemoteIpAddress = IPAddress.Loopback;
+
+        Assert.AreEqual(
+            "dashboard-read:203.0.113.88",
+            BootRequestIdentity.GetRateLimitPartitionKey(proxied, "dashboard-read", config));
+        Assert.AreEqual(
+            "network-read:127.0.0.1",
+            BootRequestIdentity.GetRateLimitPartitionKey(local, "network-read", config));
+    }
 }

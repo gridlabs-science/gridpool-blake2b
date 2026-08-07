@@ -23,17 +23,17 @@ public sealed class DashboardController : ControllerBase
         _visualization = visualization;
     }
 
-    [EnableRateLimiting("network-read")]
+    [EnableRateLimiting("dashboard-read")]
     [HttpGet("summary")]
     public IActionResult GetSummary([FromQuery] string? window = "24h") =>
         Ok(_dashboard.BuildSummary(window));
 
-    [EnableRateLimiting("network-read")]
+    [EnableRateLimiting("dashboard-read")]
     [HttpGet("history")]
     public IActionResult GetHistory([FromQuery] string? window = "24h") =>
         Ok(_dashboard.BuildHistory(window));
 
-    [EnableRateLimiting("network-read")]
+    [EnableRateLimiting("dashboard-read")]
     [HttpGet("address/{address}")]
     public IActionResult GetAddress(string address)
     {
@@ -51,7 +51,7 @@ public sealed class DashboardController : ControllerBase
         }
     }
 
-    [EnableRateLimiting("network-read")]
+    [EnableRateLimiting("dashboard-read")]
     [HttpGet("operator")]
     public IActionResult GetOperator()
     {
@@ -65,7 +65,7 @@ public sealed class DashboardController : ControllerBase
         return Ok(_dashboard.BuildOperator());
     }
 
-    [EnableRateLimiting("network-read")]
+    [EnableRateLimiting("dashboard-read")]
     [HttpGet("diagram")]
     public IActionResult GetDiagram()
     {
@@ -73,7 +73,7 @@ public sealed class DashboardController : ControllerBase
         return Ok(_dashboard.BuildDiagram(includeOperatorDetails: false));
     }
 
-    [EnableRateLimiting("network-read")]
+    [EnableRateLimiting("dashboard-read")]
     [HttpGet("diagram/events")]
     public IActionResult GetDiagramEvents([FromQuery] long after = 0, [FromQuery] int limit = 256)
     {
@@ -81,7 +81,7 @@ public sealed class DashboardController : ControllerBase
         return Ok(_visualization.Read(Math.Max(0, after), limit, redacted: true));
     }
 
-    [EnableRateLimiting("network-read")]
+    [EnableRateLimiting("dashboard-read")]
     [HttpGet("diagram/history")]
     public IActionResult GetDiagramHistory(
         [FromQuery] string? window = "24h",
@@ -91,7 +91,7 @@ public sealed class DashboardController : ControllerBase
         return Ok(_dashboard.BuildDiagramHistory(window, limit, includeOperatorDetails: false));
     }
 
-    [EnableRateLimiting("network-read")]
+    [EnableRateLimiting("dashboard-read")]
     [HttpGet("diagram/operator")]
     public IActionResult GetOperatorDiagram()
     {
@@ -103,7 +103,7 @@ public sealed class DashboardController : ControllerBase
         return Ok(_dashboard.BuildDiagram(includeOperatorDetails: true));
     }
 
-    [EnableRateLimiting("network-read")]
+    [EnableRateLimiting("dashboard-read")]
     [HttpGet("diagram/operator/events")]
     public IActionResult GetOperatorDiagramEvents([FromQuery] long after = 0, [FromQuery] int limit = 256)
     {
@@ -115,7 +115,7 @@ public sealed class DashboardController : ControllerBase
         return Ok(_visualization.Read(Math.Max(0, after), limit, redacted: false));
     }
 
-    [EnableRateLimiting("network-read")]
+    [EnableRateLimiting("dashboard-read")]
     [HttpGet("diagram/operator/history")]
     public IActionResult GetOperatorDiagramHistory(
         [FromQuery] string? window = "24h",
@@ -129,7 +129,7 @@ public sealed class DashboardController : ControllerBase
         return Ok(_dashboard.BuildDiagramHistory(window, limit, includeOperatorDetails: true));
     }
 
-    [EnableRateLimiting("network-read")]
+    [EnableRateLimiting("dashboard-read")]
     [HttpGet("schema")]
     public IActionResult GetSchema() =>
         Ok(new

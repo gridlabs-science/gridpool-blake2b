@@ -69,6 +69,8 @@
   "peer_tip_max_header_age_seconds": 86400,
   "peer_tip_max_future_seconds": 7200,
   "network_read_rate_limit_per_minute": 180,
+  "dashboard_read_rate_limit_per_minute": 180,
+  "trusted_forwarded_proxy_ranges": [],
   "peer_write_rate_limit_per_minute": 90,
   "mining_api_share_rate_limit_per_minute": 120,
   "admin_rate_limit_per_minute": 12,

@@ -37,6 +37,14 @@ dependency.
 The hub never broadcasts internal state objects. Clients refetch the explicit
 HTTP projections after receiving an invalidation.
 
+The map uses one SignalR connection per browser tab. Repeated invalidations are
+coalesced behind single-flight refresh gates: event journal reads are bounded to
+one per second, diagram snapshots to one per two seconds, and node summary and
+proof-history reads use slower topic-specific schedules. The 15-second poll is
+a fallback, not an additional independent refresh stream. Dashboard HTTP routes
+use the `dashboard-read` rate-limit policy, separate from operational
+`network-read` routes used by health and mining integrations.
+
 The visualization journal is presentation-only, in memory, and bounded to
 2,048 events or 10 minutes. Cursor gaps force clients to discard queued motion
 and reconcile from a fresh diagram snapshot. The public diagram exposes exact
