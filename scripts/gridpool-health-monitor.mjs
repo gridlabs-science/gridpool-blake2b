@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-const SCRIPT_VERSION = 5;
+const SCRIPT_VERSION = 6;
 const DEFAULT_STATE_DIR = path.join(os.homedir(), ".local", "state", "gridpool-monitor");
 const DEFAULT_CONFIG_PATHS = [
     path.join(os.homedir(), ".config", "gridpool-health-monitor", "config.json"),
@@ -347,6 +347,8 @@ async function collectGridPoolNode(node, config) {
         type: "gridpool",
         name: node.name,
         baseUrl,
+        enabled: node.enabled !== false,
+        skipped: node.enabled === false,
         critical: node.critical !== false,
         ok: true,
         checks: {},
@@ -372,6 +374,10 @@ async function collectGridPoolNode(node, config) {
         networkKey: ""
     };
 
+    if (node.enabled === false) {
+        return result;
+    }
+
     const requestOptions = { headers: gridPoolAdminHeaders(node) };
     const live = await fetchJson(baseUrl, "/health/live", config, requestOptions);
     result.checks.live = compactFetchResult(live);
@@ -388,7 +394,7 @@ async function collectGridPoolNode(node, config) {
     if (!summary.ok || !summary.json) result.errors.push(`summary failed: ${summary.error || summary.status}`);
 
     const miners = await fetchJson(baseUrl, "/api/network/local-miners?limit=500&window=24h", config, requestOptions);
-    result.checks.localMiners = compactFetchResult(miners);
+    result.checks.localMiners = compactFetchResult(miners, { optionalStatuses: [404] });
     result.localMiners = Array.isArray(miners.json?.miners) ? miners.json.miners : [];
     if (!miners.ok && miners.status !== 404) {
         result.errors.push(`local-miners failed: ${miners.error || miners.status}`);
@@ -416,7 +422,7 @@ async function collectGridPoolNode(node, config) {
     }
 
     const latency = await fetchJson(baseUrl, "/api/network/peer-relay-latency?window=24h&limit=1000", config, requestOptions);
-    result.checks.peerRelayLatency = compactFetchResult(latency);
+    result.checks.peerRelayLatency = compactFetchResult(latency, { optionalStatuses: [404] });
     result.peerRelayLatency = latency.json;
     if (!latency.ok && latency.status !== 404) {
         result.errors.push(`peer relay latency failed: ${latency.error || latency.status}`);
@@ -486,9 +492,11 @@ async function collectTcpEndpoint(endpoint, config) {
     });
 }
 
-function compactFetchResult(result) {
+function compactFetchResult(result, { optionalStatuses = [] } = {}) {
+    const unavailable = !result.ok && optionalStatuses.includes(result.status);
     return {
-        ok: !!result.ok,
+        ok: !!result.ok || unavailable,
+        available: !!result.ok,
         status: result.status,
         durationMs: result.durationMs,
         error: result.error || null
@@ -2504,6 +2512,12 @@ function runSelfTests() {
     ] }, { thresholds: { localMiningFreshnessMinutes: 20 } });
     if (freshMining.hashrateThs !== 7 || freshMining.sources.length !== 2 || freshMining.minerCount !== 2) {
         throw new Error("fresh source-aware local mining calculation failed");
+    }
+    const privateDiagnostic = compactFetchResult({ ok: false, status: 404, durationMs: 1 }, {
+        optionalStatuses: [404]
+    });
+    if (!privateDiagnostic.ok || privateDiagnostic.available || privateDiagnostic.status !== 404) {
+        throw new Error("privacy-protected diagnostic endpoint was not treated as optional");
     }
     const incidentState = { activeIncidentKeys: [] };
     if (selectNewIncidentAlerts(

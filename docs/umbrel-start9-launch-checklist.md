@@ -141,6 +141,12 @@ Goal: make the current beta boring before inviting one-click installers.
   `external-fallback` mode.
   Evomining and Detroit contribute opportunistic evidence when reachable but
   are not required soak anchors.
+  - Canary started `2026-08-08T19:44Z` with Main and Oregon on `9ac862a`,
+    matching V2.2/stale-protection configuration, synchronized attached Bitcoin
+    nodes, matching state IDs, and live Oregon-originated pulse traffic. Start
+    the seven-day clock after 24 hours without an unexplained intervention.
+  - Detroit is intentionally excluded while its host is used for Umbrel package
+    testing; this is planned maintenance, not a network failure.
 - [ ] Record operator experiments and planned restarts so they are not misclassified as protocol failures.
 - [x] Add at least one remote StratumRace vantage with an attached Bitcoin node
   and verified clock health. Oregon is the controlled remote vantage.

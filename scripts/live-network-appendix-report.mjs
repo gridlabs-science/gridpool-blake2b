@@ -109,7 +109,9 @@ async function fetchJson(baseUrl, route, query, timeoutMs) {
   });
   const latencyMs = Date.now() - started;
   if (!response.ok) {
-    throw new Error(`${url.toString()} returned HTTP ${response.status}`);
+    const error = new Error(`${url.toString()} returned HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
   }
   return { payload: await response.json(), latencyMs };
 }
@@ -118,7 +120,7 @@ async function fetchOptional(baseUrl, route, query, timeoutMs) {
   try {
     return await fetchJson(baseUrl, route, query, timeoutMs);
   } catch (error) {
-    return { error: String(error.message || error) };
+    return { error: String(error.message || error), status: error.status ?? null };
   }
 }
 
@@ -136,7 +138,8 @@ async function collectNode(node, options) {
     queriedAtUtc: now,
     reachable: false,
     notes: [],
-    errors: []
+    errors: [],
+    unavailableDiagnostics: []
   };
 
   if (node.enabled === false || !node.url) {
@@ -163,11 +166,17 @@ async function collectNode(node, options) {
   if (peers.error) result.errors.push(`peer-addresses: ${peers.error}`);
   else result.peers = peers.payload;
 
-  if (relay.error) result.errors.push(`peer-relay-latency: ${relay.error}`);
+  if (relay.error && relay.status === 404) result.unavailableDiagnostics.push("peer-relay-latency");
+  else if (relay.error) result.errors.push(`peer-relay-latency: ${relay.error}`);
   else result.relay = relay.payload;
 
-  if (events.error) result.errors.push(`events: ${events.error}`);
+  if (events.error && events.status === 404) result.unavailableDiagnostics.push("events");
+  else if (events.error) result.errors.push(`events: ${events.error}`);
   else result.events = events.payload;
+
+  if (result.unavailableDiagnostics.length > 0) {
+    result.notes.push(`Private diagnostics unavailable: ${result.unavailableDiagnostics.join(", ")}.`);
+  }
 
   annotateNode(result);
   return result;

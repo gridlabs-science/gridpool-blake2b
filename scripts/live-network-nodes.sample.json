@@ -11,6 +11,15 @@
       "primary": true
     },
     {
+      "label": "Oregon",
+      "region": "Oregon",
+      "role": "primary public node / integration lab",
+      "operator": "project operator",
+      "url": "https://oregon.gridpool.net",
+      "enabled": true,
+      "primary": true
+    },
+    {
       "label": "Dallas",
       "region": "Dallas, Texas",
       "role": "primary public node",
@@ -25,8 +34,9 @@
       "role": "primary public node",
       "operator": "project operator",
       "url": "https://detroit.gridpool.net",
-      "enabled": true,
-      "primary": true
+      "enabled": false,
+      "primary": false,
+      "notes": "Temporarily offline while the host is used for Umbrel package testing."
     },
     {
       "label": "Evomining",

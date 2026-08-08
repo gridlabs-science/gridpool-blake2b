@@ -170,7 +170,7 @@ Daily/final evidence commands:
 ```bash
 node scripts/boot-soak-report.mjs \
   --main-url https://main.gridpool.net \
-  --peer-url https://evomining.farted.net \
+  --peer-url https://oregon.gridpool.net \
   --window 24h \
   --limit 5000 \
   --out ~/.local/state/gridpool-monitor/soak-$(date -u +%F).json

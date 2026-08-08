@@ -402,21 +402,25 @@ async function fetchJson(baseUrl, path, params = {}, timeoutMs = 4000) {
 async function fetchOptionalJson(baseUrl, path, params = {}, timeoutMs = 4000) {
     try {
         return await fetchJson(baseUrl, path, params, timeoutMs);
-    } catch {
-        return { events: [] };
+    } catch (error) {
+        return {
+            events: [],
+            _diagnosticUnavailable: true,
+            _diagnosticError: String(error?.message || error)
+        };
     }
 }
 
 async function fetchNodeReport(baseUrl, window, limit, requestTimeoutMs = 4000) {
     const [summary, rejects, events, datumResponses, datumSessions, datumProtocol] = await Promise.all([
         fetchJson(baseUrl, "/api/network/summary", {}, requestTimeoutMs),
-        fetchJson(baseUrl, "/api/network/share-diagnostics", {
+        fetchOptionalJson(baseUrl, "/api/network/share-diagnostics", {
             window,
             source: "datum",
             accepted: false,
             limit
         }, requestTimeoutMs),
-        fetchJson(baseUrl, "/api/network/events", {
+        fetchOptionalJson(baseUrl, "/api/network/events", {
             window,
             limit
         }, requestTimeoutMs),
@@ -448,6 +452,13 @@ async function fetchNodeReport(baseUrl, window, limit, requestTimeoutMs = 4000) 
     return {
         baseUrl,
         summary,
+        diagnosticAvailability: {
+            shareDiagnostics: diagnosticStatus(rejects),
+            events: diagnosticStatus(events),
+            datumResponses: diagnosticStatus(datumResponses),
+            datumSessions: diagnosticStatus(datumSessions),
+            datumProtocol: diagnosticStatus(datumProtocol)
+        },
         rejectCount: rejectEvents.length,
         rejectionCounts,
         datumResponses: summarizeDatumResponses(datumResponseItems),
@@ -459,6 +470,12 @@ async function fetchNodeReport(baseUrl, window, limit, requestTimeoutMs = 4000) 
         freshParentLearnedCount: eventCounts["fresh-parent-learned"] || 0,
         restartSignalCount: restartSignals.length
     };
+}
+
+function diagnosticStatus(payload) {
+    return payload?._diagnosticUnavailable
+        ? { available: false, error: payload._diagnosticError }
+        : { available: true, error: null };
 }
 
 function buildComparison(mainReport, peerReport) {
@@ -494,6 +511,10 @@ function printSummary(report, label) {
     console.log(`  Candidate state: ${summary.candidateStateId}`);
     console.log(`  DATUM acceptance: ${diagnostics.acceptedCount ?? 0}/${diagnostics.totalSubmissions ?? 0} (${formatPercent(diagnostics.acceptedCount ?? 0, diagnostics.totalSubmissions ?? 0)})`);
     console.log(`  Rejects: ${report.rejectCount}`);
+    const unavailableDiagnostics = Object.entries(report.diagnosticAvailability)
+        .filter(([, value]) => !value.available)
+        .map(([name]) => name);
+    console.log(`  Private diagnostics unavailable: ${unavailableDiagnostics.join(", ") || "none"}`);
     console.log(`  Reject reasons: ${JSON.stringify(report.rejectionCounts)}`);
     console.log(`  DATUM response p95 total/validation/send: ${report.datumResponses.p95TotalMs?.toFixed?.(1) ?? "--"} ms / ${report.datumResponses.p95ValidationMs?.toFixed?.(1) ?? "--"} ms / ${report.datumResponses.p95SendMs?.toFixed?.(1) ?? "--"} ms`);
     console.log(`  DATUM response rejects: ${JSON.stringify(report.datumResponses.rejectionReasons)}`);
