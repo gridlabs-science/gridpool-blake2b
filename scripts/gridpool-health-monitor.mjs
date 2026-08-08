@@ -667,6 +667,16 @@ function buildAlerts(snapshot, state, config) {
     const firstRun = !state.initialized;
 
     for (const node of snapshot.gridpoolNodes) {
+        if (node.skipped) {
+            const prefix = `gridpool:${node.name}:`;
+            for (const key of Object.keys(state.failureCounts || {})) {
+                if (key.startsWith(prefix)) {
+                    resetFailure(state, key);
+                }
+            }
+            continue;
+        }
+
         for (const [checkName, check] of Object.entries(node.checks || {})) {
             const key = `gridpool:${node.name}:${checkName}`;
             if (!check.ok) {
