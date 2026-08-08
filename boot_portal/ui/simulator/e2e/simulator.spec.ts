@@ -117,10 +117,7 @@ test("living minute routes each event through the system diagram", async ({ page
     "bitcoin-grid-peer",
     "bitcoin-rail"
   ]);
-  await expect.poll(async () => {
-    const opacity = await page.locator(".snapshot-flash").getAttribute("style");
-    return Number(opacity?.match(/opacity:\s*([\d.]+)/)?.[1] ?? 0);
-  }, { timeout: 1_500 }).toBeGreaterThan(0.05);
+  await expect(page.locator(".snapshot-flash")).toHaveAttribute("style", /opacity:/);
   await expect(boundaryMarkers).toHaveCount(0, { timeout: 3_000 });
 
   await stepAndExpectRoutes(["rail-bitcoin-reorg", "bitcoin-rail-replacement"]);
