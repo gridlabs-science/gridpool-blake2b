@@ -141,7 +141,7 @@ init_chain() {
 start() {
   init_chain
   compose build node-a
-  compose up -d node-a node-b node-c
+  compose up -d --force-recreate node-a node-b node-c
   echo "GridPool regtest lab started; observer ports are 15001, 15002, and 15003."
 }
 
