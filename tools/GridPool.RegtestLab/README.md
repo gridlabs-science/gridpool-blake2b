@@ -8,6 +8,9 @@ It is intended for ordinary integration, upgrade, restart, reorganization,
 state-recovery, and SV2 testing. It does not contain security finding-specific
 reproduction procedures.
 
+With the optional SV2 profile, the local SV2 client port is `13465` and the
+synthetic miner is started by `lab.sh start-sv2`.
+
 ## Prerequisites
 
 - Docker Engine and Compose v2.

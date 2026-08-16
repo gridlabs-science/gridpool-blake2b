@@ -77,8 +77,8 @@ services:
     volumes:
       - ${GRIDPOOL_LAB_ROOT}/sv2:/data
     ports:
-      - 127.0.0.1:134265:34265
-      - 127.0.0.1:134290:34290
+      - 127.0.0.1:13465:34265
+      - 127.0.0.1:13490:34290
     networks: [lab]
     profiles: [sv2]
 
