@@ -12,6 +12,7 @@ web_port="$4"
 : "${RPC_PASSWORD:?set RPC_PASSWORD}"
 
 jq -n \
+  --arg node_name "$node_name" \
   --arg network_id "$LAB_NETWORK_ID" \
   --arg payout "$LAB_PAYOUT_ADDRESS" \
   --arg rpc_user "$RPC_USER" \
