@@ -57,7 +57,11 @@ EOF
   sed -i "s|^GRIDPOOL_SOURCE=.*|GRIDPOOL_SOURCE=$gridpool_source|" "$env_file"
   sed -i "s|^GRIDPOOL_SV2_SOURCE=.*|GRIDPOOL_SV2_SOURCE=$sv2_source|" "$env_file"
   sed -i "s|^GRIDPOOL_TOOL_ROOT=.*|GRIDPOOL_TOOL_ROOT=$tool_root|" "$env_file"
-  sed -i "s|^LAB_BIND_HOST=.*|LAB_BIND_HOST=${LAB_BIND_HOST:-127.0.0.1}|" "$env_file"
+  if grep -q '^LAB_BIND_HOST=' "$env_file"; then
+    sed -i "s|^LAB_BIND_HOST=.*|LAB_BIND_HOST=${LAB_BIND_HOST:-127.0.0.1}|" "$env_file"
+  else
+    printf '\nLAB_BIND_HOST=127.0.0.1\n' >> "$env_file"
+  fi
   chmod 600 "$env_file"
 }
 
