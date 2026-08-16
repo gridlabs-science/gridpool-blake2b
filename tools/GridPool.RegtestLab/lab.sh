@@ -172,6 +172,7 @@ start_sv2() {
   set -a
   source "$env_file"
   set +a
+  rm -rf "$lab_root/sv2/proof-spool"
   mkdir -p "$lab_root/sv2/proof-spool"
   "$tool_root/render-sv2-config.sh" "$lab_root/sv2/pool-config.toml"
   ensure_adapter_token
