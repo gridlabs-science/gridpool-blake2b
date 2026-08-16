@@ -73,6 +73,8 @@ services:
       args:
         APP: pool_sv2
     depends_on: [bitcoin, node-a]
+    environment:
+      APP: pool_sv2
     command: ["--config", "/data/pool-config.toml"]
     volumes:
       - ${GRIDPOOL_LAB_ROOT}/sv2:/data

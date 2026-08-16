@@ -70,7 +70,7 @@ ensure_sv2_keys() {
   echo "Building the disposable SV2 lab image to generate authority keys..."
   docker build --build-arg APP=pool_sv2 -f "$sv2_source/docker/Dockerfile" -t "$sv2_image" "$sv2_source" >/dev/null
   local key_output
-  key_output="$(docker run --rm "$sv2_image" --generate-authority-keypair)"
+  key_output="$(docker run --rm -e APP=pool_sv2 "$sv2_image" --generate-authority-keypair)"
   local public_key secret_key
   public_key="$(awk -F= '$1 == "authority_public_key" {print $2}' <<<"$key_output")"
   secret_key="$(awk -F= '$1 == "authority_secret_key" {print $2}' <<<"$key_output")"
