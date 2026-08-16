@@ -3630,7 +3630,10 @@ public class BootProtocolStateService
         DateTime transportReceivedUtc,
         long? blockHeight = null)
     {
-        BitcoinHeaderEvaluation evaluation = BitcoinHashes.EvaluateHeader(headerHex, transportReceivedUtc);
+        BitcoinHeaderEvaluation evaluation = BitcoinHashes.EvaluateHeader(
+            headerHex,
+            transportReceivedUtc,
+            _poolConfig.BitcoinNetwork);
         if (!evaluation.IsValid)
         {
             _logger.LogWarning(
@@ -3901,7 +3904,10 @@ public class BootProtocolStateService
         DateTime? transportReceivedUtc = null)
     {
         DateTime receivedUtc = transportReceivedUtc ?? DateTime.UtcNow;
-        BitcoinHeaderEvaluation evaluation = BitcoinHashes.EvaluateHeader(announcement.HeaderHex, receivedUtc);
+        BitcoinHeaderEvaluation evaluation = BitcoinHashes.EvaluateHeader(
+            announcement.HeaderHex,
+            receivedUtc,
+            _poolConfig.BitcoinNetwork);
         string diagramPeerId = !string.IsNullOrWhiteSpace(remoteNodeId) ? remoteNodeId : remoteEndpoint;
         void RecordHeaderRejection(string reason, string? blockHash)
         {

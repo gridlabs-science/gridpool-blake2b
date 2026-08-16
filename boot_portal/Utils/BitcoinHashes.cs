@@ -120,7 +120,10 @@ public static class BitcoinHashes
         return ToDisplayHashHex(second);
     }
 
-    public static BitcoinHeaderEvaluation EvaluateHeader(string? headerHex, DateTime receivedUtc)
+    public static BitcoinHeaderEvaluation EvaluateHeader(
+        string? headerHex,
+        DateTime receivedUtc,
+        string? bitcoinNetwork = null)
     {
         try
         {
@@ -138,7 +141,13 @@ public static class BitcoinHashes
             uint timestamp = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(68, 4));
             uint compactTarget = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(72, 4));
             BigInteger target = DecodeCompactTarget(compactTarget);
-            if (target <= BigInteger.Zero || target > BitcoinPowLimit)
+            BigInteger powLimit = string.Equals(
+                bitcoinNetwork,
+                BitcoinScript.Regtest,
+                StringComparison.OrdinalIgnoreCase)
+                ? DecodeCompactTarget(0x207fffff)
+                : BitcoinPowLimit;
+            if (target <= BigInteger.Zero || target > powLimit)
             {
                 return BitcoinHeaderEvaluation.Invalid("Header target is outside the Bitcoin proof-of-work limit.");
             }
