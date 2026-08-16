@@ -2,7 +2,8 @@
 
 This is a disposable, development-only integration lab. It runs one private
 Bitcoin Core regtest node and three GridPool nodes. The Docker network is
-internal; the three dashboard observer ports bind to host loopback only.
+private to this Compose project; the three dashboard observer ports bind to
+host loopback only by default.
 
 It is intended for ordinary integration, upgrade, restart, reorganization,
 state-recovery, and SV2 testing. It does not contain security finding-specific

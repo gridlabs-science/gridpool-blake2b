@@ -101,4 +101,4 @@ services:
 
 networks:
   lab:
-    internal: true
+    driver: bridge
