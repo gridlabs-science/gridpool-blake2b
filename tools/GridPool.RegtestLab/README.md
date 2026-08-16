@@ -29,6 +29,8 @@ context and never use the host testnet datadir.
 ./tools/GridPool.RegtestLab/lab.sh prepare
 ./tools/GridPool.RegtestLab/lab.sh init
 ./tools/GridPool.RegtestLab/lab.sh start
+./tools/GridPool.RegtestLab/lab.sh start --lan
+./tools/GridPool.RegtestLab/lab.sh start-sv2 --lan
 ./tools/GridPool.RegtestLab/lab.sh status
 ./tools/GridPool.RegtestLab/lab.sh logs 200
 ./tools/GridPool.RegtestLab/lab.sh stop
@@ -44,6 +46,17 @@ Observer URLs are:
 - Node A: `http://127.0.0.1:15001`
 - Node B: `http://127.0.0.1:15002`
 - Node C: `http://127.0.0.1:15003`
+
+Use `start --lan` or `start-sv2 --lan` when a phone or another LAN device
+should observe the synthetic dashboards. This changes `LAB_BIND_HOST` in the
+lab environment to `0.0.0.0`, exposing only the observer/API ports and the
+optional SV2 port on the local network. It does not expose the lab's Docker
+network or any production credentials. The synthetic state is not trusted
+data, so do not expose LAN mode through a router or public proxy.
+
+To return to loopback-only bindings, edit
+`/home/gridlabs/gridpool-regtest-lab/lab.env` and set
+`LAB_BIND_HOST=127.0.0.1`, then run `lab.sh stop` followed by `lab.sh start`.
 
 The lab generates a unique `gridpool-regtest-v22-*` network ID, fresh node
 identities, a disposable regtest wallet, and a `bcrt1` payout address. It

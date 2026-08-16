@@ -35,7 +35,7 @@ services:
     volumes:
       - ${GRIDPOOL_LAB_ROOT}/node-a:/data
     ports:
-      - 127.0.0.1:15001:5000
+      - ${LAB_BIND_HOST}:15001:5000
     networks: [lab]
 
   node-b:
@@ -49,7 +49,7 @@ services:
     volumes:
       - ${GRIDPOOL_LAB_ROOT}/node-b:/data
     ports:
-      - 127.0.0.1:15002:5000
+      - ${LAB_BIND_HOST}:15002:5000
     networks: [lab]
 
   node-c:
@@ -63,7 +63,7 @@ services:
     volumes:
       - ${GRIDPOOL_LAB_ROOT}/node-c:/data
     ports:
-      - 127.0.0.1:15003:5000
+      - ${LAB_BIND_HOST}:15003:5000
     networks: [lab]
 
   sv2:
@@ -80,8 +80,8 @@ services:
     volumes:
       - ${GRIDPOOL_LAB_ROOT}/sv2:/data
     ports:
-      - 127.0.0.1:13465:34265
-      - 127.0.0.1:13490:34290
+      - ${LAB_BIND_HOST}:13465:34265
+      - ${LAB_BIND_HOST}:13490:34290
     networks: [lab]
     profiles: [sv2]
 

@@ -47,6 +47,7 @@ LAB_NETWORK_ID=gridpool-regtest-v22-$(openssl rand -hex 6)
 LAB_PAYOUT_ADDRESS=
 AUTHORITY_PUBLIC_KEY=
 AUTHORITY_SECRET_KEY=
+LAB_BIND_HOST=127.0.0.1
 EOF
   fi
 
@@ -56,7 +57,19 @@ EOF
   sed -i "s|^GRIDPOOL_SOURCE=.*|GRIDPOOL_SOURCE=$gridpool_source|" "$env_file"
   sed -i "s|^GRIDPOOL_SV2_SOURCE=.*|GRIDPOOL_SV2_SOURCE=$sv2_source|" "$env_file"
   sed -i "s|^GRIDPOOL_TOOL_ROOT=.*|GRIDPOOL_TOOL_ROOT=$tool_root|" "$env_file"
+  sed -i "s|^LAB_BIND_HOST=.*|LAB_BIND_HOST=${LAB_BIND_HOST:-127.0.0.1}|" "$env_file"
   chmod 600 "$env_file"
+}
+
+ensure_adapter_token() {
+  set -a
+  source "$env_file"
+  set +a
+  if [[ ! -s "$lab_root/sv2/gridpool-adapter.token" ]]; then
+    umask 077
+    openssl rand -hex 32 > "$lab_root/sv2/gridpool-adapter.token"
+  fi
+  install -m 0600 "$lab_root/sv2/gridpool-adapter.token" "$lab_root/node-a/local-adapter.token"
 }
 
 ensure_sv2_keys() {
@@ -91,6 +104,7 @@ render_configs() {
     echo "LAB_PAYOUT_ADDRESS is empty; run init first" >&2
     exit 1
   }
+  ensure_adapter_token
   "$tool_root/render-config.sh" node-a '["http://node-b:5000","http://node-c:5000"]' "$lab_root/node-a/config.json" 5000
   "$tool_root/render-config.sh" node-b '["http://node-a:5000","http://node-c:5000"]' "$lab_root/node-b/config.json" 5000
   "$tool_root/render-config.sh" node-c '["http://node-a:5000","http://node-b:5000"]' "$lab_root/node-c/config.json" 5000
@@ -156,7 +170,7 @@ start_sv2() {
   set +a
   mkdir -p "$lab_root/sv2/proof-spool"
   "$tool_root/render-sv2-config.sh" "$lab_root/sv2/pool-config.toml"
-  openssl rand -hex 32 > "$lab_root/sv2/gridpool-adapter.token"
+  ensure_adapter_token
   chmod 600 "$lab_root/sv2/pool-config.toml" "$lab_root/sv2/gridpool-adapter.token"
   compose --profile sv2 build sv2 miner
   compose --profile sv2 up -d sv2 miner
@@ -203,12 +217,12 @@ reset() {
 case "${1:-}" in
   prepare) prepare ;;
   init) init_chain ;;
-  start) start ;;
-  start-sv2) start_sv2 ;;
+  start) prepare; [[ "${2:-}" == "--lan" ]] && sed -i 's|^LAB_BIND_HOST=.*|LAB_BIND_HOST=0.0.0.0|' "$env_file"; start ;;
+  start-sv2) prepare; [[ "${2:-}" == "--lan" ]] && sed -i 's|^LAB_BIND_HOST=.*|LAB_BIND_HOST=0.0.0.0|' "$env_file"; start_sv2 ;;
   status) status ;;
   logs) shift; logs "$@" ;;
   stop) stop ;;
   reset) shift; reset "$@" ;;
   compose) shift; prepare; compose "$@" ;;
-  *) echo "usage: $0 {prepare|init|start|start-sv2|status|logs|stop|reset --confirm|compose ...}" >&2; exit 2 ;;
+  *) echo "usage: $0 {prepare|init|start [--lan]|start-sv2 [--lan]|status|logs|stop|reset --confirm|compose ...}" >&2; exit 2 ;;
 esac
