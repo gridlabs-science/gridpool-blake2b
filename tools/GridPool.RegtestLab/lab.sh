@@ -156,11 +156,20 @@ start_sv2() {
   set +a
   mkdir -p "$lab_root/sv2/proof-spool"
   "$tool_root/render-sv2-config.sh" "$lab_root/sv2/pool-config.toml"
-  printf '%s\n' 'gridpool-regtest-adapter' > "$lab_root/sv2/gridpool-adapter.token"
+  openssl rand -hex 32 > "$lab_root/sv2/gridpool-adapter.token"
   chmod 600 "$lab_root/sv2/pool-config.toml" "$lab_root/sv2/gridpool-adapter.token"
   compose --profile sv2 build sv2 miner
   compose --profile sv2 up -d sv2 miner
-  echo "SV2 regtest lab started; client port is 134265 and synthetic miner is running."
+  sleep 3
+  local sv2_state miner_state
+  sv2_state="$(compose ps -q sv2 | xargs -r docker inspect -f '{{.State.Status}}')"
+  miner_state="$(compose ps -q miner | xargs -r docker inspect -f '{{.State.Status}}')"
+  [[ "$sv2_state" == running && "$miner_state" == running ]] || {
+    echo "SV2 profile failed to remain running (sv2=$sv2_state miner=$miner_state)" >&2
+    compose --profile sv2 logs --tail 80 sv2 miner >&2 || true
+    exit 1
+  }
+  echo "SV2 regtest lab started; client port is 13465 and synthetic miner is running."
 }
 
 status() {
