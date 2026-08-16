@@ -24,21 +24,21 @@ public class BootProtocolStateService
 
     public static string GetGenesisFoundationAddress(string? bitcoinNetwork)
     {
-        return BitcoinScript.NormalizeNetwork(bitcoinNetwork) == BitcoinScript.Testnet4
+        return BitcoinScript.NormalizeNetwork(bitcoinNetwork) is BitcoinScript.Testnet4 or BitcoinScript.Regtest
             ? TestnetGenesisFoundationAddress
             : GenesisFoundationAddress;
     }
 
     public static ulong GetCurrentBlockSubsidySats(string? bitcoinNetwork)
     {
-        return BitcoinScript.NormalizeNetwork(bitcoinNetwork) == BitcoinScript.Testnet4
+        return BitcoinScript.NormalizeNetwork(bitcoinNetwork) is BitcoinScript.Testnet4 or BitcoinScript.Regtest
             ? Testnet4CurrentSubsidySats
             : MainnetCurrentSubsidySats;
     }
 
     public static string GetGridLabsSupportAddress(string? bitcoinNetwork)
     {
-        return BitcoinScript.NormalizeNetwork(bitcoinNetwork) == BitcoinScript.Testnet4
+        return BitcoinScript.NormalizeNetwork(bitcoinNetwork) is BitcoinScript.Testnet4 or BitcoinScript.Regtest
             ? TestnetGridLabsSupportAddress
             : GridLabsSupportAddress;
     }

@@ -6,6 +6,7 @@ using boot_portal.Models;
 namespace boot_portal.Services;
 
 public sealed record BitcoinBlockchainInfo(
+    string Chain,
     long Blocks,
     long Headers,
     string BestBlockHash,
@@ -50,6 +51,9 @@ public sealed class BitcoinRpcClient : IBitcoinRpcClient
     {
         JsonElement result = await CallAsync("getblockchaininfo", [], cancellationToken);
         return new BitcoinBlockchainInfo(
+            result.TryGetProperty("chain", out JsonElement chain)
+                ? chain.GetString() ?? string.Empty
+                : string.Empty,
             result.GetProperty("blocks").GetInt64(),
             result.GetProperty("headers").GetInt64(),
             result.GetProperty("bestblockhash").GetString() ?? string.Empty,

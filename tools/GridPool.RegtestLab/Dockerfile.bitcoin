@@ -1,0 +1,12 @@
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates libevent-2.1-7 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY core-dist/bin/bitcoind /usr/local/bin/bitcoind
+COPY core-dist/bin/bitcoin-cli /usr/local/bin/bitcoin-cli
+
+RUN chmod 0755 /usr/local/bin/bitcoind /usr/local/bin/bitcoin-cli
+
+ENTRYPOINT ["bitcoind"]

@@ -1,0 +1,104 @@
+name: gridpool-regtest-lab
+
+services:
+  bitcoin:
+    build:
+      context: ${GRIDPOOL_LAB_ROOT}
+      dockerfile: ${GRIDPOOL_TOOL_ROOT}/Dockerfile.bitcoin
+    command:
+      - -regtest=1
+      - -server=1
+      - -printtoconsole=1
+      - -fallbackfee=0.00001
+      - -txindex=0
+      - -rpcbind=0.0.0.0
+      - -rpcallowip=172.16.0.0/12
+      - -rpcuser=${RPC_USER}
+      - -rpcpassword=${RPC_PASSWORD}
+      - -zmqpubhashblock=tcp://0.0.0.0:28332
+      - -zmqpubrawblock=tcp://0.0.0.0:28333
+    volumes:
+      - ${GRIDPOOL_LAB_ROOT}/bitcoin:/root/.bitcoin
+    networks: [lab]
+
+  node-a:
+    build:
+      context: ${GRIDPOOL_SOURCE}
+      dockerfile: Dockerfile
+    image: gridpool-regtest-node:${GRIDPOOL_TAG}
+    depends_on: [bitcoin]
+    environment:
+      BOOT_PORTAL_CONFIG_PATH: /data/config.json
+      BOOT_PORTAL_LOCAL_CONFIG_PATH: /data/config.local.json
+      BOOT_PORTAL_STATE_PATH: /data/pool_state.json
+      GRIDPOOL_RELEASE_VERSION: regtest-${GRIDPOOL_TAG}
+    volumes:
+      - ${GRIDPOOL_LAB_ROOT}/node-a:/data
+    ports:
+      - 127.0.0.1:15001:5000
+    networks: [lab]
+
+  node-b:
+    image: gridpool-regtest-node:${GRIDPOOL_TAG}
+    depends_on: [bitcoin, node-a]
+    environment:
+      BOOT_PORTAL_CONFIG_PATH: /data/config.json
+      BOOT_PORTAL_LOCAL_CONFIG_PATH: /data/config.local.json
+      BOOT_PORTAL_STATE_PATH: /data/pool_state.json
+      GRIDPOOL_RELEASE_VERSION: regtest-${GRIDPOOL_TAG}
+    volumes:
+      - ${GRIDPOOL_LAB_ROOT}/node-b:/data
+    ports:
+      - 127.0.0.1:15002:5000
+    networks: [lab]
+
+  node-c:
+    image: gridpool-regtest-node:${GRIDPOOL_TAG}
+    depends_on: [bitcoin, node-a, node-b]
+    environment:
+      BOOT_PORTAL_CONFIG_PATH: /data/config.json
+      BOOT_PORTAL_LOCAL_CONFIG_PATH: /data/config.local.json
+      BOOT_PORTAL_STATE_PATH: /data/pool_state.json
+      GRIDPOOL_RELEASE_VERSION: regtest-${GRIDPOOL_TAG}
+    volumes:
+      - ${GRIDPOOL_LAB_ROOT}/node-c:/data
+    ports:
+      - 127.0.0.1:15003:5000
+    networks: [lab]
+
+  sv2:
+    build:
+      context: ${GRIDPOOL_SV2_SOURCE}
+      dockerfile: docker/Dockerfile
+      args:
+        APP: pool_sv2
+    depends_on: [bitcoin, node-a]
+    command: ["--config", "/data/pool-config.toml"]
+    volumes:
+      - ${GRIDPOOL_LAB_ROOT}/sv2:/data
+    ports:
+      - 127.0.0.1:134265:34265
+      - 127.0.0.1:134290:34290
+    networks: [lab]
+    profiles: [sv2]
+
+  miner:
+    build:
+      context: ${GRIDPOOL_SV2_SOURCE}
+      dockerfile: ${GRIDPOOL_TOOL_ROOT}/Dockerfile.miner
+    depends_on: [sv2]
+    command:
+      - --address-pool
+      - sv2:34265
+      - --id-device
+      - regtest-lab
+      - --id-user
+      - ${LAB_PAYOUT_ADDRESS}
+      - --cores
+      - "1"
+    networks: [lab]
+    profiles: [sv2]
+
+networks:
+  lab:
+    internal: true

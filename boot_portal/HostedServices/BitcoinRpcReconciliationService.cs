@@ -69,6 +69,15 @@ public sealed class BitcoinRpcReconciliationService : BackgroundService
         {
             BitcoinBlockchainInfo info = await _rpcClient.GetBlockchainInfoAsync(cancellationToken);
             string bestHash = await _rpcClient.GetBestBlockHashAsync(cancellationToken);
+            string expectedChain = BitcoinScript.NormalizeNetwork(_config.BitcoinNetwork);
+            if (!string.Equals(info.Chain, expectedChain, StringComparison.OrdinalIgnoreCase))
+            {
+                string mismatch = $"Bitcoin RPC chain is '{info.Chain}', expected '{expectedChain}'.";
+                _health.RecordRpcTipMismatch(mismatch, checkUtc);
+                _logger.LogWarning("{Message}", mismatch);
+                return;
+            }
+
             _health.RecordRpcSuccess(
                 info.Blocks,
                 info.Headers,

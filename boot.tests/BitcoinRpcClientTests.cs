@@ -23,7 +23,7 @@ public sealed class BitcoinRpcClientTests
             string result = method switch
             {
                 "getblockchaininfo" => """
-                    {"blocks":100,"headers":100,"bestblockhash":"block-100","initialblockdownload":false,"verificationprogress":1.0}
+                    {"chain":"main","blocks":100,"headers":100,"bestblockhash":"block-100","initialblockdownload":false,"verificationprogress":1.0}
                     """,
                 "getzmqnotifications" => """
                     [{"type":"pubhashblock","address":"tcp://0.0.0.0:28332"},{"type":"pubrawblock","address":"tcp://0.0.0.0:28333"}]
@@ -45,6 +45,7 @@ public sealed class BitcoinRpcClientTests
             await client.GetZmqNotificationsAsync(CancellationToken.None);
 
         Assert.AreEqual(100L, info.Blocks);
+        Assert.AreEqual("main", info.Chain);
         Assert.AreEqual("block-100", info.BestBlockHash);
         CollectionAssert.AreEquivalent(
             new[] { "pubhashblock", "pubrawblock" },

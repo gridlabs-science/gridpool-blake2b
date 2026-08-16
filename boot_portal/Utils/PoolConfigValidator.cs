@@ -77,6 +77,12 @@ public static class PoolConfigValidator
             errors.Add(ex.Message);
         }
 
+        if (string.Equals(bitcoinNetwork, BitcoinScript.Regtest, StringComparison.OrdinalIgnoreCase) &&
+            IsProduction(config))
+        {
+            errors.Add("bitcoin_network regtest is only permitted in development, staging, or test environments");
+        }
+
         if (!string.IsNullOrWhiteSpace(config.PoolPayoutScript) &&
             !BitcoinScript.TryAddressToScriptPubKey(config.PoolPayoutScript, bitcoinNetwork, out _))
         {

@@ -222,12 +222,35 @@ public sealed class PoolConfigValidatorTests
     {
         var config = new PoolConfig
         {
-            BitcoinNetwork = "regtest"
+            BitcoinNetwork = "unknown-network"
         };
 
         List<string> errors = PoolConfigValidator.Validate(config);
 
         Assert.IsTrue(errors.Any(error => error.Contains("bitcoin_network", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
+    public void RegtestAcceptsBcrtPayoutAndIsRejectedInProduction()
+    {
+        byte[] script = Enumerable.Range(0, 22).Select(i => (byte)i).ToArray();
+        script[0] = 0x00;
+        script[1] = 0x14;
+        string regtestAddress = BitcoinScript.ScriptToAddress(script, BitcoinScript.Regtest);
+
+        var developmentConfig = new PoolConfig
+        {
+            BitcoinNetwork = BitcoinScript.Regtest,
+            NodeMode = "development",
+            PoolPayoutScript = regtestAddress
+        };
+
+        CollectionAssert.AreEqual(Array.Empty<string>(), PoolConfigValidator.Validate(developmentConfig));
+        StringAssert.StartsWith(regtestAddress, "bcrt1");
+
+        developmentConfig.NodeMode = "production";
+        Assert.IsTrue(PoolConfigValidator.Validate(developmentConfig).Any(error =>
+            error.Contains("regtest", StringComparison.OrdinalIgnoreCase)));
     }
 
     [TestMethod]

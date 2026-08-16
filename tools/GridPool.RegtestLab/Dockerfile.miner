@@ -1,0 +1,15 @@
+FROM rust:1.88-slim-bookworm AS build
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends capnproto libcapnp-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY . .
+RUN cargo build --release --manifest-path integration-tests/Cargo.toml \
+    --bin mining_device
+
+FROM debian:bookworm-slim
+COPY --from=build /src/integration-tests/target/release/mining_device /usr/local/bin/mining_device
+RUN chmod 0755 /usr/local/bin/mining_device
+ENTRYPOINT ["mining_device"]
