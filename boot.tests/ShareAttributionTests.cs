@@ -326,6 +326,78 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public async Task DeclaredTargetCannotAuthorizeRoundRotationWithoutLocalBitcoinConfirmationAsync()
+    {
+        using var harness = TestHarness.Create(currentTipBlockHash: SamplePrevBlockHash);
+        harness.Config.BitcoinNotificationMode = BitcoinNotificationModes.AttachedNode;
+        BootNetworkStatusDto before = harness.StateService.GetNetworkStatus();
+        string[] winnersBefore = harness.StateService.GetWinnersList().Select(winner => winner.Address).ToArray();
+        string easyTargetHeader = RewriteHeaderCompactTarget(SampleHeaderHex, 0x2100ffff);
+        BootShareHeaderEvaluationResult declaredTarget = new BootShareVerifier().EvaluateHeaderDifficulty(new RecordedShareSubmission
+        {
+            HeaderHex = easyTargetHeader,
+            CoinbaseHex = SampleCoinbaseHex,
+            PrevBlockHash = SamplePrevBlockHash
+        });
+
+        RoundRotationResult result = await harness.StateService.RotateToNextRoundAsync(
+            declaredTarget.BlockHash,
+            "untrusted-declared-target",
+            manual: false,
+            blockHeight: 945001);
+
+        BootNetworkStatusDto after = harness.StateService.GetNetworkStatus();
+        Assert.IsTrue(declaredTarget.IsValid, declaredTarget.RejectionReason);
+        Assert.IsTrue(declaredTarget.IsBlock, "The attacker-controlled easy compact target classifies the header as a candidate.");
+        Assert.IsFalse(result.Rotated);
+        Assert.AreEqual("GridPool block is not confirmed by the local Bitcoin active chain", result.Reason);
+        Assert.AreEqual(before.CurrentStateId, after.CurrentStateId);
+        Assert.AreEqual(before.CurrentRoundNumber, after.CurrentRoundNumber);
+        Assert.AreEqual(before.LastPaidSnapshotId, after.LastPaidSnapshotId);
+        CollectionAssert.AreEqual(winnersBefore, harness.StateService.GetWinnersList().Select(winner => winner.Address).ToArray());
+    }
+
+    [TestMethod]
+    public async Task LocalBitcoinConfirmationPromotesStoredCandidateExactlyOnceAsync()
+    {
+        BootShareProof storedCandidate = CreateFakeProof("stored-block-candidate", 100, SampleSlotZeroAddress);
+        storedCandidate.HeaderHex = RecentBlockHeaderHex;
+        storedCandidate.PrevBlockHash = RecentBlockParentHash;
+        using var harness = TestHarness.Create(
+            currentTipBlockHash: RecentBlockParentHash,
+            onDeckProofs: [storedCandidate]);
+        harness.Config.BitcoinNotificationMode = BitcoinNotificationModes.AttachedNode;
+        BootStateBundle seededCandidate = harness.StateService.GetStateBundle(
+            harness.StateService.GetNetworkStatus().CandidateStateId)!;
+        Assert.AreEqual(1, seededCandidate.WorkSetProofs.Count);
+        Assert.AreEqual(RecentBlockHeaderHex, seededCandidate.WorkSetProofs[0].HeaderHex);
+        Assert.IsTrue(harness.StateService.ObserveLocalChainTipHeader(
+            RecentBlockHeaderHex,
+            "rpc-reconcile",
+            DateTime.UtcNow,
+            945001));
+        Assert.AreEqual(
+            RecentBlockHash,
+            harness.StateService.GetNetworkEvents(eventType: "local-chain-tip-header").Events[0].BlockHash);
+        BootNetworkStatusDto confirmed = await harness.StateService.ObserveChainTipAsync(
+            RecentBlockHash,
+            "rpc-reconcile",
+            945001);
+        int roundAfterConfirmation = confirmed.CurrentRoundNumber;
+
+        BootNetworkStatusDto duplicate = await harness.StateService.ObserveChainTipAsync(
+            RecentBlockHash,
+            "rpc-reconcile",
+            945001);
+        Assert.AreEqual(
+            RecentBlockHash,
+            confirmed.LastGridPoolBlockHash,
+            string.Join(", ", harness.StateService.GetNetworkEvents().Events.Select(item => $"{item.EventType}:{item.Message}")));
+        Assert.AreEqual(roundAfterConfirmation, duplicate.CurrentRoundNumber);
+        Assert.AreEqual(confirmed.CurrentStateId, duplicate.CurrentStateId);
+    }
+
+    [TestMethod]
     public async Task PeerShareWithForgedMinerAddressIsAcceptedAndAttributedToSlotZeroAsync()
     {
         using var harness = TestHarness.Create();
@@ -386,7 +458,7 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
-    public async Task ProoflessNewerCurrentStateFastForwardsStaleNodeAsync()
+    public async Task ProoflessNewerCurrentStateIsRejectedWithoutMutatingPayoutStateAsync()
     {
         using var harness = TestHarness.Create(currentTipBlockHash: OlderTipBlockHash);
         List<PayoutInfo> remoteWinners = SampleExpectedWinners.Select(ClonePayout).ToList();
@@ -417,11 +489,13 @@ public sealed class ShareAttributionTests
             945001,
             "https://peer.example");
 
-        Assert.IsTrue(adopted);
+        Assert.IsFalse(adopted);
         BootNetworkStatusDto status = harness.StateService.GetNetworkStatus();
-        Assert.AreEqual("remote-current-state", status.CurrentStateId);
-        Assert.AreEqual(2, status.CurrentRoundNumber);
-        Assert.AreEqual(remoteWinners.Count, harness.StateService.GetWinnersList().Count);
+        Assert.AreEqual("seed-current", status.CurrentStateId);
+        Assert.AreEqual(1, status.CurrentRoundNumber);
+        CollectionAssert.AreEqual(
+            SampleExpectedWinners.Select(winner => winner.Address).ToArray(),
+            harness.StateService.GetWinnersList().Select(winner => winner.Address).ToArray());
     }
 
     [TestMethod]
@@ -463,7 +537,56 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
-    public async Task ProofBackedSameRoundCurrentStateOverridesProoflessLocalStateAsync()
+    public async Task ProoflessBootstrapCannotInstallRemoteWinnersOrPaidLineageAsync()
+    {
+        using var harness = TestHarness.Create(currentTipBlockHash: SamplePrevBlockHash);
+        List<PayoutInfo> attackerWinners = SampleExpectedWinners.Select(ClonePayout).ToList();
+        foreach (PayoutInfo payout in attackerWinners)
+        {
+            payout.Address = AlternateAddress;
+            payout.Username = AlternateAddress;
+        }
+        BootNetworkStatusDto before = harness.StateService.GetNetworkStatus();
+        string[] winnersBefore = harness.StateService.GetWinnersList().Select(winner => winner.Address).ToArray();
+
+        bool adopted = await harness.StateService.TryBootstrapCurrentStateAsync(
+            new BootStateBundle
+            {
+                StateId = new string('4', 64),
+                Kind = "current",
+                CurrentRoundNumber = 1_000_000,
+                ProtocolVersion = harness.Config.BootProtocolVersion,
+                ConsensusVersion = harness.Config.BootProtocolVersion,
+                StateBundleSchemaVersion = BootProtocolVersions.StateBundleSchemaVersion,
+                HttpApiVersion = BootProtocolVersions.HttpApiVersion,
+                PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
+                UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
+                ReleaseVersion = harness.StateService.GetLocalVersionInfo().ReleaseVersion,
+                VersionInfo = harness.StateService.GetLocalVersionInfo(),
+                NetworkId = harness.Config.BootNetworkId,
+                LockedByBlockHash = SamplePrevBlockHash,
+                LockedByBlockHeight = 945000,
+                WinnersList = attackerWinners,
+                ShareProofs = [],
+                PaidSnapshotId = "attacker-paid-lineage",
+                PaidSnapshotProofIds = ["attacker-proof"]
+            },
+            SamplePrevBlockHash,
+            945000,
+            "https://malicious-peer.example");
+
+        BootNetworkStatusDto after = harness.StateService.GetNetworkStatus();
+        Assert.IsFalse(adopted);
+        Assert.AreEqual(before.CurrentStateId, after.CurrentStateId);
+        Assert.AreEqual(before.CurrentRoundNumber, after.CurrentRoundNumber);
+        Assert.AreEqual(before.LastPaidSnapshotId, after.LastPaidSnapshotId);
+        CollectionAssert.AreEqual(
+            winnersBefore,
+            harness.StateService.GetWinnersList().Select(winner => winner.Address).ToArray());
+    }
+
+    [TestMethod]
+    public async Task ProofBackedRemoteStateCannotRewriteUnverifiedPaidLineageAsync()
     {
         using var remoteHarness = TestHarness.Create(currentTipBlockHash: OlderTipBlockHash);
         ShareRecordingResult shareResult = await remoteHarness.StateService.SubmitShareAsync(
@@ -484,7 +607,8 @@ public sealed class ShareAttributionTests
             SamplePrevBlockHash,
             "test-rotation",
             manual: false,
-            blockHeight: 945001);
+            blockHeight: 945001,
+            localBitcoinActiveChainConfirmed: true);
         BootStateBundle remoteBundle = rotation.LockedStateBundle!;
         Assert.IsTrue(remoteBundle.WorkSetProofs.Count > 0);
 
@@ -497,9 +621,9 @@ public sealed class ShareAttributionTests
             945001,
             "https://peer.example");
 
-        Assert.IsTrue(adopted);
+        Assert.IsFalse(adopted);
         BootNetworkStatusDto status = localHarness.StateService.GetNetworkStatus();
-        Assert.AreEqual(remoteBundle.StateId, status.CurrentStateId);
+        Assert.AreEqual("seed-current", status.CurrentStateId);
         Assert.AreEqual(remoteBundle.CurrentRoundNumber, status.CurrentRoundNumber);
     }
 
@@ -1065,7 +1189,8 @@ public sealed class ShareAttributionTests
             blockHash,
             "test-block",
             manual: false,
-            blockHeight: 945001);
+            blockHeight: 945001,
+            localBitcoinActiveChainConfirmed: true);
 
         Assert.IsTrue(firstRotation.Rotated);
         string stateAfterFirstRotation = firstRotation.NetworkStatus.CurrentStateId;
@@ -1075,7 +1200,8 @@ public sealed class ShareAttributionTests
             blockHash,
             "test-block",
             manual: false,
-            blockHeight: 945001);
+            blockHeight: 945001,
+            localBitcoinActiveChainConfirmed: true);
 
         Assert.IsFalse(secondRotation.Rotated);
         Assert.AreEqual("Block already applied", secondRotation.Reason);
@@ -1809,7 +1935,8 @@ public sealed class ShareAttributionTests
             "0000000000000000000000000000000000000000000000000000000000aaa102",
             "test-gridpool-block",
             manual: false,
-            blockHeight: 945002);
+            blockHeight: 945002,
+            localBitcoinActiveChainConfirmed: true);
 
         Assert.IsTrue(rotation.Rotated, rotation.Reason);
         Assert.AreEqual(2, rotation.NetworkStatus.WorkSetCount);
@@ -1845,7 +1972,8 @@ public sealed class ShareAttributionTests
             "validated-gridpool-block",
             manual: false,
             blockHeight: 945001,
-            provenSnapshotId: contextA.SnapshotId);
+            provenSnapshotId: contextA.SnapshotId,
+            localBitcoinActiveChainConfirmed: true);
 
         Assert.AreEqual(contextA.SnapshotId, rotation.LockedStateBundle!.PaidSnapshotId);
         CollectionAssert.AreEqual(new[] { proofA.ShareId }, rotation.LockedStateBundle.PaidSnapshotProofIds.ToArray());
@@ -1874,12 +2002,14 @@ public sealed class ShareAttributionTests
             "0000000000000000000000000000000000000000000000000000000000bbb102",
             "test-gridpool-block",
             manual: false,
-            blockHeight: 945002);
+            blockHeight: 945002,
+            localBitcoinActiveChainConfirmed: true);
         RoundRotationResult secondPayment = await harness.StateService.RotateToNextRoundAsync(
             "0000000000000000000000000000000000000000000000000000000000bbb103",
             "test-gridpool-block",
             manual: false,
-            blockHeight: 945003);
+            blockHeight: 945003,
+            localBitcoinActiveChainConfirmed: true);
 
         Assert.IsTrue(secondPayment.Rotated, secondPayment.Reason);
         Assert.AreEqual(1, secondPayment.NetworkStatus.WorkSetCount);
@@ -2038,7 +2168,8 @@ public sealed class ShareAttributionTests
             "0000000000000000000000000000000000000000000000000000000000ccc302",
             "test-gridpool-block",
             manual: false,
-            blockHeight: 945002);
+            blockHeight: 945002,
+            localBitcoinActiveChainConfirmed: true);
 
         Assert.IsTrue(payment.Rotated, payment.Reason);
         CollectionAssert.AreEqual(
@@ -2246,7 +2377,8 @@ public sealed class ShareAttributionTests
             "0000000000000000000000000000000000000000000000000000000000bad002",
             "test-stale-block",
             manual: false,
-            blockHeight: before.CurrentTipBlockHeight - 1);
+            blockHeight: before.CurrentTipBlockHeight - 1,
+            localBitcoinActiveChainConfirmed: true);
 
         Assert.IsFalse(rotation.Rotated);
         Assert.AreEqual("Stale block notification", rotation.Reason);
@@ -2270,7 +2402,8 @@ public sealed class ShareAttributionTests
             newBlockHash,
             "test-block",
             manual: false,
-            blockHeight: 945002);
+            blockHeight: 945002,
+            localBitcoinActiveChainConfirmed: true);
 
         Assert.IsTrue(rotation.Rotated);
 
@@ -2762,6 +2895,13 @@ public sealed class ShareAttributionTests
         byte[] headerBytes = Convert.FromHexString(headerHex);
         byte[] internalHashBytes = Convert.FromHexString(BitcoinHashes.ReverseHexByteOrder(prevBlockHash));
         Array.Copy(internalHashBytes, 0, headerBytes, 4, 32);
+        return Convert.ToHexString(headerBytes).ToLowerInvariant();
+    }
+
+    private static string RewriteHeaderCompactTarget(string headerHex, uint compactTarget)
+    {
+        byte[] headerBytes = Convert.FromHexString(headerHex);
+        BinaryPrimitives.WriteUInt32LittleEndian(headerBytes.AsSpan(72, 4), compactTarget);
         return Convert.ToHexString(headerBytes).ToLowerInvariant();
     }
 
