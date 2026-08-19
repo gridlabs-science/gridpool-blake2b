@@ -32,6 +32,12 @@ that review is recorded and the branches are deliberately integrated.
   live updates are refused, and CI performs dependency, secret, and filesystem
   vulnerability checks.
 
+The repository history contains retired prototype node identities from early
+tracked configuration files, plus audited test/command false positives. Their
+exact Gitleaks fingerprints are baselined in `.gitleaks.toml`; those historical
+identities are considered compromised and must never be used by an active
+node. Any finding outside that immutable baseline fails CI.
+
 ## Verification
 
 Run:
