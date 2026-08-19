@@ -29,19 +29,42 @@ jobs:
           dotnet-version: 9.0.x
 
       - name: Restore app
-        run: dotnet restore boot_portal/boot_portal.csproj
+        run: dotnet restore boot_portal/boot_portal.csproj --locked-mode
 
       - name: Build app
         run: dotnet build boot_portal/boot_portal.csproj --configuration Release --no-restore
 
       - name: Restore tests
-        run: dotnet restore boot.tests/boot.tests.csproj
+        run: dotnet restore boot.tests/boot.tests.csproj --locked-mode
 
       - name: Build tests
         run: dotnet build boot.tests/boot.tests.csproj --configuration Release --no-restore
 
       - name: Run tests
         run: dotnet test boot.tests/boot.tests.csproj --configuration Release --no-build
+
+      - name: Dependency advisory report
+        run: dotnet list boot_portal/boot_portal.csproj package --vulnerable --include-transitive
+
+      - name: Filesystem vulnerability scan
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   docker:
     runs-on: ubuntu-latest
