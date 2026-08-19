@@ -301,7 +301,7 @@ Goal: make installation boring and reversible.
 - [x] Provide safe default ports for UI, peer HTTP/WebSocket, UDP relay, and the
   optional experimental DATUM listener.
 - [ ] Provide migration scripts for state files.
-- [ ] Provide backup and restore docs for node identity keys and pool state.
+- [x] Provide backup and restore docs for node identity keys and pool state.
 - [ ] Test fresh install on a clean Linux VM.
 - [ ] Test fresh install on Raspberry Pi 5 or equivalent ARM64 host.
 - [ ] Test upgrade from previous release without wiping state.
@@ -321,6 +321,20 @@ Completion criteria:
 - Package logs are visible in the platform UI or documented shell path.
 
 Current evidence:
+
+- A private acceptance orchestrator now provides StartOS, Umbrel-dev, regtest,
+  and operator-assisted Umbrel backends with smoke, lifecycle, destructive, and
+  release profiles plus sanitized JSON/Markdown evidence.
+- StartOS `0.1.0:17` upgraded from `0.1.0:13`; a package-generation bug that
+  replaced node identity keys was found and fixed. Identity then survived a
+  package restart and full StartOS reboot. Encrypted uninstall/restore remains
+  blocked until the operator supplies the existing server backup password.
+- Umbrel-dev upgraded through Umbrel's package RPC with state persistence and
+  correct private-port exposure. Its Bitcoin dependency remains in IBD, so the
+  synchronized-SV2 gate cannot pass yet.
+- Candidate workflows build both package architectures, produce checksums,
+  SPDX SBOMs and provenance, and verify digest-locked image inputs. A real
+  ARM64 install remains a separate gate from a successful ARM64 build.
 
 - Docker sample config exists at `docker/boot_portal_config.sample.json`.
 - Testnet4 sample config exists at `docker/boot_portal_config.testnet4.sample.json`.
@@ -531,9 +545,9 @@ or cryptographic secrets.
 - [x] Keep duplicate share suppression tested.
 - [x] Keep firmware coinbase truncation detection tested.
 - [x] Keep DATUM quickdiff reconstruction observable through diagnostics.
-- [ ] Add malformed peer bundle tests.
+- [x] Add malformed and proofless peer bundle tests.
 - [ ] Add rate limits for low-difficulty peer spam.
-- [ ] Add rate limits for state bundle fetches.
+- [x] Add per-peer rate limits for outbound state bundle fetches.
 - [x] Add health-monitor checks for GridPool block found, service down, peer divergence, version mismatch, coinbase stress mode, and DATUM acceptance drops.
 - [x] Add alert suppression so ordinary snapshot transitions and brief
   different-height propagation lag do not page the operator as consensus forks.
@@ -562,6 +576,11 @@ or cryptographic secrets.
   regtest confirms that declared-target candidates cannot rotate payout state
   and proofless bundles cannot alter winners or paid lineage. See
   [security-release-rt-2026-041-042.md](security-release-rt-2026-041-042.md).
+- [ ] Review and integrate the separate RT-2026-043 through RT-2026-049
+  hardening candidate after the exact `400fc6e` critical retest is recorded.
+  The candidate adds DATUM bounds, fail-closed payout and parent authority,
+  SSRF/UDP protections, canonical payout validation, shallow-reorg coverage,
+  locked dependencies, and package supply-chain gates.
 - [ ] Design an independently verifiable paid-lineage bootstrap format before
   treating node-less `external-fallback` peers as payout-state authorities.
 
@@ -580,7 +599,10 @@ Current evidence:
 - Duplicate and firmware-truncation regression tests live in `boot.tests/ShareAttributionTests.cs`.
 - Multi-node monitoring lives in `scripts/gridpool-health-monitor.mjs` and writes compact JSONL logs for review.
 - `coinbase_uncondensed_outputs_enabled` is available for non-production firmware stress testing and rejected in production configs.
-- Low-difficulty peer-spam policy and state-bundle fetch abuse tests still need dedicated implementation.
+- Low-difficulty peer submissions are bounded by proof validation and the
+  peer-write limiter; a dedicated middleware integration test remains open.
+- Outbound state-bundle fetch abuse now has a deterministic per-peer limiter
+  test. Proofless and malformed bundle rejection is covered in the state tests.
 - The active audit and disclosure model are tracked in
   [security-privacy-review.md](security-privacy-review.md).
 
