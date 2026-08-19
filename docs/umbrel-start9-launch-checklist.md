@@ -302,9 +302,12 @@ Goal: make installation boring and reversible.
   optional experimental DATUM listener.
 - [ ] Provide migration scripts for state files.
 - [x] Provide backup and restore docs for node identity keys and pool state.
-- [ ] Test fresh install on a clean Linux VM.
+- [x] Test the Umbrel wrapper's fresh-install and UI-driven payout flow in the
+  isolated Umbrel-dev VM/container environment.
 - [ ] Test fresh install on Raspberry Pi 5 or equivalent ARM64 host.
-- [ ] Test upgrade from previous release without wiping state.
+- [x] Test StartOS upgrade from `0.1.0:13` through `0.1.0:17` without wiping
+  state; the candidate harness retains node, payout, token, and SV2 authority
+  fingerprints for the final release run.
 - [ ] Test uninstall leaves keys/state backed up or clearly prompts before deletion.
 - [ ] Run the Umbrel and StartOS package builds for seven days overlapping the
   protocol soak, including at least one planned restart and one upgrade.
@@ -329,6 +332,11 @@ Current evidence:
   replaced node identity keys was found and fixed. Identity then survived a
   package restart and full StartOS reboot. Encrypted uninstall/restore remains
   blocked until the operator supplies the existing server backup password.
+- The StartOS Bitcoin Knots dependency is not undergoing ordinary IBD: it is
+  configured with `consensusrules="rdts"` and remains on height 961636 while
+  non-RDTS peers advertise a longer chain. Full mining acceptance requires an
+  explicit operator chain-policy decision; package automation must not change
+  Bitcoin consensus policy.
 - Umbrel-dev upgraded through Umbrel's package RPC with state persistence and
   correct private-port exposure. Its Bitcoin dependency remains in IBD, so the
   synchronized-SV2 gate cannot pass yet.
@@ -347,11 +355,12 @@ Current evidence:
   and upgrade/backup tests pass.
 - `gridpool-sv2-pool` RPC mode passed unit tests, the wider SRI miner-workspace
   compile, and a live Core 31 mainnet template/tip-transition smoke test.
-- The StartOS package passes TypeScript checking and JavaScript bundling. Final
-  `.s9pk` packing and sideload testing require a reachable StartOS build target.
-- The Umbrel wrapper passes structural/template checks. Its first-run shell
-  configuration is acceptable for sideload testing but must become an in-app
-  payout-address setup screen before official app-store submission.
+- The StartOS package passes TypeScript checking, bundling, x86_64/aarch64
+  packing, upgrade, restart, and reboot checks. Final digest-pinned artifacts
+  must be rebuilt after security integration.
+- The Umbrel wrapper passes structural/template checks and uses an in-app,
+  one-time payout-address setup flow. Final uninstall/copied-data restore and a
+  real-operator candidate run remain open.
 
 ## G5.5: Miner Firmware, Rental, And Stratum V2 Compatibility
 
