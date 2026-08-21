@@ -328,17 +328,18 @@ Current evidence:
 - A private acceptance orchestrator now provides StartOS, Umbrel-dev, regtest,
   and operator-assisted Umbrel backends with smoke, lifecycle, destructive, and
   release profiles plus sanitized JSON/Markdown evidence.
-- StartOS `0.1.0:17` upgraded from `0.1.0:13`; a package-generation bug that
+- StartOS `0.1.0:19` upgraded from `0.1.0:13`; a package-generation bug that
   replaced node identity keys was found and fixed. Identity then survived a
-  package restart and full StartOS reboot. Encrypted uninstall/restore remains
-  blocked until the operator supplies the existing server backup password.
-- The StartOS Bitcoin Knots dependency is not undergoing ordinary IBD: it is
-  configured with `consensusrules="rdts"` and remains on height 961636 while
-  non-RDTS peers advertise a longer chain. Full mining acceptance requires an
-  explicit operator chain-policy decision; package automation must not change
-  Bitcoin consensus policy.
-- Umbrel-dev upgraded through Umbrel's package RPC with state persistence and
-  correct private-port exposure. Its Bitcoin dependency remains in IBD, so the
+  package restart and full StartOS reboot. The operator explicitly replaced
+  the earlier RDTS Knots dependency with synchronized main-chain Core 31. RPC,
+  both ZMQ topics, native SV2, per-channel slot-0 attribution, named Bitaxe
+  mining, interfaces, and restart persistence now pass. Encrypted
+  uninstall/restore remains blocked until the operator supplies the existing
+  server backup password.
+- Umbrel-dev `0.1.0-beta.7` upgraded through Umbrel's package RPC with state
+  persistence and correct private-port exposure. A copied-data recovery
+  preserved node identity, payout, adapter-token, and SV2-authority
+  fingerprints. Its disposable Bitcoin dependency remains in IBD, so the
   synchronized-SV2 gate cannot pass yet.
 - Candidate workflows build both package architectures, produce checksums,
   SPDX SBOMs and provenance, and verify digest-locked image inputs. A real
@@ -358,9 +359,9 @@ Current evidence:
 - The StartOS package passes TypeScript checking, bundling, x86_64/aarch64
   packing, upgrade, restart, and reboot checks. Final digest-pinned artifacts
   must be rebuilt after security integration.
-- The Umbrel wrapper passes structural/template checks and uses an in-app,
-  one-time payout-address setup flow. Final uninstall/copied-data restore and a
-  real-operator candidate run remain open.
+- The Umbrel wrapper passes structural/template checks, uses an in-app one-time
+  payout-address setup flow, and passed a copied-data recovery in Umbrel-dev. A
+  real-operator candidate run remains open.
 
 ## G5.5: Miner Firmware, Rental, And Stratum V2 Compatibility
 
