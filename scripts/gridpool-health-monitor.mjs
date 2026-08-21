@@ -43,7 +43,9 @@ const DEFAULT_CONFIG = {
         window: "24h",
         sessionLimit: 1000,
         eventLimit: 2000,
-        relayLimit: 2000
+        relayLimit: 2000,
+        retentionDays: 7,
+        maxTotalBytes: 1_073_741_824
     },
     thresholds: {
         endpointFailureConsecutive: 2,
@@ -1703,6 +1705,43 @@ function incidentFetchPayload(result) {
     };
 }
 
+function incidentArtifactBytes(entryPath) {
+    const stat = fs.lstatSync(entryPath);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) return stat.size;
+    return fs.readdirSync(entryPath, { withFileTypes: true }).reduce((total, entry) =>
+        total + incidentArtifactBytes(path.join(entryPath, entry.name)), 0);
+}
+
+function pruneIncidentArtifacts(stateDir, config, nowMs = Date.now()) {
+    const incidentDir = path.join(stateDir, "incidents");
+    if (!fs.existsSync(incidentDir)) return { removed: 0, bytesRemoved: 0 };
+
+    const retentionDays = Math.max(1, Number(config.incidentCapture?.retentionDays || 7));
+    const maxTotalBytes = Math.max(1_048_576, Number(
+        config.incidentCapture?.maxTotalBytes || 1_073_741_824));
+    const cutoffMs = nowMs - retentionDays * 86_400_000;
+    const entries = fs.readdirSync(incidentDir, { withFileTypes: true })
+        .filter(entry => entry.name !== "codex-result.schema.json")
+        .map(entry => {
+            const entryPath = path.join(incidentDir, entry.name);
+            const stat = fs.lstatSync(entryPath);
+            return { path: entryPath, mtimeMs: stat.mtimeMs, bytes: incidentArtifactBytes(entryPath) };
+        })
+        .sort((a, b) => a.mtimeMs - b.mtimeMs);
+
+    let totalBytes = entries.reduce((total, entry) => total + entry.bytes, 0);
+    let removed = 0;
+    let bytesRemoved = 0;
+    for (const entry of entries) {
+        if (entry.mtimeMs >= cutoffMs && totalBytes <= maxTotalBytes) continue;
+        fs.rmSync(entry.path, { recursive: true, force: true });
+        totalBytes -= entry.bytes;
+        bytesRemoved += entry.bytes;
+        removed += 1;
+    }
+    return { removed, bytesRemoved };
+}
+
 async function captureIncidentDiagnostics(alerts, snapshot, stateDir, config) {
     if (!alerts.length || config.incidentCapture?.enabled === false) return null;
 
@@ -1754,6 +1793,7 @@ async function captureIncidentDiagnostics(alerts, snapshot, stateDir, config) {
     manifest.completedUtc = currentIso();
     writeJsonAtomic(path.join(directory, "manifest.json"), manifest);
     for (const alert of alerts) alert.diagnosticCapturePath = directory;
+    pruneIncidentArtifacts(stateDir, config);
     return directory;
 }
 
@@ -2408,6 +2448,10 @@ async function main() {
     const config = loadConfig(args);
     const stateDir = expandHome(args["state-dir"] || process.env.GRIDPOOL_HEALTH_STATE_DIR || DEFAULT_STATE_DIR);
     fs.mkdirSync(stateDir, { recursive: true });
+    const incidentPrune = pruneIncidentArtifacts(stateDir, config);
+    if (incidentPrune.removed) {
+        console.log(`[gridpool-health-monitor] pruned ${incidentPrune.removed} incident artifacts (${incidentPrune.bytesRemoved} bytes)`);
+    }
     const state = loadState(stateDir);
     const telegram = new TelegramClient(config);
 
@@ -2581,6 +2625,30 @@ function runSelfTests() {
         ] });
     if (sameHeightAlerts.length !== 1 || sameHeightAlerts[0].category !== "consensus-divergence") {
         throw new Error("same-height state divergence was not detected");
+    }
+
+    const retentionDir = fs.mkdtempSync(path.join(os.tmpdir(), "gridpool-monitor-retention-"));
+    try {
+        const incidentDir = path.join(retentionDir, "incidents");
+        fs.mkdirSync(incidentDir, { recursive: true });
+        const oldPath = path.join(incidentDir, "old.json");
+        const newerPath = path.join(incidentDir, "newer.json");
+        const newestPath = path.join(incidentDir, "newest.json");
+        fs.writeFileSync(oldPath, "old");
+        fs.writeFileSync(newerPath, Buffer.alloc(600_000));
+        fs.writeFileSync(newestPath, Buffer.alloc(600_000));
+        const nowMs = Date.now();
+        fs.utimesSync(oldPath, new Date(nowMs - 9 * 86_400_000), new Date(nowMs - 9 * 86_400_000));
+        fs.utimesSync(newerPath, new Date(nowMs - 2_000), new Date(nowMs - 2_000));
+        fs.utimesSync(newestPath, new Date(nowMs - 1_000), new Date(nowMs - 1_000));
+        const result = pruneIncidentArtifacts(retentionDir, {
+            incidentCapture: { retentionDays: 7, maxTotalBytes: 1_048_576 }
+        }, nowMs);
+        if (result.removed !== 2 || fs.existsSync(oldPath) || fs.existsSync(newerPath) || !fs.existsSync(newestPath)) {
+            throw new Error("incident retention age and size pruning failed");
+        }
+    } finally {
+        fs.rmSync(retentionDir, { recursive: true, force: true });
     }
 
     const staleInputAlerts = [];
