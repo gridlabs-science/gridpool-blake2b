@@ -1,7 +1,9 @@
 # GridPool Blake2b Fork Handoff
 
-Status: planning handoff; no implementation or deployment authorization  
-Evidence cutoff: 2026-08-23  
+Status: planning handoff; no implementation or deployment authorization
+
+Evidence cutoff: 2026-08-23
+
 Audience: a fresh Codex task and developers evaluating a GridPool deployment
 for the BIP-110-associated Blake2b chain
 
@@ -400,4 +402,3 @@ The first task should not begin by editing the verifier. It should deliver:
    security-integrated baseline is identified.
 
 Only then should implementation begin.
-

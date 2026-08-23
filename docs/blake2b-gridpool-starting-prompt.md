@@ -94,4 +94,3 @@ Do not implement beyond characterization tests or a behavior-preserving
 interface seam until the exact node and DATUM sources are pinned and the owner
 has reviewed the architecture plan. Clearly separate verified upstream facts,
 GridPool code observations, inferences, and unresolved decisions.
-
