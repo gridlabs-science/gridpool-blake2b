@@ -33,6 +33,17 @@ Relevant repositories:
 - Follow-on P1 hardening:
   `/home/keegreil/Documents/GitHub/boot-protocol-security-p1` at `f09ce5e`
 
+Development baseline update (2026-08-24):
+
+- `develop` now contains the exact critical candidate `400fc6e` through merge
+  commit `d542af6`.
+- The immutable candidate is tagged
+  `security-rt-041-042-retest-candidate` and remains independently testable.
+- Independent red-team verification is still pending. Treat `develop` as an
+  unverified development baseline, not a stable or deployable security release.
+- The broader P1 branch remains separate. Do not silently copy or merge it into
+  the Blake2b work.
+
 Primary upstream sources to verify directly:
 
 - <https://github.com/bitcoin/bips/blob/master/bip-0110.mediawiki>
@@ -61,7 +72,8 @@ Primary upstream sources to verify directly:
 - Use a distinct GridPool network ID, PoW algorithm ID, header-format version,
   UDP magic/version, state directory, identities, peers, ports, and packages.
 - Cross-network traffic must fail before proof or state processing.
-- Do not fork from packaged runtime `9ac862a`; it predates critical fixes.
+- Start from current `origin/develop` and verify that `400fc6e` is an ancestor.
+  Do not fork from packaged runtime `9ac862a`; it predates critical fixes.
 - Do not interfere with the SHA-256 release candidate, Main/Oregon, appliance
   testing, red-team retest, or soak.
 
@@ -72,8 +84,10 @@ Primary upstream sources to verify directly:
    target rules, vectors, RPC/GBT behavior, and unresolved review comments.
 2. Identify and pin the actual Blake2b DATUM fork. If unavailable, mark DATUM
    implementation blocked and continue only with the reference-node audit.
-3. Identify the reviewed security-integrated GridPool baseline. Do not create a
-   public fork from an unreviewed or vulnerable commit.
+3. Create only an experimental branch/worktree from current `origin/develop`,
+   record its exact commit, and verify that it contains `400fc6e`. Do not call
+   the fork release-ready until the independent retest and later security merge
+   gates are complete.
 4. Audit every SHA256d, fixed-header, target, difficulty, raw-block, ZMQ, RPC,
    UDP, DATUM, state, API, persistence, and test assumption in `boot-protocol`.
 5. Classify hash uses into PoW/header, transaction/Merkle, address/checksum,

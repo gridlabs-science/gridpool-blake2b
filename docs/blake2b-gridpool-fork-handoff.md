@@ -92,10 +92,18 @@ fixes. Relevant defensive work at the cutoff includes:
   `boot-protocol-security-p1`, commit
   `f09ce5e6e2f90cf85c009a586b2d02db792ea4c4`.
 
-Those branches may still be awaiting independent review or integration. The
-new task must identify the final reviewed security-integrated SHA-256 baseline
-before creating a long-lived fork. It may perform a read-only architecture
-audit before that baseline is available.
+As of 2026-08-24, `develop` includes the exact critical candidate through merge
+commit `d542af6`. The original candidate remains unchanged at tag
+`security-rt-041-042-retest-candidate`, and independent red-team verification
+is still pending. The follow-on P1 branch remains separate.
+
+The Blake2b task may therefore branch from current `origin/develop` for
+architecture work, characterization tests, and a behavior-preserving chain
+profile seam. It must verify that `400fc6e` is an ancestor and record the exact
+starting commit. This is an unverified development baseline, not authorization
+to publish or deploy a Blake2b release. A long-lived public fork must be
+rebased or merged onto the final reviewed security baseline after the retest
+and remaining gates complete.
 
 ## GridPool Invariants To Preserve
 

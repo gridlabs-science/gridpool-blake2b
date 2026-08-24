@@ -2,6 +2,13 @@
 
 Status: release candidate for independent red-team verification.
 
+Integration note (2026-08-24): the exact candidate `400fc6e` is preserved at
+tag `security-rt-041-042-retest-candidate` and has been merged into `develop`
+through `d542af6` so feature work can proceed from the intended defensive
+behavior. Independent verification remains pending; development builds that
+contain it are not security-certified releases and must not be promoted to
+`main` or deployed as the public release candidate yet.
+
 This release closes two critical state-transition classes found during the
 pre-beta security review. It does not change the V2.2 consensus version or
 state-bundle wire schema; it enforces validation rules that the protocol
