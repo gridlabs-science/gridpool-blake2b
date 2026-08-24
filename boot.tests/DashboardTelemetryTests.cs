@@ -135,7 +135,9 @@ public sealed class DashboardTelemetryTests
     [TestMethod]
     public void SchemaOneTelemetryMigratesWithoutInventingAddressAttribution()
     {
-        DateTime now = new(2026, 8, 6, 12, 0, 0, DateTimeKind.Utc);
+        // Persistence loading applies the real retention cutoff, so keep this
+        // migration fixture relative to the execution date.
+        DateTime now = DateTime.UtcNow;
         using var temporary = new TemporaryTelemetryPath();
         File.WriteAllText(temporary.Path, $$"""
             {"SchemaVersion":1,"TrackingStartedUtc":"{{now.AddDays(-2):O}}","WorkProofs":[{"ShareId":"legacy","Source":"peer","Difficulty":1000,"AdmissionFloorDifficulty":1,"ReceivedUtc":"{{now.AddHours(-1):O}}"}],"AdmissionFloors":[],"Pulses":[]}
