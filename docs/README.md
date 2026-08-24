@@ -32,6 +32,9 @@ documentation.
   gate for key handling, public UI/API disclosure, logs, and private-node safety.
 - [V2.2 Dashboard](dashboard-v22.md): adaptive UI, versioned dashboard API,
   local order-statistic telemetry, privacy boundary, and headless operation.
+- [Critical State-Validation Security Release](security-release-rt-2026-041-042.md):
+  release-candidate behavior and retest gate for proof-backed state sync and
+  locally confirmed GridPool block payments.
 
 ## Operators
 

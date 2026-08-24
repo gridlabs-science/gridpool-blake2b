@@ -570,6 +570,12 @@ or cryptographic secrets.
   bindings, log retention, and support-bundle sanitization.
 - [ ] Obtain a second-developer review of the threat inventory and high-risk
   findings before one-click package launch.
+- [ ] Promote the RT-2026-041/042 security release only after independent
+  regtest confirms that declared-target candidates cannot rotate payout state
+  and proofless bundles cannot alter winners or paid lineage. See
+  [security-release-rt-2026-041-042.md](security-release-rt-2026-041-042.md).
+- [ ] Design an independently verifiable paid-lineage bootstrap format before
+  treating node-less `external-fallback` peers as payout-state authorities.
 
 Completion criteria:
 

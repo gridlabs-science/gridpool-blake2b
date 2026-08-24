@@ -48,7 +48,6 @@ public class BootNetworkController : ControllerBase
     [HttpGet("summary")]
     public IActionResult GetSummary()
     {
-        RememberAnnouncedPeer();
         BootNetworkStatusDto status = _stateService.GetNetworkStatus();
         return Ok(CanViewOperatorDiagnostics()
             ? status
@@ -66,7 +65,6 @@ public class BootNetworkController : ControllerBase
     [HttpGet("peer-addresses")]
     public IActionResult GetPeerAddresses([FromQuery] int limit = 128)
     {
-        RememberAnnouncedPeer();
         return Ok(_stateService.GetPeerAddressBook(limit));
     }
 
@@ -215,30 +213,6 @@ public class BootNetworkController : ControllerBase
             "admin",
             response.Summary);
         return Ok(response);
-    }
-
-    private void RememberAnnouncedPeer()
-    {
-        if (!_poolConfig.EnablePeerSync)
-        {
-            return;
-        }
-
-        string? endpoint = Request.Headers[PeerEndpointHeader].FirstOrDefault();
-        if (string.IsNullOrWhiteSpace(endpoint))
-        {
-            return;
-        }
-
-        string? protocolVersionText = Request.Headers[PeerProtocolVersionHeader].FirstOrDefault();
-        string? networkId = Request.Headers[PeerNetworkIdHeader].FirstOrDefault();
-        if (!int.TryParse(protocolVersionText, out int protocolVersion) ||
-            !_stateService.IsCompatiblePeerNetwork(protocolVersion, networkId ?? string.Empty))
-        {
-            return;
-        }
-
-        _stateService.AnnouncePeer(endpoint);
     }
 
     private static bool TryNormalizeReachabilityTarget(string target, out Uri? normalized, out string rejectionReason)
