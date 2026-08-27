@@ -69,6 +69,14 @@ public sealed class BitcoinRpcReconciliationService : BackgroundService
         {
             BitcoinBlockchainInfo info = await _rpcClient.GetBlockchainInfoAsync(cancellationToken);
             string bestHash = await _rpcClient.GetBestBlockHashAsync(cancellationToken);
+            if (!string.IsNullOrWhiteSpace(info.Chain) && !RpcChainMatchesConfiguredNetwork(info.Chain))
+            {
+                _health.RecordRpcFailure(
+                    $"Attached Bitcoin RPC chain '{Sanitize(info.Chain)}' does not match configured bitcoin_network '{BitcoinScript.NormalizeNetwork(_config.BitcoinNetwork)}'.",
+                    checkUtc);
+                return;
+            }
+
             _health.RecordRpcSuccess(
                 info.Blocks,
                 info.Headers,
@@ -123,6 +131,19 @@ public sealed class BitcoinRpcReconciliationService : BackgroundService
             _health.RecordRpcFailure(ex.Message, DateTime.UtcNow);
             _logger.LogWarning("Bitcoin RPC reconciliation failed: {Message}", Sanitize(ex.Message));
         }
+    }
+
+    private bool RpcChainMatchesConfiguredNetwork(string rpcChain)
+    {
+        string configured = BitcoinScript.NormalizeNetwork(_config.BitcoinNetwork);
+        string actual = rpcChain.Trim().ToLowerInvariant();
+        return configured switch
+        {
+            BitcoinScript.Mainnet => actual == "main",
+            BitcoinScript.Testnet4 => actual is "testnet4" or "test",
+            BitcoinScript.Regtest => actual == "regtest",
+            _ => false
+        };
     }
 
     private async Task InspectPeerNetworkAsync(DateTime checkUtc, CancellationToken cancellationToken)

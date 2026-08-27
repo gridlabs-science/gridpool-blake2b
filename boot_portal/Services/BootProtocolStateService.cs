@@ -24,23 +24,23 @@ public class BootProtocolStateService
 
     public static string GetGenesisFoundationAddress(string? bitcoinNetwork)
     {
-        return BitcoinScript.NormalizeNetwork(bitcoinNetwork) == BitcoinScript.Testnet4
-            ? TestnetGenesisFoundationAddress
-            : GenesisFoundationAddress;
+        return BitcoinScript.NormalizeNetwork(bitcoinNetwork) == BitcoinScript.Mainnet
+            ? GenesisFoundationAddress
+            : TestnetGenesisFoundationAddress;
     }
 
     public static ulong GetCurrentBlockSubsidySats(string? bitcoinNetwork)
     {
-        return BitcoinScript.NormalizeNetwork(bitcoinNetwork) == BitcoinScript.Testnet4
-            ? Testnet4CurrentSubsidySats
-            : MainnetCurrentSubsidySats;
+        return BitcoinScript.NormalizeNetwork(bitcoinNetwork) == BitcoinScript.Mainnet
+            ? MainnetCurrentSubsidySats
+            : Testnet4CurrentSubsidySats;
     }
 
     public static string GetGridLabsSupportAddress(string? bitcoinNetwork)
     {
-        return BitcoinScript.NormalizeNetwork(bitcoinNetwork) == BitcoinScript.Testnet4
-            ? TestnetGridLabsSupportAddress
-            : GridLabsSupportAddress;
+        return BitcoinScript.NormalizeNetwork(bitcoinNetwork) == BitcoinScript.Mainnet
+            ? GridLabsSupportAddress
+            : TestnetGridLabsSupportAddress;
     }
 
     private readonly DateTime _serviceStartedUtc = DateTime.UtcNow;
@@ -149,7 +149,8 @@ public class BootProtocolStateService
             {
                 BitcoinHeaderEvaluation restoredHeader = BitcoinHashes.EvaluateHeader(
                     _state.ProvisionalTip.HeaderHex,
-                    _state.ProvisionalTip.ObservedUtc);
+                    _state.ProvisionalTip.ObservedUtc,
+                    _poolConfig.BitcoinNetwork);
                 if (!restoredHeader.IsValid ||
                     !BitcoinHashes.AreEquivalent(restoredHeader.BlockHash, _state.ProvisionalTip.BlockHash) ||
                     !BitcoinHashes.AreEquivalent(restoredHeader.ParentBlockHash, _state.CurrentTipBlockHash))
@@ -2090,15 +2091,41 @@ public class BootProtocolStateService
             }
         }
 
+        bool locallyConfirmedCurrentBlockShare;
         lock (_sync)
         {
-            if (validation.IsValid && ShouldQuarantinePreviousParentNoLock(validation.PrevBlockHash, DateTime.UtcNow))
+            locallyConfirmedCurrentBlockShare =
+                IsLocallyConfirmedCurrentBlockShareNoLock(headerEvaluation);
+        }
+
+        if (!validation.IsValid && locallyConfirmedCurrentBlockShare)
+        {
+            lock (_sync)
+            {
+                snapshotContextsSnapshot = _state.SnapshotContexts.Select(CloneSnapshotContext).ToList();
+            }
+
+            SnapshotValidationResult confirmedBlockValidation =
+                ValidateConfirmedBlockShareAgainstRetainedSnapshots(share, snapshotContextsSnapshot);
+            if (confirmedBlockValidation.Validation.IsValid)
+            {
+                validation = confirmedBlockValidation.Validation;
+                matchedSnapshotId = confirmedBlockValidation.SnapshotId;
+            }
+        }
+
+        lock (_sync)
+        {
+            if (validation.IsValid &&
+                !locallyConfirmedCurrentBlockShare &&
+                ShouldQuarantinePreviousParentNoLock(validation.PrevBlockHash, DateTime.UtcNow))
             {
                 validation = RejectValidatedShare(
                     validation,
                     "Previous-parent proof quarantined after the provisional peer-tip boundary.");
             }
             else if (validation.IsValid &&
+                     !locallyConfirmedCurrentBlockShare &&
                      IsNewDirectIngressPreviousParentProofNoLock(validation.ShareId, validation.PrevBlockHash))
             {
                 validation = RejectValidatedShare(
@@ -2303,7 +2330,8 @@ public class BootProtocolStateService
                 });
             }
 
-            if (!IsAcceptedParentBlockHashNoLock(validation.PrevBlockHash))
+            if (!locallyConfirmedCurrentBlockShare &&
+                !IsAcceptedParentBlockHashNoLock(validation.PrevBlockHash))
             {
                 RecordShareDiagnosticNoLock(
                     share.Source,
@@ -3022,6 +3050,36 @@ public class BootProtocolStateService
         return ValidateShareAgainstKnownSnapshots(share, currentWinners, snapshotContexts, []);
     }
 
+    private SnapshotValidationResult ValidateConfirmedBlockShareAgainstRetainedSnapshots(
+        RecordedShareSubmission share,
+        IReadOnlyCollection<BootPayoutSnapshotContext> snapshotContexts)
+    {
+        BootShareValidationResult firstFailure = InvalidValidationResult();
+        IEnumerable<BootPayoutSnapshotContext> orderedContexts = snapshotContexts
+            .Where(context => !string.IsNullOrWhiteSpace(context.SnapshotId))
+            .OrderByDescending(context => string.Equals(
+                context.SnapshotId,
+                share.PayoutSnapshotId,
+                StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(context => context.CreatedAtUtc);
+
+        foreach (BootPayoutSnapshotContext context in orderedContexts)
+        {
+            foreach (List<PayoutInfo> payoutVariant in GetSnapshotPayoutVariants(context))
+            {
+                BootShareValidationResult validation = _shareVerifier.ValidateShare(share, payoutVariant, []);
+                if (validation.IsValid)
+                {
+                    return new SnapshotValidationResult(validation, context.SnapshotId);
+                }
+
+                firstFailure = PreferInformativeFailure(firstFailure, validation);
+            }
+        }
+
+        return new SnapshotValidationResult(firstFailure, string.Empty);
+    }
+
     private SnapshotValidationResult ValidateProofAgainstKnownSnapshots(
         BootShareProof proof,
         IReadOnlyList<PayoutInfo> currentWinners,
@@ -3114,6 +3172,11 @@ public class BootProtocolStateService
     private List<List<PayoutInfo>> GetSnapshotPayoutVariants(BootPayoutSnapshotContext context)
     {
         var variants = new List<List<PayoutInfo>>();
+        if (IsExplicitEmptySnapshotBootstrapContext(context))
+        {
+            variants.Add([]);
+        }
+
         if (context.WinnersList.Count > 0)
         {
             variants.Add(ClonePayouts(context.WinnersList));
@@ -3126,6 +3189,21 @@ public class BootProtocolStateService
         }
 
         return variants;
+    }
+
+    private bool IsExplicitEmptySnapshotBootstrapContext(BootPayoutSnapshotContext context)
+    {
+        if (!_poolConfig.AllowEmptySnapshotBootstrap ||
+            BitcoinScript.NormalizeNetwork(_poolConfig.BitcoinNetwork) != BitcoinScript.Regtest ||
+            context.WinnersList.Count != 0 ||
+            context.FeeFreeWinnersList.Count != 0 ||
+            context.ProofIds.Count != 0)
+        {
+            return false;
+        }
+
+        string expectedSnapshotId = ComputeStateIdNoLock([], context.LockedByBlockHash);
+        return string.Equals(context.SnapshotId, expectedSnapshotId, StringComparison.OrdinalIgnoreCase);
     }
 
     private static List<BootShareProof> SortAndTrimProofs(IEnumerable<BootShareProof> proofs, int limit)
@@ -3751,7 +3829,10 @@ public class BootProtocolStateService
         DateTime transportReceivedUtc,
         long? blockHeight = null)
     {
-        BitcoinHeaderEvaluation evaluation = BitcoinHashes.EvaluateHeader(headerHex, transportReceivedUtc);
+        BitcoinHeaderEvaluation evaluation = BitcoinHashes.EvaluateHeader(
+            headerHex,
+            transportReceivedUtc,
+            _poolConfig.BitcoinNetwork);
         if (!evaluation.IsValid)
         {
             _logger.LogWarning(
@@ -4039,7 +4120,10 @@ public class BootProtocolStateService
         DateTime? transportReceivedUtc = null)
     {
         DateTime receivedUtc = transportReceivedUtc ?? DateTime.UtcNow;
-        BitcoinHeaderEvaluation evaluation = BitcoinHashes.EvaluateHeader(announcement.HeaderHex, receivedUtc);
+        BitcoinHeaderEvaluation evaluation = BitcoinHashes.EvaluateHeader(
+            announcement.HeaderHex,
+            receivedUtc,
+            _poolConfig.BitcoinNetwork);
         string diagramPeerId = !string.IsNullOrWhiteSpace(remoteNodeId) ? remoteNodeId : remoteEndpoint;
         void RecordHeaderRejection(string reason, string? blockHash)
         {
@@ -5858,6 +5942,23 @@ public class BootProtocolStateService
 
         return !_state.OnDeckProofs.Any(proof =>
             string.Equals(proof.ShareId, shareId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool IsLocallyConfirmedCurrentBlockShareNoLock(BootShareHeaderEvaluationResult headerEvaluation)
+    {
+        if (!headerEvaluation.IsValid ||
+            !headerEvaluation.IsBlock ||
+            BitcoinNotificationModes.Resolve(_poolConfig) != BitcoinNotificationModes.AttachedNode ||
+            string.IsNullOrWhiteSpace(headerEvaluation.BlockHash) ||
+            !BitcoinHashes.AreEquivalent(headerEvaluation.BlockHash, _state.CurrentTipBlockHash) ||
+            !BitcoinHashes.AreEquivalent(headerEvaluation.BlockHash, _state.TrustedLocalTipBlockHash) ||
+            !_localChainTipHeaders.TryGetValue(headerEvaluation.BlockHash, out BitcoinHeaderEvaluation? localHeader))
+        {
+            return false;
+        }
+
+        return localHeader.IsValid &&
+               BitcoinHashes.AreEquivalent(localHeader.BlockHash, headerEvaluation.BlockHash);
     }
 
     private void RestorePredecessorForRemovedBoundaryNoLock(

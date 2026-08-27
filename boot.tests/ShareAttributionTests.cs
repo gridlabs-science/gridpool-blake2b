@@ -398,6 +398,38 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public async Task NotificationFirstExceptionRequiresExactLocallyValidatedActiveChainBlockAsync()
+    {
+        using var harness = TestHarness.Create(currentTipBlockHash: RecentBlockParentHash);
+        harness.Config.BitcoinNotificationMode = BitcoinNotificationModes.AttachedNode;
+        Assert.IsTrue(harness.StateService.ObserveLocalChainTipHeader(
+            RecentBlockHeaderHex,
+            "rpc-reconcile",
+            DateTime.UtcNow,
+            945001));
+        await harness.StateService.ObserveChainTipAsync(RecentBlockHash, "rpc-reconcile", 945001);
+
+        var method = typeof(BootProtocolStateService).GetMethod(
+            "IsLocallyConfirmedCurrentBlockShareNoLock",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        bool exactMatch = (bool)method.Invoke(harness.StateService, [new BootShareHeaderEvaluationResult
+        {
+            IsValid = true,
+            IsBlock = true,
+            BlockHash = RecentBlockHash
+        }])!;
+        bool differentHash = (bool)method.Invoke(harness.StateService, [new BootShareHeaderEvaluationResult
+        {
+            IsValid = true,
+            IsBlock = true,
+            BlockHash = "0000000000000000000000000000000000000000000000000000000000000076"
+        }])!;
+
+        Assert.IsTrue(exactMatch);
+        Assert.IsFalse(differentHash);
+    }
+
+    [TestMethod]
     public async Task PeerShareWithForgedMinerAddressIsAcceptedAndAttributedToSlotZeroAsync()
     {
         using var harness = TestHarness.Create();
@@ -1429,6 +1461,73 @@ public sealed class ShareAttributionTests
         BootStateBundle v21Sibling = v21Bob.StateService.GetStateBundle(v21Bob.StateService.GetNetworkStatus().CurrentStateId)!;
         Assert.IsFalse(await v21Alice.StateService.TryAdoptCurrentStateAsync(v21Sibling, boundary, 945001, "v21-bob"));
         Assert.AreNotEqual(v21Alice.StateService.GetNetworkStatus().ActiveSnapshotId, v21Bob.StateService.GetNetworkStatus().ActiveSnapshotId);
+    }
+
+    [TestMethod]
+    public async Task RegtestSiblingImportAcceptsProofRecordedAgainstExplicitEmptyBootstrapSnapshotAsync()
+    {
+        using var bootstrap = TestHarness.Create(
+            bitcoinNetwork: BitcoinScript.Regtest,
+            allowEmptySnapshotBootstrap: true);
+        var computeStateId = typeof(BootProtocolStateService).GetMethod(
+            "ComputeStateIdNoLock",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        string emptySnapshotId = (string)computeStateId.Invoke(
+            bootstrap.StateService,
+            [Array.Empty<BootShareProof>(), SamplePrevBlockHash])!;
+        var emptyContext = new BootPayoutSnapshotContext
+        {
+            SnapshotId = emptySnapshotId,
+            CurrentRoundNumber = 1,
+            LockedByBlockHash = SamplePrevBlockHash,
+            LockedByBlockHeight = 945000,
+            CreatedAtUtc = DateTime.UtcNow,
+            SupportFeeEnabled = false,
+            PayoutVariant = "fee-free:shared=299:snapshot=299:reserve=897",
+            ProofIds = [],
+            WinnersList = [],
+            FeeFreeWinnersList = []
+        };
+
+        string emptyPlanCoinbase = BuildCoinbaseWithWinnerPrefix(SampleCoinbaseHex, positiveWinnerCount: 0);
+        string emptyPlanHeader = RewriteHeaderMerkleRoot(SampleHeaderHex, emptyPlanCoinbase);
+        BootShareProof firstProof = CreateValidatedProofForSnapshot(
+            emptyPlanHeader,
+            emptyPlanCoinbase,
+            SamplePrevBlockHash,
+            emptySnapshotId,
+            []);
+        string boundary = "0000000000000000000000000000000000000000000000000000000000b07601";
+
+        using var online = TestHarness.Create(
+            currentStateId: emptySnapshotId,
+            winnersList: [],
+            onDeckProofs: [firstProof],
+            snapshotContexts: [emptyContext],
+            activeSnapshotId: emptySnapshotId,
+            bitcoinNetwork: BitcoinScript.Regtest,
+            allowEmptySnapshotBootstrap: true);
+        using var rejoining = TestHarness.Create(
+            currentStateId: emptySnapshotId,
+            winnersList: [],
+            snapshotContexts: [emptyContext],
+            activeSnapshotId: emptySnapshotId,
+            bitcoinNetwork: BitcoinScript.Regtest,
+            allowEmptySnapshotBootstrap: true);
+
+        await online.StateService.ObserveChainTipAsync(boundary, "local-bitcoin", 945001);
+        await rejoining.StateService.ObserveChainTipAsync(boundary, "local-bitcoin", 945001);
+        BootStateBundle sibling = online.StateService.GetStateBundle(
+            online.StateService.GetNetworkStatus().CurrentStateId)!;
+
+        Assert.IsTrue(await rejoining.StateService.TryAdoptCurrentStateAsync(
+            sibling,
+            boundary,
+            945001,
+            "online-regtest-peer"));
+        Assert.AreEqual(
+            online.StateService.GetNetworkStatus().ActiveSnapshotId,
+            rejoining.StateService.GetNetworkStatus().ActiveSnapshotId);
     }
 
     [TestMethod]
@@ -3140,7 +3239,9 @@ public sealed class ShareAttributionTests
             bool seedUnknownTipHeight = false,
             bool seedUnknownTrustedTip = false,
             bool enablePeerTipStaleProtection = false,
-            int peerTipGraceSeconds = 3)
+            int peerTipGraceSeconds = 3,
+            string bitcoinNetwork = BitcoinScript.Mainnet,
+            bool allowEmptySnapshotBootstrap = false)
         {
             string? previousStatePath = Environment.GetEnvironmentVariable("BOOT_PORTAL_STATE_PATH");
             string? previousHistoryPath = Environment.GetEnvironmentVariable("BOOT_PORTAL_HISTORY_PATH");
@@ -3154,10 +3255,14 @@ public sealed class ShareAttributionTests
             var config = new PoolConfig
             {
                 BootNetworkId = "testnet",
+                BitcoinNetwork = bitcoinNetwork,
                 BootProtocolVersion = protocolVersion ?? BootProtocolVersions.ConsensusVersion,
                 V22ActivationBlockHeight = v22ActivationBlockHeight,
                 WinnersListSize = sharedWinnerSlotCount ?? Math.Max(8, SampleExpectedWinners.Count),
-                PoolPayoutScript = SampleSlotZeroAddress,
+                PoolPayoutScript = BitcoinScript.ScriptToAddress(
+                    BitcoinScript.AddressToScriptPubKey(SampleSlotZeroAddress),
+                    bitcoinNetwork),
+                AllowEmptySnapshotBootstrap = allowEmptySnapshotBootstrap,
                 GridLabsSupportFeeEnabled = supportFeeEnabled,
                 WorkSetReserveMultiplier = workSetReserveMultiplier ?? 3,
                 EnablePeerTipStaleProtection = enablePeerTipStaleProtection,
@@ -3198,7 +3303,7 @@ public sealed class ShareAttributionTests
             var dashboardVisualization = new DashboardVisualizationJournalService();
             var stateService = new BootProtocolStateService(
                 config,
-                new BootShareVerifier(),
+                new BootShareVerifier(config),
                 new NoOpHubContext(),
                 NullLogger<BootProtocolStateService>.Instance,
                 dashboardVisualization: dashboardVisualization);

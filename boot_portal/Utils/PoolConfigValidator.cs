@@ -77,6 +77,13 @@ public static class PoolConfigValidator
             errors.Add(ex.Message);
         }
 
+        if (config.AllowEmptySnapshotBootstrap &&
+            (!string.Equals(bitcoinNetwork, BitcoinScript.Regtest, StringComparison.OrdinalIgnoreCase) ||
+             IsProduction(config)))
+        {
+            errors.Add("allow_empty_snapshot_bootstrap is restricted to non-production regtest labs");
+        }
+
         if (!string.IsNullOrWhiteSpace(config.PoolPayoutScript) &&
             !BitcoinScript.TryAddressToScriptPubKey(config.PoolPayoutScript, bitcoinNetwork, out _))
         {

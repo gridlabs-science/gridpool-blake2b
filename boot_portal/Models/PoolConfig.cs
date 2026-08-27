@@ -17,6 +17,9 @@ public class PoolConfig
     [JsonPropertyName("bitcoin_network")]
     public string BitcoinNetwork { get; set; } = BitcoinScript.Mainnet;
 
+    [JsonPropertyName("allow_empty_snapshot_bootstrap")]
+    public bool AllowEmptySnapshotBootstrap { get; set; } = false;
+
     [JsonPropertyName("pool_payout_script")]
     public string PoolPayoutScript { get; set; } = string.Empty;
 

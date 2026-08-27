@@ -222,12 +222,63 @@ public sealed class PoolConfigValidatorTests
     {
         var config = new PoolConfig
         {
-            BitcoinNetwork = "regtest"
+            BitcoinNetwork = "signet"
         };
 
         List<string> errors = PoolConfigValidator.Validate(config);
 
         Assert.IsTrue(errors.Any(error => error.Contains("bitcoin_network", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
+    public void RegtestUsesBcrtAddressesAndRejectsMainnetAddresses()
+    {
+        byte[] script = Enumerable.Range(0, 22).Select(i => (byte)i).ToArray();
+        script[0] = 0x00;
+        script[1] = 0x14;
+        string regtestAddress = BitcoinScript.ScriptToAddress(script, BitcoinScript.Regtest);
+        var config = new PoolConfig
+        {
+            BitcoinNetwork = BitcoinScript.Regtest,
+            PoolPayoutScript = regtestAddress
+        };
+
+        Assert.IsTrue(regtestAddress.StartsWith("bcrt1", StringComparison.OrdinalIgnoreCase));
+        CollectionAssert.AreEqual(Array.Empty<string>(), PoolConfigValidator.Validate(config));
+
+        config.PoolPayoutScript = "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y";
+        Assert.IsTrue(PoolConfigValidator.Validate(config).Any(error =>
+            error.Contains("pool_payout_script", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
+    public void EmptySnapshotBootstrapIsRestrictedToNonProductionRegtest()
+    {
+        var regtest = new PoolConfig
+        {
+            BitcoinNetwork = BitcoinScript.Regtest,
+            NodeMode = "development",
+            AllowEmptySnapshotBootstrap = true
+        };
+        var mainnet = new PoolConfig
+        {
+            BitcoinNetwork = BitcoinScript.Mainnet,
+            NodeMode = "development",
+            AllowEmptySnapshotBootstrap = true
+        };
+        var productionRegtest = new PoolConfig
+        {
+            BitcoinNetwork = BitcoinScript.Regtest,
+            NodeMode = "production",
+            AllowEmptySnapshotBootstrap = true
+        };
+
+        Assert.IsFalse(PoolConfigValidator.Validate(regtest).Any(error =>
+            error.Contains("allow_empty_snapshot_bootstrap", StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(PoolConfigValidator.Validate(mainnet).Any(error =>
+            error.Contains("allow_empty_snapshot_bootstrap", StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(PoolConfigValidator.Validate(productionRegtest).Any(error =>
+            error.Contains("allow_empty_snapshot_bootstrap", StringComparison.OrdinalIgnoreCase)));
     }
 
     [TestMethod]
