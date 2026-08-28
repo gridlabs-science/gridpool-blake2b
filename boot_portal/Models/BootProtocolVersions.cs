@@ -81,6 +81,10 @@ public static class BootProtocolVersions
         HttpApiVersion = activeConsensusVersion >= BlakeConsensusVersion ? BlakeHttpApiVersion : HttpApiVersion,
         PeerTransportVersion = activeConsensusVersion >= BlakeConsensusVersion ? BlakePeerTransportVersion : PeerTransportVersion,
         UdpRelayVersion = activeConsensusVersion >= BlakeConsensusVersion ? BlakeUdpRelayVersion : UdpRelayVersion,
+        ChainDomainFingerprint = activeConsensusVersion >= BlakeConsensusVersion &&
+                                 ChainDomainProfiles.TryResolve(config, out ChainDomainProfile? profile, out _)
+            ? profile?.Fingerprint ?? string.Empty
+            : string.Empty,
         ReleaseVersion = ReleaseVersion.Value
     };
 
@@ -99,6 +103,7 @@ public static class BootProtocolVersions
             HttpApiVersion = status.HttpApiVersion,
             PeerTransportVersion = status.PeerTransportVersion,
             UdpRelayVersion = status.UdpRelayVersion,
+            ChainDomainFingerprint = status.ChainDomainFingerprint,
             ReleaseVersion = status.ReleaseVersion
         };
     }
@@ -111,6 +116,7 @@ public static class BootProtocolVersions
         HttpApiVersion = bundle.HttpApiVersion,
         PeerTransportVersion = bundle.PeerTransportVersion,
         UdpRelayVersion = bundle.UdpRelayVersion,
+        ChainDomainFingerprint = bundle.ChainDomainFingerprint,
         ReleaseVersion = bundle.ReleaseVersion
     };
 
@@ -122,6 +128,7 @@ public static class BootProtocolVersions
         HttpApiVersion = announcement.HttpApiVersion,
         PeerTransportVersion = announcement.PeerTransportVersion,
         UdpRelayVersion = announcement.UdpRelayVersion,
+        ChainDomainFingerprint = announcement.ChainDomainFingerprint,
         ReleaseVersion = announcement.ReleaseVersion
     };
 
@@ -133,6 +140,7 @@ public static class BootProtocolVersions
         HttpApiVersion = hello.HttpApiVersion,
         PeerTransportVersion = hello.PeerTransportVersion,
         UdpRelayVersion = hello.UdpRelayVersion,
+        ChainDomainFingerprint = hello.ChainDomainFingerprint,
         ReleaseVersion = hello.ReleaseVersion
     };
 
@@ -158,6 +166,12 @@ public static class BootProtocolVersions
                                       remote.PeerTransportVersion == local.PeerTransportVersion,
             UdpRelayCompatible = remote.UdpRelayVersion == 0 || remote.UdpRelayVersion == local.UdpRelayVersion
         };
+        bool domainRequired = EffectiveConsensusVersion(local) >= BlakeConsensusVersion ||
+                              EffectiveConsensusVersion(remote) >= BlakeConsensusVersion;
+        result.ChainDomainCompatible = !domainRequired ||
+            IsCanonicalFingerprint(local.ChainDomainFingerprint) &&
+            IsCanonicalFingerprint(remote.ChainDomainFingerprint) &&
+            string.Equals(local.ChainDomainFingerprint, remote.ChainDomainFingerprint, StringComparison.Ordinal);
 
         if (!result.NetworkCompatible)
         {
@@ -168,6 +182,11 @@ public static class BootProtocolVersions
         {
             result.Status = "incompatible";
             result.Reason = $"consensus version mismatch: local={EffectiveConsensusVersion(local)}, remote={EffectiveConsensusVersion(remote)}";
+        }
+        else if (!result.ChainDomainCompatible)
+        {
+            result.Status = "incompatible";
+            result.Reason = "chain domain fingerprint is missing or mismatched";
         }
         else if (!result.StateBundleSchemaCompatible)
         {
@@ -210,8 +229,12 @@ public static class BootProtocolVersions
         HttpApiVersion = version.HttpApiVersion,
         PeerTransportVersion = version.PeerTransportVersion,
         UdpRelayVersion = version.UdpRelayVersion,
+        ChainDomainFingerprint = version.ChainDomainFingerprint ?? string.Empty,
         ReleaseVersion = version.ReleaseVersion ?? string.Empty
     };
+
+    private static bool IsCanonicalFingerprint(string? value) =>
+        value?.Length == 64 && value.All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
 
     private static int EffectiveConsensusVersion(BootNodeVersionInfo version) =>
         version.ConsensusVersion != 0 ? version.ConsensusVersion : version.ProtocolVersion;
@@ -226,6 +249,7 @@ public class BootNodeVersionInfo
     public int HttpApiVersion { get; set; }
     public int PeerTransportVersion { get; set; }
     public int UdpRelayVersion { get; set; }
+    public string ChainDomainFingerprint { get; set; } = string.Empty;
     public string ReleaseVersion { get; set; } = string.Empty;
 
     public bool HasAnyVersion =>
@@ -244,6 +268,7 @@ public class BootVersionCompatibilityDto
     public string Status { get; set; } = "unknown";
     public string Reason { get; set; } = string.Empty;
     public bool NetworkCompatible { get; set; }
+    public bool ChainDomainCompatible { get; set; }
     public bool ConsensusCompatible { get; set; }
     public bool StateBundleSchemaCompatible { get; set; }
     public bool HttpApiCompatible { get; set; }
@@ -255,6 +280,7 @@ public class BootVersionCompatibilityDto
 
     public bool CanSyncState =>
         NetworkCompatible &&
+        ChainDomainCompatible &&
         ConsensusCompatible &&
         StateBundleSchemaCompatible &&
         HttpApiCompatible;

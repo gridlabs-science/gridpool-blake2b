@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
+using boot_portal.Utils;
 
 namespace boot_portal.Models;
 
@@ -96,22 +97,73 @@ public static class BootSnapshotReconciliation
         IEnumerable<BootShareProof> knownProofs,
         IEnumerable<BootShareProof> incomingProofs,
         IEnumerable<string> paidProofIds,
-        int reserveLimit)
+        int reserveLimit,
+        bool exactWorkOrdering = false,
+        string chainDomainFingerprint = "")
     {
+        List<BootShareProof> candidates = knownProofs.Concat(incomingProofs).ToList();
+        if (exactWorkOrdering)
+        {
+            foreach (BootShareProof proof in candidates)
+            {
+                if (!string.Equals(proof.ChainDomainFingerprint, chainDomainFingerprint, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("v23 snapshot reconciliation proof domain mismatch");
+                }
+
+                try
+                {
+                    _ = Uint256WorkScore.Parse(proof.WorkScoreHex);
+                }
+                catch (FormatException ex)
+                {
+                    throw new InvalidOperationException(
+                        "v23 snapshot reconciliation proof has an invalid exact work score",
+                        ex);
+                }
+            }
+        }
+
         HashSet<string> paid = paidProofIds
             .Where(id => !string.IsNullOrWhiteSpace(id))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        return knownProofs
-            .Concat(incomingProofs)
+        IComparer<BootShareProof> comparer = Comparer<BootShareProof>.Create((left, right) =>
+        {
+            if (exactWorkOrdering)
+            {
+                if (!string.Equals(left.ChainDomainFingerprint, chainDomainFingerprint, StringComparison.Ordinal) ||
+                    !string.Equals(right.ChainDomainFingerprint, chainDomainFingerprint, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("v23 snapshot reconciliation proof domain mismatch");
+                }
+
+                int workComparison = Uint256WorkScore.Parse(right.WorkScoreHex)
+                    .CompareTo(Uint256WorkScore.Parse(left.WorkScoreHex));
+                if (workComparison != 0)
+                {
+                    return workComparison;
+                }
+            }
+            else
+            {
+                int difficultyComparison = right.Difficulty.CompareTo(left.Difficulty);
+                if (difficultyComparison != 0)
+                {
+                    return difficultyComparison;
+                }
+            }
+
+            return StringComparer.Ordinal.Compare(left.ShareId, right.ShareId);
+        });
+
+        return candidates
             .Where(proof => !string.IsNullOrWhiteSpace(proof.ShareId) && !paid.Contains(proof.ShareId))
             .GroupBy(proof => proof.ShareId, StringComparer.OrdinalIgnoreCase)
             .Select(group => group
-                .OrderByDescending(proof => proof.Difficulty)
-                .ThenBy(proof => proof.ShareId, StringComparer.Ordinal)
+                .OrderBy(proof => proof, comparer)
                 .First())
-            .OrderByDescending(proof => proof.Difficulty)
-            .ThenBy(proof => proof.ShareId, StringComparer.Ordinal)
+            .OrderBy(proof => proof, comparer)
             .Take(Math.Max(0, reserveLimit))
             .Select(CloneProof)
             .ToList();
@@ -169,6 +221,10 @@ public static class BootSnapshotReconciliation
 
     private static BootShareProof CloneProof(BootShareProof proof) => new()
     {
+        ChainDomainFingerprint = proof.ChainDomainFingerprint,
+        PowValueHex = proof.PowValueHex,
+        WorkScoreHex = proof.WorkScoreHex,
+        AdmissionTargetHex = proof.AdmissionTargetHex,
         ShareId = proof.ShareId,
         MinerAddress = proof.MinerAddress,
         Username = proof.Username,

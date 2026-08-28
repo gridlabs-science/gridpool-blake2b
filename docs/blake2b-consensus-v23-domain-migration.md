@@ -61,6 +61,9 @@ The initial Testnet4 profile requires:
 - `boot_protocol_version: 23`
 - `winners_list_size: 299`
 - `grid_labs_support_fee_enabled: false`
+- `enable_peer_udp_fast_relay: false` until GPBS/GPBT v1 codecs land
+- `enable_pulse_proofs: false` until job-bound exact pulse targets land
+- `enable_optimistic_share_relay: false` until job-bound exact share targets land
 
 Regtest additionally requires one shared 12-character lowercase hexadecimal
 lab ID in `gridpool-blake2b-regtest-v1:<lab-id>`. Mainnet remains unassigned and

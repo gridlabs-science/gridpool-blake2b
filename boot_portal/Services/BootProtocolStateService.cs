@@ -47,6 +47,8 @@ public class BootProtocolStateService
     private readonly object _sync = new();
     private readonly Dictionary<string, DateTime> _suppressedPeerEndpoints = new(StringComparer.OrdinalIgnoreCase);
     private readonly PoolConfig _poolConfig;
+    private readonly string _chainProfileId;
+    private readonly string _configuredChainDomainFingerprint;
     private readonly BootShareVerifier _shareVerifier;
     private readonly IHubContext<PoolStatsHub> _hubContext;
     private readonly ILogger<BootProtocolStateService> _logger;
@@ -104,6 +106,7 @@ public class BootProtocolStateService
 
     private sealed record PeerRelayFirstArrival(DateTime TimestampUtc, string Transport);
     private sealed record SnapshotValidationResult(BootShareValidationResult Validation, string SnapshotId);
+    private sealed class ChainDomainStateMismatchException(string message) : InvalidOperationException(message);
     private sealed record PreparedSv2CoinbasePlan(
         string CacheKey,
         List<Sv2CoinbaseOutputDto> Outputs,
@@ -127,6 +130,10 @@ public class BootProtocolStateService
         DashboardVisualizationJournalService? dashboardVisualization = null)
     {
         _poolConfig = poolConfig;
+        _chainProfileId = poolConfig.ChainProfileId?.Trim() ?? string.Empty;
+        _configuredChainDomainFingerprint = ChainDomainProfiles.TryResolve(poolConfig, out ChainDomainProfile? chainProfile, out _)
+            ? chainProfile?.Fingerprint ?? string.Empty
+            : string.Empty;
         _shareVerifier = shareVerifier;
         _hubContext = hubContext;
         _logger = logger;
@@ -595,11 +602,17 @@ public class BootProtocolStateService
             HttpApiVersion = bundle.HttpApiVersion,
             PeerTransportVersion = bundle.PeerTransportVersion,
             UdpRelayVersion = bundle.UdpRelayVersion,
+            ChainDomainFingerprint = bundle.ChainDomainFingerprint,
             ReleaseVersion = bundle.ReleaseVersion
         };
         bundle.NetworkId = string.IsNullOrWhiteSpace(bundle.NetworkId)
             ? _poolConfig.BootNetworkId
             : bundle.NetworkId;
+        if (bundleConsensusVersion >= BootProtocolVersions.BlakeConsensusVersion)
+        {
+            bundle.ChainDomainFingerprint = localVersion.ChainDomainFingerprint;
+            bundle.VersionInfo.ChainDomainFingerprint = localVersion.ChainDomainFingerprint;
+        }
     }
 
     public List<BootRoundHistoryEntry> GetRoundHistory(int limit = 24)
@@ -2066,7 +2079,8 @@ public class BootProtocolStateService
                         $"Fresh-parent retry failed validation after ignoring parent mismatch: {freshParentValidation.RejectionReason ?? "Unknown reason"}.");
                     validation = freshParentValidation;
                 }
-                else if (freshParentValidation.Difficulty < 1)
+                else if (GetActiveConsensusVersion() < BootProtocolVersions.BlakeConsensusVersion &&
+                         freshParentValidation.Difficulty < 1)
                 {
                     RecordFreshParentRetryEvent(
                         "fresh-parent-retry-low-difficulty",
@@ -2216,7 +2230,8 @@ public class BootProtocolStateService
             });
         }
 
-        if (validation.Difficulty < 1)
+        if (GetActiveConsensusVersion() < BootProtocolVersions.BlakeConsensusVersion &&
+            validation.Difficulty < 1)
         {
             BootNetworkStatusDto networkStatus;
             DateTime nowUtc = DateTime.UtcNow;
@@ -2378,9 +2393,10 @@ public class BootProtocolStateService
             double admissionFloorDifficulty = GetWorkSetAdmissionDifficultyNoLock();
 
             int insertIndex = 0;
+            IComparer<BootShareProof> proofComparer = GetProofComparerNoLock();
 
             while (insertIndex < _state.OnDeckProofs.Count &&
-                   _state.OnDeckProofs[insertIndex].Difficulty >= proof.Difficulty)
+                   proofComparer.Compare(_state.OnDeckProofs[insertIndex], proof) <= 0)
             {
                 insertIndex++;
             }
@@ -2557,15 +2573,9 @@ public class BootProtocolStateService
                     : string.Empty;
                 _state.OnDeckProofs.Insert(insertIndex, proof);
 
-                _state.OnDeckProofs = _state.OnDeckProofs
-                    .OrderByDescending(x => x.Difficulty)
-                    .ThenBy(x => x.ShareId, StringComparer.Ordinal)
-                    .ToList();
-
-                while (_state.OnDeckProofs.Count > _poolConfig.WorkSetReserveLimit)
-                {
-                    _state.OnDeckProofs.RemoveAt(_state.OnDeckProofs.Count - 1);
-                }
+                _state.OnDeckProofs = SortAndTrimProofs(
+                    _state.OnDeckProofs,
+                    _poolConfig.WorkSetReserveLimit);
 
                 RebuildOnDeckListNoLock();
                 insertIndex = _state.OnDeckProofs.FindIndex(item =>
@@ -2863,6 +2873,10 @@ public class BootProtocolStateService
 
         var proof = new BootShareProof
         {
+            ChainDomainFingerprint = headerEvaluation.ChainDomainFingerprint,
+            PowValueHex = headerEvaluation.PowValueHex,
+            WorkScoreHex = headerEvaluation.WorkScoreHex,
+            AdmissionTargetHex = headerEvaluation.AdmissionTargetHex,
             ShareId = headerEvaluation.ShareId,
             MinerAddress = share.MinerAddress,
             Username = string.IsNullOrWhiteSpace(share.Username) ? share.MinerAddress : share.Username,
@@ -3206,16 +3220,57 @@ public class BootProtocolStateService
         return string.Equals(context.SnapshotId, expectedSnapshotId, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static List<BootShareProof> SortAndTrimProofs(IEnumerable<BootShareProof> proofs, int limit)
+    private IComparer<BootShareProof> GetProofComparerNoLock()
     {
+        bool exactWork = GetActiveConsensusVersionNoLock() >= BootProtocolVersions.BlakeConsensusVersion;
+        return Comparer<BootShareProof>.Create((left, right) =>
+        {
+            if (exactWork)
+            {
+                try
+                {
+                    if (!string.Equals(left.ChainDomainFingerprint, _configuredChainDomainFingerprint, StringComparison.Ordinal) ||
+                        !string.Equals(right.ChainDomainFingerprint, _configuredChainDomainFingerprint, StringComparison.Ordinal))
+                    {
+                        throw new FormatException("proof domain mismatch");
+                    }
+
+                    int workComparison = Uint256WorkScore.Parse(right.WorkScoreHex)
+                        .CompareTo(Uint256WorkScore.Parse(left.WorkScoreHex));
+                    if (workComparison != 0)
+                    {
+                        return workComparison;
+                    }
+                }
+                catch (Exception ex) when (ex is FormatException or ArgumentOutOfRangeException)
+                {
+                    throw new ChainDomainStateMismatchException(
+                        "A v23 proof is missing its exact domain-bound uint256 work score.");
+                }
+            }
+            else
+            {
+                int difficultyComparison = right.Difficulty.CompareTo(left.Difficulty);
+                if (difficultyComparison != 0)
+                {
+                    return difficultyComparison;
+                }
+            }
+
+            return StringComparer.Ordinal.Compare(left.ShareId, right.ShareId);
+        });
+    }
+
+    private List<BootShareProof> SortAndTrimProofs(IEnumerable<BootShareProof> proofs, int limit)
+    {
+        IComparer<BootShareProof> comparer = GetProofComparerNoLock();
         return proofs
             .GroupBy(proof => proof.ShareId, StringComparer.OrdinalIgnoreCase)
             .Select(group => group
-                .OrderByDescending(proof => proof.Difficulty)
+                .OrderBy(proof => proof, comparer)
                 .ThenBy(proof => proof.Timestamp)
                 .First())
-            .OrderByDescending(x => x.Difficulty)
-            .ThenBy(x => x.ShareId, StringComparer.Ordinal)
+            .OrderBy(proof => proof, comparer)
             .Take(Math.Max(0, limit))
             .Select(CloneProof)
             .ToList();
@@ -3878,6 +3933,7 @@ public class BootProtocolStateService
             payloadBytes: 80);
 
         int activeConsensusVersion = GetActiveConsensusVersion();
+        BootNodeVersionInfo chainTipVersion = BootProtocolVersions.Local(_poolConfig, activeConsensusVersion);
         PublishChainTipAnnouncement(new BootChainTipAnnouncement
         {
             SenderEndpoint = GetSelfEndpoint(),
@@ -3888,8 +3944,9 @@ public class BootProtocolStateService
             ObservedUtc = transportReceivedUtc,
             ProtocolVersion = activeConsensusVersion,
             ConsensusVersion = activeConsensusVersion,
-            PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
-            NetworkId = _poolConfig.BootNetworkId
+            PeerTransportVersion = chainTipVersion.PeerTransportVersion,
+            NetworkId = _poolConfig.BootNetworkId,
+            ChainDomainFingerprint = chainTipVersion.ChainDomainFingerprint
         });
         return true;
     }
@@ -4120,6 +4177,28 @@ public class BootProtocolStateService
         DateTime? transportReceivedUtc = null)
     {
         DateTime receivedUtc = transportReceivedUtc ?? DateTime.UtcNow;
+        BootNodeVersionInfo localVersion = GetLocalVersionInfo();
+        if (localVersion.ConsensusVersion >= BootProtocolVersions.BlakeConsensusVersion &&
+            !string.Equals(
+                announcement.ChainDomainFingerprint,
+                localVersion.ChainDomainFingerprint,
+                StringComparison.Ordinal))
+        {
+            RecordExternalNetworkEvent(
+                "peer-chain-tip-rejected",
+                string.IsNullOrWhiteSpace(remoteEndpoint) ? $"peer-tip-node:{remoteNodeId}" : $"peer-tip:{remoteEndpoint}",
+                "Rejected peer chain-tip announcement: chain domain fingerprint is missing or mismatched.",
+                announcement.BlockHash,
+                announcement.BlockHeight,
+                receivedUtc,
+                transport,
+                remoteEndpoint,
+                remoteNodeId,
+                announcement.ObservedUtc,
+                payloadBytes: payloadBytes);
+            return GetNetworkStatus();
+        }
+
         BitcoinHeaderEvaluation evaluation = BitcoinHashes.EvaluateHeader(
             announcement.HeaderHex,
             receivedUtc,
@@ -4731,19 +4810,32 @@ public class BootProtocolStateService
                 return false;
             }
 
-            double localLockedTotalDifficulty = _state.WinnersList.Sum(x => x.Difficulty);
-            const double difficultyEpsilon = 0.0000001;
             bool proofBackedRemoteBeatsProoflessLocal =
                 validatedProofs.Count > 0 &&
                 bundle.CurrentRoundNumber == _state.CurrentRoundNumber &&
                 !CurrentStateHasShareProofsNoLock();
-            bool remoteLooksStronger =
-                proofBackedRemoteBeatsProoflessLocal ||
-                localStateIsEmpty ||
-                bundle.CurrentRoundNumber > _state.CurrentRoundNumber ||
-                (bundle.CurrentRoundNumber == _state.CurrentRoundNumber &&
-                 !CurrentStateHasShareProofsNoLock() &&
-                 remoteLockedTotalDifficulty > localLockedTotalDifficulty + difficultyEpsilon);
+            bool remoteLooksStronger;
+            if (GetActiveConsensusVersionNoLock() >= BootProtocolVersions.BlakeConsensusVersion)
+            {
+                // Same-round v23 convergence is proof-union based. WorkScore is an
+                // ordering key, never an additive fork-choice weight.
+                remoteLooksStronger =
+                    proofBackedRemoteBeatsProoflessLocal ||
+                    localStateIsEmpty ||
+                    bundle.CurrentRoundNumber > _state.CurrentRoundNumber;
+            }
+            else
+            {
+                double localLockedTotalDifficulty = _state.WinnersList.Sum(x => x.Difficulty);
+                const double difficultyEpsilon = 0.0000001;
+                remoteLooksStronger =
+                    proofBackedRemoteBeatsProoflessLocal ||
+                    localStateIsEmpty ||
+                    bundle.CurrentRoundNumber > _state.CurrentRoundNumber ||
+                    (bundle.CurrentRoundNumber == _state.CurrentRoundNumber &&
+                     !CurrentStateHasShareProofsNoLock() &&
+                     remoteLockedTotalDifficulty > localLockedTotalDifficulty + difficultyEpsilon);
+            }
             if (!remoteLooksStronger)
             {
                 return false;
@@ -4892,8 +4984,7 @@ public class BootProtocolStateService
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
                 List<BootShareProof> claimedKnownReserve = familySnapshot.ReconciledProofs
                     .Where(proof => claimedIds.Contains(proof.ShareId))
-                    .OrderByDescending(proof => proof.Difficulty)
-                    .ThenBy(proof => proof.ShareId, StringComparer.Ordinal)
+                    .OrderBy(proof => proof, GetProofComparerNoLock())
                     .Take(_poolConfig.WorkSetReserveLimit)
                     .Select(CloneProof)
                     .ToList();
@@ -4937,11 +5028,14 @@ public class BootProtocolStateService
             return false;
         }
 
+        bool exactWorkOrdering = GetActiveConsensusVersion() >= BootProtocolVersions.BlakeConsensusVersion;
         List<BootShareProof> memberReserve = BootSnapshotReconciliation.Reconcile(
             [],
             validatedBoundaryProofs,
             familySnapshot.PaidProofIds,
-            _poolConfig.WorkSetReserveLimit);
+            _poolConfig.WorkSetReserveLimit,
+            exactWorkOrdering,
+            _configuredChainDomainFingerprint);
         List<BootShareProof> memberSnapshotProofs = memberReserve
             .Take(_poolConfig.SharedWinnerSlotCount)
             .Select(CloneProof)
@@ -4980,7 +5074,9 @@ public class BootProtocolStateService
                 family.ReconciledProofs,
                 validatedBoundaryProofs,
                 family.PaidProofIds,
-                _poolConfig.WorkSetReserveLimit);
+                _poolConfig.WorkSetReserveLimit,
+                exactWorkOrdering,
+                _configuredChainDomainFingerprint);
             int unionAdditions = reconciled.Count(proof =>
                 !family.ReconciledProofs.Any(existing =>
                     string.Equals(existing.ShareId, proof.ShareId, StringComparison.OrdinalIgnoreCase)));
@@ -5003,7 +5099,9 @@ public class BootProtocolStateService
                 _state.OnDeckProofs,
                 reconciled,
                 family.PaidProofIds,
-                _poolConfig.WorkSetReserveLimit);
+                _poolConfig.WorkSetReserveLimit,
+                exactWorkOrdering,
+                _configuredChainDomainFingerprint);
             foreach (BootPayoutSnapshotContext context in bundle.SnapshotContexts)
             {
                 UpsertSnapshotContextNoLock(context);
@@ -5268,6 +5366,8 @@ public class BootProtocolStateService
             Metadata = new BootProtocolMetadata
             {
                 NetworkId = _poolConfig.BootNetworkId,
+                ChainProfileId = _chainProfileId,
+                ChainDomainFingerprint = _configuredChainDomainFingerprint,
                 ProtocolVersion = GetActiveConsensusVersionNoLock()
             },
             BestShare = new BestShareRecord(),
@@ -5438,14 +5538,16 @@ public class BootProtocolStateService
     private StateFileSnapshot<PoolState> CaptureCoreStateSnapshotNoLock()
     {
         _state.Metadata.NetworkId = _poolConfig.BootNetworkId;
+        _state.Metadata.ChainProfileId = _chainProfileId;
+        _state.Metadata.ChainDomainFingerprint = _configuredChainDomainFingerprint;
         _state.Metadata.NodeId = _peerIdentity?.NodeId ?? _state.Metadata.NodeId;
         BootNodeVersionInfo localVersion = GetLocalVersionInfoNoLock();
         _state.Metadata.ProtocolVersion = localVersion.ProtocolVersion;
         _state.Metadata.ConsensusVersion = localVersion.ConsensusVersion;
         _state.Metadata.StateBundleSchemaVersion = localVersion.StateBundleSchemaVersion;
-        _state.Metadata.HttpApiVersion = BootProtocolVersions.HttpApiVersion;
-        _state.Metadata.PeerTransportVersion = BootProtocolVersions.PeerTransportVersion;
-        _state.Metadata.UdpRelayVersion = BootProtocolVersions.UdpRelayVersion;
+        _state.Metadata.HttpApiVersion = localVersion.HttpApiVersion;
+        _state.Metadata.PeerTransportVersion = localVersion.PeerTransportVersion;
+        _state.Metadata.UdpRelayVersion = localVersion.UdpRelayVersion;
         _state.Metadata.ReleaseVersion = localVersion.ReleaseVersion;
 
         return new StateFileSnapshot<PoolState>
@@ -5519,12 +5621,14 @@ public class BootProtocolStateService
             Metadata = new BootProtocolMetadata
             {
                 NetworkId = _poolConfig.BootNetworkId,
+                ChainProfileId = _chainProfileId,
+                ChainDomainFingerprint = _configuredChainDomainFingerprint,
                 ProtocolVersion = GetActiveConsensusVersionNoLock(),
                 ConsensusVersion = GetActiveConsensusVersionNoLock(),
                 StateBundleSchemaVersion = BootProtocolVersions.GetStateBundleSchemaVersion(GetActiveConsensusVersionNoLock()),
-                HttpApiVersion = BootProtocolVersions.HttpApiVersion,
-                PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
-                UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
+                HttpApiVersion = GetLocalVersionInfoNoLock().HttpApiVersion,
+                PeerTransportVersion = GetLocalVersionInfoNoLock().PeerTransportVersion,
+                UdpRelayVersion = GetLocalVersionInfoNoLock().UdpRelayVersion,
                 ReleaseVersion = GetLocalVersionInfoNoLock().ReleaseVersion
             },
             CurrentStateId = _state.CurrentStateId,
@@ -5578,6 +5682,7 @@ public class BootProtocolStateService
     {
         return new PoolStateHistory
         {
+            ChainDomainFingerprint = _configuredChainDomainFingerprint,
             RecentAcceptedShares = _state.RecentAcceptedShares.Select(CloneAcceptedShareTelemetry).ToList(),
             RecentRejectedShareDiagnostics = _state.RecentRejectedShareDiagnostics.Select(CloneShareDiagnostic).ToList(),
             RecentCoinbaserDiagnostics = _state.RecentCoinbaserDiagnostics.Select(CloneCoinbaserDiagnostic).ToList(),
@@ -5604,6 +5709,14 @@ public class BootProtocolStateService
             }
 
             _state = loaded;
+            if (!string.IsNullOrEmpty(_configuredChainDomainFingerprint) &&
+                (!string.Equals(_state.Metadata.ChainProfileId, _chainProfileId, StringComparison.Ordinal) ||
+                 !string.Equals(_state.Metadata.ChainDomainFingerprint, _configuredChainDomainFingerprint, StringComparison.Ordinal) ||
+                 !string.Equals(_state.Metadata.NetworkId, _poolConfig.BootNetworkId, StringComparison.Ordinal)))
+            {
+                throw new ChainDomainStateMismatchException(
+                    "Persisted state does not match the configured Blake2b chain profile, network, and domain fingerprint. Select the dedicated Blake state root or restore matching state.");
+            }
             string persistedNodeId = _state.Metadata.NodeId?.Trim() ?? string.Empty;
             string currentNodeId = _peerIdentity?.NodeId?.Trim() ?? string.Empty;
             _identityChanged = !string.IsNullOrWhiteSpace(persistedNodeId) &&
@@ -5617,13 +5730,15 @@ public class BootProtocolStateService
             _state.Metadata.NetworkId = string.IsNullOrWhiteSpace(_state.Metadata.NetworkId)
                 ? _poolConfig.BootNetworkId
                 : _state.Metadata.NetworkId;
+            _state.Metadata.ChainProfileId = _chainProfileId;
+            _state.Metadata.ChainDomainFingerprint = _configuredChainDomainFingerprint;
             BootNodeVersionInfo localVersion = GetLocalVersionInfoNoLock();
             _state.Metadata.ProtocolVersion = localVersion.ProtocolVersion;
             _state.Metadata.ConsensusVersion = localVersion.ConsensusVersion;
             _state.Metadata.StateBundleSchemaVersion = localVersion.StateBundleSchemaVersion;
-            _state.Metadata.HttpApiVersion = BootProtocolVersions.HttpApiVersion;
-            _state.Metadata.PeerTransportVersion = BootProtocolVersions.PeerTransportVersion;
-            _state.Metadata.UdpRelayVersion = BootProtocolVersions.UdpRelayVersion;
+            _state.Metadata.HttpApiVersion = localVersion.HttpApiVersion;
+            _state.Metadata.PeerTransportVersion = localVersion.PeerTransportVersion;
+            _state.Metadata.UdpRelayVersion = localVersion.UdpRelayVersion;
             _state.Metadata.ReleaseVersion = localVersion.ReleaseVersion;
             string? loadedTip = NormalizeCanonicalBlockHash(_state.CurrentTipBlockHash);
             if (!string.IsNullOrWhiteSpace(_state.CurrentTipBlockHash) && string.IsNullOrWhiteSpace(loadedTip))
@@ -5715,6 +5830,10 @@ public class BootProtocolStateService
             _logger.LogInformation("Loaded Boot protocol state from {Label} disk file.", label);
             return true;
         }
+        catch (ChainDomainStateMismatchException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load Boot protocol state from {Label} disk file.", label);
@@ -5750,6 +5869,13 @@ public class BootProtocolStateService
             if (loaded == null)
             {
                 return false;
+            }
+
+            if (!string.IsNullOrEmpty(_configuredChainDomainFingerprint) &&
+                !string.Equals(loaded.ChainDomainFingerprint, _configuredChainDomainFingerprint, StringComparison.Ordinal))
+            {
+                throw new ChainDomainStateMismatchException(
+                    "Persisted history does not match the configured Blake2b chain domain fingerprint. Select the dedicated Blake history root or restore matching history.");
             }
 
             _state.RecentAcceptedShares = loaded.RecentAcceptedShares ?? [];
@@ -5796,6 +5922,10 @@ public class BootProtocolStateService
             _recentShareDiagnostics.AddRange(_state.RecentRejectedShareDiagnostics.Select(CloneShareDiagnostic));
             _logger.LogInformation("Loaded Boot protocol history from {Label} disk file.", label);
             return true;
+        }
+        catch (ChainDomainStateMismatchException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -5881,7 +6011,9 @@ public class BootProtocolStateService
             family.ReconciledProofs,
             boundaryReserveProofs,
             family.PaidProofIds,
-            _poolConfig.WorkSetReserveLimit);
+            _poolConfig.WorkSetReserveLimit,
+            GetActiveConsensusVersionNoLock() >= BootProtocolVersions.BlakeConsensusVersion,
+            _configuredChainDomainFingerprint);
         PruneSnapshotFamiliesNoLock();
     }
 
@@ -6372,7 +6504,7 @@ public class BootProtocolStateService
         foreach (IGrouping<string, BootShareProof> group in missingGroups)
         {
             BootShareProof? contextSource = group
-                .OrderByDescending(proof => proof.Difficulty)
+                .OrderBy(proof => proof, GetProofComparerNoLock())
                 .FirstOrDefault(proof => !string.IsNullOrWhiteSpace(proof.CoinbaseHex));
             if (contextSource == null)
             {
@@ -6733,6 +6865,8 @@ public class BootProtocolStateService
 
         return new BootNetworkStatusDto
         {
+            ChainProfileId = _chainProfileId,
+            ChainDomainFingerprint = _configuredChainDomainFingerprint,
             NodeId = _peerIdentity?.NodeId ?? string.Empty,
             IdentityChanged = _identityChanged,
             SelfEndpoint = NormalizePeerEndpoint(_poolConfig.PublicBaseUrl),
@@ -9016,6 +9150,7 @@ public class BootProtocolStateService
 
     private BootStateBundle BuildBundleFromCurrentCandidateNoLock()
     {
+        BootNodeVersionInfo localVersion = GetLocalVersionInfoNoLock();
         BootPayoutSnapshotContext candidateContext = BuildSnapshotContextFromWorkSetNoLock(
             _state.CurrentTipBlockHash,
             _state.CurrentTipBlockHeight,
@@ -9031,12 +9166,13 @@ public class BootProtocolStateService
             ProtocolVersion = GetActiveConsensusVersionNoLock(),
             ConsensusVersion = GetActiveConsensusVersionNoLock(),
             StateBundleSchemaVersion = BootProtocolVersions.GetStateBundleSchemaVersion(GetActiveConsensusVersionNoLock()),
-            HttpApiVersion = BootProtocolVersions.HttpApiVersion,
-            PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
-            UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
-            ReleaseVersion = GetLocalVersionInfoNoLock().ReleaseVersion,
-            VersionInfo = GetLocalVersionInfoNoLock(),
+            HttpApiVersion = localVersion.HttpApiVersion,
+            PeerTransportVersion = localVersion.PeerTransportVersion,
+            UdpRelayVersion = localVersion.UdpRelayVersion,
+            ReleaseVersion = localVersion.ReleaseVersion,
+            VersionInfo = localVersion,
             NetworkId = _poolConfig.BootNetworkId,
+            ChainDomainFingerprint = localVersion.ChainDomainFingerprint,
             LockedByBlockHash = null,
             LockedByBlockHeight = null,
             ParentBlockHash = _state.CurrentTipBlockHash,
@@ -9064,6 +9200,7 @@ public class BootProtocolStateService
 
     private BootStateBundle BuildBundleFromCurrentWinnersNoLock()
     {
+        BootNodeVersionInfo localVersion = GetLocalVersionInfoNoLock();
         string? previousStateId = _state.ArchivedStateBundles
             .FirstOrDefault(bundle => string.Equals(bundle.StateId, _state.CurrentStateId, StringComparison.OrdinalIgnoreCase))
             ?.PreviousStateId;
@@ -9084,12 +9221,13 @@ public class BootProtocolStateService
             ProtocolVersion = GetActiveConsensusVersionNoLock(),
             ConsensusVersion = GetActiveConsensusVersionNoLock(),
             StateBundleSchemaVersion = BootProtocolVersions.GetStateBundleSchemaVersion(GetActiveConsensusVersionNoLock()),
-            HttpApiVersion = BootProtocolVersions.HttpApiVersion,
-            PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
-            UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
-            ReleaseVersion = GetLocalVersionInfoNoLock().ReleaseVersion,
-            VersionInfo = GetLocalVersionInfoNoLock(),
+            HttpApiVersion = localVersion.HttpApiVersion,
+            PeerTransportVersion = localVersion.PeerTransportVersion,
+            UdpRelayVersion = localVersion.UdpRelayVersion,
+            ReleaseVersion = localVersion.ReleaseVersion,
+            VersionInfo = localVersion,
             NetworkId = _poolConfig.BootNetworkId,
+            ChainDomainFingerprint = localVersion.ChainDomainFingerprint,
             LockedByBlockHash = _state.CurrentTipBlockHash,
             LockedByBlockHeight = _state.CurrentTipBlockHeight,
             ParentBlockHash = null,
@@ -9174,6 +9312,10 @@ public class BootProtocolStateService
     {
         return new BootShareProof
         {
+            ChainDomainFingerprint = validation.ChainDomainFingerprint,
+            PowValueHex = validation.PowValueHex,
+            WorkScoreHex = validation.WorkScoreHex,
+            AdmissionTargetHex = validation.AdmissionTargetHex,
             ShareId = validation.ShareId,
             MinerAddress = validation.MinerAddress,
             Username = validation.Username,
@@ -9441,8 +9583,7 @@ public class BootProtocolStateService
     {
         var proofs = shareProofs
             .Select(CloneProof)
-            .OrderByDescending(x => x.Difficulty)
-            .ThenBy(x => x.ShareId, StringComparer.Ordinal)
+            .OrderBy(x => x.ShareId, StringComparer.Ordinal)
             .ToList();
 
         var validatedProofs = new List<BootShareProof>(proofs.Count);
@@ -9467,8 +9608,7 @@ public class BootProtocolStateService
         }
 
         return validatedProofs
-            .OrderByDescending(x => x.Difficulty)
-            .ThenBy(x => x.ShareId, StringComparer.Ordinal)
+            .OrderBy(proof => proof, GetProofComparerNoLock())
             .ToList();
     }
 
@@ -9485,8 +9625,7 @@ public class BootProtocolStateService
     private List<PayoutInfo> BuildPayoutsFromProofs(IEnumerable<BootShareProof> proofs, bool includeSupportFee)
     {
         var list = proofs
-            .OrderByDescending(x => x.Difficulty)
-            .ThenBy(x => x.ShareId, StringComparer.Ordinal)
+            .OrderBy(proof => proof, GetProofComparerNoLock())
             .Take(includeSupportFee ? _poolConfig.SharedWinnerSlotCount : _poolConfig.SnapshotProofSlotCount)
             .ToList();
         var payouts = new List<PayoutInfo>();
@@ -9589,7 +9728,8 @@ public class BootProtocolStateService
                 return false;
             }
 
-            if (Math.Abs(expected[i].Difficulty - actual[i].Difficulty) > 0.0000001)
+            if (GetActiveConsensusVersionNoLock() < BootProtocolVersions.BlakeConsensusVersion &&
+                Math.Abs(expected[i].Difficulty - actual[i].Difficulty) > 0.0000001)
             {
                 return false;
             }
@@ -9600,6 +9740,29 @@ public class BootProtocolStateService
 
     private string ComputeStateIdFromPayoutsNoLock(IEnumerable<PayoutInfo> payouts, string? blockHash)
     {
+        if (GetActiveConsensusVersionNoLock() >= BootProtocolVersions.BlakeConsensusVersion)
+        {
+            var builder = new StringBuilder();
+            builder.Append("boot-protocol-payout-state").Append('\n');
+            builder.Append(BootProtocolVersions.BlakeConsensusVersion).Append('\n');
+            builder.Append(_poolConfig.BootNetworkId).Append('\n');
+            builder.Append(_configuredChainDomainFingerprint).Append('\n');
+            builder.Append(NormalizeCanonicalBlockHash(blockHash) ?? string.Empty).Append('\n');
+            builder.Append(BuildPayoutVariantNoLock()).Append('\n');
+            int index = 0;
+            foreach (PayoutInfo payout in payouts)
+            {
+                string script = BitcoinScript.TryAddressToScriptPubKey(payout.Address, _poolConfig.BitcoinNetwork, out byte[] scriptBytes)
+                    ? Convert.ToHexStringLower(scriptBytes)
+                    : string.Empty;
+                builder.Append(index++).Append('|');
+                builder.Append(script).Append('|');
+                builder.Append(payout.Value.ToString(CultureInfo.InvariantCulture)).Append('\n');
+            }
+
+            return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
+        }
+
         var pseudoProofs = payouts.Select(x => new BootShareProof
         {
             MinerAddress = x.Address,
@@ -9618,17 +9781,22 @@ public class BootProtocolStateService
         builder.Append("boot-protocol-candidate-state").Append('\n');
         builder.Append(GetActiveConsensusVersionNoLock()).Append('\n');
         builder.Append(_poolConfig.BootNetworkId).Append('\n');
+        bool exactWork = GetActiveConsensusVersionNoLock() >= BootProtocolVersions.BlakeConsensusVersion;
+        if (exactWork)
+        {
+            builder.Append(_configuredChainDomainFingerprint).Append('\n');
+        }
         builder.Append(currentStateId ?? string.Empty).Append('\n');
         builder.Append(BuildPayoutVariantNoLock()).Append('\n');
 
         int index = 0;
-        foreach (var share in shares
-                     .OrderByDescending(x => x.Difficulty)
-                     .ThenBy(x => x.ShareId, StringComparer.Ordinal))
+        foreach (var share in shares.OrderBy(proof => proof, GetProofComparerNoLock()))
         {
             builder.Append(index++).Append('|');
             builder.Append(share.ScriptPubKeyHex).Append('|');
-            builder.Append(share.Difficulty.ToString("R", CultureInfo.InvariantCulture)).Append('|');
+            builder.Append(exactWork
+                ? share.WorkScoreHex
+                : share.Difficulty.ToString("R", CultureInfo.InvariantCulture)).Append('|');
             builder.Append(share.ShareId).Append('\n');
         }
 
@@ -9642,17 +9810,22 @@ public class BootProtocolStateService
         builder.Append("boot-protocol-state").Append('\n');
         builder.Append(GetActiveConsensusVersionNoLock()).Append('\n');
         builder.Append(_poolConfig.BootNetworkId).Append('\n');
+        bool exactWork = GetActiveConsensusVersionNoLock() >= BootProtocolVersions.BlakeConsensusVersion;
+        if (exactWork)
+        {
+            builder.Append(_configuredChainDomainFingerprint).Append('\n');
+        }
         builder.Append(NormalizeCanonicalBlockHash(blockHash) ?? string.Empty).Append('\n');
         builder.Append(BuildPayoutVariantNoLock()).Append('\n');
 
         int index = 0;
-        foreach (var share in shares
-                     .OrderByDescending(x => x.Difficulty)
-                     .ThenBy(x => x.ShareId, StringComparer.Ordinal))
+        foreach (var share in shares.OrderBy(proof => proof, GetProofComparerNoLock()))
         {
             builder.Append(index++).Append('|');
             builder.Append(share.ScriptPubKeyHex).Append('|');
-            builder.Append(share.Difficulty.ToString("R", CultureInfo.InvariantCulture)).Append('|');
+            builder.Append(exactWork
+                ? share.WorkScoreHex
+                : share.Difficulty.ToString("R", CultureInfo.InvariantCulture)).Append('|');
             builder.Append(share.ShareId).Append('\n');
         }
 
@@ -9822,8 +9995,7 @@ public class BootProtocolStateService
             bundle.ProofWinnersList = ClonePayouts(bundle.ProofWinnersList);
             bundle.ShareProofs = bundle.ShareProofs
                 .Select(CloneProof)
-                .OrderByDescending(x => x.Difficulty)
-                .ThenBy(x => x.ShareId, StringComparer.Ordinal)
+                .OrderBy(proof => proof, GetProofComparerNoLock())
                 .ToList();
 
             if (bundle.ShareProofs.Count > 0 && bundle.ProofWinnersList.Count == 0)
@@ -11103,6 +11275,10 @@ public class BootProtocolStateService
         {
             IsValid = false,
             RejectionReason = reason,
+            ChainDomainFingerprint = validation.ChainDomainFingerprint,
+            PowValueHex = validation.PowValueHex,
+            WorkScoreHex = validation.WorkScoreHex,
+            AdmissionTargetHex = validation.AdmissionTargetHex,
             ShareId = validation.ShareId,
             MinerAddress = validation.MinerAddress,
             Username = validation.Username,
@@ -11199,6 +11375,10 @@ public class BootProtocolStateService
     {
         return new BootShareProof
         {
+            ChainDomainFingerprint = proof.ChainDomainFingerprint,
+            PowValueHex = proof.PowValueHex,
+            WorkScoreHex = proof.WorkScoreHex,
+            AdmissionTargetHex = proof.AdmissionTargetHex,
             ShareId = proof.ShareId,
             MinerAddress = proof.MinerAddress,
             Username = proof.Username,
@@ -11278,6 +11458,7 @@ public class BootProtocolStateService
             HttpApiVersion = version.HttpApiVersion,
             PeerTransportVersion = version.PeerTransportVersion,
             UdpRelayVersion = version.UdpRelayVersion,
+            ChainDomainFingerprint = version.ChainDomainFingerprint,
             ReleaseVersion = version.ReleaseVersion
         };
     }
@@ -11598,9 +11779,11 @@ public class BootProtocolStateService
                 HttpApiVersion = bundle.VersionInfo?.HttpApiVersion ?? 0,
                 PeerTransportVersion = bundle.VersionInfo?.PeerTransportVersion ?? 0,
                 UdpRelayVersion = bundle.VersionInfo?.UdpRelayVersion ?? 0,
+                ChainDomainFingerprint = bundle.VersionInfo?.ChainDomainFingerprint ?? string.Empty,
                 ReleaseVersion = bundle.VersionInfo?.ReleaseVersion ?? string.Empty
             },
             NetworkId = bundle.NetworkId,
+            ChainDomainFingerprint = bundle.ChainDomainFingerprint,
             LockedByBlockHash = bundle.LockedByBlockHash,
             LockedByBlockHeight = bundle.LockedByBlockHeight,
             ParentBlockHash = bundle.ParentBlockHash,

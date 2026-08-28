@@ -4,6 +4,7 @@ namespace boot_portal.Models;
 
 public class RecordedShareSubmission
 {
+    public string ChainDomainFingerprint { get; set; } = string.Empty;
     public string MinerAddress { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
     public string HeaderHex { get; set; } = string.Empty;
@@ -22,6 +23,10 @@ public class RecordedShareSubmission
 
 public class BootShareProof
 {
+    public string ChainDomainFingerprint { get; set; } = string.Empty;
+    public string PowValueHex { get; set; } = string.Empty;
+    public string WorkScoreHex { get; set; } = string.Empty;
+    public string AdmissionTargetHex { get; set; } = string.Empty;
     public string ShareId { get; set; } = string.Empty;
     public string MinerAddress { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
@@ -327,6 +332,8 @@ public class BootLocalDatumMinerHashrateRollupPoint
 
 public class BootNetworkStatusDto
 {
+    public string ChainProfileId { get; set; } = ChainDomainProfiles.LegacySha256dProfileId;
+    public string ChainDomainFingerprint { get; set; } = string.Empty;
     public string NodeId { get; set; } = string.Empty;
     public bool IdentityChanged { get; set; }
     public string SelfEndpoint { get; set; } = string.Empty;
@@ -845,6 +852,7 @@ public class PeerShareAnnouncement
     public int UdpRelayVersion { get; set; }
     public string ReleaseVersion { get; set; } = string.Empty;
     public string NetworkId { get; set; } = string.Empty;
+    public string ChainDomainFingerprint { get; set; } = string.Empty;
     public string ProofClass { get; set; } = BootProofClasses.Work;
     public string RelayStage { get; set; } = BootRelayStages.Validated;
     public int RelayTtl { get; set; }
@@ -862,6 +870,7 @@ public class BootPeerSessionHello
     public int UdpRelayVersion { get; set; }
     public string ReleaseVersion { get; set; } = string.Empty;
     public string NetworkId { get; set; } = string.Empty;
+    public string ChainDomainFingerprint { get; set; } = string.Empty;
     public string Endpoint { get; set; } = string.Empty;
     public string UdpHost { get; set; } = string.Empty;
     public int UdpPort { get; set; }
@@ -911,6 +920,7 @@ public class BootChainTipAnnouncement
     public int ConsensusVersion { get; set; }
     public int PeerTransportVersion { get; set; }
     public string NetworkId { get; set; } = string.Empty;
+    public string ChainDomainFingerprint { get; set; } = string.Empty;
 }
 
 public class BootStateBundle
@@ -928,6 +938,7 @@ public class BootStateBundle
     public string ReleaseVersion { get; set; } = string.Empty;
     public BootNodeVersionInfo VersionInfo { get; set; } = new();
     public string NetworkId { get; set; } = string.Empty;
+    public string ChainDomainFingerprint { get; set; } = string.Empty;
     public string? LockedByBlockHash { get; set; }
     public long? LockedByBlockHeight { get; set; }
     public string? ParentBlockHash { get; set; }

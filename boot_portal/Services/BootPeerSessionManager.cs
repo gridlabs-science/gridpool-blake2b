@@ -185,11 +185,12 @@ public sealed class BootPeerSessionManager : BackgroundService
             ProtocolVersion = localVersion.ProtocolVersion,
             ConsensusVersion = localVersion.ConsensusVersion,
             StateBundleSchemaVersion = localVersion.StateBundleSchemaVersion,
-            HttpApiVersion = BootProtocolVersions.HttpApiVersion,
-            PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
-            UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
+            HttpApiVersion = localVersion.HttpApiVersion,
+            PeerTransportVersion = localVersion.PeerTransportVersion,
+            UdpRelayVersion = localVersion.UdpRelayVersion,
             ReleaseVersion = localVersion.ReleaseVersion,
             NetworkId = _poolConfig.BootNetworkId,
+            ChainDomainFingerprint = localVersion.ChainDomainFingerprint,
             ProofClass = proof.ProofClass,
             RelayStage = proof.RelayStage,
             RelayTtl = proof.RelayTtl,
@@ -396,7 +397,8 @@ public sealed class BootPeerSessionManager : BackgroundService
                 sharedSecret,
                 localIsInitiator ? localHello.Nonce : remoteHello.Nonce,
                 localIsInitiator ? remoteHello.Nonce : localHello.Nonce,
-                localIsInitiator);
+                localIsInitiator,
+                localHello.ChainDomainFingerprint);
 
             IPEndPoint? remoteUdpEndPoint = compatibility.UdpRelayCompatible
                 ? await ResolveUdpEndPointAsync(remoteEndpoint, remoteHello.UdpHost, remoteHello.UdpPort, cancellationToken)
@@ -666,12 +668,16 @@ public sealed class BootPeerSessionManager : BackgroundService
             {
                 ConsensusVersion = announcement.ConsensusVersion,
                 ProtocolVersion = announcement.ProtocolVersion,
-                PeerTransportVersion = announcement.PeerTransportVersion
+                PeerTransportVersion = announcement.PeerTransportVersion,
+                ChainDomainFingerprint = announcement.ChainDomainFingerprint
             },
             _poolConfig.BootNetworkId,
             announcement.NetworkId,
             requireStateBundleSchema: false);
-        if (!compatibility.NetworkCompatible || !compatibility.ConsensusCompatible || !compatibility.PeerTransportCompatible)
+        if (!compatibility.NetworkCompatible ||
+            !compatibility.ChainDomainCompatible ||
+            !compatibility.ConsensusCompatible ||
+            !compatibility.PeerTransportCompatible)
         {
             _stateService.MarkPeerSessionFailure(session.RemoteEndpoint, session.RemoteNodeId, "session-tip-rejected");
             session.Abort();
@@ -1190,7 +1196,8 @@ public sealed class BootPeerSessionManager : BackgroundService
         ProtocolVersion = source.ProtocolVersion,
         ConsensusVersion = source.ConsensusVersion,
         PeerTransportVersion = source.PeerTransportVersion,
-        NetworkId = source.NetworkId
+        NetworkId = source.NetworkId,
+        ChainDomainFingerprint = source.ChainDomainFingerprint
     };
 
     private async Task<T?> ReceivePlainJsonAsync<T>(WebSocket socket, CancellationToken cancellationToken)
@@ -1364,8 +1371,6 @@ public sealed class BootPeerSessionManager : BackgroundService
     private sealed class BootPeerSessionCrypto
     {
         private static readonly byte[] UdpMagic = "GP3S"u8.ToArray();
-        private static readonly byte[] AssociatedData = Encoding.UTF8.GetBytes("GridPool peer session v2 encrypted frame");
-        private static readonly byte[] UdpAssociatedData = Encoding.UTF8.GetBytes("GridPool peer udp fast relay v3");
         private readonly byte[] _sendKey;
         private readonly byte[] _receiveKey;
         private readonly byte[] _sendNoncePrefix;
@@ -1374,6 +1379,8 @@ public sealed class BootPeerSessionManager : BackgroundService
         private readonly byte[] _udpReceiveKey;
         private readonly byte[] _udpSendNoncePrefix;
         private readonly byte[] _udpReceiveNoncePrefix;
+        private readonly byte[] _associatedData;
+        private readonly byte[] _udpAssociatedData;
 
         private BootPeerSessionCrypto(
             byte[] sendKey,
@@ -1383,7 +1390,9 @@ public sealed class BootPeerSessionManager : BackgroundService
             byte[] udpSendKey,
             byte[] udpReceiveKey,
             byte[] udpSendNoncePrefix,
-            byte[] udpReceiveNoncePrefix)
+            byte[] udpReceiveNoncePrefix,
+            byte[] associatedData,
+            byte[] udpAssociatedData)
         {
             _sendKey = sendKey;
             _receiveKey = receiveKey;
@@ -1393,24 +1402,34 @@ public sealed class BootPeerSessionManager : BackgroundService
             _udpReceiveKey = udpReceiveKey;
             _udpSendNoncePrefix = udpSendNoncePrefix;
             _udpReceiveNoncePrefix = udpReceiveNoncePrefix;
+            _associatedData = associatedData;
+            _udpAssociatedData = udpAssociatedData;
         }
 
         public static BootPeerSessionCrypto Create(
             byte[] sharedSecret,
             string initiatorNonceBase64,
             string responderNonceBase64,
-            bool localIsInitiator)
+            bool localIsInitiator,
+            string chainDomainFingerprint)
         {
             byte[] initiatorNonce = Convert.FromBase64String(initiatorNonceBase64);
             byte[] responderNonce = Convert.FromBase64String(responderNonceBase64);
-            byte[] initiatorToResponderKey = Derive(sharedSecret, initiatorNonce, responderNonce, "key:initiator-to-responder");
-            byte[] responderToInitiatorKey = Derive(sharedSecret, initiatorNonce, responderNonce, "key:responder-to-initiator");
-            byte[] initiatorToResponderPrefix = Derive(sharedSecret, initiatorNonce, responderNonce, "nonce:initiator-to-responder")[..4];
-            byte[] responderToInitiatorPrefix = Derive(sharedSecret, initiatorNonce, responderNonce, "nonce:responder-to-initiator")[..4];
-            byte[] udpInitiatorToResponderKey = Derive(sharedSecret, initiatorNonce, responderNonce, "udp-key:initiator-to-responder");
-            byte[] udpResponderToInitiatorKey = Derive(sharedSecret, initiatorNonce, responderNonce, "udp-key:responder-to-initiator");
-            byte[] udpInitiatorToResponderPrefix = Derive(sharedSecret, initiatorNonce, responderNonce, "udp-nonce:initiator-to-responder")[..4];
-            byte[] udpResponderToInitiatorPrefix = Derive(sharedSecret, initiatorNonce, responderNonce, "udp-nonce:responder-to-initiator")[..4];
+            string domain = chainDomainFingerprint ?? string.Empty;
+            byte[] initiatorToResponderKey = Derive(sharedSecret, initiatorNonce, responderNonce, domain, "key:initiator-to-responder");
+            byte[] responderToInitiatorKey = Derive(sharedSecret, initiatorNonce, responderNonce, domain, "key:responder-to-initiator");
+            byte[] initiatorToResponderPrefix = Derive(sharedSecret, initiatorNonce, responderNonce, domain, "nonce:initiator-to-responder")[..4];
+            byte[] responderToInitiatorPrefix = Derive(sharedSecret, initiatorNonce, responderNonce, domain, "nonce:responder-to-initiator")[..4];
+            byte[] udpInitiatorToResponderKey = Derive(sharedSecret, initiatorNonce, responderNonce, domain, "udp-key:initiator-to-responder");
+            byte[] udpResponderToInitiatorKey = Derive(sharedSecret, initiatorNonce, responderNonce, domain, "udp-key:responder-to-initiator");
+            byte[] udpInitiatorToResponderPrefix = Derive(sharedSecret, initiatorNonce, responderNonce, domain, "udp-nonce:initiator-to-responder")[..4];
+            byte[] udpResponderToInitiatorPrefix = Derive(sharedSecret, initiatorNonce, responderNonce, domain, "udp-nonce:responder-to-initiator")[..4];
+            byte[] associatedData = Encoding.UTF8.GetBytes(string.IsNullOrEmpty(domain)
+                ? "GridPool peer session v2 encrypted frame"
+                : $"GridPool peer session v3 encrypted frame\nchain_domain_fingerprint={domain}");
+            byte[] udpAssociatedData = Encoding.UTF8.GetBytes(string.IsNullOrEmpty(domain)
+                ? "GridPool peer udp fast relay v3"
+                : $"GridPool peer udp fast relay v6\nchain_domain_fingerprint={domain}");
 
             return localIsInitiator
                 ? new BootPeerSessionCrypto(
@@ -1421,7 +1440,9 @@ public sealed class BootPeerSessionManager : BackgroundService
                     udpInitiatorToResponderKey,
                     udpResponderToInitiatorKey,
                     udpInitiatorToResponderPrefix,
-                    udpResponderToInitiatorPrefix)
+                    udpResponderToInitiatorPrefix,
+                    associatedData,
+                    udpAssociatedData)
                 : new BootPeerSessionCrypto(
                     responderToInitiatorKey,
                     initiatorToResponderKey,
@@ -1430,7 +1451,9 @@ public sealed class BootPeerSessionManager : BackgroundService
                     udpResponderToInitiatorKey,
                     udpInitiatorToResponderKey,
                     udpResponderToInitiatorPrefix,
-                    udpInitiatorToResponderPrefix);
+                    udpInitiatorToResponderPrefix,
+                    associatedData,
+                    udpAssociatedData);
         }
 
         public BootPeerSessionEncryptedFrame Encrypt(string payloadJson, ulong sequence)
@@ -1439,7 +1462,7 @@ public sealed class BootPeerSessionManager : BackgroundService
             byte[] ciphertext = new byte[plaintext.Length];
             byte[] tag = new byte[16];
             using var aes = new AesGcm(_sendKey, tag.Length);
-            aes.Encrypt(BuildNonce(_sendNoncePrefix, sequence), plaintext, ciphertext, tag, AssociatedData);
+            aes.Encrypt(BuildNonce(_sendNoncePrefix, sequence), plaintext, ciphertext, tag, _associatedData);
             return new BootPeerSessionEncryptedFrame
             {
                 Sequence = sequence,
@@ -1454,7 +1477,7 @@ public sealed class BootPeerSessionManager : BackgroundService
             byte[] tag = Convert.FromBase64String(frame.Tag);
             byte[] plaintext = new byte[ciphertext.Length];
             using var aes = new AesGcm(_receiveKey, tag.Length);
-            aes.Decrypt(BuildNonce(_receiveNoncePrefix, frame.Sequence), ciphertext, tag, plaintext, AssociatedData);
+            aes.Decrypt(BuildNonce(_receiveNoncePrefix, frame.Sequence), ciphertext, tag, plaintext, _associatedData);
             return Encoding.UTF8.GetString(plaintext);
         }
 
@@ -1464,7 +1487,7 @@ public sealed class BootPeerSessionManager : BackgroundService
             byte[] tag = new byte[16];
             byte[] header = BuildUdpHeader(senderNodeKey, sequence);
             using var aes = new AesGcm(_udpSendKey, tag.Length);
-            aes.Encrypt(BuildNonce(_udpSendNoncePrefix, sequence), payload, ciphertext, tag, header.Concat(UdpAssociatedData).ToArray());
+            aes.Encrypt(BuildNonce(_udpSendNoncePrefix, sequence), payload, ciphertext, tag, header.Concat(_udpAssociatedData).ToArray());
 
             byte[] datagram = new byte[header.Length + ciphertext.Length + tag.Length];
             Buffer.BlockCopy(header, 0, datagram, 0, header.Length);
@@ -1490,7 +1513,7 @@ public sealed class BootPeerSessionManager : BackgroundService
             try
             {
                 using var aes = new AesGcm(_udpReceiveKey, tag.Length);
-                aes.Decrypt(BuildNonce(_udpReceiveNoncePrefix, sequence), ciphertext, tag, plaintext, header.ToArray().Concat(UdpAssociatedData).ToArray());
+                aes.Decrypt(BuildNonce(_udpReceiveNoncePrefix, sequence), ciphertext, tag, plaintext, header.ToArray().Concat(_udpAssociatedData).ToArray());
                 payload = plaintext;
                 return true;
             }
@@ -1529,9 +1552,17 @@ public sealed class BootPeerSessionManager : BackgroundService
             return true;
         }
 
-        private static byte[] Derive(byte[] sharedSecret, byte[] initiatorNonce, byte[] responderNonce, string label)
+        private static byte[] Derive(
+            byte[] sharedSecret,
+            byte[] initiatorNonce,
+            byte[] responderNonce,
+            string chainDomainFingerprint,
+            string label)
         {
-            byte[] labelBytes = Encoding.UTF8.GetBytes("GridPool peer session v2\n" + label);
+            string prefix = string.IsNullOrEmpty(chainDomainFingerprint)
+                ? "GridPool peer session v2\n"
+                : $"GridPool peer session v3\nchain_domain_fingerprint={chainDomainFingerprint}\n";
+            byte[] labelBytes = Encoding.UTF8.GetBytes(prefix + label);
             byte[] material = new byte[labelBytes.Length + sharedSecret.Length + initiatorNonce.Length + responderNonce.Length];
             Buffer.BlockCopy(labelBytes, 0, material, 0, labelBytes.Length);
             Buffer.BlockCopy(sharedSecret, 0, material, labelBytes.Length, sharedSecret.Length);

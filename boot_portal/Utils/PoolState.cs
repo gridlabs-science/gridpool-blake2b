@@ -66,6 +66,7 @@ public class BootProvisionalTipState
 
 public class PoolStateHistory
 {
+    public string ChainDomainFingerprint { get; set; } = string.Empty;
     public List<BootAcceptedShareTelemetry> RecentAcceptedShares { get; set; } = [];
     public List<BootShareDiagnosticTelemetry> RecentRejectedShareDiagnostics { get; set; } = [];
     public List<BootCoinbaserFetchTelemetry> RecentCoinbaserDiagnostics { get; set; } = [];
@@ -83,6 +84,8 @@ public class BootProtocolMetadata
 {
     public string NodeId { get; set; } = string.Empty;
     public string NetworkId { get; set; } = "mainnet-beta";
+    public string ChainProfileId { get; set; } = ChainDomainProfiles.LegacySha256dProfileId;
+    public string ChainDomainFingerprint { get; set; } = string.Empty;
     public int ProtocolVersion { get; set; } = BootProtocolVersions.ConsensusVersion;
     public int ConsensusVersion { get; set; } = BootProtocolVersions.ConsensusVersion;
     public int StateBundleSchemaVersion { get; set; } = BootProtocolVersions.StateBundleSchemaVersion;

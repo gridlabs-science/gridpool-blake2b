@@ -36,6 +36,7 @@ public sealed class BootPeerIdentity
             UdpRelayVersion = localVersion.UdpRelayVersion,
             ReleaseVersion = localVersion.ReleaseVersion,
             NetworkId = config.BootNetworkId,
+            ChainDomainFingerprint = localVersion.ChainDomainFingerprint,
             Endpoint = endpoint ?? string.Empty,
             UdpHost = config.PeerUdpPublicHost?.Trim() ?? string.Empty,
             UdpPort = config.PeerUdpPort,
@@ -147,7 +148,8 @@ public sealed class BootPeerIdentity
 
     private static string BuildHelloSigningPayload(BootPeerSessionHello hello)
     {
-        return string.Join('\n',
+        var fields = new List<string>
+        {
             HelloDomain,
             hello.ProtocolVersion.ToString(CultureInfo.InvariantCulture),
             hello.ConsensusVersion.ToString(CultureInfo.InvariantCulture),
@@ -156,12 +158,21 @@ public sealed class BootPeerIdentity
             hello.PeerTransportVersion.ToString(CultureInfo.InvariantCulture),
             hello.UdpRelayVersion.ToString(CultureInfo.InvariantCulture),
             hello.ReleaseVersion ?? string.Empty,
-            hello.NetworkId ?? string.Empty,
+            hello.NetworkId ?? string.Empty
+        };
+        if (hello.PeerTransportVersion >= BootProtocolVersions.BlakePeerTransportVersion)
+        {
+            fields.Add(hello.ChainDomainFingerprint ?? string.Empty);
+        }
+
+        fields.AddRange([
             hello.Endpoint ?? string.Empty,
             hello.NodeId ?? string.Empty,
             hello.X25519PublicKey ?? string.Empty,
             hello.Nonce ?? string.Empty,
-            hello.TimestampUtc ?? string.Empty);
+            hello.TimestampUtc ?? string.Empty
+        ]);
+        return string.Join('\n', fields);
     }
 
     private static bool TryDecodeFixedBase64(string? value, int expectedLength, out byte[] bytes)

@@ -20,6 +20,10 @@ public sealed class BootShareValidationResult
     public string BlockHash { get; init; } = string.Empty;
     public double Difficulty { get; init; }
     public bool IsBlock { get; init; }
+    public string ChainDomainFingerprint { get; init; } = string.Empty;
+    public string PowValueHex { get; init; } = string.Empty;
+    public string WorkScoreHex { get; init; } = string.Empty;
+    public string AdmissionTargetHex { get; init; } = string.Empty;
 }
 
 public sealed class BootShareHeaderEvaluationResult
@@ -33,12 +37,18 @@ public sealed class BootShareHeaderEvaluationResult
     public string BlockHash { get; init; } = string.Empty;
     public double Difficulty { get; init; }
     public bool IsBlock { get; init; }
+    public string ChainDomainFingerprint { get; init; } = string.Empty;
+    public string PowValueHex { get; init; } = string.Empty;
+    public string WorkScoreHex { get; init; } = string.Empty;
+    public string AdmissionTargetHex { get; init; } = string.Empty;
 }
 
 public class BootShareVerifier
 {
     private const int MaxExpectedOutputPlanCacheEntries = 512;
     private readonly string _bitcoinNetwork;
+    private readonly string _chainDomainFingerprint;
+    private readonly ulong _minimumDifficulty;
     private readonly object _expectedOutputPlanCacheLock = new();
     private readonly Dictionary<string, ExpectedWinnerOutputPlan> _expectedOutputPlanCache = new(StringComparer.Ordinal);
 
@@ -50,6 +60,10 @@ public class BootShareVerifier
     public BootShareVerifier(PoolConfig poolConfig)
     {
         _bitcoinNetwork = BitcoinScript.NormalizeNetwork(poolConfig.BitcoinNetwork);
+        _chainDomainFingerprint = ChainDomainProfiles.TryResolve(poolConfig, out ChainDomainProfile? profile, out _)
+            ? profile?.Fingerprint ?? string.Empty
+            : string.Empty;
+        _minimumDifficulty = poolConfig.MinDiff;
     }
 
     public BootShareValidationResult ValidateShare(
@@ -75,6 +89,7 @@ public class BootShareVerifier
             share.CoinbaseHex,
             share.MerklePath,
             share.PrevBlockHash,
+            share.ChainDomainFingerprint,
             expectedWinners,
             expectedPrevBlockHashes,
             expectedShareId: null);
@@ -96,22 +111,38 @@ public class BootShareVerifier
         IReadOnlyList<PayoutInfo> expectedWinners,
         IReadOnlyCollection<string> expectedPrevBlockHashes)
     {
-        return ValidateCore(
+        BootShareValidationResult validation = ValidateCore(
             proof.MinerAddress,
             proof.Username,
             proof.HeaderHex,
             proof.CoinbaseHex,
             proof.MerklePath,
             proof.PrevBlockHash,
+            proof.ChainDomainFingerprint,
             expectedWinners,
             expectedPrevBlockHashes,
             proof.ShareId);
+        if (validation.IsValid &&
+            !string.IsNullOrEmpty(_chainDomainFingerprint) &&
+            (!string.Equals(proof.PowValueHex, validation.PowValueHex, StringComparison.Ordinal) ||
+             !string.Equals(proof.WorkScoreHex, validation.WorkScoreHex, StringComparison.Ordinal) ||
+             !string.Equals(proof.AdmissionTargetHex, validation.AdmissionTargetHex, StringComparison.Ordinal)))
+        {
+            return Invalid("Proof uint256 work fields are missing or do not match the validated header and configured admission target.");
+        }
+
+        return validation;
     }
 
     public BootShareHeaderEvaluationResult EvaluateHeaderDifficulty(RecordedShareSubmission share)
     {
         try
         {
+            if (!ValidateChainDomain(share.ChainDomainFingerprint))
+            {
+                return InvalidHeader("Chain domain fingerprint is missing or mismatched.");
+            }
+
             string normalizedHeaderHex = BitcoinHashes.NormalizeHex(share.HeaderHex);
             if (normalizedHeaderHex.Length is not (160 or 328))
             {
@@ -126,6 +157,8 @@ public class BootShareVerifier
 
             IChainHeaderProfile headerProfile = ChainProfiles.SelectForHeader(normalizedHeaderHex);
             ParsedChainHeader header = headerProfile.ParseAndHash(normalizedHeaderHex);
+            string admissionTargetHex = Uint256WorkScore.Format(
+                Uint256WorkScore.AdmissionTarget(headerProfile.GetPowLimit(_bitcoinNetwork), _minimumDifficulty));
             string actualPrevBlockHash = header.DisplayParentBlockHash;
             if (!string.IsNullOrWhiteSpace(share.PrevBlockHash) &&
                 !BitcoinHashes.AreEquivalent(share.PrevBlockHash, actualPrevBlockHash))
@@ -147,7 +180,11 @@ public class BootShareVerifier
                 PrevBlockHash = actualPrevBlockHash,
                 BlockHash = header.DisplayBlockHash,
                 Difficulty = header.AchievedDifficulty,
-                IsBlock = header.PowValue <= header.EncodedTarget
+                IsBlock = header.PowValue <= header.EncodedTarget,
+                ChainDomainFingerprint = _chainDomainFingerprint,
+                PowValueHex = Uint256WorkScore.Format(header.PowValue),
+                WorkScoreHex = Uint256WorkScore.Format(header.AchievedWork),
+                AdmissionTargetHex = admissionTargetHex
             };
         }
         catch (FormatException)
@@ -167,12 +204,18 @@ public class BootShareVerifier
         string coinbaseHex,
         List<string> merklePath,
         string? providedPrevBlockHash,
+        string? providedChainDomainFingerprint,
         IReadOnlyList<PayoutInfo> expectedWinners,
         IReadOnlyCollection<string> expectedPrevBlockHashes,
         string? expectedShareId)
     {
         try
         {
+            if (!ValidateChainDomain(providedChainDomainFingerprint))
+            {
+                return Invalid("Chain domain fingerprint is missing or mismatched.");
+            }
+
             string normalizedHeaderHex = BitcoinHashes.NormalizeHex(headerHex);
             if (normalizedHeaderHex.Length is not (160 or 328))
             {
@@ -187,7 +230,16 @@ public class BootShareVerifier
 
             IChainHeaderProfile headerProfile = ChainProfiles.SelectForHeader(normalizedHeaderHex);
             ParsedChainHeader header = headerProfile.ParseAndHash(normalizedHeaderHex);
+            var admissionTarget = Uint256WorkScore.AdmissionTarget(
+                headerProfile.GetPowLimit(_bitcoinNetwork),
+                _minimumDifficulty);
+            string admissionTargetHex = Uint256WorkScore.Format(admissionTarget);
             byte[] coinbaseBytes = Convert.FromHexString(normalizedCoinbaseHex);
+
+            if (!string.IsNullOrEmpty(_chainDomainFingerprint) && header.PowValue > admissionTarget)
+            {
+                return Invalid("Share PoW does not meet the configured exact uint256 admission target.");
+            }
 
             List<byte[]> branchBytes = [];
             List<string> normalizedMerklePath = [];
@@ -279,7 +331,11 @@ public class BootShareVerifier
                 PrevBlockHash = actualPrevBlockHash,
                 BlockHash = header.DisplayBlockHash,
                 Difficulty = header.AchievedDifficulty,
-                IsBlock = isBlock
+                IsBlock = isBlock,
+                ChainDomainFingerprint = _chainDomainFingerprint,
+                PowValueHex = Uint256WorkScore.Format(header.PowValue),
+                WorkScoreHex = Uint256WorkScore.Format(header.AchievedWork),
+                AdmissionTargetHex = admissionTargetHex
             };
         }
         catch (FormatException)
@@ -291,6 +347,10 @@ public class BootShareVerifier
             return Invalid(ex.Message);
         }
     }
+
+    private bool ValidateChainDomain(string? provided) =>
+        string.IsNullOrEmpty(_chainDomainFingerprint) ||
+        string.Equals(provided, _chainDomainFingerprint, StringComparison.Ordinal);
 
     private string ExtractSlotZeroAddress(byte[] scriptPubKey)
     {

@@ -1284,6 +1284,85 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public void BlakePersistenceRefusesMissingDomainAndFreshRootPinsIt()
+    {
+        string? previousStatePath = Environment.GetEnvironmentVariable("BOOT_PORTAL_STATE_PATH");
+        string? previousHistoryPath = Environment.GetEnvironmentVariable("BOOT_PORTAL_HISTORY_PATH");
+        string tempDirectory = Path.Combine(Path.GetTempPath(), $"boot-domain-tests-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+        string statePath = Path.Combine(tempDirectory, "pool_state.json");
+        string historyPath = Path.Combine(tempDirectory, "pool_state.history.json");
+        Environment.SetEnvironmentVariable("BOOT_PORTAL_STATE_PATH", statePath);
+        Environment.SetEnvironmentVariable("BOOT_PORTAL_HISTORY_PATH", historyPath);
+        try
+        {
+            var config = new PoolConfig
+            {
+                ChainProfileId = ChainDomainProfiles.Blake2bTestnet4ProfileId,
+                BitcoinNetwork = BitcoinScript.Testnet4,
+                BootNetworkId = ChainDomainProfiles.Blake2bTestnet4NetworkId,
+                BootProtocolVersion = BootProtocolVersions.BlakeConsensusVersion,
+                WinnersListSize = 299,
+                GridLabsSupportFeeEnabled = false,
+                EnablePeerUdpFastRelay = false,
+                EnablePulseProofs = false,
+                EnableOptimisticShareRelay = false,
+                PoolPayoutScript = BitcoinScript.ScriptToAddress(
+                    BitcoinScript.AddressToScriptPubKey(SampleSlotZeroAddress),
+                    BitcoinScript.Testnet4)
+            };
+            var wrongDomainState = new PoolState
+            {
+                Metadata = new BootProtocolMetadata
+                {
+                    NetworkId = config.BootNetworkId,
+                    ProtocolVersion = BootProtocolVersions.ConsensusVersion
+                },
+                WinnersList = SampleExpectedWinners.Select(ClonePayout).ToList()
+            };
+            File.WriteAllText(statePath, JsonSerializer.Serialize(wrongDomainState));
+
+            InvalidOperationException? mismatch = null;
+            try
+            {
+                _ = new BootProtocolStateService(
+                    config,
+                    new BootShareVerifier(config),
+                    new NoOpHubContext(),
+                    NullLogger<BootProtocolStateService>.Instance);
+            }
+            catch (InvalidOperationException ex)
+            {
+                mismatch = ex;
+            }
+
+            Assert.IsNotNull(mismatch);
+            StringAssert.Contains(mismatch.Message, "does not match the configured Blake2b chain profile");
+
+            File.Delete(statePath);
+            var fresh = new BootProtocolStateService(
+                config,
+                new BootShareVerifier(config),
+                new NoOpHubContext(),
+                NullLogger<BootProtocolStateService>.Instance);
+            PoolState persisted = JsonSerializer.Deserialize<PoolState>(File.ReadAllText(statePath))!;
+            Assert.IsTrue(ChainDomainProfiles.TryResolve(config, out ChainDomainProfile? profile, out _));
+            Assert.AreEqual(config.ChainProfileId, persisted.Metadata.ChainProfileId);
+            Assert.AreEqual(profile!.Fingerprint, persisted.Metadata.ChainDomainFingerprint);
+            Assert.AreEqual(profile.Fingerprint, fresh.GetNetworkStatus().ChainDomainFingerprint);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("BOOT_PORTAL_STATE_PATH", previousStatePath);
+            Environment.SetEnvironmentVariable("BOOT_PORTAL_HISTORY_PATH", previousHistoryPath);
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public async Task CandidateStateWithMissingStateBundleSchemaIsRejectedBeforeImportAsync()
     {
         using var remoteHarness = TestHarness.Create(workSetReserveMultiplier: 1);

@@ -427,10 +427,10 @@ public class BootPeerSyncService : BackgroundService
             localVersion.StateBundleSchemaVersion.ToString(CultureInfo.InvariantCulture));
         request.Headers.TryAddWithoutValidation(
             BootNetworkController.PeerHttpApiVersionHeader,
-            BootProtocolVersions.HttpApiVersion.ToString(CultureInfo.InvariantCulture));
+            localVersion.HttpApiVersion.ToString(CultureInfo.InvariantCulture));
         request.Headers.TryAddWithoutValidation(
             BootNetworkController.PeerTransportVersionHeader,
-            BootProtocolVersions.PeerTransportVersion.ToString(CultureInfo.InvariantCulture));
+            localVersion.PeerTransportVersion.ToString(CultureInfo.InvariantCulture));
         request.Headers.TryAddWithoutValidation(
             BootNetworkController.PeerReleaseVersionHeader,
             localVersion.ReleaseVersion);
@@ -446,11 +446,12 @@ public class BootPeerSyncService : BackgroundService
             ProtocolVersion = localVersion.ProtocolVersion,
             ConsensusVersion = localVersion.ConsensusVersion,
             StateBundleSchemaVersion = localVersion.StateBundleSchemaVersion,
-            HttpApiVersion = BootProtocolVersions.HttpApiVersion,
-            PeerTransportVersion = BootProtocolVersions.PeerTransportVersion,
-            UdpRelayVersion = BootProtocolVersions.UdpRelayVersion,
+            HttpApiVersion = localVersion.HttpApiVersion,
+            PeerTransportVersion = localVersion.PeerTransportVersion,
+            UdpRelayVersion = localVersion.UdpRelayVersion,
             ReleaseVersion = localVersion.ReleaseVersion,
             NetworkId = _poolConfig.BootNetworkId,
+            ChainDomainFingerprint = localVersion.ChainDomainFingerprint,
             ProofClass = proof.ProofClass,
             RelayStage = proof.RelayStage,
             RelayTtl = proof.RelayTtl,

@@ -1,4 +1,5 @@
 using boot_portal.Models;
+using boot_portal.Utils;
 
 namespace boot.tests;
 
@@ -100,6 +101,32 @@ public sealed class SnapshotReconciliationTests
     }
 
     [TestMethod]
+    public void Version23UnionRanksExactWorkThenShareIdAndIgnoresDisplayDifficulty()
+    {
+        string domain = new string('a', 64);
+        BootShareProof weakHighDisplay = ExactProof("z", 1000, 1, domain);
+        BootShareProof strongLowDisplay = ExactProof("b", 1, 2, domain);
+        BootShareProof strongTie = ExactProof("a", 9999, 2, domain);
+
+        List<BootShareProof> reconciled = BootSnapshotReconciliation.Reconcile(
+            [weakHighDisplay],
+            [strongLowDisplay, strongTie],
+            [],
+            3,
+            exactWorkOrdering: true,
+            chainDomainFingerprint: domain);
+
+        CollectionAssert.AreEqual(new[] { "a", "b", "z" }, Ids(reconciled));
+        Assert.ThrowsException<InvalidOperationException>(() => BootSnapshotReconciliation.Reconcile(
+            [Proof("missing", 10)],
+            [],
+            [],
+            1,
+            exactWorkOrdering: true,
+            chainDomainFingerprint: domain));
+    }
+
+    [TestMethod]
     public void ThousandsOfOmissionMembersRetainAtMostSixtyFourIds()
     {
         var ids = new List<string>();
@@ -120,6 +147,14 @@ public sealed class SnapshotReconciliationTests
     {
         ShareId = id,
         Difficulty = difficulty
+    };
+
+    private static BootShareProof ExactProof(string id, double difficulty, int workScore, string domain) => new()
+    {
+        ShareId = id,
+        Difficulty = difficulty,
+        ChainDomainFingerprint = domain,
+        WorkScoreHex = Uint256WorkScore.Format(workScore)
     };
 
     private static string[] Ids(IEnumerable<BootShareProof> proofs) =>

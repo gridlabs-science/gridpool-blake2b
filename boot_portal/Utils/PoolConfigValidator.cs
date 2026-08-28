@@ -114,6 +114,21 @@ public static class PoolConfigValidator
             {
                 errors.Add("Blake2b chain profiles require grid_labs_support_fee_enabled false");
             }
+
+            if (config.EnablePeerUdpFastRelay)
+            {
+                errors.Add("Blake2b chain profiles require enable_peer_udp_fast_relay false until domain-bound GPBS/GPBT codecs are enabled");
+            }
+
+            if (config.EnablePulseProofs)
+            {
+                errors.Add("Blake2b chain profiles require enable_pulse_proofs false until exact job-bound pulse targets are enabled");
+            }
+
+            if (config.EnableOptimisticShareRelay)
+            {
+                errors.Add("Blake2b chain profiles require enable_optimistic_share_relay false until exact job-bound share targets are enabled");
+            }
         }
         else if (config.BootProtocolVersion >= BootProtocolVersions.BlakeConsensusVersion)
         {

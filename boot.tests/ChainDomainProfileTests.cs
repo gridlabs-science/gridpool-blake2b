@@ -1,5 +1,7 @@
 using boot_portal.Models;
 using boot_portal.Utils;
+using boot_portal.Services;
+using NSec.Cryptography;
 
 namespace boot.tests;
 
@@ -54,7 +56,10 @@ public sealed class ChainDomainProfileTests
             BootNetworkId = "gridpool-blake2b-regtest-v1:0123abcdef89",
             BootProtocolVersion = BootProtocolVersions.BlakeConsensusVersion,
             WinnersListSize = 299,
-            GridLabsSupportFeeEnabled = false
+            GridLabsSupportFeeEnabled = false,
+            EnablePeerUdpFastRelay = false,
+            EnablePulseProofs = false,
+            EnableOptimisticShareRelay = false
         };
 
         CollectionAssert.AreEqual(Array.Empty<string>(), PoolConfigValidator.Validate(regtest));
@@ -99,6 +104,59 @@ public sealed class ChainDomainProfileTests
         Assert.AreEqual(6, active.UdpRelayVersion);
     }
 
+    [TestMethod]
+    public void Version23CompatibilityRejectsMissingOrWrongDomain()
+    {
+        PoolConfig config = CreateTestnet4Config();
+        BootNodeVersionInfo local = BootProtocolVersions.Local(config, 23);
+        BootNodeVersionInfo remote = BootProtocolVersions.Local(config, 23);
+
+        BootVersionCompatibilityDto compatible = BootProtocolVersions.Evaluate(
+            local,
+            remote,
+            config.BootNetworkId,
+            config.BootNetworkId,
+            requireStateBundleSchema: true);
+        Assert.IsTrue(compatible.CanSyncState);
+        Assert.IsTrue(compatible.ChainDomainCompatible);
+
+        remote.ChainDomainFingerprint = string.Empty;
+        BootVersionCompatibilityDto missing = BootProtocolVersions.Evaluate(
+            local,
+            remote,
+            config.BootNetworkId,
+            config.BootNetworkId,
+            requireStateBundleSchema: true);
+        Assert.IsFalse(missing.CanSyncState);
+        StringAssert.Contains(missing.Reason, "chain domain fingerprint");
+
+        remote.ChainDomainFingerprint = new string('0', 64);
+        Assert.IsFalse(BootProtocolVersions.Evaluate(
+            local,
+            remote,
+            config.BootNetworkId,
+            config.BootNetworkId,
+            requireStateBundleSchema: true).CanSyncState);
+    }
+
+    [TestMethod]
+    public void PeerTransportV3HelloSignsAndValidatesDomainFingerprint()
+    {
+        PoolConfig config = CreateTestnet4Config();
+        BootNodeVersionInfo version = BootProtocolVersions.Local(config, 23);
+        var identity = new BootPeerIdentity(
+            Key.Create(SignatureAlgorithm.Ed25519, new KeyCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextExport }),
+            Key.Create(KeyAgreementAlgorithm.X25519, new KeyCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextExport }));
+
+        BootPeerSessionHello hello = identity.CreateHello(config, version, "https://testnet4.blake.gridpool.net");
+        Assert.AreEqual(version.ChainDomainFingerprint, hello.ChainDomainFingerprint);
+        Assert.IsTrue(identity.ValidateHello(hello, config, version, out string acceptedReason), acceptedReason);
+
+        hello.ChainDomainFingerprint = new string('0', 64);
+        Assert.IsFalse(identity.ValidateHello(hello, config, version, out string rejectionReason));
+        StringAssert.Contains(rejectionReason, "chain domain fingerprint");
+    }
+
     private static PoolConfig CreateTestnet4Config() => new()
     {
         ChainProfileId = ChainDomainProfiles.Blake2bTestnet4ProfileId,
@@ -106,6 +164,9 @@ public sealed class ChainDomainProfileTests
         BootNetworkId = ChainDomainProfiles.Blake2bTestnet4NetworkId,
         BootProtocolVersion = BootProtocolVersions.BlakeConsensusVersion,
         WinnersListSize = 299,
-        GridLabsSupportFeeEnabled = false
+        GridLabsSupportFeeEnabled = false,
+        EnablePeerUdpFastRelay = false,
+        EnablePulseProofs = false,
+        EnableOptimisticShareRelay = false
     };
 }

@@ -1,4 +1,6 @@
 using boot_portal.Utils;
+using boot_portal.Models;
+using boot_portal.Services;
 
 namespace boot.tests;
 
@@ -114,5 +116,44 @@ public sealed class Blake2bHeaderProfileTests
         ArgumentException markerError = Assert.ThrowsException<ArgumentException>(
             () => ChainProfiles.BitcoinBlake2bHeaderV2.ParseAndHash(Convert.ToHexString(missingMarker)));
         StringAssert.Contains(markerError.Message, "header-v2 version flag");
+    }
+
+    [TestMethod]
+    public void BlakeVerifierRequiresDomainAndReturnsCanonicalIntegerFields()
+    {
+        var config = new PoolConfig
+        {
+            ChainProfileId = ChainDomainProfiles.Blake2bTestnet4ProfileId,
+            BitcoinNetwork = BitcoinScript.Testnet4,
+            BootNetworkId = ChainDomainProfiles.Blake2bTestnet4NetworkId,
+            BootProtocolVersion = BootProtocolVersions.BlakeConsensusVersion,
+            WinnersListSize = 299,
+            GridLabsSupportFeeEnabled = false,
+            EnablePeerUdpFastRelay = false,
+            EnablePulseProofs = false,
+            EnableOptimisticShareRelay = false
+        };
+        Assert.IsTrue(ChainDomainProfiles.TryResolve(config, out ChainDomainProfile? domain, out _));
+        var verifier = new BootShareVerifier(config);
+        var submission = new RecordedShareSubmission
+        {
+            HeaderHex = Testnet4ActivationHeader,
+            CoinbaseHex = "00"
+        };
+
+        BootShareHeaderEvaluationResult missing = verifier.EvaluateHeaderDifficulty(submission);
+        Assert.IsFalse(missing.IsValid);
+        StringAssert.Contains(missing.RejectionReason, "domain fingerprint");
+
+        submission.ChainDomainFingerprint = domain!.Fingerprint;
+        BootShareHeaderEvaluationResult accepted = verifier.EvaluateHeaderDifficulty(submission);
+        Assert.IsTrue(accepted.IsValid, accepted.RejectionReason);
+        Assert.AreEqual(domain.Fingerprint, accepted.ChainDomainFingerprint);
+        Assert.AreEqual(64, accepted.PowValueHex.Length);
+        Assert.AreEqual(64, accepted.WorkScoreHex.Length);
+        Assert.AreEqual(64, accepted.AdmissionTargetHex.Length);
+        Assert.AreEqual(
+            Uint256WorkScore.MaxValue - Uint256WorkScore.Parse(accepted.PowValueHex),
+            Uint256WorkScore.Parse(accepted.WorkScoreHex));
     }
 }
