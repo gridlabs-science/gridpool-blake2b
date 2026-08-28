@@ -1,6 +1,6 @@
 {
   "schema": "gridpool-blake2b-source-lock-v1",
-  "updated_utc": "2026-08-28T01:54:43Z",
+  "updated_utc": "2026-08-28T02:17:30Z",
   "gridpool": {
     "development_baseline": "b4c92a9090c11efd74298e06b02cfe56727373ea",
     "development_tag": "security-rt-076-retest-candidate",
@@ -42,9 +42,9 @@
     "status": "source and compatibility pin; production authority still subject to integration review"
   },
   "artifacts": {
-    "knots_testnet4_binary_sha256": null,
+    "knots_testnet4_binary_sha256": "sha256:50694fc6fd4fe0dc8aa66e4695654cdb1dffbe00e6b2192919a476efa44b3ad2",
     "gridpool_image_digest": null,
     "datum_image_digest": null,
-    "status": "source builds pending"
+    "status": "Testnet4 bitcoind source build recorded; GridPool and DATUM images pending"
   }
 }

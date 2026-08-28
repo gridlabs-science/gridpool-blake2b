@@ -1,0 +1,37 @@
+[Unit]
+Description=GridPool Blake2b Bitcoin Knots RC3 (Testnet4 discovery)
+Documentation=https://github.com/gridlabs-science/gridpool-blake2b
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=all
+User=bitcoin
+Group=bitcoin
+RuntimeDirectory=gridpool-blake2b
+RuntimeDirectoryMode=0750
+ExecStart=/opt/gridpool-blake2b/knots-rc3/bin/bitcoind -datadir=/var/lib/gridpool-blake2b/testnet4 -conf=/etc/gridpool-blake2b/knots-testnet4.conf -pid=/run/gridpool-blake2b/knots-testnet4.pid "-startupnotify=systemd-notify --ready" "-shutdownnotify=systemd-notify --stopping"
+ExecStop=/opt/gridpool-blake2b/knots-rc3/bin/bitcoin-cli -datadir=/var/lib/gridpool-blake2b/testnet4 -conf=/etc/gridpool-blake2b/knots-testnet4.conf stop
+Restart=on-failure
+RestartSec=15
+TimeoutStartSec=300
+TimeoutStopSec=300
+LimitNOFILE=65536
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/gridpool-blake2b/testnet4
+
+[Install]
+WantedBy=multi-user.target
