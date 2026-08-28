@@ -1,6 +1,6 @@
 {
   "schema": "gridpool-blake2b-source-lock-v1",
-  "updated_utc": "2026-08-28T02:17:30Z",
+  "updated_utc": "2026-08-28T21:41:11Z",
   "gridpool": {
     "development_baseline": "b4c92a9090c11efd74298e06b02cfe56727373ea",
     "development_tag": "security-rt-076-retest-candidate",
@@ -13,6 +13,10 @@
       "tag": "v29.4.1.knots20260508rc3",
       "peeled_commit": "afbe91c299e16519f03902939fdbda8af9bd527d",
       "activation_height": 150027,
+      "activation_block_hash": "000000000000007a178eb03e6619f0420d7d38e278e6bb5ee16f15ac5b32cee6",
+      "activation_headline": "PyBLOCK-LOTTO-BLAKE2b-t4-ASIC",
+      "activation_header_bytes": 164,
+      "pre_activation_header_bytes": 80,
       "rdts_expiry_unix": 1788013800,
       "first_blake_target_compact": "1a00ffff",
       "profile_revision": "knots-rc3-afbe91c-v1",

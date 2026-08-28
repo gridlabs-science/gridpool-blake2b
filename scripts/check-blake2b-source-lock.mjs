@@ -3,7 +3,9 @@
 import { readFileSync } from "node:fs";
 
 const lockPath = new URL("../config/blake2b-source-lock.json", import.meta.url);
+const testnetConfigPath = new URL("../deploy/blake-vps/knots-testnet4.conf", import.meta.url);
 const lock = JSON.parse(readFileSync(lockPath, "utf8"));
+const testnetConfig = readFileSync(testnetConfigPath, "utf8");
 
 const fail = (message) => {
   throw new Error(`Blake2b source lock: ${message}`);
@@ -51,7 +53,25 @@ requireSha(
   "afbe91c299e16519f03902939fdbda8af9bd527d",
 );
 requireEqual(lock.knots.testnet4.activation_height, 150027, "knots.testnet4.activation_height");
+requireEqual(
+  lock.knots.testnet4.activation_block_hash,
+  "000000000000007a178eb03e6619f0420d7d38e278e6bb5ee16f15ac5b32cee6",
+  "knots.testnet4.activation_block_hash",
+);
+requireEqual(
+  lock.knots.testnet4.activation_headline,
+  "PyBLOCK-LOTTO-BLAKE2b-t4-ASIC",
+  "knots.testnet4.activation_headline",
+);
+requireEqual(lock.knots.testnet4.activation_header_bytes, 164, "knots.testnet4.activation_header_bytes");
+requireEqual(lock.knots.testnet4.pre_activation_header_bytes, 80, "knots.testnet4.pre_activation_header_bytes");
 requireEqual(lock.knots.testnet4.first_blake_target_compact, "1a00ffff", "knots.testnet4.first_blake_target_compact");
+if (!testnetConfig.includes(`blake2b_headline=${lock.knots.testnet4.activation_headline}\n`)) {
+  fail("deploy/blake-vps/knots-testnet4.conf must pin the locked activation headline");
+}
+if (!/\[testnet4\][\s\S]*addnode=seed\.testnet-bitcoin\.haf\.ovh:48333/.test(testnetConfig)) {
+  fail("the Blake-capable Testnet4 seed must be scoped to [testnet4]");
+}
 
 for (const field of ["tag", "peeled_commit", "activation_height", "profile_revision"]) {
   requireEqual(lock.knots.mainnet[field], null, `knots.mainnet.${field}`);

@@ -96,9 +96,14 @@ The constrained VPS source-builds signed Knots RC3 at the exact peeled commit.
 Its `bitcoind` SHA-256 is recorded in the source lock. Upstream verification
 passes 130/130 CTest targets plus the four targeted Blake/RDTS functional tests.
 The pruned Testnet4 node runs under systemd with loopback RPC/ZMQ, UFW allowing
-only SSH and Testnet4 P2P, and a five-minute local health timer. Initial sync is
-in progress; activation-block inspection and a headline-locked resync remain
-required before mining ingress.
+only SSH and Testnet4 P2P, and a five-minute local health timer. The discovery
+sync completed at height `150240`. Block `150027` is the observed activation
+boundary: its hash is
+`000000000000007a178eb03e6619f0420d7d38e278e6bb5ee16f15ac5b32cee6`,
+its header is 164 bytes, its target is `0x1a00ffff`, and its coinbase contains
+the exact 30-byte headline `PyBLOCK-LOTTO-BLAKE2b-t4-ASIC`; block `150026` has
+an 80-byte header. The headline is now pinned. A clean headline-locked resync
+and repeated activation/tip verification remain required before mining ingress.
 
 ## Remaining Blake Runtime Gates
 

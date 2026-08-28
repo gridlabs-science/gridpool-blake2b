@@ -7,6 +7,13 @@ namespace boot.tests;
 [TestClass]
 public sealed class Blake2bHeaderProfileTests
 {
+    private const string Testnet4ActivationHeader =
+        "000000a003a5c934b72ab4550d1eeb90db527ece84cf9909bb21774f0000000000000000" +
+        "4f6b1bdc586743e6d6bffb3c8ff88cd2719eaf5508cf13ae9e6629a2a1e881d2ea7f906a" +
+        "ffff001aa5d7c8fe5017b613ea7f906a00000000b10cf00d010000000000000000000000" +
+        "06000000000000000000000000000000000000000b4a0200000000000000000000000000" +
+        "0000000000000000000000000000000000000000";
+
     private static readonly (string Name, int Profile, string Serialized, string BlockHash)[] UpstreamVectors =
     [
         (
@@ -74,6 +81,22 @@ public sealed class Blake2bHeaderProfileTests
         Assert.AreEqual(DateTimeOffset.FromUnixTimeSeconds(2_000_000_000).UtcDateTime, offsetEnabled.HeaderTimeUtc);
         Assert.AreEqual(DateTimeOffset.FromUnixTimeSeconds(2_000_000_000).UtcDateTime, offsetDisabled.HeaderTimeUtc);
         Assert.AreSame(ChainProfiles.BitcoinBlake2bHeaderV2, ChainProfiles.SelectForHeader(UpstreamVectors[0].Serialized));
+    }
+
+    [TestMethod]
+    public void ObservedTestnet4ActivationHeaderMatchesPinnedChainEvidence()
+    {
+        ParsedChainHeader header = ChainProfiles.BitcoinBlake2bHeaderV2.ParseAndHash(Testnet4ActivationHeader);
+
+        Assert.AreEqual("000000000000007a178eb03e6619f0420d7d38e278e6bb5ee16f15ac5b32cee6", header.DisplayBlockHash);
+        Assert.AreEqual("00000000000000004f7721bb0999cf84ce7e52db90eb1e0d55b42ab734c9a503", header.DisplayParentBlockHash);
+        Assert.AreEqual(0x1a00ffffu, header.CompactTarget);
+        Assert.AreEqual(150027, header.DeclaredHeight);
+        Assert.AreEqual((ushort)6, header.DeclaredTransactionCount);
+        Assert.AreEqual((byte)0, header.HeaderFlags);
+        Assert.AreEqual(DateTimeOffset.FromUnixTimeSeconds(1_787_854_826).UtcDateTime, header.HeaderTimeUtc);
+        Assert.IsTrue(header.PowValue <= header.EncodedTarget);
+        Assert.IsTrue(header.AchievedWork > 0);
     }
 
     [TestMethod]

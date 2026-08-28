@@ -18,21 +18,23 @@ mainnet node is prepared.
 The deployed binary hash and build/test evidence belong in
 `config/blake2b-source-lock.json` before any mining endpoint is enabled.
 
-## Deliberate discovery mode
+## Headline-locked Testnet4 mode
 
-RC3 requires `blake2b_headline` to be set, but the signed tag does not embed the
-operator-selected Testnet4 headline. The initial configuration deliberately
-sets an empty value so the node can sync and the activation block can be
-inspected without guessing. This is not the public-mining configuration.
+The initial discovery sync completed at height `150240`. Inspection of block
+`150027` found the exact 30-byte activation headline
+`PyBLOCK-LOTTO-BLAKE2b-t4-ASIC`. The activation block hash is
+`000000000000007a178eb03e6619f0420d7d38e278e6bb5ee16f15ac5b32cee6`;
+its header is 164 bytes with compact target `0x1a00ffff`, while block `150026`
+has an 80-byte header. The configured value was also checked against the pinned
+RC3 source's activation validation and coinbase construction paths.
 
-Before public mining:
+The deployment must complete a clean sync with that nonempty headline before
+public mining:
 
-1. obtain and independently review the exact Testnet4 headline;
-2. replace the empty value;
-3. discard/resync the disposable Testnet4 chainstate with that value;
-4. verify activation height `150027`, first target `0x1a00ffff`, the activation
+1. discard/resync the disposable discovery chainstate with the locked value;
+2. verify activation height `150027`, first target `0x1a00ffff`, the activation
    coinbase headline, post-fork peers, and current tip;
-5. keep attached-node confirmation authoritative and only then consider opening
+3. keep attached-node confirmation authoritative and only then consider opening
    mining ingress.
 
 ## Resource and network policy

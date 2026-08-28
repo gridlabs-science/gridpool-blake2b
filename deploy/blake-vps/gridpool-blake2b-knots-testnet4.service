@@ -1,5 +1,5 @@
 [Unit]
-Description=GridPool Blake2b Bitcoin Knots RC3 (Testnet4 discovery)
+Description=GridPool Blake2b Bitcoin Knots RC3 (Testnet4)
 Documentation=https://github.com/gridlabs-science/gridpool-blake2b
 Wants=network-online.target
 After=network-online.target
