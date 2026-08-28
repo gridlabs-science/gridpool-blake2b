@@ -28,12 +28,28 @@ public sealed class ParsedChainHeader
     public uint CompactTarget { get; init; }
     public BigInteger EncodedTarget { get; init; }
     public BigInteger PowValue { get; init; }
+    public BigInteger AchievedWork { get; init; }
     public double AchievedDifficulty { get; init; }
+    public int? DeclaredHeight { get; init; }
+    public ushort? DeclaredTransactionCount { get; init; }
+    public byte? HeaderFlags { get; init; }
 }
 
 public static class ChainProfiles
 {
     public static IChainHeaderProfile BitcoinSha256dHeaderV1 { get; } = new BitcoinSha256dHeaderV1Profile();
+    public static IChainHeaderProfile BitcoinBlake2bHeaderV2 { get; } = new BitcoinBlake2bHeaderV2Profile();
+
+    public static IChainHeaderProfile SelectForHeader(string? headerHex)
+    {
+        string normalized = BitcoinHashes.NormalizeHex(headerHex);
+        return normalized.Length switch
+        {
+            160 => BitcoinSha256dHeaderV1,
+            328 => BitcoinBlake2bHeaderV2,
+            _ => throw new ArgumentException("Block header must be exactly 80 or 164 bytes.", nameof(headerHex))
+        };
+    }
 }
 
 internal sealed class BitcoinSha256dHeaderV1Profile : IChainHeaderProfile
@@ -74,6 +90,7 @@ internal sealed class BitcoinSha256dHeaderV1Profile : IChainHeaderProfile
             CompactTarget = compactTarget,
             EncodedTarget = DecodeCompactTarget(compactTarget),
             PowValue = powValue,
+            AchievedWork = CalculateExactWork(powValue),
             AchievedDifficulty = powValue.IsZero
                 ? double.MaxValue
                 : (double)DifficultyOneTarget / (double)powValue
@@ -86,6 +103,9 @@ internal sealed class BitcoinSha256dHeaderV1Profile : IChainHeaderProfile
         BitcoinScript.NormalizeNetwork(bitcoinNetwork) == BitcoinScript.Regtest
             ? _regtestPowLimit
             : _bitcoinPowLimit;
+
+    private static BigInteger CalculateExactWork(BigInteger powValue) =>
+        (BigInteger.One << 256) / (powValue + BigInteger.One);
 
     private static BigInteger DecodeCompactTargetCore(uint compactTarget)
     {

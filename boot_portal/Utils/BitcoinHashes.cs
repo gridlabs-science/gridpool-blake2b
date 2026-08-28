@@ -4,7 +4,6 @@ namespace boot_portal.Utils;
 
 public static class BitcoinHashes
 {
-    private static readonly IChainHeaderProfile HeaderProfile = ChainProfiles.BitcoinSha256dHeaderV1;
     public static string NormalizeHex(string? hex)
     {
         if (string.IsNullOrWhiteSpace(hex))
@@ -112,7 +111,7 @@ public static class BitcoinHashes
             throw new ArgumentException("Bitcoin block header must be exactly 80 bytes.", nameof(headerHex));
         }
 
-        return HeaderProfile.ParseAndHash(normalized).DisplayBlockHash;
+        return ChainProfiles.BitcoinSha256dHeaderV1.ParseAndHash(normalized).DisplayBlockHash;
     }
 
     public static BitcoinHeaderEvaluation EvaluateHeader(
@@ -123,14 +122,15 @@ public static class BitcoinHashes
         try
         {
             string normalized = NormalizeHex(headerHex);
-            if (normalized.Length != 160)
+            if (normalized.Length is not (160 or 328))
             {
-                return BitcoinHeaderEvaluation.Invalid("Bitcoin block header must be exactly 80 bytes.");
+                return BitcoinHeaderEvaluation.Invalid("Block header must be exactly 80 or 164 bytes.");
             }
 
-            ParsedChainHeader header = HeaderProfile.ParseAndHash(normalized);
+            IChainHeaderProfile headerProfile = ChainProfiles.SelectForHeader(normalized);
+            ParsedChainHeader header = headerProfile.ParseAndHash(normalized);
             if (header.EncodedTarget <= BigInteger.Zero ||
-                header.EncodedTarget > HeaderProfile.GetPowLimit(bitcoinNetwork))
+                header.EncodedTarget > headerProfile.GetPowLimit(bitcoinNetwork))
             {
                 return BitcoinHeaderEvaluation.Invalid("Header target is outside the Bitcoin proof-of-work limit.");
             }
@@ -157,7 +157,7 @@ public static class BitcoinHashes
         }
     }
 
-    public static BigInteger DecodeCompactTarget(uint compact) => HeaderProfile.DecodeCompactTarget(compact);
+    public static BigInteger DecodeCompactTarget(uint compact) => ChainProfiles.BitcoinSha256dHeaderV1.DecodeCompactTarget(compact);
 }
 
 public sealed class BitcoinHeaderEvaluation

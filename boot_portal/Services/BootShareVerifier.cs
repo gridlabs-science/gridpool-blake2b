@@ -37,7 +37,6 @@ public sealed class BootShareHeaderEvaluationResult
 
 public class BootShareVerifier
 {
-    private static readonly IChainHeaderProfile HeaderProfile = ChainProfiles.BitcoinSha256dHeaderV1;
     private const int MaxExpectedOutputPlanCacheEntries = 512;
     private readonly string _bitcoinNetwork;
     private readonly object _expectedOutputPlanCacheLock = new();
@@ -114,9 +113,9 @@ public class BootShareVerifier
         try
         {
             string normalizedHeaderHex = BitcoinHashes.NormalizeHex(share.HeaderHex);
-            if (normalizedHeaderHex.Length != 160)
+            if (normalizedHeaderHex.Length is not (160 or 328))
             {
-                return InvalidHeader("Header must be exactly 80 bytes.");
+                return InvalidHeader("Header must be exactly 80 or 164 bytes.");
             }
 
             string normalizedCoinbaseHex = BitcoinHashes.NormalizeHex(share.CoinbaseHex);
@@ -125,7 +124,8 @@ public class BootShareVerifier
                 return InvalidHeader("Coinbase transaction hex is invalid.");
             }
 
-            ParsedChainHeader header = HeaderProfile.ParseAndHash(normalizedHeaderHex);
+            IChainHeaderProfile headerProfile = ChainProfiles.SelectForHeader(normalizedHeaderHex);
+            ParsedChainHeader header = headerProfile.ParseAndHash(normalizedHeaderHex);
             string actualPrevBlockHash = header.DisplayParentBlockHash;
             if (!string.IsNullOrWhiteSpace(share.PrevBlockHash) &&
                 !BitcoinHashes.AreEquivalent(share.PrevBlockHash, actualPrevBlockHash))
@@ -174,9 +174,9 @@ public class BootShareVerifier
         try
         {
             string normalizedHeaderHex = BitcoinHashes.NormalizeHex(headerHex);
-            if (normalizedHeaderHex.Length != 160)
+            if (normalizedHeaderHex.Length is not (160 or 328))
             {
-                return Invalid("Header must be exactly 80 bytes.");
+                return Invalid("Header must be exactly 80 or 164 bytes.");
             }
 
             string normalizedCoinbaseHex = BitcoinHashes.NormalizeHex(coinbaseHex);
@@ -185,7 +185,8 @@ public class BootShareVerifier
                 return Invalid("Coinbase transaction hex is invalid.");
             }
 
-            ParsedChainHeader header = HeaderProfile.ParseAndHash(normalizedHeaderHex);
+            IChainHeaderProfile headerProfile = ChainProfiles.SelectForHeader(normalizedHeaderHex);
+            ParsedChainHeader header = headerProfile.ParseAndHash(normalizedHeaderHex);
             byte[] coinbaseBytes = Convert.FromHexString(normalizedCoinbaseHex);
 
             List<byte[]> branchBytes = [];

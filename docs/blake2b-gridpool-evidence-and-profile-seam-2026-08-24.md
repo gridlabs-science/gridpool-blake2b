@@ -1,7 +1,7 @@
 # GridPool Blake2b Evidence And Profile-Seam Checkpoint
 
-Status: authorized experimental development; SHA-only profile seam; no Blake
-runtime or public mining ingress yet
+Status: authorized experimental development; Blake header-v2 profile implemented;
+public mining ingress remains disabled
 
 Original evidence cutoff: 2026-08-24. Baseline and source pins updated
 2026-08-27.
@@ -56,7 +56,7 @@ Mainnet has no assigned source pin or finite activation in this repository.
 Mainnet startup and mining ingress must fail closed until those values are
 published, reviewed, and added to the lock.
 
-## SHA-Only Profile Seam
+## Profile Seam And Blake Header Runtime
 
 `IChainHeaderProfile` centralizes the existing SHA behavior without adding
 runtime profile selection:
@@ -68,37 +68,53 @@ runtime profile selection:
 - compact-target decoding;
 - network-specific PoW limits, including native regtest `0x207fffff`.
 
-Only `BitcoinSha256dHeaderV1` is registered. `BitcoinHashes` and
-`BootShareVerifier` delegate duplicated header parsing and work calculation to
-that profile. Transaction IDs, coinbase IDs, Merkle hashing, address checksums,
-share IDs, state IDs, and identity cryptography are unchanged.
+`BitcoinSha256dHeaderV1` preserves the legacy path. The activation-format
+selector also registers `BitcoinBlake2bHeaderV2`, which implements the pinned
+RC3 164-byte serialization, all four ASIC input profiles, tagged H1/H2 and XOR
+commitments, BLAKE2b-256 hashing, effective-time handling, and reserved flag
+rejection. Transaction IDs, coinbase IDs, Merkle hashing, address checksums,
+share IDs, state IDs, and identity cryptography remain unchanged.
 
 The seam preserves the distinction between a header satisfying its encoded
 target and a confirmed chain block. Payment, state rotation, and paid-lineage
 mutation still require exact active-chain confirmation from the configured
 local full node.
 
-Four characterization tests lock the existing header hash, fixed offsets,
-byte order, display difficulty, share identity, and error behavior. The
-security baseline plus seam passes 220/220 tests: 216 baseline tests and four
-new characterization tests.
+Four characterization tests lock the existing SHA header hash, fixed offsets,
+byte order, display difficulty, share identity, and error behavior. Three
+additional tests cover all five pinned upstream Blake vectors, all four ASIC
+profiles, exact output byte order, 80/164-byte profile selection, effective
+time, the v2 marker, and reserved high flags. The suite passes 223/223 tests.
+
+The profile now computes a monotonic exact integer work value in addition to
+display-only floating difficulty. Consensus models and selection still need to
+be migrated to that integer before Blake proofs may enter state.
+
+## Testnet4 Node Checkpoint
+
+The constrained VPS source-builds signed Knots RC3 at the exact peeled commit.
+Its `bitcoind` SHA-256 is recorded in the source lock. Upstream verification
+passes 130/130 CTest targets plus the four targeted Blake/RDTS functional tests.
+The pruned Testnet4 node runs under systemd with loopback RPC/ZMQ, UFW allowing
+only SSH and Testnet4 P2P, and a five-minute local health timer. Initial sync is
+in progress; activation-block inspection and a headline-locked resync remain
+required before mining ingress.
 
 ## Remaining Blake Runtime Gates
 
 Before Blake proofs can enter state:
 
-1. Implement all five canonical vectors and all four ASIC profiles.
-2. Make expected target and activation context authoritative from the attached
+1. Make expected target and activation context authoritative from the attached
    pinned node, never submitted `nBits`.
-3. Add the consensus-v23 domain fingerprint to proofs, APIs, peer handshakes,
+2. Add the consensus-v23 domain fingerprint to proofs, APIs, peer handshakes,
    state, persistence, identities, KDF/AEAD domains, and new UDP codecs.
-4. Replace floating difficulty in consensus ordering with the assigned exact
+3. Replace floating difficulty in consensus ordering with the assigned exact
    `uint256-complement-v1` work score.
-5. Keep the 897-proof bound, complete proof-backed sibling union, paid-once
+4. Keep the 897-proof bound, complete proof-backed sibling union, paid-once
    lineage, and coinbase-derived slot-0 attribution.
-6. Add variable 80/164-byte raw block, RPC, ZMQ, and test coverage before
+5. Add variable 80/164-byte raw block, RPC, ZMQ, and test coverage before
    enabling Blake ingress.
-7. Integrate DATUM only through the pinned, bounded job/session protocol and
+6. Integrate DATUM only through the pinned, bounded job/session protocol and
    retain reliable full-proof validation as canonical.
 
 No stable tag, `latest` image, package release, or security certification is
