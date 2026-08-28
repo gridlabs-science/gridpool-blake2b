@@ -1,5 +1,3 @@
-using System.Buffers.Binary;
-using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
 using boot_portal.Models;
@@ -39,7 +37,7 @@ public sealed class BootShareHeaderEvaluationResult
 
 public class BootShareVerifier
 {
-    private static readonly BigInteger DifficultyOneTarget = DecodeCompactTarget(0x1d00ffff);
+    private static readonly IChainHeaderProfile HeaderProfile = ChainProfiles.BitcoinSha256dHeaderV1;
     private const int MaxExpectedOutputPlanCacheEntries = 512;
     private readonly string _bitcoinNetwork;
     private readonly object _expectedOutputPlanCacheLock = new();
@@ -127,26 +125,19 @@ public class BootShareVerifier
                 return InvalidHeader("Coinbase transaction hex is invalid.");
             }
 
-            byte[] headerBytes = Convert.FromHexString(normalizedHeaderHex);
-            byte[] headerPrevBlockHash = headerBytes.AsSpan(4, 32).ToArray();
-            string actualPrevBlockHash = BitcoinHashes.ToDisplayHashHex(headerPrevBlockHash);
+            ParsedChainHeader header = HeaderProfile.ParseAndHash(normalizedHeaderHex);
+            string actualPrevBlockHash = header.DisplayParentBlockHash;
             if (!string.IsNullOrWhiteSpace(share.PrevBlockHash) &&
                 !BitcoinHashes.AreEquivalent(share.PrevBlockHash, actualPrevBlockHash))
             {
                 return InvalidHeader("Prev block hash does not match the submitted header.");
             }
 
-            byte[] headerHash = DoubleSha256(headerBytes);
-            string blockHash = BitcoinHashes.ToDisplayHashHex(headerHash);
-            uint compactTarget = BinaryPrimitives.ReadUInt32LittleEndian(headerBytes.AsSpan(72, 4));
-            BigInteger target = DecodeCompactTarget(compactTarget);
-            if (target <= BigInteger.Zero)
+            if (header.EncodedTarget <= 0)
             {
                 return InvalidHeader("Header target is invalid.");
             }
 
-            BigInteger hashValue = ToPositiveBigInteger(headerHash);
-            double difficulty = hashValue.IsZero ? double.MaxValue : (double)DifficultyOneTarget / (double)hashValue;
             return new BootShareHeaderEvaluationResult
             {
                 IsValid = true,
@@ -154,9 +145,9 @@ public class BootShareVerifier
                 HeaderHex = normalizedHeaderHex,
                 CoinbaseHex = normalizedCoinbaseHex,
                 PrevBlockHash = actualPrevBlockHash,
-                BlockHash = blockHash,
-                Difficulty = difficulty,
-                IsBlock = hashValue <= target
+                BlockHash = header.DisplayBlockHash,
+                Difficulty = header.AchievedDifficulty,
+                IsBlock = header.PowValue <= header.EncodedTarget
             };
         }
         catch (FormatException)
@@ -194,7 +185,7 @@ public class BootShareVerifier
                 return Invalid("Coinbase transaction hex is invalid.");
             }
 
-            byte[] headerBytes = Convert.FromHexString(normalizedHeaderHex);
+            ParsedChainHeader header = HeaderProfile.ParseAndHash(normalizedHeaderHex);
             byte[] coinbaseBytes = Convert.FromHexString(normalizedCoinbaseHex);
 
             List<byte[]> branchBytes = [];
@@ -211,8 +202,7 @@ public class BootShareVerifier
                 normalizedMerklePath.Add(normalizedBranchHex);
             }
 
-            byte[] headerPrevBlockHash = headerBytes.AsSpan(4, 32).ToArray();
-            string actualPrevBlockHash = BitcoinHashes.ToDisplayHashHex(headerPrevBlockHash);
+            string actualPrevBlockHash = header.DisplayParentBlockHash;
             if (!string.IsNullOrWhiteSpace(providedPrevBlockHash) &&
                 !BitcoinHashes.AreEquivalent(providedPrevBlockHash, actualPrevBlockHash))
             {
@@ -229,7 +219,7 @@ public class BootShareVerifier
             }
 
             byte[] coinbaseHash = BitcoinTransactionParser.ComputeTransactionIdHash(coinbaseBytes);
-            byte[] expectedMerkleRoot = headerBytes.AsSpan(36, 32).ToArray();
+            byte[] expectedMerkleRoot = header.MerkleRootLittleEndianBytes;
             byte[] computedMerkleRoot = ComputeMerkleRoot(coinbaseHash, branchBytes);
 
             if (!expectedMerkleRoot.SequenceEqual(computedMerkleRoot))
@@ -259,18 +249,12 @@ public class BootShareVerifier
             string scriptPubKeyHex = Convert.ToHexString(outputs[0].ScriptPubKey).ToLowerInvariant();
             ValidatePayoutOutputs(outputs, expectedWinners);
 
-            byte[] headerHash = DoubleSha256(headerBytes);
-            string blockHash = BitcoinHashes.ToDisplayHashHex(headerHash);
-            uint compactTarget = BinaryPrimitives.ReadUInt32LittleEndian(headerBytes.AsSpan(72, 4));
-            BigInteger target = DecodeCompactTarget(compactTarget);
-            if (target <= BigInteger.Zero)
+            if (header.EncodedTarget <= 0)
             {
                 return Invalid("Header target is invalid.");
             }
 
-            BigInteger hashValue = ToPositiveBigInteger(headerHash);
-            double difficulty = hashValue.IsZero ? double.MaxValue : (double)DifficultyOneTarget / (double)hashValue;
-            bool isBlock = hashValue <= target;
+            bool isBlock = header.PowValue <= header.EncodedTarget;
             string shareId = ComputeShareId(normalizedHeaderHex, normalizedCoinbaseHex);
             string legacyShareId = ComputeLegacyShareId(normalizedHeaderHex, normalizedCoinbaseHex, normalizedMinerAddress);
 
@@ -292,8 +276,8 @@ public class BootShareVerifier
                 CoinbaseHex = normalizedCoinbaseHex,
                 MerklePath = normalizedMerklePath,
                 PrevBlockHash = actualPrevBlockHash,
-                BlockHash = blockHash,
-                Difficulty = difficulty,
+                BlockHash = header.DisplayBlockHash,
+                Difficulty = header.AchievedDifficulty,
                 IsBlock = isBlock
             };
         }
@@ -632,38 +616,6 @@ public class BootShareVerifier
     {
         using var sha256 = SHA256.Create();
         return sha256.ComputeHash(sha256.ComputeHash(data));
-    }
-
-    private static BigInteger ToPositiveBigInteger(byte[] littleEndianBytes)
-    {
-        byte[] buffer = new byte[littleEndianBytes.Length + 1];
-        Array.Copy(littleEndianBytes, buffer, littleEndianBytes.Length);
-        return new BigInteger(buffer);
-    }
-
-    private static BigInteger DecodeCompactTarget(uint compact)
-    {
-        int exponent = (int)(compact >> 24);
-        uint mantissa = compact & 0x007fffff;
-        bool isNegative = (compact & 0x00800000) != 0;
-
-        if (mantissa == 0 || isNegative)
-        {
-            return BigInteger.Zero;
-        }
-
-        BigInteger value = mantissa;
-        int shift = 8 * (exponent - 3);
-        if (shift >= 0)
-        {
-            value <<= shift;
-        }
-        else
-        {
-            value >>= -shift;
-        }
-
-        return value;
     }
 
     private static BootShareValidationResult Invalid(string reason)

@@ -1,13 +1,10 @@
-using System.Buffers.Binary;
 using System.Numerics;
-using System.Security.Cryptography;
 
 namespace boot_portal.Utils;
 
 public static class BitcoinHashes
 {
-    private static readonly BigInteger BitcoinPowLimit = DecodeCompactTarget(0x1d00ffff);
-    private static readonly BigInteger RegtestPowLimit = DecodeCompactTarget(0x207fffff);
+    private static readonly IChainHeaderProfile HeaderProfile = ChainProfiles.BitcoinSha256dHeaderV1;
     public static string NormalizeHex(string? hex)
     {
         if (string.IsNullOrWhiteSpace(hex))
@@ -115,10 +112,7 @@ public static class BitcoinHashes
             throw new ArgumentException("Bitcoin block header must be exactly 80 bytes.", nameof(headerHex));
         }
 
-        byte[] header = Convert.FromHexString(normalized);
-        byte[] first = SHA256.HashData(header);
-        byte[] second = SHA256.HashData(first);
-        return ToDisplayHashHex(second);
+        return HeaderProfile.ParseAndHash(normalized).DisplayBlockHash;
     }
 
     public static BitcoinHeaderEvaluation EvaluateHeader(
@@ -134,24 +128,14 @@ public static class BitcoinHashes
                 return BitcoinHeaderEvaluation.Invalid("Bitcoin block header must be exactly 80 bytes.");
             }
 
-            byte[] header = Convert.FromHexString(normalized);
-            byte[] first = SHA256.HashData(header);
-            byte[] second = SHA256.HashData(first);
-            string blockHash = ToDisplayHashHex(second);
-            string parentHash = ToDisplayHashHex(header.AsSpan(4, 32).ToArray());
-            uint timestamp = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(68, 4));
-            uint compactTarget = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(72, 4));
-            BigInteger target = DecodeCompactTarget(compactTarget);
-            BigInteger proofOfWorkLimit = BitcoinScript.NormalizeNetwork(bitcoinNetwork) == BitcoinScript.Regtest
-                ? RegtestPowLimit
-                : BitcoinPowLimit;
-            if (target <= BigInteger.Zero || target > proofOfWorkLimit)
+            ParsedChainHeader header = HeaderProfile.ParseAndHash(normalized);
+            if (header.EncodedTarget <= BigInteger.Zero ||
+                header.EncodedTarget > HeaderProfile.GetPowLimit(bitcoinNetwork))
             {
                 return BitcoinHeaderEvaluation.Invalid("Header target is outside the Bitcoin proof-of-work limit.");
             }
 
-            BigInteger hashValue = new(second, isUnsigned: true, isBigEndian: false);
-            if (hashValue > target)
+            if (header.PowValue > header.EncodedTarget)
             {
                 return BitcoinHeaderEvaluation.Invalid("Header does not satisfy its encoded proof-of-work target.");
             }
@@ -160,10 +144,10 @@ public static class BitcoinHashes
             {
                 IsValid = true,
                 HeaderHex = normalized,
-                BlockHash = blockHash,
-                ParentBlockHash = parentHash,
-                CompactTarget = compactTarget,
-                HeaderTimeUtc = DateTimeOffset.FromUnixTimeSeconds(timestamp).UtcDateTime,
+                BlockHash = header.DisplayBlockHash,
+                ParentBlockHash = header.DisplayParentBlockHash,
+                CompactTarget = header.CompactTarget,
+                HeaderTimeUtc = header.HeaderTimeUtc,
                 ReceivedUtc = receivedUtc
             };
         }
@@ -173,20 +157,7 @@ public static class BitcoinHashes
         }
     }
 
-    public static BigInteger DecodeCompactTarget(uint compact)
-    {
-        int exponent = (int)(compact >> 24);
-        uint mantissa = compact & 0x007fffff;
-        bool isNegative = (compact & 0x00800000) != 0;
-        if (mantissa == 0 || isNegative)
-        {
-            return BigInteger.Zero;
-        }
-
-        BigInteger value = mantissa;
-        int shift = 8 * (exponent - 3);
-        return shift >= 0 ? value << shift : value >> -shift;
-    }
+    public static BigInteger DecodeCompactTarget(uint compact) => HeaderProfile.DecodeCompactTarget(compact);
 }
 
 public sealed class BitcoinHeaderEvaluation

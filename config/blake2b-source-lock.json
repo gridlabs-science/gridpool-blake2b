@@ -1,0 +1,50 @@
+{
+  "schema": "gridpool-blake2b-source-lock-v1",
+  "updated_utc": "2026-08-28T01:54:43Z",
+  "gridpool": {
+    "development_baseline": "b4c92a9090c11efd74298e06b02cfe56727373ea",
+    "development_tag": "security-rt-076-retest-candidate",
+    "required_security_ancestor": "400fc6e1352ebba72cd557b3c782df52c54d77c8",
+    "explicitly_excluded_commit": "f09ce5e6e2f90cf85c009a586b2d02db792ea4c4",
+    "security_status": "RT-2026-041 and RT-2026-042 passed; RT-2026-076 follow-up remains an optimistic retest candidate"
+  },
+  "knots": {
+    "testnet4": {
+      "tag": "v29.4.1.knots20260508rc3",
+      "peeled_commit": "afbe91c299e16519f03902939fdbda8af9bd527d",
+      "activation_height": 150027,
+      "rdts_expiry_unix": 1788013800,
+      "first_blake_target_compact": "1a00ffff",
+      "profile_revision": "knots-rc3-afbe91c-v1",
+      "status": "selected testnet4 source pin"
+    },
+    "superseded_testnet4_evidence": {
+      "tag": "v29.4.1.knots20260508rc2",
+      "peeled_commit": "c25ad6bcd18fa65cd78f176a52be062411507741",
+      "activation_height": 149537,
+      "status": "superseded by RC3; do not deploy"
+    },
+    "header_vector_source": {
+      "pull_request": "bitcoinknots/bitcoin#359",
+      "head_commit": "fee27ccfe950e998bb6d36e2b81f4ec97e3e89a3"
+    },
+    "mainnet": {
+      "tag": null,
+      "peeled_commit": null,
+      "activation_height": null,
+      "profile_revision": null,
+      "status": "fail-closed until a finite upstream release is pinned and reviewed"
+    }
+  },
+  "datum": {
+    "experimental_base": "e894b8ac29ae06bf6e3b14dafd21f72dcd65fb84",
+    "repository": "https://github.com/justinfilip/datum_gateway",
+    "status": "source and compatibility pin; production authority still subject to integration review"
+  },
+  "artifacts": {
+    "knots_testnet4_binary_sha256": null,
+    "gridpool_image_digest": null,
+    "datum_image_digest": null,
+    "status": "source builds pending"
+  }
+}

@@ -1,5 +1,12 @@
 # Starting Prompt: GridPool Blake2b Fork
 
+Status note (2026-08-27): this historical starting prompt is superseded for
+authorization and source pins by
+[`blake2b-gridpool-implementation-plan.md`](blake2b-gridpool-implementation-plan.md)
+and the current
+[`blake2b-gridpool-evidence-and-profile-seam-2026-08-24.md`](blake2b-gridpool-evidence-and-profile-seam-2026-08-24.md).
+Its SHA isolation and defensive validation constraints remain controlling.
+
 You are starting a scoped GridPool compatibility effort for the proposed
 BIP-110-associated Blake2b proof-of-work chain.
 
@@ -33,16 +40,17 @@ Relevant repositories:
 - Follow-on P1 hardening:
   `/home/keegreil/Documents/GitHub/boot-protocol-security-p1` at `f09ce5e`
 
-Development baseline update (2026-08-24):
+Development baseline update (2026-08-27):
 
-- `develop` now contains the exact critical candidate `400fc6e` through merge
-  commit `d542af6`.
-- The immutable candidate is tagged
-  `security-rt-041-042-retest-candidate` and remains independently testable.
-- Independent red-team verification is still pending. Treat `develop` as an
-  unverified development baseline, not a stable or deployable security release.
-- The broader P1 branch remains separate. Do not silently copy or merge it into
-  the Blake2b work.
+- Start from `b4c92a9090c11efd74298e06b02cfe56727373ea`, tagged
+  `security-rt-076-retest-candidate`.
+- Independent RT-2026-041 and RT-2026-042 retesting passed.
+- The RT-2026-076 follow-up remains an optimistic development candidate, not a
+  stable public release or security certification.
+- Verify that `400fc6e` is an ancestor and that `f09ce5e` remains excluded.
+- Do not enable `allow_empty_snapshot_bootstrap` outside isolated
+  non-production regtest; Blake testnet4 and mainnet configurations must omit
+  it.
 
 Primary upstream sources to verify directly:
 
@@ -72,8 +80,8 @@ Primary upstream sources to verify directly:
 - Use a distinct GridPool network ID, PoW algorithm ID, header-format version,
   UDP magic/version, state directory, identities, peers, ports, and packages.
 - Cross-network traffic must fail before proof or state processing.
-- Start from current `origin/develop` and verify that `400fc6e` is an ancestor.
-  Do not fork from packaged runtime `9ac862a`; it predates critical fixes.
+- Start from `b4c92a9`, verify that `400fc6e` is an ancestor, and do not fork
+  from packaged runtime `9ac862a`; it predates critical fixes.
 - Do not interfere with the SHA-256 release candidate, Main/Oregon, appliance
   testing, red-team retest, or soak.
 
@@ -84,10 +92,9 @@ Primary upstream sources to verify directly:
    target rules, vectors, RPC/GBT behavior, and unresolved review comments.
 2. Identify and pin the actual Blake2b DATUM fork. If unavailable, mark DATUM
    implementation blocked and continue only with the reference-node audit.
-3. Create only an experimental branch/worktree from current `origin/develop`,
-   record its exact commit, and verify that it contains `400fc6e`. Do not call
-   the fork release-ready until the independent retest and later security merge
-   gates are complete.
+3. Verify and record the exact `b4c92a9` optimistic security baseline. Preserve
+   its attached-node confirmation, proof-backed reconciliation, paid-lineage,
+   event-ordering, address, and network-specific PoW-limit protections.
 4. Audit every SHA256d, fixed-header, target, difficulty, raw-block, ZMQ, RPC,
    UDP, DATUM, state, API, persistence, and test assumption in `boot-protocol`.
 5. Classify hash uses into PoW/header, transaction/Merkle, address/checksum,

@@ -1,6 +1,6 @@
 # GridPool Release Process
 
-Status: active beta policy.
+Status: experimental Blake2b fork policy; no stable release authorized.
 
 GridPool is still moving quickly, but public nodes need a stable update path. The goal is lightweight discipline, not enterprise ceremony.
 
@@ -8,38 +8,31 @@ GridPool is still moving quickly, but public nodes need a stable update path. Th
 
 ### `main`
 
-`main` is the public beta branch.
+`main` is an archival pre-fork reference fixed at `97bc68c`.
 
-- Public Docker users and ordinary public nodes should track `main` or a tagged release.
-- Changes merged to `main` should be safe for public beta nodes to run.
-- GitHub Actions publishes `ghcr.io/gridlabs-science/boot-protocol:latest` and `:main` from this branch.
+- Do not merge Blake2b work into `main` or force-push it.
+- Do not deploy `main` as the Blake reference node.
+- The Blake2b fork does not publish `latest`. CI publishes only immutable
+  commit-derived tags and the experimental branch tag; deployments must record
+  and use the resolved image digest.
 
 ### `develop`
 
-`develop` is the integration branch.
+`develop` is the default and only deployable experimental integration branch.
 
 - Staging nodes, friendly testers, and temporary VPS nodes may track `develop`.
 - Experimental fixes can soak here before promotion to `main`.
-- GitHub Actions publishes `ghcr.io/gridlabs-science/boot-protocol:develop` from this branch.
+- GitHub Actions may publish `ghcr.io/gridlabs-science/gridpool-blake2b:develop`
+  and `sha-*` tags from this branch, but deployments must resolve and record the
+  immutable image digest.
 - Consensus-breaking work may be developed here, but should not be promoted without a coordinated-upgrade release note.
 
 ## Tags
 
-Release tags use semantic-ish beta tags:
-
-```text
-v0.2.0-beta.1
-v0.2.1-beta.1
-v0.3.0-beta.1
-```
-
-Pushing a `v*` tag publishes an immutable GHCR image with the same tag.
-
-Use tags when:
-
-- a public beta build is worth pinning;
-- a tester needs a known rollback point;
-- release notes document a state migration or coordinated upgrade.
+Do not create GitHub releases, stable tags, or a `latest` container tag during
+the experimental phase. Record exact commits, source locks, binary hashes, and
+container digests instead. A later explicit owner decision is required before
+introducing a release-tag policy.
 
 ## Version Classes
 
@@ -101,11 +94,12 @@ Operator action:
 
 ## Promotion Flow
 
-1. Land work on `develop`.
-2. Let staging nodes soak long enough to exercise the changed subsystem.
-3. Promote to `main` with a concise release note.
-4. Tag known-good public beta builds.
-5. Tell public operators whether the release is optional, recommended, or coordinated.
+1. Land work on `develop` after CI and the scoped acceptance gates pass.
+2. Deploy only an immutable commit/image digest to the isolated Blake staging
+   or public-experimental environment.
+3. Record soak evidence, source pins, and rollback instructions.
+4. Keep `main` archival and publish no stable release/tag.
+5. Require an explicit owner decision before any future promotion policy.
 
 ## Rollback
 

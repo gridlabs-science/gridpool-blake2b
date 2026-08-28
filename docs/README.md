@@ -37,6 +37,9 @@ documentation.
   locally confirmed GridPool block payments.
 - [Regtest Release-Retest Lab](regtest-release-retest.md): isolated two-node
   setup, normal lifecycle checks, convergence verification, and evidence capture.
+- [Blake2b Evidence And Profile-Seam Checkpoint](blake2b-gridpool-evidence-and-profile-seam-2026-08-24.md):
+  authorized fork baseline, current upstream pins, and the SHA-only
+  behavior-preserving header-profile boundary.
 
 ## Operators
 

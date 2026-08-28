@@ -1,8 +1,17 @@
 # GridPool Blake2b Fork Handoff
 
-Status: planning handoff; no implementation or deployment authorization
+Status: historical planning handoff; superseded for authorization only by the
+implementation plan
 
 Evidence cutoff: 2026-08-23
+
+Authorization precedence (2026-08-27): the later
+[`blake2b-gridpool-implementation-plan.md`](blake2b-gridpool-implementation-plan.md)
+authorizes experimental implementation, public fork development, testnet4
+deployment, and conditionally gated experimental mainnet deployment. This
+document's evidence, isolation rules, and security gates remain controlling.
+The current implementation checkpoint is
+[`blake2b-gridpool-evidence-and-profile-seam-2026-08-24.md`](blake2b-gridpool-evidence-and-profile-seam-2026-08-24.md).
 
 Audience: a fresh Codex task and developers evaluating a GridPool deployment
 for the BIP-110-associated Blake2b chain
@@ -92,18 +101,17 @@ fixes. Relevant defensive work at the cutoff includes:
   `boot-protocol-security-p1`, commit
   `f09ce5e6e2f90cf85c009a586b2d02db792ea4c4`.
 
-As of 2026-08-24, `develop` includes the exact critical candidate through merge
-commit `d542af6`. The original candidate remains unchanged at tag
-`security-rt-041-042-retest-candidate`, and independent red-team verification
-is still pending. The follow-on P1 branch remains separate.
+As of 2026-08-27, independent RT-2026-041 and RT-2026-042 retesting passed.
+Development proceeds optimistically from
+`b4c92a9090c11efd74298e06b02cfe56727373ea`, tagged
+`security-rt-076-retest-candidate`. It is a direct descendant of `e8701e1`,
+contains `400fc6e`, and excludes `f09ce5e`.
 
-The Blake2b task may therefore branch from current `origin/develop` for
-architecture work, characterization tests, and a behavior-preserving chain
-profile seam. It must verify that `400fc6e` is an ancestor and record the exact
-starting commit. This is an unverified development baseline, not authorization
-to publish or deploy a Blake2b release. A long-lived public fork must be
-rebased or merged onto the final reviewed security baseline after the retest
-and remaining gates complete.
+The follow-up fixes RT-2026-076 and remaining regtest transition gaps. Its
+empty-snapshot bootstrap path is disabled by default, restricted to
+non-production regtest, and must not appear in Blake testnet4 or mainnet
+configuration. This remains an optimistic development baseline rather than a
+stable release or security certification.
 
 ## GridPool Invariants To Preserve
 
