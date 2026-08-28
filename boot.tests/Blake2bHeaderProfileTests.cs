@@ -96,7 +96,8 @@ public sealed class Blake2bHeaderProfileTests
         Assert.AreEqual((byte)0, header.HeaderFlags);
         Assert.AreEqual(DateTimeOffset.FromUnixTimeSeconds(1_787_854_826).UtcDateTime, header.HeaderTimeUtc);
         Assert.IsTrue(header.PowValue <= header.EncodedTarget);
-        Assert.IsTrue(header.AchievedWork > 0);
+        Assert.AreEqual(Uint256WorkScore.MaxValue - header.PowValue, header.AchievedWork);
+        Assert.AreEqual(64, Uint256WorkScore.Format(header.AchievedWork).Length);
     }
 
     [TestMethod]

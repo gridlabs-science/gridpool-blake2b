@@ -65,6 +65,12 @@ requireEqual(
 );
 requireEqual(lock.knots.testnet4.activation_header_bytes, 164, "knots.testnet4.activation_header_bytes");
 requireEqual(lock.knots.testnet4.pre_activation_header_bytes, 80, "knots.testnet4.pre_activation_header_bytes");
+requireEqual(lock.knots.testnet4.network_id, "gridpool-blake2b-testnet4-v1", "knots.testnet4.network_id");
+requireEqual(
+  lock.knots.testnet4.domain_fingerprint,
+  "2ad111b42ae7bd90e41e385d838853455cacc54aefe5f61cbc094c01ee6908d0",
+  "knots.testnet4.domain_fingerprint",
+);
 requireEqual(lock.knots.testnet4.first_blake_target_compact, "1a00ffff", "knots.testnet4.first_blake_target_compact");
 if (!testnetConfig.includes(`blake2b_headline=${lock.knots.testnet4.activation_headline}\n`)) {
   fail("deploy/blake-vps/knots-testnet4.conf must pin the locked activation headline");

@@ -40,6 +40,9 @@ documentation.
 - [Blake2b Evidence And Profile-Seam Checkpoint](blake2b-gridpool-evidence-and-profile-seam-2026-08-24.md):
   authorized fork baseline, current upstream pins, and the SHA-only
   behavior-preserving header-profile boundary.
+- [Blake2b Consensus V23 Domain Migration](blake2b-consensus-v23-domain-migration.md):
+  exact work-score, chain-domain fingerprint, no-migration rule, and
+  coordinated rollout gates for the isolated Blake network.
 
 ## Operators
 

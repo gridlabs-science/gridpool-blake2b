@@ -61,7 +61,7 @@ internal sealed class BitcoinBlake2bHeaderV2Profile : IChainHeaderProfile
             CompactTarget = compactTarget,
             EncodedTarget = DecodeCompactTarget(compactTarget),
             PowValue = powValue,
-            AchievedWork = CalculateExactWork(powValue),
+            AchievedWork = Uint256WorkScore.FromPowValue(powValue),
             AchievedDifficulty = powValue.IsZero
                 ? double.MaxValue
                 : (double)DifficultyOneTarget / (double)powValue,
@@ -77,9 +77,6 @@ internal sealed class BitcoinBlake2bHeaderV2Profile : IChainHeaderProfile
         BitcoinScript.NormalizeNetwork(bitcoinNetwork) == BitcoinScript.Regtest
             ? _regtestPowLimit
             : _bitcoinPowLimit;
-
-    private static BigInteger CalculateExactWork(BigInteger powValue) =>
-        (BigInteger.One << 256) / (powValue + BigInteger.One);
 
     private static byte[] ComputePowHash(byte[] header)
     {

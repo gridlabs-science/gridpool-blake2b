@@ -17,6 +17,9 @@ public class PoolConfig
     [JsonPropertyName("bitcoin_network")]
     public string BitcoinNetwork { get; set; } = BitcoinScript.Mainnet;
 
+    [JsonPropertyName("chain_profile_id")]
+    public string ChainProfileId { get; set; } = ChainDomainProfiles.LegacySha256dProfileId;
+
     [JsonPropertyName("allow_empty_snapshot_bootstrap")]
     public bool AllowEmptySnapshotBootstrap { get; set; } = false;
 

@@ -6,12 +6,17 @@ public static class BootProtocolVersions
 {
     public const int V21ConsensusVersion = 21;
     public const int ConsensusVersion = 22;
+    public const int BlakeConsensusVersion = 23;
     public const int V21StateBundleSchemaVersion = 2;
     public const int StateBundleSchemaVersion = 3;
+    public const int BlakeStateBundleSchemaVersion = 4;
     public const long MainnetV22ActivationBlockHeight = 959_500;
     public const int HttpApiVersion = 1;
+    public const int BlakeHttpApiVersion = 2;
     public const int PeerTransportVersion = 2;
+    public const int BlakePeerTransportVersion = 3;
     public const int UdpRelayVersion = 5;
+    public const int BlakeUdpRelayVersion = 6;
 
     private static readonly Lazy<string> ReleaseVersion = new(() =>
     {
@@ -39,6 +44,15 @@ public static class BootProtocolVersions
 
     public static int GetActiveConsensusVersion(PoolConfig config, long? trustedLocalTipHeight)
     {
+        if (config.BootProtocolVersion >= BlakeConsensusVersion &&
+            ChainDomainProfiles.TryResolve(config, out ChainDomainProfile? profile, out _) &&
+            profile != null)
+        {
+            return trustedLocalTipHeight.HasValue && trustedLocalTipHeight.Value >= profile.ActivationHeight
+                ? BlakeConsensusVersion
+                : ConsensusVersion;
+        }
+
         int softwareConsensusVersion = Math.Min(config.BootProtocolVersion, ConsensusVersion);
         if (softwareConsensusVersion < ConsensusVersion)
         {
@@ -52,19 +66,21 @@ public static class BootProtocolVersions
     }
 
     public static int GetStateBundleSchemaVersion(int activeConsensusVersion) =>
-        activeConsensusVersion >= ConsensusVersion
+        activeConsensusVersion >= BlakeConsensusVersion
+            ? BlakeStateBundleSchemaVersion
+            : activeConsensusVersion >= ConsensusVersion
             ? StateBundleSchemaVersion
             : V21StateBundleSchemaVersion;
 
     public static BootNodeVersionInfo Local(PoolConfig config, int activeConsensusVersion) => new()
     {
-        SoftwareConsensusVersion = Math.Min(config.BootProtocolVersion, ConsensusVersion),
+        SoftwareConsensusVersion = Math.Min(config.BootProtocolVersion, BlakeConsensusVersion),
         ConsensusVersion = activeConsensusVersion,
         ProtocolVersion = activeConsensusVersion,
         StateBundleSchemaVersion = GetStateBundleSchemaVersion(activeConsensusVersion),
-        HttpApiVersion = HttpApiVersion,
-        PeerTransportVersion = PeerTransportVersion,
-        UdpRelayVersion = UdpRelayVersion,
+        HttpApiVersion = activeConsensusVersion >= BlakeConsensusVersion ? BlakeHttpApiVersion : HttpApiVersion,
+        PeerTransportVersion = activeConsensusVersion >= BlakeConsensusVersion ? BlakePeerTransportVersion : PeerTransportVersion,
+        UdpRelayVersion = activeConsensusVersion >= BlakeConsensusVersion ? BlakeUdpRelayVersion : UdpRelayVersion,
         ReleaseVersion = ReleaseVersion.Value
     };
 

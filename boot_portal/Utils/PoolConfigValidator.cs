@@ -77,6 +77,49 @@ public static class PoolConfigValidator
             errors.Add(ex.Message);
         }
 
+        bool chainProfileResolved = ChainDomainProfiles.TryResolve(
+            config,
+            out ChainDomainProfile? chainProfile,
+            out string? chainProfileError);
+        if (!chainProfileResolved)
+        {
+            errors.Add(chainProfileError ?? "chain_profile_id is invalid");
+        }
+        else if (chainProfile != null)
+        {
+            string expectedBitcoinNetwork = chainProfile.ProfileId == ChainDomainProfiles.Blake2bTestnet4ProfileId
+                ? BitcoinScript.Testnet4
+                : BitcoinScript.Regtest;
+            if (!string.Equals(bitcoinNetwork, expectedBitcoinNetwork, StringComparison.Ordinal))
+            {
+                errors.Add($"chain_profile_id {chainProfile.ProfileId} requires bitcoin_network {expectedBitcoinNetwork}");
+            }
+
+            if (!string.Equals(config.BootNetworkId?.Trim(), chainProfile.NetworkId, StringComparison.Ordinal))
+            {
+                errors.Add($"chain_profile_id {chainProfile.ProfileId} requires boot_network_id {chainProfile.NetworkId}");
+            }
+
+            if (config.BootProtocolVersion != BootProtocolVersions.BlakeConsensusVersion)
+            {
+                errors.Add($"Blake2b chain profiles require boot_protocol_version {BootProtocolVersions.BlakeConsensusVersion}");
+            }
+
+            if (config.WinnersListSize != 299)
+            {
+                errors.Add("Blake2b chain profiles require winners_list_size 299");
+            }
+
+            if (config.GridLabsSupportFeeEnabled)
+            {
+                errors.Add("Blake2b chain profiles require grid_labs_support_fee_enabled false");
+            }
+        }
+        else if (config.BootProtocolVersion >= BootProtocolVersions.BlakeConsensusVersion)
+        {
+            errors.Add("boot_protocol_version 23 requires an assigned Blake2b chain_profile_id");
+        }
+
         if (config.AllowEmptySnapshotBootstrap &&
             (!string.Equals(bitcoinNetwork, BitcoinScript.Regtest, StringComparison.OrdinalIgnoreCase) ||
              IsProduction(config)))
@@ -123,9 +166,9 @@ public static class PoolConfigValidator
 
         ValidatePositive(errors, config.WorkSetReserveMultiplier, "work_set_reserve_multiplier");
 
-        if (config.BootProtocolVersion is < 21 or > 22)
+        if (config.BootProtocolVersion is < 21 or > BootProtocolVersions.BlakeConsensusVersion)
         {
-            errors.Add("boot_protocol_version must be 21 or 22");
+            errors.Add("boot_protocol_version must be 21, 22, or 23");
         }
 
         if (config.V22ActivationBlockHeight < 0)

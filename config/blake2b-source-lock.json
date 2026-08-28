@@ -1,6 +1,6 @@
 {
   "schema": "gridpool-blake2b-source-lock-v1",
-  "updated_utc": "2026-08-28T21:41:11Z",
+  "updated_utc": "2026-08-28T21:55:10Z",
   "gridpool": {
     "development_baseline": "b4c92a9090c11efd74298e06b02cfe56727373ea",
     "development_tag": "security-rt-076-retest-candidate",
@@ -17,6 +17,8 @@
       "activation_headline": "PyBLOCK-LOTTO-BLAKE2b-t4-ASIC",
       "activation_header_bytes": 164,
       "pre_activation_header_bytes": 80,
+      "network_id": "gridpool-blake2b-testnet4-v1",
+      "domain_fingerprint": "2ad111b42ae7bd90e41e385d838853455cacc54aefe5f61cbc094c01ee6908d0",
       "rdts_expiry_unix": 1788013800,
       "first_blake_target_compact": "1a00ffff",
       "profile_revision": "knots-rc3-afbe91c-v1",
