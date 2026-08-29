@@ -1,6 +1,6 @@
 {
   "schema": "gridpool-blake2b-source-lock-v1",
-  "updated_utc": "2026-08-29T16:11:00Z",
+  "updated_utc": "2026-08-29T22:30:00Z",
   "gridpool": {
     "development_baseline": "b4c92a9090c11efd74298e06b02cfe56727373ea",
     "development_tag": "security-rt-076-retest-candidate",
@@ -48,10 +48,11 @@
     "upstream_repository": "https://github.com/innerhat-dev/datum_gateway",
     "fork_repository": "https://github.com/gridlabs-science/datum-gateway-blake2b-gridpool",
     "default_branch": "develop",
-    "fork_head": "1356c6501937c0da3c154f9315c3769ec1280d38",
+    "fork_head": "df502b3e2d2e4ed30c39a0aeecbe075f338a0360",
     "gridpool_coinbase_implementation": "70670c5438ad176c7d8194fba7169944aeffb453",
-    "verification": "clean local build and internal --test pass; stable GridLabs CI run 33262136631 passed GCC/Clang with API on/off",
-    "status": "reviewed Blake2b base with GridPool forced-coinbase compatibility port; production integration still pending"
+    "unknown_firmware_implementation": "df502b3e2d2e4ed30c39a0aeecbe075f338a0360",
+    "verification": "clean local build and internal --test pass; stable GridLabs CI run 33262136631 passed GCC/Clang with API on/off; df502b3 adds the tested unknown-firmware forced-coinbase path",
+    "status": "reviewed Blake2b base with GridPool forced-coinbase compatibility and unknown-firmware handling; production integration still pending"
   },
   "artifacts": {
     "knots_testnet4_binary_sha256": "sha256:50694fc6fd4fe0dc8aa66e4695654cdb1dffbe00e6b2192919a476efa44b3ad2",
