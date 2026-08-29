@@ -188,3 +188,12 @@ This is a v23-only adapter and is not a migration path for SHA state or DATUM
 jobs. Rollout remains fail closed: public DATUM/SV1 ports stay closed until a
 pinned gateway and GridPool node pass end-to-end Testnet4/regtest share-first,
 notification-first, payout-list, restart, and candidate-confirmation tests.
+
+The fork head `1356c65` was also built natively on the Ubuntu 24.04 Testnet4
+VPS under `/opt/gridpool-blake2b/src/datum-gateway`; its internal tests passed
+and the resulting binary hashes to
+`sha256:455e2d7a2906a96df7b3be41e4c62671880e8582c8fc1d150dd97461a3a77a13`.
+No DATUM config or service was installed, no process was left running, and
+ports 3009, 3019, 3334, and 5102 remain closed. Package maintenance reports a
+new kernel available; reboot is deferred until a deliberate node-maintenance
+window.

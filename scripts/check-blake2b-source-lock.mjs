@@ -100,6 +100,7 @@ requireSha(lock.datum.fork_head, "datum.fork_head", "1356c6501937c0da3c154f9315c
 requireSha(lock.datum.gridpool_coinbase_implementation, "datum.gridpool_coinbase_implementation", "70670c5438ad176c7d8194fba7169944aeffb453");
 
 requireOptionalDigest(lock.artifacts.knots_testnet4_binary_sha256, "artifacts.knots_testnet4_binary_sha256");
+requireOptionalDigest(lock.artifacts.datum_testnet4_binary_sha256, "artifacts.datum_testnet4_binary_sha256");
 requireOptionalDigest(lock.artifacts.gridpool_image_digest, "artifacts.gridpool_image_digest");
 requireOptionalDigest(lock.artifacts.datum_image_digest, "artifacts.datum_image_digest");
 
