@@ -91,6 +91,10 @@ data directory. Keep the Stratum listener on `127.0.0.1:3334`, force the
 unsafe override disabled. This service is a local integration gate, not a
 public mining endpoint.
 
+The staging validation requires both outcomes: a known undersized firmware
+fingerprint must be rejected before it receives work, while an unrecognized
+client must receive a forced `yuge` Blake2b job and be recorded as unverified.
+
 ## Resource and network policy
 
 - `prune=12000`, `dbcache=2048`, `maxmempool=100`, 64 peer connections.
