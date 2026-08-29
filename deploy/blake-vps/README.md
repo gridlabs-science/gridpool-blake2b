@@ -47,6 +47,12 @@ it does not expose SV1, GridPool peer, UDP, RPC, or ZMQ traffic. The committed
 configuration uses the exact Testnet4 Blake profile, attached-node RPC/ZMQ,
 the fee-free 299-winner payout policy, and full coinbase outputs.
 
+The harness uses the dedicated Docker bridge `172.30.0.0/24`. The attached
+Knots service may allow only that bridge CIDR and bind RPC/ZMQ to its bridge
+gateway (`172.30.0.1`) in addition to `127.0.0.1`; neither endpoint is routed
+or permitted through the provider firewall. This is the sole container-to-node
+trust boundary for the staging service.
+
 Before a staging start, copy the testnet node's RPC cookie into an untracked
 `bitcoin-cookie/.cookie` directory readable by container UID 1000, create the
 untracked `data/` directory, and place any generated identity keys only in
