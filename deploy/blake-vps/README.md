@@ -75,6 +75,17 @@ Do not change the port mappings to a public address or enable peer/mining
 ingress until the DATUM gateway, a synthetic miner, and attached-node block
 confirmation tests have passed.
 
+## Local DATUM gateway
+
+`gridpool-blake2b-datum-testnet4.service` runs the pinned GridLabs DATUM build
+as the `bitcoin` user. Its untracked JSON configuration must use the node's
+RPC cookie, `http://127.0.0.1:48332`, GridPool's local DATUM endpoint
+`127.0.0.1:3009`, and the GridPool server public key generated in the staging
+data directory. Keep the Stratum listener on `127.0.0.1:3334`, force the
+`yuge` coinbase selection, keep firmware fingerprinting enabled, and keep the
+unsafe override disabled. This service is a local integration gate, not a
+public mining endpoint.
+
 ## Resource and network policy
 
 - `prune=12000`, `dbcache=2048`, `maxmempool=100`, 64 peer connections.

@@ -1,0 +1,22 @@
+[Unit]
+Description=GridLabs Blake2b DATUM Gateway (Testnet4 staging)
+After=network-online.target docker.service gridpool-blake2b-knots-testnet4.service
+Wants=network-online.target
+Requires=gridpool-blake2b-knots-testnet4.service
+
+[Service]
+Type=simple
+User=bitcoin
+Group=bitcoin
+WorkingDirectory=/opt/gridpool-blake2b/src/datum-gateway
+ExecStart=/opt/gridpool-blake2b/src/datum-gateway/build/datum_gateway --config=/etc/gridpool-blake2b/datum-testnet4-staging.json
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/gridpool-blake2b/src/datum-gateway /var/lib/gridpool-blake2b/testnet4/testnet4/.cookie
+
+[Install]
+WantedBy=multi-user.target
