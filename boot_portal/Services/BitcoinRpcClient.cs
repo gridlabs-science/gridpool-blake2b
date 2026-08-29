@@ -14,7 +14,13 @@ public sealed record BitcoinBlockchainInfo(
     string Chain = "");
 
 public sealed record BitcoinZmqPublisher(string Topic, string Address);
-public sealed record BitcoinNetworkInfo(int Connections, int ConnectionsIn, int ConnectionsOut);
+public sealed record BitcoinNetworkInfo(
+    int Connections,
+    int ConnectionsIn,
+    int ConnectionsOut,
+    string Subversion = "",
+    int Version = 0,
+    int ProtocolVersion = 0);
 public sealed record BitcoinPeerInfo(long Id, bool Inbound, double? PingTimeSeconds, string ConnectionType);
 
 public interface IBitcoinRpcClient
@@ -103,7 +109,10 @@ public sealed class BitcoinRpcClient : IBitcoinRpcClient
         return new BitcoinNetworkInfo(
             result.TryGetProperty("connections", out JsonElement connections) ? connections.GetInt32() : 0,
             result.TryGetProperty("connections_in", out JsonElement inbound) ? inbound.GetInt32() : 0,
-            result.TryGetProperty("connections_out", out JsonElement outbound) ? outbound.GetInt32() : 0);
+            result.TryGetProperty("connections_out", out JsonElement outbound) ? outbound.GetInt32() : 0,
+            result.TryGetProperty("subversion", out JsonElement subversion) ? subversion.GetString() ?? string.Empty : string.Empty,
+            result.TryGetProperty("version", out JsonElement version) ? version.GetInt32() : 0,
+            result.TryGetProperty("protocolversion", out JsonElement protocolVersion) ? protocolVersion.GetInt32() : 0);
     }
 
     public async Task<IReadOnlyList<BitcoinPeerInfo>> GetPeerInfoAsync(CancellationToken cancellationToken)

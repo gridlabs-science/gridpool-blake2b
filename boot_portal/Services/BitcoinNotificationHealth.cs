@@ -83,6 +83,9 @@ public sealed class BitcoinNotificationHealth
     private readonly Dictionary<string, ZmqTopicState> _zmqTopics = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _mode;
     private readonly bool _rpcConfigured;
+    private readonly bool _chainProfileAttestationRequired;
+    private readonly string _chainProfileId;
+    private readonly string _chainDomainFingerprint;
     private readonly int _lagGraceSeconds;
     private readonly DateTime _startedUtc = DateTime.UtcNow;
     private bool _rpcReachable;
@@ -95,6 +98,10 @@ public sealed class BitcoinNotificationHealth
     private DateTime? _lastRpcCheckUtc;
     private DateTime? _lastRpcSuccessUtc;
     private string _lastRpcError = string.Empty;
+    private bool _chainProfileAttested;
+    private string _attachedNodeGenesisHash = string.Empty;
+    private string _attachedNodeSubversion = string.Empty;
+    private DateTime? _lastChainProfileAttestationUtc;
     private long _reconciliationCount;
     private long _recoveredMissedBlockCount;
     private DateTime? _lastReconciliationUtc;
@@ -114,6 +121,12 @@ public sealed class BitcoinNotificationHealth
         _rpcConfigured = Uri.TryCreate(config.BitcoinRpcUrl, UriKind.Absolute, out Uri? uri) &&
                          (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
         _lagGraceSeconds = Math.Max(1, config.BitcoinRpcLagGraceSeconds);
+        _chainProfileId = config.ChainProfileId?.Trim() ?? ChainDomainProfiles.LegacySha256dProfileId;
+        _chainProfileAttestationRequired = ChainDomainProfiles.TryResolve(
+            config,
+            out ChainDomainProfile? profile,
+            out _) && profile != null;
+        _chainDomainFingerprint = profile?.Fingerprint ?? string.Empty;
 
         if (_mode == BitcoinNotificationModes.AttachedNode)
         {
@@ -251,10 +264,45 @@ public sealed class BitcoinNotificationHealth
         }
     }
 
+    public void RecordChainProfileAttestation(
+        bool attested,
+        string genesisHash,
+        string subversion,
+        string error,
+        DateTime timestampUtc)
+    {
+        lock (_sync)
+        {
+            _chainProfileAttested = attested;
+            _attachedNodeGenesisHash = genesisHash;
+            _attachedNodeSubversion = subversion;
+            _lastChainProfileAttestationUtc = timestampUtc;
+            if (!attested && !string.IsNullOrWhiteSpace(error))
+            {
+                _lastRpcError = SanitizeError(error);
+            }
+        }
+    }
+
     public void RecordRpcTipMismatch(string error, DateTime timestampUtc)
     {
         lock (_sync)
         {
+            _rpcReachable = true;
+            _rpcSynced = false;
+            _lastRpcCheckUtc = timestampUtc;
+            _lastRpcSuccessUtc = timestampUtc;
+            _lastRpcError = SanitizeError(error);
+        }
+    }
+
+    public void RecordRpcAuthorityFailure(string error, DateTime timestampUtc)
+    {
+        lock (_sync)
+        {
+            // The endpoint answered, but it is not authoritative for the
+            // configured chain. This is an immediate mining stop, not a
+            // transient transport outage eligible for the lag grace period.
             _rpcReachable = true;
             _rpcSynced = false;
             _lastRpcCheckUtc = timestampUtc;
@@ -332,6 +380,14 @@ public sealed class BitcoinNotificationHealth
 
         lock (_sync)
         {
+            if (_chainProfileAttestationRequired && !_chainProfileAttested)
+            {
+                reason = string.IsNullOrWhiteSpace(_lastRpcError)
+                    ? "The attached node has not passed the configured Blake2b chain-profile attestation."
+                    : _lastRpcError;
+                return false;
+            }
+
             if (!_rpcConfigured)
             {
                 reason = "Attached-node mode requires bitcoin_rpc_url and RPC authentication for reconciliation.";
@@ -397,6 +453,13 @@ public sealed class BitcoinNotificationHealth
                     BestHeight = _bestHeight,
                     HeaderHeight = _headerHeight,
                     BestBlockHash = _bestBlockHash,
+                    ChainProfileAttestationRequired = _chainProfileAttestationRequired,
+                    ChainProfileAttested = _chainProfileAttested,
+                    ChainProfileId = _chainProfileId,
+                    ChainDomainFingerprint = _chainDomainFingerprint,
+                    AttachedNodeGenesisHash = _attachedNodeGenesisHash,
+                    AttachedNodeSubversion = _attachedNodeSubversion,
+                    LastChainProfileAttestationUtc = _lastChainProfileAttestationUtc,
                     VerificationProgress = _verificationProgress,
                     LastCheckUtc = _lastRpcCheckUtc,
                     LastSuccessUtc = _lastRpcSuccessUtc,
@@ -459,6 +522,14 @@ public sealed class BitcoinNotificationHealth
         if (!_rpcConfigured)
         {
             reason = "Attached-node mode requires bitcoin_rpc_url and RPC authentication for reconciliation.";
+            return false;
+        }
+
+        if (_chainProfileAttestationRequired && !_chainProfileAttested)
+        {
+            reason = string.IsNullOrWhiteSpace(_lastRpcError)
+                ? "The attached node has not passed the configured Blake2b chain-profile attestation."
+                : _lastRpcError;
             return false;
         }
 

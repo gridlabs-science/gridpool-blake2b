@@ -106,7 +106,7 @@ public sealed class BitcoinRpcClientTests
             string method = document.RootElement.GetProperty("method").GetString()!;
             string result = method switch
             {
-                "getnetworkinfo" => "{\"connections\":3,\"connections_in\":1,\"connections_out\":2}",
+                "getnetworkinfo" => "{\"connections\":3,\"connections_in\":1,\"connections_out\":2,\"subversion\":\"/Satoshi:29.4.1/Knots:20260508rc3/\",\"version\":290401,\"protocolversion\":70016}",
                 "getpeerinfo" => "[{\"id\":7,\"addr\":\"192.168.1.9:8333\",\"inbound\":false,\"pingtime\":0.042,\"connection_type\":\"outbound-full-relay\"}]",
                 "getnetworkhashps" => "7.3e20",
                 _ => "null"
@@ -122,6 +122,9 @@ public sealed class BitcoinRpcClientTests
         double? hashrate = await client.GetNetworkHashrateAsync(CancellationToken.None);
 
         Assert.AreEqual(3, network.Connections);
+        Assert.AreEqual("/Satoshi:29.4.1/Knots:20260508rc3/", network.Subversion);
+        Assert.AreEqual(290401, network.Version);
+        Assert.AreEqual(70016, network.ProtocolVersion);
         Assert.AreEqual(1, peers.Count);
         Assert.AreEqual(7L, peers[0].Id);
         Assert.AreEqual(0.042, peers[0].PingTimeSeconds);

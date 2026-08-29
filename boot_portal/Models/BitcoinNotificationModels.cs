@@ -66,6 +66,13 @@ public sealed class BootBitcoinRpcHealthDto
     public long? BestHeight { get; set; }
     public long? HeaderHeight { get; set; }
     public string BestBlockHash { get; set; } = string.Empty;
+    public bool ChainProfileAttestationRequired { get; set; }
+    public bool ChainProfileAttested { get; set; }
+    public string ChainProfileId { get; set; } = ChainDomainProfiles.LegacySha256dProfileId;
+    public string ChainDomainFingerprint { get; set; } = string.Empty;
+    public string AttachedNodeGenesisHash { get; set; } = string.Empty;
+    public string AttachedNodeSubversion { get; set; } = string.Empty;
+    public DateTime? LastChainProfileAttestationUtc { get; set; }
     public double? VerificationProgress { get; set; }
     public DateTime? LastCheckUtc { get; set; }
     public DateTime? LastSuccessUtc { get; set; }

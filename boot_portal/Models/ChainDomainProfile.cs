@@ -50,6 +50,9 @@ public static partial class ChainDomainProfiles
     public const string Blake2bMainnetNetworkId = "gridpool-blake2b-mainnet-v1";
 
     public const string Testnet4GenesisHash = "00000000da84f2bafbbc53dee25a72ae507ff4914b867c565be350b0da8bf043";
+    public const string Testnet4ActivationBlockHash = "000000000000007a178eb03e6619f0420d7d38e278e6bb5ee16f15ac5b32cee6";
+    public const string Testnet4RequiredNodeSubversion = "/Satoshi:29.4.1/Knots:20260508rc3/";
+    public const uint Testnet4ActivationCompactTarget = 0x1a00ffff;
     public const string RegtestGenesisHash = "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206";
     public const string MainnetGenesisHash = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f";
 

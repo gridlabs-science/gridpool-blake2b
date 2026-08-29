@@ -20,21 +20,23 @@ The deployed binary hash and build/test evidence belong in
 
 ## Headline-locked Testnet4 mode
 
-The initial discovery sync completed at height `150240`. Inspection of block
-`150027` found the exact 30-byte activation headline
+The initial discovery sync completed at height `150240`. A new datadir then
+completed a clean headline-locked sync with IBD false at height `150245` on
+August 28, 2026. Reinspection of block `150027` found the exact 30-byte activation headline
 `PyBLOCK-LOTTO-BLAKE2b-t4-ASIC`. The activation block hash is
 `000000000000007a178eb03e6619f0420d7d38e278e6bb5ee16f15ac5b32cee6`;
 its header is 164 bytes with compact target `0x1a00ffff`, while block `150026`
-has an 80-byte header. The configured value was also checked against the pinned
-RC3 source's activation validation and coinbase construction paths.
+has an 80-byte header. The attached node reports the `reduced_data` deployment
+active from height `150027`, the health timer is active, and the obsolete
+discovery datadir has been removed. The configured headline was also checked
+against the pinned RC3 source's activation validation and coinbase construction
+paths.
 
-The deployment must complete a clean sync with that nonempty headline before
-public mining:
+The clean node checkpoint is complete. Before public mining:
 
-1. discard/resync the disposable discovery chainstate with the locked value;
-2. verify activation height `150027`, first target `0x1a00ffff`, the activation
-   coinbase headline, post-fork peers, and current tip;
-3. keep attached-node confirmation authoritative and only then consider opening
+1. keep activation height `150027`, first target `0x1a00ffff`, the activation
+   coinbase headline, post-fork peers, and current tip in health/soak checks;
+2. keep attached-node confirmation authoritative and only then consider opening
    mining ingress.
 
 ## Resource and network policy

@@ -11,9 +11,12 @@ public sealed class BitcoinRpcReconciliationService : BackgroundService
     private readonly BitcoinNotificationHealth _health;
     private readonly BootProtocolStateService _stateService;
     private readonly ILogger<BitcoinRpcReconciliationService> _logger;
+    private readonly ChainDomainProfile? _chainProfile;
     private DateTime _lastZmqConfigurationCheckUtc = DateTime.MinValue;
     private DateTime _lastPeerNetworkCheckUtc = DateTime.MinValue;
     private DateTime _lastNetworkHashrateCheckUtc = DateTime.MinValue;
+    private DateTime _lastChainProfileAttestationUtc = DateTime.MinValue;
+    private long _lastChainProfileAttestedHeight = -1;
 
     public BitcoinRpcReconciliationService(
         PoolConfig config,
@@ -27,6 +30,9 @@ public sealed class BitcoinRpcReconciliationService : BackgroundService
         _health = health;
         _stateService = stateService;
         _logger = logger;
+        _chainProfile = ChainDomainProfiles.TryResolve(config, out ChainDomainProfile? profile, out _)
+            ? profile
+            : null;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -71,9 +77,15 @@ public sealed class BitcoinRpcReconciliationService : BackgroundService
             string bestHash = await _rpcClient.GetBestBlockHashAsync(cancellationToken);
             if (!string.IsNullOrWhiteSpace(info.Chain) && !RpcChainMatchesConfiguredNetwork(info.Chain))
             {
-                _health.RecordRpcFailure(
+                _health.RecordRpcAuthorityFailure(
                     $"Attached Bitcoin RPC chain '{Sanitize(info.Chain)}' does not match configured bitcoin_network '{BitcoinScript.NormalizeNetwork(_config.BitcoinNetwork)}'.",
                     checkUtc);
+                return;
+            }
+
+            if (_chainProfile != null &&
+                !await AttestChainProfileAsync(_chainProfile, info.Blocks, checkUtc, cancellationToken))
+            {
                 return;
             }
 
@@ -130,6 +142,80 @@ public sealed class BitcoinRpcReconciliationService : BackgroundService
         {
             _health.RecordRpcFailure(ex.Message, DateTime.UtcNow);
             _logger.LogWarning("Bitcoin RPC reconciliation failed: {Message}", Sanitize(ex.Message));
+        }
+    }
+
+    private async Task<bool> AttestChainProfileAsync(
+        ChainDomainProfile profile,
+        long observedHeight,
+        DateTime checkUtc,
+        CancellationToken cancellationToken)
+    {
+        bool crossedActivationSinceLastAttestation =
+            observedHeight >= profile.ActivationHeight &&
+            _lastChainProfileAttestedHeight < profile.ActivationHeight;
+        if (!crossedActivationSinceLastAttestation &&
+            checkUtc - _lastChainProfileAttestationUtc < TimeSpan.FromMinutes(1))
+        {
+            return true;
+        }
+
+        string genesisHash = string.Empty;
+        string subversion = string.Empty;
+        try
+        {
+            genesisHash = await _rpcClient.GetBlockHashAsync(0, cancellationToken);
+            BitcoinNetworkInfo network = await _rpcClient.GetNetworkInfoAsync(cancellationToken);
+            subversion = network.Subversion;
+            string activationBlockHash = string.Empty;
+            string activationHeaderHex = string.Empty;
+            string preActivationHeaderHex = string.Empty;
+            if (observedHeight >= profile.ActivationHeight)
+            {
+                activationBlockHash = await _rpcClient.GetBlockHashAsync(profile.ActivationHeight, cancellationToken);
+                activationHeaderHex = await _rpcClient.GetBlockHeaderHexAsync(activationBlockHash, cancellationToken);
+                string preActivationHash = await _rpcClient.GetBlockHashAsync(profile.ActivationHeight - 1, cancellationToken);
+                preActivationHeaderHex = await _rpcClient.GetBlockHeaderHexAsync(preActivationHash, cancellationToken);
+            }
+
+            BitcoinAttachedNodeProfileAttestationResult result =
+                BitcoinAttachedNodeProfileAttestation.Evaluate(
+                    profile,
+                    new BitcoinAttachedNodeProfileEvidence(
+                        genesisHash,
+                        subversion,
+                        observedHeight,
+                        activationBlockHash,
+                        activationHeaderHex,
+                        preActivationHeaderHex));
+            _health.RecordChainProfileAttestation(
+                result.IsValid,
+                genesisHash,
+                subversion,
+                result.Reason,
+                checkUtc);
+            if (!result.IsValid)
+            {
+                _health.RecordRpcAuthorityFailure(result.Reason, checkUtc);
+                _logger.LogError("Attached-node chain-profile attestation failed: {Reason}", Sanitize(result.Reason));
+                return false;
+            }
+
+            _lastChainProfileAttestationUtc = checkUtc;
+            _lastChainProfileAttestedHeight = observedHeight;
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            string reason = $"Attached-node chain-profile attestation failed: {Sanitize(ex.Message)}";
+            _health.RecordChainProfileAttestation(false, genesisHash, subversion, reason, checkUtc);
+            _health.RecordRpcAuthorityFailure(reason, checkUtc);
+            _logger.LogError("{Reason}", reason);
+            return false;
         }
     }
 

@@ -84,11 +84,13 @@ Four characterization tests lock the existing SHA header hash, fixed offsets,
 byte order, display difficulty, share identity, and error behavior. Three
 additional tests cover all five pinned upstream Blake vectors, all four ASIC
 profiles, exact output byte order, 80/164-byte profile selection, effective
-time, the v2 marker, and reserved high flags. The suite passes 223/223 tests.
+time, the v2 marker, and reserved high flags. The suite passes 240/240 tests.
 
-The profile now computes a monotonic exact integer work value in addition to
-display-only floating difficulty. Consensus models and selection still need to
-be migrated to that integer before Blake proofs may enter state.
+The profile computes a monotonic exact integer work value in addition to
+display-only floating difficulty. V23 proof ordering, reconciliation, state
+identifiers, and imported proof validation now use that integer and the pinned
+chain-domain fingerprint. Job-bound submitted-target authority remains a gate
+before Blake proofs may enter state.
 
 ## Testnet4 Node Checkpoint
 
@@ -96,31 +98,40 @@ The constrained VPS source-builds signed Knots RC3 at the exact peeled commit.
 Its `bitcoind` SHA-256 is recorded in the source lock. Upstream verification
 passes 130/130 CTest targets plus the four targeted Blake/RDTS functional tests.
 The pruned Testnet4 node runs under systemd with loopback RPC/ZMQ, UFW allowing
-only SSH and Testnet4 P2P, and a five-minute local health timer. The discovery
-sync completed at height `150240`. Block `150027` is the observed activation
-boundary: its hash is
+only SSH and Testnet4 P2P, and a five-minute local health timer. A fresh
+headline-locked sync completed with IBD false at height `150245` on August 28,
+2026. Block `150027` independently reproduced the activation boundary: its hash is
 `000000000000007a178eb03e6619f0420d7d38e278e6bb5ee16f15ac5b32cee6`,
 its header is 164 bytes, its target is `0x1a00ffff`, and its coinbase contains
 the exact 30-byte headline `PyBLOCK-LOTTO-BLAKE2b-t4-ASIC`; block `150026` has
-an 80-byte header. The headline is now pinned. A clean headline-locked resync
-and repeated activation/tip verification remain required before mining ingress.
+an 80-byte header. The active deployment reports `reduced_data` at height
+`150027`, and the node reported three live peers at verification. The health
+timer was restored after validation and the obsolete discovery datadir was
+removed. Mining ingress remains closed.
 
 ## Remaining Blake Runtime Gates
 
 Before Blake proofs can enter state:
 
-1. Make expected target and activation context authoritative from the attached
-   pinned node, never submitted `nBits`.
-2. Add the consensus-v23 domain fingerprint to proofs, APIs, peer handshakes,
-   state, persistence, identities, KDF/AEAD domains, and new UDP codecs.
-3. Replace floating difficulty in consensus ordering with the assigned exact
-   `uint256-complement-v1` work score.
+1. Bind each mining job and submitted share to the expected target and
+   activation context obtained from the attested node, never submitted `nBits`.
+2. Finish domain-bound job and API submission contexts plus the new GPBS/GPBT
+   UDP codecs; legacy UDP, pulse, and optimistic relay remain disabled for Blake.
+3. Keep floating difficulty display-only; v23 consensus ordering uses the
+   assigned exact `uint256-complement-v1` work score.
 4. Keep the 897-proof bound, complete proof-backed sibling union, paid-once
    lineage, and coinbase-derived slot-0 attribution.
 5. Add variable 80/164-byte raw block, RPC, ZMQ, and test coverage before
    enabling Blake ingress.
 6. Integrate DATUM only through the pinned, bounded job/session protocol and
    retain reliable full-proof validation as canonical.
+
+The attached-node RPC layer now fails mining safety until it verifies the
+configured Blake profile's genesis and Knots identity. At/after activation it
+also verifies the pinned Testnet4 activation hash, the linked 80-to-164-byte
+header transition, embedded height, and first-Blake compact target. The result
+and sanitized evidence are exposed in RPC health. This attests the node/chain
+boundary but does not yet replace job-bound expected-target validation.
 
 No stable tag, `latest` image, package release, or security certification is
 authorized. SHA production repositories, state, peers, identities, and

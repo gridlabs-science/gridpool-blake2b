@@ -65,6 +65,14 @@ The initial Testnet4 profile requires:
 - `enable_pulse_proofs: false` until job-bound exact pulse targets land
 - `enable_optimistic_share_relay: false` until job-bound exact share targets land
 
+Attached-node mode fails mining safety until RPC proves the profile genesis and
+the pinned Knots subversion. Once the attached chain reaches height `150027`,
+attestation additionally requires the pinned activation block hash, its
+164-byte header, its linked 80-byte predecessor, embedded activation height,
+and compact target `0x1a00ffff`. Attestation is repeated at least once per
+minute and immediately when a previously pre-activation node crosses the
+boundary.
+
 Regtest additionally requires one shared 12-character lowercase hexadecimal
 lab ID in `gridpool-blake2b-regtest-v1:<lab-id>`. Mainnet remains unassigned and
 fails configuration validation; no placeholder activation or profile revision
