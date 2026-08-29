@@ -1,6 +1,6 @@
 {
   "schema": "gridpool-blake2b-source-lock-v1",
-  "updated_utc": "2026-08-28T21:55:10Z",
+  "updated_utc": "2026-08-29T15:58:30Z",
   "gridpool": {
     "development_baseline": "b4c92a9090c11efd74298e06b02cfe56727373ea",
     "development_tag": "security-rt-076-retest-candidate",
@@ -43,9 +43,15 @@
     }
   },
   "datum": {
-    "experimental_base": "e894b8ac29ae06bf6e3b14dafd21f72dcd65fb84",
-    "repository": "https://github.com/justinfilip/datum_gateway",
-    "status": "source and compatibility pin; production authority still subject to integration review"
+    "experimental_base": "2fea7e51286d3821c19dc1c240b8caa92bd92532",
+    "superseded_base": "e894b8ac29ae06bf6e3b14dafd21f72dcd65fb84",
+    "upstream_repository": "https://github.com/innerhat-dev/datum_gateway",
+    "fork_repository": "https://github.com/gridlabs-science/datum-gateway-blake2b-gridpool",
+    "default_branch": "develop",
+    "fork_head": "d3fb38b5a51e98d74410eb1c6ff35c2d9f6ed54f",
+    "gridpool_coinbase_implementation": "70670c5438ad176c7d8194fba7169944aeffb453",
+    "verification": "clean local build and internal --test pass; fork CI run 33261662838 pending",
+    "status": "reviewed Blake2b base with GridPool forced-coinbase compatibility port; production integration still pending"
   },
   "artifacts": {
     "knots_testnet4_binary_sha256": "sha256:50694fc6fd4fe0dc8aa66e4695654cdb1dffbe00e6b2192919a476efa44b3ad2",

@@ -86,8 +86,18 @@ for (const field of ["tag", "peeled_commit", "activation_height", "profile_revis
 requireSha(
   lock.datum.experimental_base,
   "datum.experimental_base",
+  "2fea7e51286d3821c19dc1c240b8caa92bd92532",
+);
+requireSha(
+  lock.datum.superseded_base,
+  "datum.superseded_base",
   "e894b8ac29ae06bf6e3b14dafd21f72dcd65fb84",
 );
+requireEqual(lock.datum.upstream_repository, "https://github.com/innerhat-dev/datum_gateway", "datum.upstream_repository");
+requireEqual(lock.datum.fork_repository, "https://github.com/gridlabs-science/datum-gateway-blake2b-gridpool", "datum.fork_repository");
+requireEqual(lock.datum.default_branch, "develop", "datum.default_branch");
+requireSha(lock.datum.fork_head, "datum.fork_head", "d3fb38b5a51e98d74410eb1c6ff35c2d9f6ed54f");
+requireSha(lock.datum.gridpool_coinbase_implementation, "datum.gridpool_coinbase_implementation", "70670c5438ad176c7d8194fba7169944aeffb453");
 
 requireOptionalDigest(lock.artifacts.knots_testnet4_binary_sha256, "artifacts.knots_testnet4_binary_sha256");
 requireOptionalDigest(lock.artifacts.gridpool_image_digest, "artifacts.gridpool_image_digest");

@@ -136,3 +136,29 @@ boundary but does not yet replace job-bound expected-target validation.
 No stable tag, `latest` image, package release, or security certification is
 authorized. SHA production repositories, state, peers, identities, and
 deployments remain out of scope.
+
+## DATUM Fork Checkpoint
+
+The community Blake2b gateway moved from `justinfilip/datum_gateway` to
+`innerhat-dev/datum_gateway`. On August 29, 2026 its current head was
+`2fea7e51286d3821c19dc1c240b8caa92bd92532`, eight commits beyond the former
+`e894b8a` pin. The additional history includes modular time-wrap behavior,
+Knots' published profile-0 vector, submitted-time reconstruction, and a
+fail-safe offset fallback. A clean out-of-tree build and the gateway's internal
+`--test` suite pass locally.
+
+The plan-specified fork now exists at
+`gridlabs-science/datum-gateway-blake2b-gridpool`, with `develop` as its default
+branch. Existing force-coinbase and authenticated client-telemetry work was
+ported commit-by-commit onto the reviewed Blake2b base. Commit `70670c5` closes
+the Blake-specific selection gap: the chosen full coinbase class is bound into
+both the Stratum job ID and H2 commitment, forced Blake work is withheld while
+the DATUM coinbaser is incomplete, invalid force configuration fails startup,
+and the risky known-incompatible-miner override is disabled by default. Commit
+`d3fb38b` enables explicit CI dispatch for the fork.
+
+A clean out-of-tree build and internal `datum_gateway --test` run pass at the
+fork head. Public listeners must set `coinbase_selection_mode` to `force`,
+`coinbase_selection` to `yuge`, and `allow_unsafe_coinbase_override` to `false`.
+GridPool listener policy and per-payout session multiplexing remain
+unimplemented, so DATUM/SV1 ingress remains closed.
