@@ -2413,6 +2413,16 @@ public class ClientHandler
             cachedJobAgeMs = _jobCacheUpdatedUtc[powSubmit.JobId].HasValue
                 ? (startedUtc - _jobCacheUpdatedUtc[powSubmit.JobId]!.Value).TotalMilliseconds
                 : null;
+            if (_jobCache[powSubmit.JobId]!.IsBlake2b != powSubmit.IsBlake2b)
+            {
+                throw new ArgumentException("DATUM nonce-only submission changed the cached job PoW algorithm");
+            }
+            if (powSubmit.IsBlake2b &&
+                (_jobCache[powSubmit.JobId]!.BlakeTimeOnWire != powSubmit.BlakeTimeOnWire ||
+                 _jobCache[powSubmit.JobId]!.BlakeUseTimeOffset != powSubmit.BlakeUseTimeOffset))
+            {
+                throw new ArgumentException("DATUM nonce-only submission changed the cached Blake2b header context");
+            }
             _jobCache[powSubmit.JobId]!.CoinbaseId = powSubmit.CoinbaseId;  
             _jobCache[powSubmit.JobId]!.IsBlock = powSubmit.IsBlock;
             _jobCache[powSubmit.JobId]!.SubsidyOnly = powSubmit.SubsidyOnly;
@@ -2420,6 +2430,11 @@ public class ClientHandler
             _jobCache[powSubmit.JobId]!.TargetByte = powSubmit.TargetByte;
             _jobCache[powSubmit.JobId]!.NTime = powSubmit.NTime;
             _jobCache[powSubmit.JobId]!.Nonce = powSubmit.Nonce;
+            _jobCache[powSubmit.JobId]!.NTime64 = powSubmit.NTime64;
+            _jobCache[powSubmit.JobId]!.Nonce64 = powSubmit.Nonce64;
+            _jobCache[powSubmit.JobId]!.IsBlake2b = powSubmit.IsBlake2b;
+            _jobCache[powSubmit.JobId]!.BlakeUseTimeOffset = powSubmit.BlakeUseTimeOffset;
+            _jobCache[powSubmit.JobId]!.BlakeTimeOnWire = powSubmit.BlakeTimeOnWire;
             _jobCache[powSubmit.JobId]!.Version = powSubmit.Version;
             _jobCache[powSubmit.JobId]!.ExtranonceSize = powSubmit.ExtranonceSize;  //Always 12, but whatever
             _jobCache[powSubmit.JobId]!.Extranonce = powSubmit.Extranonce;
@@ -2582,9 +2597,10 @@ public class ClientHandler
             return;
         }
 
-        byte[] coinbaseTx = Coinb1.Concat(powSubmit.Extranonce).Concat(Coinb2).ToArray();
+        byte[] coinbaseExtranonce = powSubmit.IsBlake2b ? new byte[12] : powSubmit.Extranonce;
+        byte[] coinbaseTx = Coinb1.Concat(coinbaseExtranonce).Concat(Coinb2).ToArray();
 
-        if (powSubmit.QuickDiff)
+        if (powSubmit.QuickDiff && !powSubmit.IsBlake2b)
         {
             //Console.WriteLine("   using quickdiff");
             // ----- quickdiff magic word (last 2 bytes of Coinb1) -----
@@ -2643,40 +2659,69 @@ public class ClientHandler
             _jobCache[powSubmit.JobId]!.MerkleRoot = powSubmit.MerkleRoot; //For completeness, I guess.
         }
 
-        // Reconstruct block header
-        byte[] header = new byte[80];
-        using (var stream = new MemoryStream(header))
-        using (var writer = new BinaryWriter(stream))
+        // Reconstruct the exact profile header. The pinned DATUM extension is
+        // profile-0 only; its remaining v2 fields are fixed to zero.
+        byte[] header;
+        double achievedDifficulty;
+        if (powSubmit.IsBlake2b)
         {
-            writer.Write(powSubmit.Version); // 4 bytes
-            writer.Write(powSubmit.PrevBlockHash); // 32 bytes
-            writer.Write(powSubmit.MerkleRoot);
-            writer.Write(powSubmit.NTime); // 4 bytes
-            writer.Write(powSubmit.NBits); // 4 bytes
-            writer.Write(powSubmit.Nonce); // 4 bytes
+            if (!ChainDomainProfiles.IsBlake2b(_poolConfig.ChainProfileId))
+            {
+                throw new ArgumentException("Blake2b DATUM submission does not match the configured chain profile");
+            }
+            if (!powSubmit.BlakeTimeOnWire.HasValue || !powSubmit.Height.HasValue || !powSubmit.TransactionCount.HasValue)
+            {
+                throw new ArgumentException("Blake2b DATUM submission is missing job-bound header fields");
+            }
+            header = Blake2bDatumHeader.BuildProfile0(
+                powSubmit.Version,
+                powSubmit.PrevBlockHash,
+                powSubmit.MerkleRoot,
+                powSubmit.BlakeTimeOnWire.Value,
+                powSubmit.NBits,
+                powSubmit.Nonce64,
+                powSubmit.NTime64,
+                powSubmit.Extranonce,
+                checked(powSubmit.TransactionCount.Value + 1),
+                powSubmit.Height.Value,
+                powSubmit.BlakeUseTimeOffset);
+            achievedDifficulty = ChainProfiles.BitcoinBlake2bHeaderV2
+                .ParseAndHash(Convert.ToHexString(header))
+                .AchievedDifficulty;
         }
-        //if (powSubmit.SubsidyOnly) Console.WriteLine("*** Got subsidy only coinbase message!");
-
-        // Verify header
-
-        // Compute hash
-        byte[] testHash = DoubleSha256(header);  //testHeader
-
-        // Achieved difficulty (hash-based)
-        BigInteger hashInt = 0;
-        for (int i = testHash.Length - 1; i >= 0; i--)
+        else
         {
-            hashInt = (hashInt << 8) | testHash[i];
+            if (ChainDomainProfiles.IsBlake2b(_poolConfig.ChainProfileId))
+            {
+                throw new ArgumentException("Legacy SHA256d DATUM submission is disabled for the configured Blake2b chain profile");
+            }
+            header = new byte[80];
+            using (var stream = new MemoryStream(header))
+            using (var writer = new BinaryWriter(stream))
+            {
+                writer.Write(powSubmit.Version);
+                writer.Write(powSubmit.PrevBlockHash);
+                writer.Write(powSubmit.MerkleRoot);
+                writer.Write(powSubmit.NTime);
+                writer.Write(powSubmit.NBits);
+                writer.Write(powSubmit.Nonce);
+            }
+            byte[] testHash = DoubleSha256(header);
+            BigInteger hashInt = 0;
+            for (int i = testHash.Length - 1; i >= 0; i--)
+            {
+                hashInt = (hashInt << 8) | testHash[i];
+            }
+            BigInteger maxTarget = BigInteger.Pow(2, 224) - 1;
+            BigInteger achievedDifficultyBig = hashInt == 0 ? 0 : maxTarget / hashInt;
+            achievedDifficulty = achievedDifficultyBig <= 0 ? 0d : (double)achievedDifficultyBig;
         }
-        BigInteger maxTarget = BigInteger.Pow(2, 224) - 1;
-        BigInteger achievedDifficultyBig = hashInt == 0 ? 0 : maxTarget / hashInt;
-        double achievedDifficulty = achievedDifficultyBig <= 0 ? 0d : (double)achievedDifficultyBig;
         buildDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
 
         //Console.WriteLine($"   -> ✅ Received PoW submission: JobID={powSubmit.JobId}, CoinbaseID={powSubmit.CoinbaseId}, IsBlock={powSubmit.IsBlock}, SubsidyOnly={powSubmit.SubsidyOnly}, QuickDiff={powSubmit.QuickDiff}, Username={powSubmit.Username}");
 
         bool shareAccepted = false;
-        if (ShouldFastAcceptLowDifficultyDatumShare(
+        if (!powSubmit.IsBlake2b && ShouldFastAcceptLowDifficultyDatumShare(
                 achievedDifficulty,
                 powSubmit.IsBlock,
                 powSubmit.PrevBlockHash == null ? null : BitcoinHashes.ToDisplayHashHex(powSubmit.PrevBlockHash),
@@ -3709,6 +3754,11 @@ public class PowSubmitMessage
     public byte TargetByte { get; set; }
     public uint NTime { get; set; }
     public uint Nonce { get; set; }
+    public ulong NTime64 { get; set; }
+    public ulong Nonce64 { get; set; }
+    public bool IsBlake2b { get; set; }
+    public bool BlakeUseTimeOffset { get; set; }
+    public uint? BlakeTimeOnWire { get; set; }
     public int Version { get; set; }
     public byte ExtranonceSize { get; set; }
     public byte[] Extranonce { get; set; } = new byte[12];
@@ -3751,20 +3801,31 @@ public class PowSubmitMessage
         result.IsBlock = (flags & 0x01) != 0;
         result.SubsidyOnly = (flags & 0x02) != 0;
         result.QuickDiff = (flags & 0x04) != 0;
+        result.IsBlake2b = (flags & 0x08) != 0;
+        if ((flags & 0xf0) != 0) throw new ArgumentException($"Unsupported PoW flags: 0x{flags:X2}");
         result.TargetByte = reader.ReadByte(); // offset 4
         result.NTime = reader.ReadUInt32(); // offset 5
         result.Nonce = reader.ReadUInt32(); // offset 9
+        result.NTime64 = result.NTime;
+        result.Nonce64 = result.Nonce;
         result.Version = reader.ReadInt32(); // offset 13
         result.ExtranonceSize = reader.ReadByte(); // offset 17
         if (result.ExtranonceSize != 12) throw new ArgumentException($"Unsupported extranonce size: {result.ExtranonceSize}");
         result.Extranonce = reader.ReadBytes(12); // offset 18
         var usernameBytes = new List<byte>();
+        bool usernameTerminated = false;
         while (stream.Position < stream.Length)
         {
             byte b = reader.ReadByte();
-            if (b == 0) break;
+            if (b == 0)
+            {
+                usernameTerminated = true;
+                break;
+            }
             usernameBytes.Add(b);
+            if (usernameBytes.Count > 384) throw new ArgumentException("DATUM username exceeds 384 bytes");
         }
+        if (!usernameTerminated) throw new ArgumentException("DATUM username is not null terminated");
         result.Username = Encoding.UTF8.GetString(usernameBytes.ToArray());
         //Console.WriteLine($"POW share from: {result.Username}");
         
@@ -3777,20 +3838,37 @@ public class PowSubmitMessage
         }
         result.Address = address;
         result.Reserved = reader.ReadBytes(4); // offset 30 + username.Length
+        if (result.Reserved.Length != 4) throw new ArgumentException("Truncated DATUM reserved field");
+        result.BlakeUseTimeOffset = (result.Reserved[0] & 0x01) != 0;
+        if (result.IsBlake2b && ((result.Reserved[0] & 0xfe) != 0 || result.Reserved.Skip(1).Any(value => value != 0)))
+        {
+            throw new ArgumentException("Unsupported Blake2b DATUM reserved flags");
+        }
 
-        // Process optional sections (0x01, 0x02) until 0xFE
+        // Process optional sections until 0xFE. Blake2b requires one 0x03
+        // algorithm/64-bit-work section and one 0x04 wire-time section.
         bool hasMerkleData = false;
         bool hasCoinbaseData = false;
+        bool hasBlakeAlgorithm = false;
+        bool hasBlakeWireTime = false;
+        bool hasTerminator = false;
         while (stream.Position < stream.Length)
         {
             byte flag = reader.ReadByte();
-            if (flag == 0xFE) break; // Terminator
+            if (flag == 0xFE)
+            {
+                hasTerminator = true;
+                break;
+            }
             if (flag == 0x01) // Merkle branches
             {
+                if (hasMerkleData) throw new ArgumentException("Duplicate DATUM Merkle section");
                 hasMerkleData = true;
                 result.PrevBlockHash = reader.ReadBytes(32);
+                if (result.PrevBlockHash.Length != 32) throw new ArgumentException("Truncated DATUM previous block hash");
                 result.TargetByteIndex = reader.ReadUInt16();
                 result.NBits = reader.ReadBytes(4);
+                if (result.NBits.Length != 4) throw new ArgumentException("Truncated DATUM compact target");
                 result.CoinbaserId = reader.ReadByte();
                 result.Height = reader.ReadUInt32();
                 result.CoinbaseValue = reader.ReadUInt64();
@@ -3800,9 +3878,11 @@ public class PowSubmitMessage
                 result.TotalSigops = reader.ReadUInt32();
                 result.MerkleBranchCount = reader.ReadByte();
                 result.MerkleBranches = reader.ReadBytes((int)(result.MerkleBranchCount * 32));
+                if (result.MerkleBranches.Length != result.MerkleBranchCount * 32) throw new ArgumentException("Truncated DATUM Merkle branches");
             }
             else if (flag == 0x02) // Coinbase data
             {
+                if (hasCoinbaseData) throw new ArgumentException("Duplicate DATUM coinbase section");
                 //TODO: Deal with subsidyOnly coinbases, which currently are not set.
                 hasCoinbaseData = true;
                 byte coinbaseType = reader.ReadByte();
@@ -3810,8 +3890,9 @@ public class PowSubmitMessage
                 ushort coinb2Len = reader.ReadUInt16();
                 byte[] coinb1 = reader.ReadBytes(coinb1Len);
                 byte[] coinb2 = reader.ReadBytes(coinb2Len);
+                if (coinb1.Length != coinb1Len || coinb2.Length != coinb2Len) throw new ArgumentException("Truncated DATUM coinbase section");
                 
-                if(result.CoinbaseId == 255)
+                if(coinbaseType == 255)
                 {
                     //Console.WriteLine($"result.CoinbaseID={result.CoinbaseId}");
                     //Console.WriteLine($"result.cb only = {result.SubsidyOnly}");
@@ -3820,16 +3901,35 @@ public class PowSubmitMessage
                 }
                 else
                 {
-                    result.CoinbasePairs[result.CoinbaseId] = (coinb1, coinb2);
+                    if (coinbaseType >= result.CoinbasePairs.Length) throw new ArgumentException($"Unsupported DATUM coinbase type: {coinbaseType}");
+                    result.CoinbasePairs[coinbaseType] = (coinb1, coinb2);
                 }
                 
                 //Console.WriteLine($"Stored CoinbaseId {result.CoinbaseId}: Coinb1={coinb1Len} bytes, Coinb2={coinb2Len} bytes");
+            }
+            else if (flag == 0x03)
+            {
+                if (!result.IsBlake2b || hasBlakeAlgorithm) throw new ArgumentException("Unexpected or duplicate DATUM Blake2b algorithm section");
+                hasBlakeAlgorithm = true;
+                byte algorithm = reader.ReadByte();
+                if (algorithm != 1) throw new ArgumentException($"Unsupported DATUM PoW algorithm: {algorithm}");
+                result.NTime64 = reader.ReadUInt64();
+                result.Nonce64 = reader.ReadUInt64();
+            }
+            else if (flag == 0x04)
+            {
+                if (!result.IsBlake2b || hasBlakeWireTime) throw new ArgumentException("Unexpected or duplicate DATUM Blake2b wire-time section");
+                hasBlakeWireTime = true;
+                result.BlakeTimeOnWire = reader.ReadUInt32();
             }
             else
             {
                 throw new ArgumentException($"Unknown flag: 0x{flag:X2}");
             }
         }
+        if (!hasTerminator || stream.Position != stream.Length) throw new ArgumentException("Malformed DATUM section terminator");
+        if (result.IsBlake2b && (!hasBlakeAlgorithm || !hasBlakeWireTime)) throw new ArgumentException("Incomplete DATUM Blake2b extensions");
+        if (!result.IsBlake2b && (hasBlakeAlgorithm || hasBlakeWireTime || result.BlakeUseTimeOffset)) throw new ArgumentException("Blake2b fields supplied without Blake2b PoW flag");
         if(hasCoinbaseData ^ hasMerkleData)
         {
             //if (hasCoinbaseData) Console.WriteLine("*** Got coinbase without Merkle Data!!!");

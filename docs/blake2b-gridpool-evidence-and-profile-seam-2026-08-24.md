@@ -162,3 +162,23 @@ fork head. Public listeners must set `coinbase_selection_mode` to `force`,
 `coinbase_selection` to `yuge`, and `allow_unsafe_coinbase_override` to `false`.
 GridPool listener policy and per-payout session multiplexing remain
 unimplemented, so DATUM/SV1 ingress remains closed.
+
+## GridPool DATUM Adapter Checkpoint
+
+The GridPool server now recognizes the pinned DATUM Blake flag and the `0x03`
+algorithm/64-bit work plus `0x04` wire-time sections. Parsing is bounded and
+rejects missing, duplicate, truncated, trailing, mixed-algorithm, and unknown
+sections. Nonce-only updates must retain the cached job's algorithm, wire time,
+and time-offset context.
+
+Accepted frames reconstruct the exact 164-byte Knots profile-0 header. Bitcoin
+coinbase transaction IDs and Merkle branches remain SHA256d; the Blake coinbase
+uses the protocol-defined zero placeholder while the 12-byte hasher extranonce
+is serialized into header v2. Blake submissions never use the legacy DATUM
+low-difficulty telemetry fast path and proceed through canonical GridPool share,
+target, payout, and local-node candidate validation.
+
+This is a v23-only adapter and is not a migration path for SHA state or DATUM
+jobs. Rollout remains fail closed: public DATUM/SV1 ports stay closed until a
+pinned gateway and GridPool node pass end-to-end Testnet4/regtest share-first,
+notification-first, payout-list, restart, and candidate-confirmation tests.
