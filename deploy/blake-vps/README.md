@@ -71,6 +71,11 @@ GRIDPOOL_BOOT_IMAGE=gridpool-blake2b:<immutable-commit> \
   docker compose -f docker-compose.testnet4-staging.yml up
 ```
 
+On the VPS, install and enable
+`gridpool-blake2b-testnet4-staging.service` after the image is built. It
+requires the precreated bridge and manages only this local container; it never
+changes the firewall policy or exposes the mapped ports.
+
 Do not change the port mappings to a public address or enable peer/mining
 ingress until the DATUM gateway, a synthetic miner, and attached-node block
 confirmation tests have passed.

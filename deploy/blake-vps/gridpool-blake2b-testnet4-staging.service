@@ -1,0 +1,19 @@
+[Unit]
+Description=GridPool Blake2b Testnet4 staging container
+After=network-online.target docker.service gridpool-blake2b-knots-testnet4.service
+Wants=network-online.target docker.service
+Requires=gridpool-blake2b-knots-testnet4.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+WorkingDirectory=/opt/gridpool-blake2b/testnet4-staging
+Environment=GRIDPOOL_BOOT_IMAGE=gridpool-blake2b:74139eb
+ExecStartPre=/usr/bin/docker network inspect gridpool-blake2b-testnet4-staging
+ExecStart=/usr/bin/docker compose -f docker-compose.yml up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -f docker-compose.yml down
+TimeoutStartSec=90
+TimeoutStopSec=45
+
+[Install]
+WantedBy=multi-user.target
