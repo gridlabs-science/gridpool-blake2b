@@ -1,6 +1,6 @@
 {
   "schema": "gridpool-blake2b-source-lock-v1",
-  "updated_utc": "2026-08-29T15:58:30Z",
+  "updated_utc": "2026-08-29T16:10:00Z",
   "gridpool": {
     "development_baseline": "b4c92a9090c11efd74298e06b02cfe56727373ea",
     "development_tag": "security-rt-076-retest-candidate",
@@ -48,9 +48,9 @@
     "upstream_repository": "https://github.com/innerhat-dev/datum_gateway",
     "fork_repository": "https://github.com/gridlabs-science/datum-gateway-blake2b-gridpool",
     "default_branch": "develop",
-    "fork_head": "d3fb38b5a51e98d74410eb1c6ff35c2d9f6ed54f",
+    "fork_head": "1356c6501937c0da3c154f9315c3769ec1280d38",
     "gridpool_coinbase_implementation": "70670c5438ad176c7d8194fba7169944aeffb453",
-    "verification": "clean local build and internal --test pass; fork CI run 33261662838 pending",
+    "verification": "clean local build and internal --test pass; stable GridLabs CI run 33262136631 passed GCC/Clang with API on/off",
     "status": "reviewed Blake2b base with GridPool forced-coinbase compatibility port; production integration still pending"
   },
   "artifacts": {

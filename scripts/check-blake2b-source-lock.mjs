@@ -96,7 +96,7 @@ requireSha(
 requireEqual(lock.datum.upstream_repository, "https://github.com/innerhat-dev/datum_gateway", "datum.upstream_repository");
 requireEqual(lock.datum.fork_repository, "https://github.com/gridlabs-science/datum-gateway-blake2b-gridpool", "datum.fork_repository");
 requireEqual(lock.datum.default_branch, "develop", "datum.default_branch");
-requireSha(lock.datum.fork_head, "datum.fork_head", "d3fb38b5a51e98d74410eb1c6ff35c2d9f6ed54f");
+requireSha(lock.datum.fork_head, "datum.fork_head", "1356c6501937c0da3c154f9315c3769ec1280d38");
 requireSha(lock.datum.gridpool_coinbase_implementation, "datum.gridpool_coinbase_implementation", "70670c5438ad176c7d8194fba7169944aeffb453");
 
 requireOptionalDigest(lock.artifacts.knots_testnet4_binary_sha256, "artifacts.knots_testnet4_binary_sha256");

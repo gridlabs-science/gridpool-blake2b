@@ -155,7 +155,13 @@ the Blake-specific selection gap: the chosen full coinbase class is bound into
 both the Stratum job ID and H2 commitment, forced Blake work is withheld while
 the DATUM coinbaser is incomplete, invalid force configuration fails startup,
 and the risky known-incompatible-miner override is disabled by default. Commit
-`d3fb38b` enables explicit CI dispatch for the fork.
+`d3fb38b` enables explicit dispatch of the inherited portability matrix, while
+`1356c65` adds the stable GridLabs Ubuntu GCC/Clang, API-on/API-off build gate.
+The first inherited-matrix dispatch (`33261662838`) was cancelled after a
+rolling Gentoo image required unrelated package USE changes before Git was
+available; its completed macOS and Linux build jobs passed. The inherited
+workflow is disabled in the GridLabs fork to avoid treating that image failure
+as a release signal or repeatedly spending the fork's CI budget.
 
 A clean out-of-tree build and internal `datum_gateway --test` run pass at the
 fork head. Public listeners must set `coinbase_selection_mode` to `force`,
