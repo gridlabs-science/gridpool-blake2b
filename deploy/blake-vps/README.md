@@ -39,6 +39,29 @@ The clean node checkpoint is complete. Before public mining:
 2. keep attached-node confirmation authoritative and only then consider opening
    mining ingress.
 
+## GridPool staging harness
+
+`docker-compose.testnet4-staging.yml` is a deliberately local-only harness for
+the Blake GridPool node. It maps its HTTP and DATUM ports to `127.0.0.1` only;
+it does not expose SV1, GridPool peer, UDP, RPC, or ZMQ traffic. The committed
+configuration uses the exact Testnet4 Blake profile, attached-node RPC/ZMQ,
+the fee-free 299-winner payout policy, and full coinbase outputs.
+
+Before a staging start, copy the testnet node's RPC cookie into an untracked
+`bitcoin-cookie/.cookie` directory readable by container UID 1000, create the
+untracked `data/` directory, and place any generated identity keys only in
+`data/boot_portal_config.local.json`. Start only with a commit-addressed image:
+
+```bash
+cd /opt/gridpool-blake2b/src/gridpool-blake2b/deploy/blake-vps
+GRIDPOOL_BOOT_IMAGE=gridpool-blake2b:<immutable-commit> \
+  docker compose -f docker-compose.testnet4-staging.yml up
+```
+
+Do not change the port mappings to a public address or enable peer/mining
+ingress until the DATUM gateway, a synthetic miner, and attached-node block
+confirmation tests have passed.
+
 ## Resource and network policy
 
 - `prune=12000`, `dbcache=2048`, `maxmempool=100`, 64 peer connections.

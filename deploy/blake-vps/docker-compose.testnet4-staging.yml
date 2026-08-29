@@ -1,0 +1,22 @@
+services:
+  boot-portal:
+    # Set this to a locally built, immutable image tag or digest. There is
+    # deliberately no `latest` fallback for the experimental Blake network.
+    image: ${GRIDPOOL_BOOT_IMAGE:?set GRIDPOOL_BOOT_IMAGE to an immutable GridPool image}
+    container_name: gridpool-blake2b-testnet4-staging
+    restart: "no"
+    environment:
+      BOOT_PORTAL_CONFIG_PATH: /config/boot_portal_config.json
+      BOOT_PORTAL_LOCAL_CONFIG_PATH: /data/boot_portal_config.local.json
+      BOOT_PORTAL_STATE_PATH: /data/pool_state.json
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:${GRIDPOOL_TESTNET4_HTTP_PORT:-5000}:5000"
+      - "127.0.0.1:${GRIDPOOL_TESTNET4_DATUM_PORT:-3009}:3009"
+    volumes:
+      - ./boot_portal_config.testnet4.blake2b.json:/config/boot_portal_config.json:ro
+      - ./data:/data
+      # The host's bitcoin cookie must be copied into this directory with
+      # read-only access for UID 1000 before the container is started.
+      - ./bitcoin-cookie:/bitcoin:ro
