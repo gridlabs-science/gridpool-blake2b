@@ -56,7 +56,14 @@ trust boundary for the staging service.
 Before a staging start, copy the testnet node's RPC cookie into an untracked
 `bitcoin-cookie/.cookie` directory readable by container UID 1000, create the
 untracked `data/` directory, and place any generated identity keys only in
-`data/boot_portal_config.local.json`. Start only with a commit-addressed image:
+`data/boot_portal_config.local.json`. Create the dedicated bridge before the
+first start (and do not substitute a routable subnet):
+
+```bash
+docker network create --subnet 172.30.0.0/24 gridpool-blake2b-testnet4-staging
+```
+
+Start only with a commit-addressed image:
 
 ```bash
 cd /opt/gridpool-blake2b/src/gridpool-blake2b/deploy/blake-vps

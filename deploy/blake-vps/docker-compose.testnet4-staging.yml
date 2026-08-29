@@ -27,6 +27,4 @@ services:
 networks:
   default:
     name: gridpool-blake2b-testnet4-staging
-    ipam:
-      config:
-        - subnet: 172.30.0.0/24
+    external: true
