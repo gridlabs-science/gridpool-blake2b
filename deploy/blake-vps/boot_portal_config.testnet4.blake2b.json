@@ -35,6 +35,7 @@
   "compatibility_stratum_public_port": 3334,
   "bitcoin_zmq_endpoint": "tcp://host.docker.internal:28332",
   "bitcoin_zmq_rawblock_endpoint": "tcp://host.docker.internal:28333",
+  "local_adapter_token_file": "/data/local-adapter.token",
   "enable_admin_api": false,
   "public_operator_diagnostics_enabled": false
 }
