@@ -30,6 +30,8 @@
   "grid_labs_support_fee_enabled": false,
   "coinbase_tag": "Grid Pool Blake2b Testnet4",
   "coinbase_uncondensed_outputs_enabled": true,
+  "datum_public_host": "datum.testnet4.blake.gridpool.net",
+  "datum_public_port": 3009,
   "compatibility_page_enabled": false,
   "compatibility_stratum_public_host": "stratum.testnet4.blake.gridpool.net",
   "compatibility_stratum_public_port": 3334,

@@ -73,12 +73,13 @@ GRIDPOOL_BOOT_IMAGE=gridpool-blake2b:<immutable-commit> \
 
 On the VPS, install and enable
 `gridpool-blake2b-testnet4-staging.service` after the image is built. It
-requires the precreated bridge and manages only this local container; it never
-changes the firewall policy or exposes the mapped ports.
+requires the precreated bridge and manages only this container; it never
+changes the firewall policy.
 
-Do not change the port mappings to a public address or enable peer/mining
-ingress until the DATUM gateway, a synthetic miner, and attached-node block
-confirmation tests have passed.
+The Testnet4 DATUM protocol listener may be published only after the DATUM
+gateway, synthetic miner, and attached-node confirmation checks pass. Its
+default public endpoint is `datum.testnet4.blake.gridpool.net:3009`; the HTTP
+port remains loopback-only.
 
 ## Local DATUM gateway
 
@@ -86,22 +87,25 @@ confirmation tests have passed.
 as the `bitcoin` user. Its untracked JSON configuration must use the node's
 RPC cookie, `http://127.0.0.1:48332`, GridPool's local DATUM endpoint
 `127.0.0.1:3009`, and the GridPool server public key generated in the staging
-data directory. Keep the Stratum listener on `127.0.0.1:3334`, force the
-`yuge` coinbase selection, keep firmware fingerprinting enabled, and keep the
-unsafe override disabled. This service is a local integration gate, not a
-public mining endpoint.
+data directory. For the public Testnet4 firmware window, bind Stratum to
+`0.0.0.0:3334` and permit only that TCP port through UFW. Force the `yuge`
+coinbase selection, keep firmware fingerprinting enabled, and keep the unsafe
+override disabled.
 
 The staging validation requires both outcomes: a known undersized firmware
 fingerprint must be rejected before it receives work, while an unrecognized
 client must receive a forced `yuge` Blake2b job and be recorded as unverified.
+The public Stratum endpoint is a firmware test service using its configured
+test payout address, not a multi-payout hosted pool.
 
 ## Resource and network policy
 
 - `prune=12000`, `dbcache=2048`, `maxmempool=100`, 64 peer connections.
 - Maintain at least 15 GiB free; alert at 20 GiB and fail health at 15 GiB.
 - RPC `48332`, hashblock ZMQ `28332`, and rawblock ZMQ `28333` bind loopback.
-- UFW denies inbound traffic by default and permits only SSH and Testnet4 P2P
-  TCP `48333`. Mining, HTTP, RPC, and ZMQ ingress remain closed.
+- UFW denies inbound traffic by default and permits SSH, Testnet4 P2P TCP
+  `48333`, DATUM TCP `3009`, and test Stratum TCP `3334`. HTTP, RPC, ZMQ,
+  GridPool peer, and UDP ingress remain closed.
 - A systemd timer runs the local node/disk health check every five minutes and
   records failures in the journal; external alert delivery remains a later
   deployment gate.
