@@ -4,16 +4,19 @@ public static class BitcoinBlockParser
 {
     private const int BlockHeaderBytes = 80;
 
-    public static bool TryReadCoinbaseHeight(ReadOnlySpan<byte> block, out long height)
+    public static bool TryReadCoinbaseHeight(
+        ReadOnlySpan<byte> block,
+        out long height,
+        int headerBytes = BlockHeaderBytes)
     {
         height = 0;
-        if (block.Length < BlockHeaderBytes + 1)
+        if (headerBytes <= 0 || block.Length < headerBytes + 1)
         {
             return false;
         }
 
         byte[] bytes = block.ToArray();
-        int offset = BlockHeaderBytes;
+        int offset = headerBytes;
         try
         {
             ulong transactionCount = BitcoinTransactionParser.ReadVarInt(bytes, ref offset);

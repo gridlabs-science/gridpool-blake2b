@@ -14,6 +14,8 @@ public sealed class ChainProfileCharacterizationTests
     private const string SampleShareId = "4a2eecc90729efcb450f963f25f1cd438a15998af3904e1d4155dd2c7185372c";
     private const long SampleDifficultyBits = 0x417114988e06478b;
     private const string RecentHeaderHex = "00a07b2daf1515873d86d8fba7a098689bcd958e6d2df870abe10100000000000000000077f88aefba92a3f434513218d7476aabaa35b9200cd339c6caea3db663ea1bfc9d355c6a9d36021724d435ae";
+    private const string Blake2bTestnet4HeaderHex = "000000a07f94ff7f28e2dfc249d6cce5d5b778b7607edccb0c81fa2994000000000000007f56860f7bbfcb04f080602ea79d9b156d9992652c913a3a213b2923af771207bb94936affff001af14c41b004456d27bb94936a00000000b10cf00d0300000000000000000000000200000000000000000000000000000000000000ef4b02000000000000000000000000000000000000000000000000000000000000000000";
+    private const string Blake2bTestnet4BlockHash = "00000000000000eee98f04f5539e13d6e83f3a5cd8e6b9ece675cc37f10bebcc";
 
     [TestMethod]
     public void ShaHeaderHashingIsExactDoubleSha256WithBitcoinDisplayByteOrder()
@@ -22,7 +24,7 @@ public sealed class ChainProfileCharacterizationTests
 
         ArgumentException exception = Assert.ThrowsException<ArgumentException>(
             () => BitcoinHashes.ComputeBlockHashFromHeader(SampleHeaderHex[..^2]));
-        Assert.AreEqual("Bitcoin block header must be exactly 80 bytes. (Parameter 'headerHex')", exception.Message);
+        Assert.AreEqual("Bitcoin block header must be exactly 80 or 164 bytes. (Parameter 'headerHex')", exception.Message);
     }
 
     [TestMethod]
@@ -41,6 +43,20 @@ public sealed class ChainProfileCharacterizationTests
         Assert.AreEqual("2e0c639c7934a697d14a314cea5da30f0c45660248d534db3cfb2036b5ac0d8a", Convert.ToHexString(header.MerkleRootLittleEndianBytes).ToLowerInvariant());
         Assert.AreEqual(0x17021369u, header.CompactTarget);
         Assert.AreEqual(SampleDifficultyBits, BitConverter.DoubleToInt64Bits(header.AchievedDifficulty));
+    }
+
+    [TestMethod]
+    public void Blake2bHeaderHashingMatchesThePinnedTestnet4Node()
+    {
+        Assert.AreEqual(Blake2bTestnet4BlockHash, BitcoinHashes.ComputeBlockHashFromHeader(Blake2bTestnet4HeaderHex));
+
+        BitcoinHeaderEvaluation evaluation = BitcoinHashes.EvaluateHeader(
+            Blake2bTestnet4HeaderHex,
+            new DateTime(2026, 8, 30, 2, 0, 0, DateTimeKind.Utc),
+            BitcoinScript.Testnet);
+
+        Assert.IsTrue(evaluation.IsValid, evaluation.RejectionReason);
+        Assert.AreEqual(Blake2bTestnet4BlockHash, evaluation.BlockHash);
     }
 
     [TestMethod]

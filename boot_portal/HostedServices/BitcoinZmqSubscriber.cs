@@ -39,6 +39,7 @@ public class BitcoinZmqSubscriber : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Starting ZMQ subscriber with Poller...");
+        int rawBlockHeaderBytes = ChainDomainProfiles.IsBlake2b(_poolConfig.ChainProfileId) ? 164 : 80;
         Channel<BitcoinBlockNotification> notifications = Channel.CreateUnbounded<BitcoinBlockNotification>(
             new UnboundedChannelOptions
             {
@@ -123,11 +124,14 @@ public class BitcoinZmqSubscriber : BackgroundService
                             _logger.LogWarning("Dropped ZMQ hashblock notification for {HashHex} during shutdown.", hashHex);
                         }
                     }
-                    else if (topic == RawBlockTopic && messageBytes.Length >= 80)
+                    else if (topic == RawBlockTopic && messageBytes.Length >= rawBlockHeaderBytes)
                     {
-                        string headerHex = Convert.ToHexString(messageBytes.AsSpan(0, 80)).ToLowerInvariant();
+                        string headerHex = Convert.ToHexString(messageBytes.AsSpan(0, rawBlockHeaderBytes)).ToLowerInvariant();
                         string hashHex = BitcoinHashes.ComputeBlockHashFromHeader(headerHex);
-                        long? blockHeight = BitcoinBlockParser.TryReadCoinbaseHeight(messageBytes, out long parsedHeight)
+                        long? blockHeight = BitcoinBlockParser.TryReadCoinbaseHeight(
+                            messageBytes,
+                            out long parsedHeight,
+                            rawBlockHeaderBytes)
                             ? parsedHeight
                             : null;
                         RecordSequenceObservation(
@@ -212,7 +216,7 @@ public class BitcoinZmqSubscriber : BackgroundService
                     notification.BlockHeight,
                     timestampUtc: notification.TransportReceivedUtc,
                     transport: hasRawHeader ? "bitcoin-zmq-rawblock" : "bitcoin-zmq-hashblock",
-                    payloadBytes: hasRawHeader ? 80 : 32);
+                    payloadBytes: hasRawHeader ? notification.HeaderHex.Length / 2 : 32);
 
                 if (!string.IsNullOrWhiteSpace(notification.HeaderHex))
                 {

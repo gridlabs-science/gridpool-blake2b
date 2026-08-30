@@ -106,12 +106,12 @@ public static class BitcoinHashes
     public static string ComputeBlockHashFromHeader(string? headerHex)
     {
         string normalized = NormalizeHex(headerHex);
-        if (normalized.Length != 160)
+        if (normalized.Length is not (160 or 328))
         {
-            throw new ArgumentException("Bitcoin block header must be exactly 80 bytes.", nameof(headerHex));
+            throw new ArgumentException("Bitcoin block header must be exactly 80 or 164 bytes.", nameof(headerHex));
         }
 
-        return ChainProfiles.BitcoinSha256dHeaderV1.ParseAndHash(normalized).DisplayBlockHash;
+        return ChainProfiles.SelectForHeader(normalized).ParseAndHash(normalized).DisplayBlockHash;
     }
 
     public static BitcoinHeaderEvaluation EvaluateHeader(

@@ -69,6 +69,28 @@ public sealed class BitcoinZmqNotificationTests
     }
 
     [TestMethod]
+    public void RawBlockParserUsesConfiguredBlake2bHeaderLength()
+    {
+        byte[] block = new byte[164 + 1 + 4 + 1 + 36 + 1 + 4 + 4 + 1 + 4];
+        int offset = 164;
+        block[offset++] = 1; // transaction count
+        offset += 4; // transaction version
+        block[offset++] = 1; // input count
+        offset += 36; // null coinbase prevout
+        block[offset++] = 4; // scriptSig length
+        block[offset++] = 3; // push the three-byte height
+        block[offset++] = 0xd3;
+        block[offset++] = 0xa3;
+        block[offset++] = 0x0e; // 959443, little-endian script number
+        offset += 4; // sequence
+        block[offset++] = 0; // output count
+        offset += 4; // locktime
+
+        Assert.IsTrue(BitcoinBlockParser.TryReadCoinbaseHeight(block, out long height, headerBytes: 164));
+        Assert.AreEqual(959443L, height);
+    }
+
+    [TestMethod]
     public void SequenceTrackerClassifiesNormalGapDuplicateResetAndWrap()
     {
         var tracker = new BitcoinZmqSequenceTracker();
