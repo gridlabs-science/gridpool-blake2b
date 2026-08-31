@@ -16,6 +16,7 @@ using boot_portal.HostedServices;
 using boot_portal.Services;
 using boot_portal.Utils;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.DataProtection;
 using NSec.Cryptography;
 using Microsoft.AspNetCore.SignalR;
 
@@ -323,6 +324,24 @@ public class Program
             {
                 options.Limits.MaxRequestBodySize = Math.Max(32_768L, _poolConfig.MaxShareRequestBytes);
             });
+
+            // Keep ASP.NET Core's at-rest protection keys beside the persisted
+            // GridPool state. Containers deliberately run with an ephemeral
+            // root filesystem, so the framework default home-directory path
+            // would invalidate protected data on every recreation.
+            string dataProtectionKeyDirectory = Path.Combine(
+                Path.GetDirectoryName(BootPortalPaths.PoolStateFilePath) ?? ".",
+                "data-protection-keys");
+            Directory.CreateDirectory(dataProtectionKeyDirectory);
+            if (OperatingSystem.IsLinux())
+            {
+                File.SetUnixFileMode(
+                    dataProtectionKeyDirectory,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+            builder.Services.AddDataProtection()
+                .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyDirectory))
+                .SetApplicationName("GridPool");
 
             builder.Services.AddRazorPages(); // For serving simple HTML pages
             builder.Services.AddControllers();
@@ -3927,7 +3946,22 @@ public class PowSubmitMessage
                 throw new ArgumentException($"Unknown flag: 0x{flag:X2}");
             }
         }
-        if (!hasTerminator || stream.Position != stream.Length) throw new ArgumentException("Malformed DATUM section terminator");
+        if (!hasTerminator)
+        {
+            throw new ArgumentException("Missing DATUM section terminator");
+        }
+
+        // The reference DATUM gateway deliberately pads encrypted PoW submits
+        // with 1--80 random bytes after the 0xFE terminator.  The terminator
+        // still closes the authenticated, parsed structure: padding is never
+        // interpreted as a section and is bounded so it cannot conceal an
+        // unbounded extension or inflate parser work.
+        const int maxDatumSubmitPaddingBytes = 80;
+        long trailingPaddingBytes = stream.Length - stream.Position;
+        if (trailingPaddingBytes > maxDatumSubmitPaddingBytes)
+        {
+            throw new ArgumentException("DATUM section padding exceeds the 80-byte protocol limit");
+        }
         if (result.IsBlake2b && (!hasBlakeAlgorithm || !hasBlakeWireTime)) throw new ArgumentException("Incomplete DATUM Blake2b extensions");
         if (!result.IsBlake2b && (hasBlakeAlgorithm || hasBlakeWireTime || result.BlakeUseTimeOffset)) throw new ArgumentException("Blake2b fields supplied without Blake2b PoW flag");
         if(hasCoinbaseData ^ hasMerkleData)

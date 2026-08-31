@@ -52,7 +52,7 @@ public sealed class DatumBlake2bAdapterTests
     }
 
     [TestMethod]
-    public void PowSubmitRejectsMissingDuplicateAndTrailingBlakeSections()
+    public void PowSubmitAcceptsBoundedGatewayPaddingAndRejectsMalformedExtensions()
     {
         byte[] valid = BuildSubmit();
         int algorithmOffset = Array.IndexOf(valid, (byte)0x03, 34);
@@ -69,7 +69,11 @@ public sealed class DatumBlake2bAdapterTests
             .ToArray();
         Assert.ThrowsException<ArgumentException>(() => PowSubmitMessage.FromBytes(duplicateAlgorithm));
 
-        Assert.ThrowsException<ArgumentException>(() => PowSubmitMessage.FromBytes(valid.Concat(new byte[] { 0 }).ToArray()));
+        byte[] padded = valid.Concat(Enumerable.Range(0, 80).Select(value => (byte)value)).ToArray();
+        PowSubmitMessage parsedPadded = PowSubmitMessage.FromBytes(padded);
+        Assert.IsTrue(parsedPadded.IsBlake2b);
+
+        Assert.ThrowsException<ArgumentException>(() => PowSubmitMessage.FromBytes(valid.Concat(new byte[81]).ToArray()));
         Assert.ThrowsException<ArgumentException>(() => PowSubmitMessage.FromBytes(valid[..^1]));
     }
 

@@ -53,7 +53,7 @@ public sealed class ChainProfileCharacterizationTests
         BitcoinHeaderEvaluation evaluation = BitcoinHashes.EvaluateHeader(
             Blake2bTestnet4HeaderHex,
             new DateTime(2026, 8, 30, 2, 0, 0, DateTimeKind.Utc),
-            BitcoinScript.Testnet);
+            BitcoinScript.Testnet4);
 
         Assert.IsTrue(evaluation.IsValid, evaluation.RejectionReason);
         Assert.AreEqual(Blake2bTestnet4BlockHash, evaluation.BlockHash);

@@ -1,9 +1,10 @@
 # Constrained Blake2b VPS deployment
 
 This directory defines the first, Testnet4-only node phase for the 6-vCPU,
-12-GB RAM, 100-GB VPS. It does not expose GridPool, DATUM, Stratum, RPC, or ZMQ
-ports. Testnet4 data must be stopped and removed before a separately rooted
-mainnet node is prepared.
+12-GB RAM, 100-GB VPS. RPC, ZMQ, HTTP, GridPool peer, and UDP remain private.
+The explicitly authorized Testnet4 lab publishes DATUM on TCP `3009` and
+Stratum on TCP `3334`; Testnet4 data must be stopped and removed before a
+separately rooted mainnet node is prepared.
 
 ## Pinned node source
 
@@ -56,8 +57,11 @@ trust boundary for the staging service.
 Before a staging start, copy the testnet node's RPC cookie into an untracked
 `bitcoin-cookie/.cookie` directory readable by container UID 1000, create the
 untracked `data/` directory, and place any generated identity keys only in
-`data/boot_portal_config.local.json`. Create the dedicated bridge before the
-first start (and do not substitute a routable subnet):
+`data/boot_portal_config.local.json`. ASP.NET Core protection keys are stored
+under `data/data-protection-keys/`, alongside the mounted state; this directory
+must remain private to the container user and persist across image recreation.
+Create the dedicated bridge before the first start (and do not substitute a
+routable subnet):
 
 ```bash
 docker network create --subnet 172.30.0.0/24 gridpool-blake2b-testnet4-staging
@@ -102,6 +106,11 @@ fingerprint must be rejected before it receives work, while an unrecognized
 client must receive a forced `yuge` Blake2b job and be recorded as unverified.
 The public Stratum endpoint is a firmware test service using its configured
 test payout address, not a multi-payout hosted pool.
+
+The DATUM reference gateway pads encrypted PoW-submit payloads with up to 80
+opaque bytes after their `0xFE` section terminator. GridPool accepts only this
+bounded, post-terminator padding; it never parses it as a section and rejects
+missing terminators or longer padding.
 
 ## Resource and network policy
 
