@@ -92,6 +92,11 @@ data directory. For the public Testnet4 firmware window, bind Stratum to
 coinbase selection, keep firmware fingerprinting enabled, and keep the unsafe
 override disabled.
 
+For the CPU Blake2b Testnet4 lab, set both `min_diff` in the GridPool config
+and `stratum.vardiff_min` in the untracked DATUM config to `1`. This is a
+test-only setting: it intentionally permits frequent low-difficulty shares and
+must not be carried into a public production deployment.
+
 The staging validation requires both outcomes: a known undersized firmware
 fingerprint must be rejected before it receives work, while an unrecognized
 client must receive a forced `yuge` Blake2b job and be recorded as unverified.

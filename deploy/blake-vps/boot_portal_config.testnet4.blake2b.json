@@ -27,6 +27,7 @@
   "peer_udp_port": 5102,
   "pool_payout_script": "mxt9bYPtfBdzoTeZcHr23QgL4Un45PVvF5",
   "winners_list_size": 299,
+  "min_diff": 1,
   "grid_labs_support_fee_enabled": false,
   "coinbase_tag": "Grid Pool Blake2b Testnet4",
   "coinbase_uncondensed_outputs_enabled": true,
