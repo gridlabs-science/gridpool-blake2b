@@ -125,6 +125,20 @@ public sealed class ChainDomainProfileTests
     }
 
     [TestMethod]
+    public void LocalDatumAdapterBindsSharesToConfiguredChainDomain()
+    {
+        PoolConfig config = CreateTestnet4Config();
+        Assert.IsTrue(ChainDomainProfiles.TryResolve(config, out ChainDomainProfile? profile, out _));
+
+        Assert.AreEqual(
+            profile!.Fingerprint,
+            ClientHandler.ResolveTrustedLocalChainDomainFingerprint(config));
+
+        config.ChainProfileId = "unknown-profile";
+        Assert.AreEqual(string.Empty, ClientHandler.ResolveTrustedLocalChainDomainFingerprint(config));
+    }
+
+    [TestMethod]
     public void Version23CompatibilityRejectsMissingOrWrongDomain()
     {
         PoolConfig config = CreateTestnet4Config();

@@ -917,6 +917,7 @@ public class ClientHandler
     private UInt32 _receivingHeaderKey;
     private HelloMessage? _helloMessage;
     private readonly PoolConfig _poolConfig;
+    private readonly string _chainDomainFingerprint;
     private readonly PowSubmitMessage?[] _jobCache = new PowSubmitMessage?[8];
     private readonly DateTime?[] _jobCacheUpdatedUtc = new DateTime?[8];
     private readonly string?[] _jobPayoutSnapshotIds = new string?[8];
@@ -967,6 +968,7 @@ public class ClientHandler
         _sendingHeaderKey = 0;
         _x25519KeyLongTerm = serverLongTermXKey;
         _poolConfig = poolConfig;
+        _chainDomainFingerprint = ResolveTrustedLocalChainDomainFingerprint(poolConfig);
         _stateService = stateService;
         _clientPayoutAddress = BootProtocolStateService.GetGenesisFoundationAddress(_poolConfig.BitcoinNetwork);
         _stoppingToken = st;
@@ -983,6 +985,14 @@ public class ClientHandler
         });
         Console.WriteLine($"🔌 Client {_client.Client.RemoteEndPoint} connected.");
     }
+
+    // DATUM v1 does not carry the GridPool v23 domain. This listener is a local,
+    // configured transport adapter, so bind every reconstructed share to the
+    // node's immutable configured profile instead of trusting miner metadata.
+    internal static string ResolveTrustedLocalChainDomainFingerprint(PoolConfig poolConfig) =>
+        ChainDomainProfiles.TryResolve(poolConfig, out ChainDomainProfile? profile, out _)
+            ? profile?.Fingerprint ?? string.Empty
+            : string.Empty;
 
     private string RemoteEndpointLabel => _client.Client.RemoteEndPoint?.ToString() ?? "unknown";
 
@@ -2899,6 +2909,7 @@ public class ClientHandler
         stageStopwatch.Restart();
         var recordResult = await _stateService.SubmitShareAsync(new RecordedShareSubmission
         {
+            ChainDomainFingerprint = _chainDomainFingerprint,
             MinerAddress = powSubmit.Address,
             Username = powSubmit.Username,
             HeaderHex = Convert.ToHexString(header).ToLowerInvariant(),
