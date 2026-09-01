@@ -121,12 +121,3 @@ jobs:
         with:
           name: gridpool-blake2b-image-digest
           path: image-digest.txt
-
-      - name: Make appliance image publicly pullable
-        if: github.event_name != 'pull_request'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: >-
-          gh api --method PATCH
-          /orgs/${{ github.repository_owner }}/packages/container/${{ github.event.repository.name }}
-          -f visibility=public
