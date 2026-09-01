@@ -7,10 +7,15 @@ CONFIG=/etc/gridpool-blake2b/knots-mainnet.conf
 SNAPSHOT_DIR="$DATA_DIR/snapshots"
 SNAPSHOT="$SNAPSHOT_DIR/utxo-910000.dat"
 SNAPSHOT_PART="$SNAPSHOT.part"
+LOADED_MARKER="$SNAPSHOT_DIR/utxo-910000.loaded"
 SNAPSHOT_URL="${SNAPSHOT_URL:-https://utxo.download/utxo-910000.dat}"
 EXPECTED_BASE=0000000000000000000108970acb9522ffd516eae17acddcb1bd16469194a821
 
 mkdir -p "$SNAPSHOT_DIR"
+if [[ -f "$LOADED_MARKER" ]]; then
+    exit 0
+fi
+
 if [[ ! -s "$SNAPSHOT" ]]; then
     curl --fail --location --retry 8 --retry-all-errors --continue-at - \
         --output "$SNAPSHOT_PART" "$SNAPSHOT_URL"
@@ -24,4 +29,5 @@ done
 result="$("$CLI" -rpcclienttimeout=0 -datadir="$DATA_DIR" -conf="$CONFIG" loadtxoutset snapshots/utxo-910000.dat)"
 jq -e --arg expected "$EXPECTED_BASE" \
     '.base_height == 910000 and .tip_hash == $expected' <<<"$result" >/dev/null
+touch "$LOADED_MARKER"
 printf '%s\n' "$result"

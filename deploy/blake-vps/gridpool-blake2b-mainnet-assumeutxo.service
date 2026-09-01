@@ -2,6 +2,7 @@
 Description=Load the pinned-height Bitcoin mainnet AssumeUTXO snapshot
 After=network-online.target gridpool-blake2b-knots-mainnet.service
 Requires=gridpool-blake2b-knots-mainnet.service
+ConditionPathExists=!/var/lib/gridpool-blake2b/mainnet/snapshots/utxo-910000.loaded
 
 [Service]
 Type=oneshot
