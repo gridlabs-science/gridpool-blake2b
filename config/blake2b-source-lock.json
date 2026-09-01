@@ -59,7 +59,7 @@
     "upstream_repository": "https://github.com/innerhat-dev/datum_gateway",
     "fork_repository": "https://github.com/gridlabs-science/datum-gateway-blake2b-gridpool",
     "default_branch": "develop",
-    "fork_head": "6936c1758316075a569181b482ffbe880aee2fdd",
+    "fork_head": "6936c179799785f75de9b751db35ddf84f9976e0",
     "gridpool_coinbase_implementation": "70670c5438ad176c7d8194fba7169944aeffb453",
     "unknown_firmware_implementation": "df502b3e2d2e4ed30c39a0aeecbe075f338a0360",
     "verification": "clean local build, internal --test, and appliance container build pass; 6936c17 adds a UID-1000 appliance runtime and public multi-architecture GHCR publishing with secret/dependency scans, SBOM, and provenance on top of the tested df502b3 mining implementation",
