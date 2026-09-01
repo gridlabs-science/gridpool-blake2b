@@ -87,9 +87,12 @@ public static class PoolConfigValidator
         }
         else if (chainProfile != null)
         {
-            string expectedBitcoinNetwork = chainProfile.ProfileId == ChainDomainProfiles.Blake2bTestnet4ProfileId
-                ? BitcoinScript.Testnet4
-                : BitcoinScript.Regtest;
+            string expectedBitcoinNetwork = chainProfile.ProfileId switch
+            {
+                ChainDomainProfiles.Blake2bTestnet4ProfileId => BitcoinScript.Testnet4,
+                ChainDomainProfiles.Blake2bMainnetProfileId => BitcoinScript.Mainnet,
+                _ => BitcoinScript.Regtest
+            };
             if (!string.Equals(bitcoinNetwork, expectedBitcoinNetwork, StringComparison.Ordinal))
             {
                 errors.Add($"chain_profile_id {chainProfile.ProfileId} requires bitcoin_network {expectedBitcoinNetwork}");

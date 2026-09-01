@@ -44,6 +44,7 @@ public static partial class ChainDomainProfiles
     public const string Blake2bTestnet4ProfileId = "knots-rc3-afbe91c-testnet4-v1";
     public const string Blake2bRegtestProfileId = "knots-pr359-fee27ccf-regtest-v1";
     public const string Blake2bMainnetUnassignedProfileId = "knots-blake2b-mainnet-unassigned";
+    public const string Blake2bMainnetProfileId = "knots-blake2b-mainnet-rc4-activated";
 
     public const string Blake2bTestnet4NetworkId = "gridpool-blake2b-testnet4-v1";
     public const string Blake2bRegtestNetworkPrefix = "gridpool-blake2b-regtest-v1:";
@@ -55,10 +56,16 @@ public static partial class ChainDomainProfiles
     public const uint Testnet4ActivationCompactTarget = 0x1a00ffff;
     public const string RegtestGenesisHash = "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206";
     public const string MainnetGenesisHash = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f";
+    public const string MainnetActivationBlockHash = "0000000000000050c1e5f69672f459293be14f46e5a494e7a8c8541396f18eeb";
+    public const string MainnetActivationParentBlockHash = "00000000000000000001bbc439e13f749dca850d32c7a2834165338713027e65";
+    public const string MainnetRequiredNodeSubversion = "/Satoshi:29.4.1/Knots:20260508rc4/";
+    public const string MainnetActivationHeadline = "8-30 NYPost Deride And Conquer";
+    public const uint MainnetActivationCompactTarget = 0x1a008d4f;
 
     public const string PowAlgorithmId = "knots-blake2b-v2";
     public const string HeaderFormatId = "knots-header-v2-164";
     public const string TargetRuleId = "knots-blake2b-target-shift20-v1";
+    public const string MainnetTargetRuleId = "knots-blake2b-target-shift22-v1";
     public const string WorkScoreRuleId = "uint256-complement-v1";
     public const string PayoutPolicyId = "fee-free-299-v1";
 
@@ -84,6 +91,27 @@ public static partial class ChainDomainProfiles
         {
             error = "chain_profile_id selects Blake2b mainnet, but its activation rule and profile revision are unassigned";
             return false;
+        }
+
+        if (profileId == Blake2bMainnetProfileId)
+        {
+            profile = new ChainDomainProfile
+            {
+                ProfileId = Blake2bMainnetProfileId,
+                NetworkId = Blake2bMainnetNetworkId,
+                ChainId = "bip110-blake2b-mainnet",
+                GenesisHash = MainnetGenesisHash,
+                ConsensusVersion = BootProtocolVersions.BlakeConsensusVersion,
+                PowAlgorithmId = PowAlgorithmId,
+                HeaderFormatId = HeaderFormatId,
+                ActivationRuleId = "height-961640-headline-v1",
+                ActivationHeight = 961_640,
+                TargetRuleId = MainnetTargetRuleId,
+                WorkScoreRuleId = WorkScoreRuleId,
+                ProfileRevision = "knots-rc4-dc82be77-activated-v1",
+                PayoutPolicyId = PayoutPolicyId
+            };
+            return true;
         }
 
         if (profileId == Blake2bTestnet4ProfileId)

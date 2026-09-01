@@ -7,6 +7,22 @@ namespace boot.tests;
 [TestClass]
 public sealed class BitcoinAttachedNodeProfileAttestationTests
 {
+    private const string MainnetActivationHeader =
+        "000000a0657e02138733654183a2c7320d85ca9d743fe139c4bb01000000000000000000" +
+        "c137a8515a0f6b3aaf6049cc7611787c022ad523d51094be0a0363d0dc0bc7684dca936a" +
+        "4f8d001a5671798c84daeb494dca936a00000000b1ccf00d030000000000000000000000" +
+        "1e0300000000000000000000000000000000000068ac0e00000000000000000000000000" +
+        "0000000000000000000000000000000000000000";
+
+    private const string MainnetPreActivationHeader =
+        "10000a205fca17a6566978303e989d163e1aa9dc6715eef5542e00000000000000000000" +
+        "80fe52c98f1c1f8484213dff5a88315f7c334d0705f7d79579b289781868c0dff5c1916a" +
+        "3d350217510c87ed";
+
+    private const string MainnetActivationCoinbaseScriptSig =
+        "0368ac0e2a53696c656e74576176650f382d3330204e59506f73742044657269646520416e6420436f6e71756572" +
+        "0003ff92100eb12e000000000000000000000000";
+
     private const string ActivationHeader =
         "000000a003a5c934b72ab4550d1eeb90db527ece84cf9909bb21774f0000000000000000" +
         "4f6b1bdc586743e6d6bffb3c8ff88cd2719eaf5508cf13ae9e6629a2a1e881d2ea7f906a" +
@@ -29,6 +45,59 @@ public sealed class BitcoinAttachedNodeProfileAttestationTests
                 Evidence());
 
         Assert.IsTrue(result.IsValid, result.Reason);
+    }
+
+    [TestMethod]
+    public void PinnedActivatedMainnetBoundaryPassesCompleteAttachedNodeAttestation()
+    {
+        PoolConfig config = new()
+        {
+            ChainProfileId = ChainDomainProfiles.Blake2bMainnetProfileId,
+            BitcoinNetwork = BitcoinScript.Mainnet,
+            BootNetworkId = ChainDomainProfiles.Blake2bMainnetNetworkId,
+            BootProtocolVersion = BootProtocolVersions.BlakeConsensusVersion,
+            WinnersListSize = 299,
+            GridLabsSupportFeeEnabled = false,
+            EnablePeerUdpFastRelay = false,
+            EnablePulseProofs = false,
+            EnableOptimisticShareRelay = false
+        };
+        Assert.IsTrue(ChainDomainProfiles.TryResolve(config, out ChainDomainProfile? profile, out string? error), error);
+
+        BitcoinAttachedNodeProfileAttestationResult accepted =
+            BitcoinAttachedNodeProfileAttestation.Evaluate(
+                profile!,
+                new BitcoinAttachedNodeProfileEvidence(
+                    ChainDomainProfiles.MainnetGenesisHash,
+                    ChainDomainProfiles.MainnetRequiredNodeSubversion,
+                    962_733,
+                    ChainDomainProfiles.MainnetActivationBlockHash,
+                    MainnetActivationHeader,
+                    MainnetPreActivationHeader));
+        Assert.IsTrue(accepted.IsValid, accepted.Reason);
+
+        Assert.IsFalse(BitcoinAttachedNodeProfileAttestation.Evaluate(
+            profile!,
+            new BitcoinAttachedNodeProfileEvidence(
+                ChainDomainProfiles.MainnetGenesisHash,
+                "/Satoshi:29.4.1/Knots:20260508rc3/",
+                962_733,
+                ChainDomainProfiles.MainnetActivationBlockHash,
+                MainnetActivationHeader,
+                MainnetPreActivationHeader)).IsValid);
+
+        byte[] scriptSig = Convert.FromHexString(MainnetActivationCoinbaseScriptSig);
+        byte[] headline = System.Text.Encoding.ASCII.GetBytes(ChainDomainProfiles.MainnetActivationHeadline);
+        Assert.IsTrue(scriptSig.AsSpan().IndexOf(headline) >= 0);
+        Assert.IsFalse(BitcoinAttachedNodeProfileAttestation.Evaluate(
+            profile!,
+            new BitcoinAttachedNodeProfileEvidence(
+                ChainDomainProfiles.MainnetGenesisHash,
+                ChainDomainProfiles.MainnetRequiredNodeSubversion,
+                962_733,
+                new string('0', 64),
+                MainnetActivationHeader,
+                MainnetPreActivationHeader)).IsValid);
     }
 
     [TestMethod]

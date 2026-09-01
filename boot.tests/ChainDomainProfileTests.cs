@@ -47,7 +47,7 @@ public sealed class ChainDomainProfileTests
     }
 
     [TestMethod]
-    public void RegtestRequiresSharedTwelveHexLabIdAndMainnetIsUnassigned()
+    public void RegtestRequiresSharedTwelveHexLabIdAndMainnetIsAssignedToActivatedRc4Chain()
     {
         var regtest = new PoolConfig
         {
@@ -70,7 +70,7 @@ public sealed class ChainDomainProfileTests
         Assert.IsTrue(PoolConfigValidator.Validate(regtest).Any(error =>
             error.Contains("12 lowercase hex", StringComparison.Ordinal)));
 
-        var mainnet = new PoolConfig
+        var unassignedMainnet = new PoolConfig
         {
             ChainProfileId = ChainDomainProfiles.Blake2bMainnetUnassignedProfileId,
             BitcoinNetwork = BitcoinScript.Mainnet,
@@ -78,8 +78,28 @@ public sealed class ChainDomainProfileTests
             BootProtocolVersion = BootProtocolVersions.BlakeConsensusVersion,
             GridLabsSupportFeeEnabled = false
         };
-        Assert.IsTrue(PoolConfigValidator.Validate(mainnet).Any(error =>
+        Assert.IsTrue(PoolConfigValidator.Validate(unassignedMainnet).Any(error =>
             error.Contains("unassigned", StringComparison.Ordinal)));
+
+        var mainnet = new PoolConfig
+        {
+            ChainProfileId = ChainDomainProfiles.Blake2bMainnetProfileId,
+            BitcoinNetwork = BitcoinScript.Mainnet,
+            BootNetworkId = ChainDomainProfiles.Blake2bMainnetNetworkId,
+            BootProtocolVersion = BootProtocolVersions.BlakeConsensusVersion,
+            WinnersListSize = 299,
+            GridLabsSupportFeeEnabled = false,
+            EnablePeerUdpFastRelay = false,
+            EnablePulseProofs = false,
+            EnableOptimisticShareRelay = false
+        };
+        CollectionAssert.AreEqual(Array.Empty<string>(), PoolConfigValidator.Validate(mainnet));
+        Assert.IsTrue(ChainDomainProfiles.TryResolve(mainnet, out ChainDomainProfile? mainnetProfile, out string? error), error);
+        Assert.AreEqual(961_640, mainnetProfile!.ActivationHeight);
+        Assert.AreEqual("height-961640-headline-v1", mainnetProfile.ActivationRuleId);
+        Assert.AreEqual("knots-blake2b-target-shift22-v1", mainnetProfile.TargetRuleId);
+        Assert.AreEqual("knots-rc4-dc82be77-activated-v1", mainnetProfile.ProfileRevision);
+        Assert.AreEqual("8d19554cd57c217c6fb0680e506cd9356eb60e6dfd7c050385477f07895aef2c", mainnetProfile.Fingerprint);
     }
 
     [TestMethod]

@@ -52,9 +52,11 @@ The exact PR #359 head `fee27ccf...` remains the canonical five-vector source
 until RC3 vector equivalence is checked into GridPool tests. The experimental
 DATUM source remains pinned at `e894b8a...`.
 
-Mainnet has no assigned source pin or finite activation in this repository.
-Mainnet startup and mining ingress must fail closed until those values are
-published, reviewed, and added to the lock.
+Mainnet is now assigned to signed Knots RC4 at peeled commit `dc82be77...`.
+Activation occurred at height `961640`; the pinned activation hash is
+`0000000000000050c1e5f69672f459293be14f46e5a494e7a8c8541396f18eeb`,
+with compact target `0x1a008d4f` and target shift 22. Startup and mining ingress
+fail closed unless the attached node reproduces that exact boundary.
 
 ## Profile Seam And Blake Header Runtime
 

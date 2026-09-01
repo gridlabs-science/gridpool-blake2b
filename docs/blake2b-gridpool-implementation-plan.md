@@ -7,13 +7,18 @@ Create two public GridLabs repositories:
 - `gridlabs-science/gridpool-blake2b`: standalone repository preserving `boot-protocol` history, default branch `develop`.
 - `gridlabs-science/datum-gateway-blake2b-gridpool`: GitHub fork of the community Blake2b DATUM implementation, now maintained at `innerhat-dev/datum_gateway`. The reviewed upstream base is `2fea7e5`; GridLabs `develop` is pinned at `df502b3`, including forced-coinbase compatibility, known-incompatible fail-closed handling, and an explicitly logged unknown-firmware full-coinbase path. The older `e894b8a` pin is superseded.
 
-Target September 1 as an experimental launch, not a stable release. Independent
+The Blake2b chain activated at mainnet height `961640`; continue treating the
+software and appliance packages as experimental rather than stable. Independent
 retesting closed RT-2026-041 and RT-2026-042. Development now proceeds from the
 RT-2026-076 follow-up candidate and must display an unverified-security warning,
 use kill switches, and publish no stable release/tag until its remaining gates
 close.
 
-A mainnet launch remains technically blocked until upstream publishes a commit with a finite Blake2b activation height, exact chain/replay/DAA rules, and usable vectors. The current [Knots PR #359](https://github.com/bitcoinknots/bitcoin/pull/359) still leaves mainnet Blake2b disabled; [Start9 likewise describes September 1 as an intention rather than a finalized schedule](https://start9.com/bip110/).
+Mainnet is pinned to signed Knots tag `v29.4.1.knots20260508rc4`, peeled commit
+`dc82be77dd741dfa63e1f816367b15364d55b051`, and activation block
+`0000000000000050c1e5f69672f459293be14f46e5a494e7a8c8541396f18eeb`.
+The first Blake block uses header v2, compact target `0x1a008d4f`, and the exact
+headline `8-30 NYPost Deride And Conquer`.
 
 ## Repository and Source Control
 
@@ -29,6 +34,8 @@ A mainnet launch remains technically blocked until upstream publishes a commit w
   - Testnet Knots RC3 peeled commit `afbe91c299e16519f03902939fdbda8af9bd527d`.
   - Superseded RC2 evidence pin `c25ad6bcd18fa65cd78f176a52be062411507741`.
   - Current PR head `fee27ccfe950e998bb6d36e2b81f4ec97e3e89a3`.
+  - Mainnet RC4 peeled commit `dc82be77dd741dfa63e1f816367b15364d55b051`,
+    activation height/hash/parent, headline, target shift 22, and RDTS expiry.
   - DATUM base `e894b8ac29ae06bf6e3b14dafd21f72dcd65fb84`.
   - Built image/binary digests.
 - Make `develop` the default branch, require CI, and publish no `latest` image or GitHub release. Deploy only immutable commit/image digests.
@@ -132,7 +139,9 @@ HTTP hosts may use a reverse proxy; DATUM, SV1, chain P2P, and UDP records must 
 5. **August 27–31:** provision the constrained VPS, source-build and sync RC3
    Testnet4, expose testnet endpoints only after validation, and complete the
    longest available soak before the temporary Testnet4 environment is retired.
-6. **September 1:** enable experimental mainnet endpoints only if a pinned upstream commit supplies a finite activation height and complete chain parameters. Otherwise keep mainnet mining ports closed and continue testnet4 operation.
+6. **Post-activation:** enable experimental mainnet components only after the
+   attached node proves the pinned RC4 activation checkpoint and local sync;
+   keep mining ingress closed on any mismatch.
 
 ## Verification and Acceptance Gates
 
@@ -151,11 +160,16 @@ HTTP hosts may use a reverse proxy; DATUM, SV1, chain P2P, and UDP records must 
   `afbe91c299e16519f03902939fdbda8af9bd527d`, activation height `150027`,
   first-Blake target `0x1a00ffff`, post-fork peers, complete sync, stock DATUM
   interoperability, real accepted shares, and a zero-unplanned-restart soak.
-- Mainnet enablement additionally requires an exact upstream pin with finite activation, replay/DAA characterization, successful source build, correct chain peers, and an operator-reviewed pin manifest. The pending RT-2026-076 follow-up retest is displayed as an accepted experimental risk; any adverse result immediately disables public mining ingress.
+- Mainnet enablement requires the RC4 source pin, exact activation checkpoint,
+  successful source build, correct chain peers, and attached-node attestation.
+  The pending RT-2026-076 follow-up retest remains an accepted experimental
+  risk; any adverse result immediately disables public mining ingress.
 
 ## Assumptions
 
 - `gridpool.net` DNS remains available for the proposed Blake subdomains.
 - New dedicated GridLabs support addresses will be supplied before public fee policies are enabled.
-- The public fork and mainnet service remain explicitly experimental; no stable release, package publication, StartOS integration, or recommendation to hold/transact fork assets is implied.
+- The public fork, mainnet service, and sideloaded StartOS/Umbrel packages remain
+  explicitly experimental; no marketplace publication, stable release, or
+  recommendation to hold or transact fork assets is implied.
 - The broader P1 hardening commit `f09ce5e` remains excluded unless reviewed and authorized separately.

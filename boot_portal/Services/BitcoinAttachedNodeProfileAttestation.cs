@@ -40,6 +40,17 @@ public static class BitcoinAttachedNodeProfileAttestation
                     $"Attached node subversion does not match the pinned Testnet4 Knots release for {profile.ProfileId}.");
             }
         }
+        else if (profile.ProfileId == ChainDomainProfiles.Blake2bMainnetProfileId)
+        {
+            if (!string.Equals(
+                    evidence.Subversion,
+                    ChainDomainProfiles.MainnetRequiredNodeSubversion,
+                    StringComparison.Ordinal))
+            {
+                return BitcoinAttachedNodeProfileAttestationResult.Reject(
+                    $"Attached node subversion does not match the pinned mainnet Knots RC4 release for {profile.ProfileId}.");
+            }
+        }
         else if (!evidence.Subversion.Contains("/Knots:", StringComparison.Ordinal))
         {
             return BitcoinAttachedNodeProfileAttestationResult.Reject(
@@ -58,6 +69,15 @@ public static class BitcoinAttachedNodeProfileAttestation
         {
             return BitcoinAttachedNodeProfileAttestationResult.Reject(
                 "Attached node Testnet4 activation block does not match the pinned RC3 chain evidence.");
+        }
+
+        if (profile.ProfileId == ChainDomainProfiles.Blake2bMainnetProfileId &&
+            !CanonicalHashEquals(
+                evidence.ActivationBlockHash,
+                ChainDomainProfiles.MainnetActivationBlockHash))
+        {
+            return BitcoinAttachedNodeProfileAttestationResult.Reject(
+                "Attached node mainnet activation block does not match the pinned RC4 Blake2b chain checkpoint.");
         }
 
         try
@@ -85,6 +105,14 @@ public static class BitcoinAttachedNodeProfileAttestation
             {
                 return BitcoinAttachedNodeProfileAttestationResult.Reject(
                     "Attached node Testnet4 activation target does not match the pinned RC3 first-Blake target.");
+            }
+
+
+            if (profile.ProfileId == ChainDomainProfiles.Blake2bMainnetProfileId &&
+                activation.CompactTarget != ChainDomainProfiles.MainnetActivationCompactTarget)
+            {
+                return BitcoinAttachedNodeProfileAttestationResult.Reject(
+                    "Attached node mainnet activation target does not match the pinned RC4 first-Blake target.");
             }
         }
         catch (Exception ex) when (ex is ArgumentException or FormatException)

@@ -79,8 +79,23 @@ if (!/\[testnet4\][\s\S]*addnode=seed\.testnet-bitcoin\.haf\.ovh:48333/.test(tes
   fail("the Blake-capable Testnet4 seed must be scoped to [testnet4]");
 }
 
-for (const field of ["tag", "peeled_commit", "activation_height", "profile_revision"]) {
-  requireEqual(lock.knots.mainnet[field], null, `knots.mainnet.${field}`);
+requireEqual(lock.knots.mainnet.tag, "v29.4.1.knots20260508rc4", "knots.mainnet.tag");
+requireSha(lock.knots.mainnet.peeled_commit, "knots.mainnet.peeled_commit", "dc82be77dd741dfa63e1f816367b15364d55b051");
+requireEqual(lock.knots.mainnet.activation_height, 961640, "knots.mainnet.activation_height");
+requireEqual(lock.knots.mainnet.activation_block_hash, "0000000000000050c1e5f69672f459293be14f46e5a494e7a8c8541396f18eeb", "knots.mainnet.activation_block_hash");
+requireEqual(lock.knots.mainnet.activation_parent_block_hash, "00000000000000000001bbc439e13f749dca850d32c7a2834165338713027e65", "knots.mainnet.activation_parent_block_hash");
+requireEqual(lock.knots.mainnet.activation_headline, "8-30 NYPost Deride And Conquer", "knots.mainnet.activation_headline");
+requireEqual(lock.knots.mainnet.activation_coinbase_scriptsig, "0368ac0e2a53696c656e74576176650f382d3330204e59506f73742044657269646520416e6420436f6e717565720003ff92100eb12e000000000000000000000000", "knots.mainnet.activation_coinbase_scriptsig");
+requireEqual(lock.knots.mainnet.activation_header_bytes, 164, "knots.mainnet.activation_header_bytes");
+requireEqual(lock.knots.mainnet.pre_activation_header_bytes, 80, "knots.mainnet.pre_activation_header_bytes");
+requireEqual(lock.knots.mainnet.network_id, "gridpool-blake2b-mainnet-v1", "knots.mainnet.network_id");
+requireEqual(lock.knots.mainnet.domain_fingerprint, "8d19554cd57c217c6fb0680e506cd9356eb60e6dfd7c050385477f07895aef2c", "knots.mainnet.domain_fingerprint");
+requireEqual(lock.knots.mainnet.rdts_expiry_unix, 1819756800, "knots.mainnet.rdts_expiry_unix");
+requireEqual(lock.knots.mainnet.first_blake_target_compact, "1a008d4f", "knots.mainnet.first_blake_target_compact");
+requireEqual(lock.knots.mainnet.target_shift, 22, "knots.mainnet.target_shift");
+requireEqual(lock.knots.mainnet.profile_revision, "knots-rc4-dc82be77-activated-v1", "knots.mainnet.profile_revision");
+if (typeof lock.knots.mainnet.domain_fingerprint !== "string" || !/^[0-9a-f]{64}$/.test(lock.knots.mainnet.domain_fingerprint)) {
+  fail("knots.mainnet.domain_fingerprint must be a lowercase 64-character hash");
 }
 
 requireSha(

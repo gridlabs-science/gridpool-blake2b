@@ -1,6 +1,6 @@
 {
   "schema": "gridpool-blake2b-source-lock-v1",
-  "updated_utc": "2026-08-29T22:32:00Z",
+  "updated_utc": "2026-08-31T00:00:00Z",
   "gridpool": {
     "development_baseline": "b4c92a9090c11efd74298e06b02cfe56727373ea",
     "development_tag": "security-rt-076-retest-candidate",
@@ -35,11 +35,22 @@
       "head_commit": "fee27ccfe950e998bb6d36e2b81f4ec97e3e89a3"
     },
     "mainnet": {
-      "tag": null,
-      "peeled_commit": null,
-      "activation_height": null,
-      "profile_revision": null,
-      "status": "fail-closed until a finite upstream release is pinned and reviewed"
+      "tag": "v29.4.1.knots20260508rc4",
+      "peeled_commit": "dc82be77dd741dfa63e1f816367b15364d55b051",
+      "activation_height": 961640,
+      "activation_block_hash": "0000000000000050c1e5f69672f459293be14f46e5a494e7a8c8541396f18eeb",
+      "activation_parent_block_hash": "00000000000000000001bbc439e13f749dca850d32c7a2834165338713027e65",
+      "activation_headline": "8-30 NYPost Deride And Conquer",
+      "activation_coinbase_scriptsig": "0368ac0e2a53696c656e74576176650f382d3330204e59506f73742044657269646520416e6420436f6e717565720003ff92100eb12e000000000000000000000000",
+      "activation_header_bytes": 164,
+      "pre_activation_header_bytes": 80,
+      "network_id": "gridpool-blake2b-mainnet-v1",
+      "domain_fingerprint": "8d19554cd57c217c6fb0680e506cd9356eb60e6dfd7c050385477f07895aef2c",
+      "rdts_expiry_unix": 1819756800,
+      "first_blake_target_compact": "1a008d4f",
+      "target_shift": 22,
+      "profile_revision": "knots-rc4-dc82be77-activated-v1",
+      "status": "activated RC4 mainnet source and block checkpoint pin"
     }
   },
   "datum": {

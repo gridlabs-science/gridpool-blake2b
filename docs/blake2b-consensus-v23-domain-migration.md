@@ -74,9 +74,12 @@ minute and immediately when a previously pre-activation node crosses the
 boundary.
 
 Regtest additionally requires one shared 12-character lowercase hexadecimal
-lab ID in `gridpool-blake2b-regtest-v1:<lab-id>`. Mainnet remains unassigned and
-fails configuration validation; no placeholder activation or profile revision
-is permitted.
+lab ID in `gridpool-blake2b-regtest-v1:<lab-id>`. Mainnet uses
+`knots-blake2b-mainnet-rc4-activated`, network ID
+`gridpool-blake2b-mainnet-v1`, activation height `961640`, and domain fingerprint
+`8d19554cd57c217c6fb0680e506cd9356eb60e6dfd7c050385477f07895aef2c`.
+Attached-node attestation pins the RC4 subversion, activation hash, linked
+80-byte predecessor, embedded height, and compact target `0x1a008d4f`.
 
 ## Coordinated rollout
 

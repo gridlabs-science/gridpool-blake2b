@@ -65,6 +65,12 @@ public class Program
 
     public static async Task Main(string[] args)
     {
+        if (args.Length == 1 && string.Equals(args[0], "--print-datum-public-key", StringComparison.Ordinal))
+        {
+            Console.WriteLine(await EnsureDatumIdentityAndGetPublicKeyAsync());
+            return;
+        }
+
         var rootCommand = new RootCommand("DATUM Prime C# Server");
         var ed25519PrivateKeyOption = new Option<string?>(
             name: "--ed25519-private-key",
@@ -691,6 +697,81 @@ public class Program
 
         MergeInto(result, overrideConfig);
         return result;
+    }
+
+    private static async Task<string> EnsureDatumIdentityAndGetPublicKeyAsync()
+    {
+        string configPath = BootPortalPaths.ConfigFilePath;
+        string localConfigPath = BootPortalPaths.LocalConfigFilePath;
+        bool localPathExplicit = !string.IsNullOrWhiteSpace(
+            Environment.GetEnvironmentVariable("BOOT_PORTAL_LOCAL_CONFIG_PATH"));
+        bool useLocalOverlay = !string.Equals(configPath, localConfigPath, StringComparison.OrdinalIgnoreCase) &&
+                               (localPathExplicit || File.Exists(localConfigPath));
+
+        static async Task<JsonObject?> ReadObjectAsync(string path)
+        {
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+
+            JsonObject? parsed = JsonNode.Parse(await File.ReadAllTextAsync(path)) as JsonObject;
+            return parsed ?? throw new InvalidOperationException($"Identity config {path} is not a JSON object.");
+        }
+
+        JsonObject? baseObject = await ReadObjectAsync(configPath);
+        JsonObject? localObject = useLocalOverlay ? await ReadObjectAsync(localConfigPath) : null;
+        ServerConfig effective = MergeJsonObjects(baseObject, localObject)?.Deserialize<ServerConfig>() ?? new ServerConfig();
+        JsonObject writable = useLocalOverlay
+            ? localObject ?? new JsonObject()
+            : baseObject ?? new JsonObject();
+
+        static Key LoadOrCreate(
+            Algorithm algorithm,
+            string? encodedPrivateKey,
+            out string persistedPrivateKey)
+        {
+            Key key = string.IsNullOrWhiteSpace(encodedPrivateKey)
+                ? Key.Create(algorithm, new KeyCreationParameters
+                {
+                    ExportPolicy = KeyExportPolicies.AllowPlaintextExport
+                })
+                : Key.Import(
+                    algorithm,
+                    Convert.FromBase64String(encodedPrivateKey),
+                    KeyBlobFormat.RawPrivateKey,
+                    new KeyCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextExport });
+            persistedPrivateKey = Convert.ToBase64String(key.Export(KeyBlobFormat.RawPrivateKey));
+            return key;
+        }
+
+        using Key ed25519Key = LoadOrCreate(
+            SignatureAlgorithm.Ed25519,
+            effective.Ed25519PrivateKey,
+            out string ed25519PrivateKey);
+        using Key x25519Key = LoadOrCreate(
+            KeyAgreementAlgorithm.X25519,
+            effective.X25519PrivateKey,
+            out string x25519PrivateKey);
+
+        writable["ed25519_private_key"] = ed25519PrivateKey;
+        writable["x25519_private_key"] = x25519PrivateKey;
+        string writablePath = useLocalOverlay ? localConfigPath : configPath;
+        BootPortalPaths.EnsureParentDirectory(writablePath);
+        await File.WriteAllTextAsync(
+            writablePath,
+            writable.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(writablePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+
+        byte[] ed25519Public = ed25519Key.PublicKey.Export(KeyBlobFormat.RawPublicKey);
+        byte[] x25519Public = x25519Key.PublicKey.Export(KeyBlobFormat.RawPublicKey);
+        byte[] combined = new byte[ed25519Public.Length + x25519Public.Length];
+        Buffer.BlockCopy(ed25519Public, 0, combined, 0, ed25519Public.Length);
+        Buffer.BlockCopy(x25519Public, 0, combined, ed25519Public.Length, x25519Public.Length);
+        return Convert.ToHexStringLower(combined);
     }
 
     private static void MergeInto(JsonObject target, JsonObject source)
