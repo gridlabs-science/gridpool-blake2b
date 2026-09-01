@@ -59,10 +59,10 @@
     "upstream_repository": "https://github.com/innerhat-dev/datum_gateway",
     "fork_repository": "https://github.com/gridlabs-science/datum-gateway-blake2b-gridpool",
     "default_branch": "develop",
-    "fork_head": "b1cd8423ac1b10c015e29d949974452962d31af9",
+    "fork_head": "23476bc420451214eb54856498d25b3a6bc3a8fc",
     "gridpool_coinbase_implementation": "70670c5438ad176c7d8194fba7169944aeffb453",
     "unknown_firmware_implementation": "df502b3e2d2e4ed30c39a0aeecbe075f338a0360",
-    "verification": "clean local build, internal --test, and appliance container build pass; b1cd842 adds multi-architecture GHCR publishing with SBOM and provenance on top of the tested df502b3 mining implementation",
+    "verification": "clean local build, internal --test, and appliance container build pass; 23476bc adds a UID-1000 appliance runtime and multi-architecture GHCR publishing with secret/dependency scans, SBOM, and provenance on top of the tested df502b3 mining implementation",
     "status": "reviewed Blake2b base with GridPool forced-coinbase compatibility, unknown-firmware handling, and appliance image publishing"
   },
   "artifacts": {

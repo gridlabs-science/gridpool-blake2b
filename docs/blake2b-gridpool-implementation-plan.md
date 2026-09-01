@@ -5,7 +5,7 @@
 Create two public GridLabs repositories:
 
 - `gridlabs-science/gridpool-blake2b`: standalone repository preserving `boot-protocol` history, default branch `develop`.
-- `gridlabs-science/datum-gateway-blake2b-gridpool`: GitHub fork of the community Blake2b DATUM implementation, now maintained at `innerhat-dev/datum_gateway`. The reviewed upstream base is `2fea7e5`; GridLabs `develop` is pinned at `df502b3`, including forced-coinbase compatibility, known-incompatible fail-closed handling, and an explicitly logged unknown-firmware full-coinbase path. The older `e894b8a` pin is superseded.
+- `gridlabs-science/datum-gateway-blake2b-gridpool`: GitHub fork of the community Blake2b DATUM implementation, now maintained at `innerhat-dev/datum_gateway`. The reviewed upstream base is `2fea7e5`; GridLabs `develop` is pinned at `23476bc`, including forced-coinbase compatibility, known-incompatible fail-closed handling, an explicitly logged unknown-firmware full-coinbase path, an appliance-safe UID-1000 runtime, and multi-architecture publishing. The older `e894b8a` and `df502b3` pins are superseded.
 
 The Blake2b chain activated at mainnet height `961640`; continue treating the
 software and appliance packages as experimental rather than stable. Independent
