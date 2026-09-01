@@ -4,8 +4,10 @@ import { readFileSync } from "node:fs";
 
 const lockPath = new URL("../config/blake2b-source-lock.json", import.meta.url);
 const testnetConfigPath = new URL("../deploy/blake-vps/knots-testnet4.conf", import.meta.url);
+const mainnetConfigPath = new URL("../deploy/blake-vps/knots-mainnet.conf", import.meta.url);
 const lock = JSON.parse(readFileSync(lockPath, "utf8"));
 const testnetConfig = readFileSync(testnetConfigPath, "utf8");
+const mainnetConfig = readFileSync(mainnetConfigPath, "utf8");
 
 const fail = (message) => {
   throw new Error(`Blake2b source lock: ${message}`);
@@ -94,6 +96,12 @@ requireEqual(lock.knots.mainnet.rdts_expiry_unix, 1819756800, "knots.mainnet.rdt
 requireEqual(lock.knots.mainnet.first_blake_target_compact, "1a008d4f", "knots.mainnet.first_blake_target_compact");
 requireEqual(lock.knots.mainnet.target_shift, 22, "knots.mainnet.target_shift");
 requireEqual(lock.knots.mainnet.profile_revision, "knots-rc4-dc82be77-activated-v1", "knots.mainnet.profile_revision");
+if (!mainnetConfig.includes(`assumevalid=${lock.knots.mainnet.activation_block_hash}`)) {
+  fail("deploy/blake-vps/knots-mainnet.conf must pin the locked activation hash as assumevalid");
+}
+if (!mainnetConfig.includes(`blake2b_headline=${lock.knots.mainnet.activation_headline}`)) {
+  fail("deploy/blake-vps/knots-mainnet.conf must pin the locked activation headline");
+}
 if (typeof lock.knots.mainnet.domain_fingerprint !== "string" || !/^[0-9a-f]{64}$/.test(lock.knots.mainnet.domain_fingerprint)) {
   fail("knots.mainnet.domain_fingerprint must be a lowercase 64-character hash");
 }

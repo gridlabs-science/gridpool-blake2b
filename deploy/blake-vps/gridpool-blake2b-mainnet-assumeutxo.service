@@ -1,0 +1,19 @@
+[Unit]
+Description=Load the pinned-height Bitcoin mainnet AssumeUTXO snapshot
+After=network-online.target gridpool-blake2b-knots-mainnet.service
+Requires=gridpool-blake2b-knots-mainnet.service
+
+[Service]
+Type=oneshot
+User=bitcoin
+Group=bitcoin
+ExecStart=/opt/gridpool-blake2b/deploy/load-mainnet-assumeutxo.sh
+TimeoutStartSec=infinity
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/gridpool-blake2b/mainnet
+
+[Install]
+WantedBy=multi-user.target

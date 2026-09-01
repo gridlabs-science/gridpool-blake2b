@@ -1,10 +1,29 @@
 # Constrained Blake2b VPS deployment
 
-This directory defines the first, Testnet4-only node phase for the 6-vCPU,
-12-GB RAM, 100-GB VPS. RPC, ZMQ, HTTP, GridPool peer, and UDP remain private.
-The explicitly authorized Testnet4 lab publishes DATUM on TCP `3009` and
-Stratum on TCP `3334`; Testnet4 data must be stopped and removed before a
-separately rooted mainnet node is prepared.
+This directory defines the one-chain-at-a-time Testnet4 and activated-mainnet
+profiles for the 6-vCPU, 12-GB RAM, 100-GB VPS. RPC, ZMQ, HTTP, GridPool peer,
+and UDP remain private. Stop Testnet4 services before starting the separately
+rooted mainnet node.
+
+## Activated mainnet phase
+
+Mainnet uses signed tag `v29.4.1.knots20260508rc4`, peeled commit
+`dc82be77dd741dfa63e1f816367b15364d55b051`, the exact height-961640
+activation checkpoint, and the headline `8-30 NYPost Deride And Conquer`.
+RC4 applies RDTS from the compiled Blake activation schedule; no separate
+mainnet RDTS flag is needed or permitted.
+
+`knots-mainnet.conf` uses a 12-GiB prune target, 4-GiB database cache, and the
+activation hash as `assumevalid`. The optional one-shot AssumeUTXO unit downloads
+the height-910000 snapshot into the dedicated mainnet datadir. The snapshot may
+come from an untrusted mirror because `loadtxoutset` verifies it against the
+hash, base height, transaction count, and block hash compiled into RC4. Full
+background validation continues from genesis after the snapshot chainstate
+becomes usable. Keep at least 15 GiB free throughout that validation.
+
+Do not enable mainnet GridPool or mining ingress until
+`check-knots-mainnet.sh` reports the exact RC4 subversion, the activation hash,
+a synced tip, and the attached GridPool profile attests successfully.
 
 ## Pinned node source
 
