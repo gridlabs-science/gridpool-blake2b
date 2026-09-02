@@ -13,7 +13,7 @@ const DEFAULT_CONFIG_PATHS = [
     path.join(process.cwd(), "scripts", "gridpool-health-monitor.local.json")
 ];
 
-const FOUNDATION_ADDRESS = "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3";
+const FOUNDATION_ADDRESS = "bc1qchlyrly5nd6a5fvq46lp8vgs9mf52g4njdwmny";
 
 const DEFAULT_CONFIG = {
     monitorName: "gridpool-mainnet-beta",

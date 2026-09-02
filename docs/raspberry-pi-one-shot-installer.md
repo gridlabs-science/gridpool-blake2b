@@ -344,10 +344,10 @@ The generated DATUM config assumes one payout address per DATUM Gateway:
 
 This matches the current protocol rule that share attribution comes from the slot-0 payout address committed into the hashed coinbase transaction.
 
-If no payout address is provided, the installer currently defaults to the 256 Foundation donation address:
+If no payout address is provided, the Blake installer defaults to the authorized bootstrap/support address:
 
 ```text
-bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3
+bc1qchlyrly5nd6a5fvq46lp8vgs9mf52g4njdwmny
 ```
 
 That default is only a safe placeholder. Sovereign miners should pass their own address with `--payout-address`.

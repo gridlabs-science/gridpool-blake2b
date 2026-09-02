@@ -30,7 +30,7 @@
   "peer_udp_bind_port": 5101,
   "peer_udp_port": 5101,
   "peer_udp_public_host": "",
-  "pool_payout_script": "",
+  "pool_payout_script": "bc1qchlyrly5nd6a5fvq46lp8vgs9mf52g4njdwmny",
   "winners_list_size": 299,
   "min_diff": 1024,
   "grid_labs_support_fee_enabled": false,

@@ -154,12 +154,8 @@
   ],
   "knownAddresses": [
     {
-      "address": "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3",
-      "label": "256 Foundation genesis/default payout"
-    },
-    {
-      "address": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
-      "label": "Grid Labs main address"
+      "address": "bc1qchlyrly5nd6a5fvq46lp8vgs9mf52g4njdwmny",
+      "label": "Blake2b bootstrap and support address"
     }
   ]
 }

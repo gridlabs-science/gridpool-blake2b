@@ -8,6 +8,7 @@ const mainnetConfigPath = new URL("../deploy/blake-vps/knots-mainnet.conf", impo
 const mainnetSeedConfigPath = new URL("../deploy/blake-vps/boot_portal_config.mainnet.blake2b.json", import.meta.url);
 const genericGridPoolConfigPath = new URL("../docker/boot_portal_config.sample.json", import.meta.url);
 const programPath = new URL("../boot_portal/Program.cs", import.meta.url);
+const protocolStatePath = new URL("../boot_portal/Services/BootProtocolStateService.cs", import.meta.url);
 const nodeInstallerPath = new URL("../scripts/install-gridpool-node.sh", import.meta.url);
 const sovereignInstallerPath = new URL("../scripts/install-sovereign-stack.sh", import.meta.url);
 const lock = JSON.parse(readFileSync(lockPath, "utf8"));
@@ -15,7 +16,10 @@ const testnetConfig = readFileSync(testnetConfigPath, "utf8");
 const mainnetConfig = readFileSync(mainnetConfigPath, "utf8");
 const mainnetSeedConfig = JSON.parse(readFileSync(mainnetSeedConfigPath, "utf8"));
 const genericGridPoolConfig = JSON.parse(readFileSync(genericGridPoolConfigPath, "utf8"));
+const authorizedMainnetBootstrapAddress = "bc1qchlyrly5nd6a5fvq46lp8vgs9mf52g4njdwmny";
 const seedDefaultSources = [programPath, nodeInstallerPath, sovereignInstallerPath]
+  .map((path) => readFileSync(path, "utf8"));
+const payoutDefaultSources = [protocolStatePath, nodeInstallerPath, sovereignInstallerPath]
   .map((path) => readFileSync(path, "utf8"));
 
 const fail = (message) => {
@@ -122,12 +126,22 @@ requireEqual(mainnetSeedConfig.public_base_url, "https://blake.gridpool.net", "m
 requireEqual(mainnetSeedConfig.enable_peer_udp_fast_relay, false, "mainnet seed UDP relay gate");
 requireEqual(mainnetSeedConfig.enable_pulse_proofs, false, "mainnet seed pulse gate");
 requireEqual(mainnetSeedConfig.grid_labs_support_fee_enabled, false, "mainnet seed fee-free policy");
+requireEqual(mainnetSeedConfig.pool_payout_script, authorizedMainnetBootstrapAddress, "mainnet seed payout fallback");
 requireEqual(genericGridPoolConfig.bootstrap_peers?.[0], "https://blake.gridpool.net", "generic Blake bootstrap seed");
 requireEqual(genericGridPoolConfig.chain_profile_id, "knots-blake2b-mainnet-rc4-activated", "generic Blake chain profile");
 requireEqual(genericGridPoolConfig.boot_network_id, "gridpool-blake2b-mainnet-v1", "generic Blake network ID");
+requireEqual(genericGridPoolConfig.pool_payout_script, authorizedMainnetBootstrapAddress, "generic Blake payout fallback");
 for (const source of seedDefaultSources) {
   if (/https:\/\/(?:main|dallas|detroit)\.gridpool\.net/i.test(source)) {
     fail("runtime and installer defaults must not reference legacy SHA-256 GridPool seeds");
+  }
+}
+for (const source of payoutDefaultSources) {
+  if (!source.includes(authorizedMainnetBootstrapAddress)) {
+    fail("runtime and installer payout defaults must include the authorized Blake bootstrap address");
+  }
+  if (/bc1q(?:ce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3|rwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y)/i.test(source)) {
+    fail("runtime and installer payout defaults must not reference legacy mainnet addresses");
   }
 }
 

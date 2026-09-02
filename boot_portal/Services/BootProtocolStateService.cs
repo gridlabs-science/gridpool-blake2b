@@ -15,9 +15,9 @@ namespace boot_portal.Services;
 
 public class BootProtocolStateService
 {
-    public const string GenesisFoundationAddress = "bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3";
+    public const string GenesisFoundationAddress = "bc1qchlyrly5nd6a5fvq46lp8vgs9mf52g4njdwmny";
     public const string TestnetGenesisFoundationAddress = "mhK63i2JYNBsZ9aWcq6rhA1eCMFqp5MALL";
-    public const string GridLabsSupportAddress = "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y";
+    public const string GridLabsSupportAddress = GenesisFoundationAddress;
     public const string TestnetGridLabsSupportAddress = TestnetGenesisFoundationAddress;
     private const ulong MainnetCurrentSubsidySats = 312_500_000;
     private const ulong Testnet4CurrentSubsidySats = 5_000_000_000;

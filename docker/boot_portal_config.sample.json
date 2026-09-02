@@ -85,7 +85,7 @@
   "v22_activation_block_height": 959500,
   "enable_admin_api": false,
   "admin_api_key": "change-this-admin-key",
-  "pool_payout_script": "bc1qrwsx8fs0l6z7ugp5cvzy6lhss7jlyru3kg9s8y",
+  "pool_payout_script": "bc1qchlyrly5nd6a5fvq46lp8vgs9mf52g4njdwmny",
   "winners_list_size": 299,
   "grid_labs_support_fee_enabled": false,
   "work_set_reserve_multiplier": 3,

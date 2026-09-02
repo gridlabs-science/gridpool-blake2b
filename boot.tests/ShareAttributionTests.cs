@@ -2279,7 +2279,7 @@ public sealed class ShareAttributionTests
         ulong expectedSlotValue = BootProtocolStateService.GetCurrentBlockSubsidySats(feeHarness.Config.BitcoinNetwork) /
                                   (ulong)feeHarness.Config.TotalPayoutSlotCount;
         Assert.AreEqual(3, feeWinners.Count);
-        Assert.AreEqual(AlternateAddress, feeWinners[0].Address);
+        Assert.AreEqual(BootProtocolStateService.GridLabsSupportAddress, feeWinners[0].Address);
         Assert.AreEqual("Grid Labs support", feeWinners[0].Username);
         Assert.AreEqual(expectedSlotValue, feeWinners[0].Value);
         Assert.AreEqual(100, feeWinners[1].Difficulty);
