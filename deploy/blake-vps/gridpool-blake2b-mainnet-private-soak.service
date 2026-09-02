@@ -1,0 +1,20 @@
+[Unit]
+Description=GridPool Blake2b mainnet private soak
+After=network-online.target docker.service gridpool-blake2b-knots-mainnet.service
+Wants=network-online.target docker.service
+Requires=gridpool-blake2b-knots-mainnet.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+WorkingDirectory=/opt/gridpool-blake2b/mainnet-private-soak
+EnvironmentFile=/etc/gridpool-blake2b/gridpool-mainnet-image.env
+ExecStartPre=/usr/bin/docker network inspect gridpool-blake2b-mainnet-private-soak
+ExecStart=/usr/bin/docker compose -f docker-compose.yml up -d --remove-orphans
+ExecStartPost=/opt/gridpool-blake2b/mainnet-private-soak/check-private-soak.sh
+ExecStop=/usr/bin/docker compose -f docker-compose.yml down
+TimeoutStartSec=120
+TimeoutStopSec=45
+
+[Install]
+WantedBy=multi-user.target

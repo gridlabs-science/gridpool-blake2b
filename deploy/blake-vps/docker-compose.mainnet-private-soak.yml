@@ -1,0 +1,32 @@
+services:
+  boot-portal:
+    image: ${GRIDPOOL_BOOT_IMAGE:?set GRIDPOOL_BOOT_IMAGE to an immutable GridPool image digest}
+    container_name: gridpool-blake2b-mainnet-private-soak
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    mem_limit: 768m
+    cpus: 1.5
+    environment:
+      BOOT_PORTAL_CONFIG_PATH: /config/boot_portal_config.json
+      BOOT_PORTAL_LOCAL_CONFIG_PATH: /data/boot_portal_config.local.json
+      BOOT_PORTAL_STATE_PATH: /data/pool_state.json
+    extra_hosts:
+      - "host.docker.internal:172.31.0.1"
+    ports:
+      - "127.0.0.1:5000:5000"
+      - "127.0.0.1:3008:3008"
+    volumes:
+      - ./boot_portal_config.mainnet.blake2b.json:/config/boot_portal_config.json:ro
+      - ./data:/data
+      - ./bitcoin-cookie:/bitcoin:ro
+
+networks:
+  default:
+    name: gridpool-blake2b-mainnet-private-soak
+    external: true

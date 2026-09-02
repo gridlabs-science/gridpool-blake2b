@@ -25,6 +25,15 @@ Do not enable mainnet GridPool or mining ingress until
 `check-knots-mainnet.sh` reports the exact RC4 subversion, the activation hash,
 a synced tip, and the attached GridPool profile attests successfully.
 
+The first GridPool run uses `docker-compose.mainnet-private-soak.yml`. Both the
+HTTP API and DATUM listener are published on host loopback only. The dedicated
+`172.31.0.0/24` bridge is the only path to Knots RPC and ZMQ, and the container
+runs read-only with no Linux capabilities and explicit CPU/memory limits. The
+service refuses to start unless its image is supplied by immutable digest in
+`/etc/gridpool-blake2b/gridpool-mainnet-image.env`; its post-start check requires
+attached-node chain-profile attestation and verifies that both published ports
+remain loopback-only.
+
 `boot_portal_config.mainnet.blake2b.json` is the staged configuration for the
 first public Blake GridPool seed. Its `bootstrap_peers` list is deliberately
 empty: later nodes use `https://blake.gridpool.net`, while the first seed never
@@ -144,6 +153,8 @@ missing terminators or longer padding.
 
 - `prune=12000`, `dbcache=2048`, `maxmempool=100`, 64 peer connections.
 - Maintain at least 15 GiB free; alert at 20 GiB and fail health at 15 GiB.
+- Keep the VPS's 2-GiB `/swapfile-gridpool` enabled as an OOM safety margin
+  while AssumeUTXO background validation overlaps GridPool and DATUM.
 - RPC `48332`, hashblock ZMQ `28332`, and rawblock ZMQ `28333` bind loopback.
 - UFW denies inbound traffic by default and permits SSH, Testnet4 P2P TCP
   `48333`, DATUM TCP `3009`, and test Stratum TCP `3334`. HTTP, RPC, ZMQ,

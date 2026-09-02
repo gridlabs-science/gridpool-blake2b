@@ -1,6 +1,6 @@
 {
   "schema": "gridpool-blake2b-source-lock-v1",
-  "updated_utc": "2026-08-31T00:00:00Z",
+  "updated_utc": "2026-09-02T11:15:00Z",
   "gridpool": {
     "development_baseline": "b4c92a9090c11efd74298e06b02cfe56727373ea",
     "development_tag": "security-rt-076-retest-candidate",
@@ -68,8 +68,8 @@
   "artifacts": {
     "knots_testnet4_binary_sha256": "sha256:50694fc6fd4fe0dc8aa66e4695654cdb1dffbe00e6b2192919a476efa44b3ad2",
     "datum_testnet4_binary_sha256": "sha256:add57bb18de6ec092d952f9329307b0542a7d9820f10284dfe4a1686a9f6fd61",
-    "gridpool_image_digest": null,
+    "gridpool_image_digest": "sha256:6c49dee803bb584e12e18e409f47e3924c000e923f442fb84d74683015be0ef1",
     "datum_image_digest": null,
-    "status": "Testnet4 bitcoind and staged DATUM source builds recorded; GridPool and DATUM images pending"
+    "status": "GridPool 8b3e45a multi-architecture image digest and Testnet4 source builds recorded; DATUM image pending"
   }
 }
