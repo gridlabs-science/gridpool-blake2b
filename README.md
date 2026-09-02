@@ -121,8 +121,8 @@ Notes:
 - The default sample explicitly uses `bitcoin_notification_mode = "external-fallback"` so a local `bitcoind` is not required for first boot.
 - Sovereign mining nodes should use `attached-node`: authenticated RPC is the correctness authority, ZMQ is the low-latency path, and five-second RPC reconciliation recovers missed notifications.
 - Container loopback does not reach the Docker host. Follow `docs/bitcoin-node-connectivity.md` for host-network, shared-bridge, host-gateway, remote-LAN, and node-less examples.
-- The mainnet beta bootstrap seed is `https://main.gridpool.net` unless you override `bootstrap_peers`.
-- Testnet4 beta nodes should use `docker/boot_portal_config.testnet4.sample.json`, or set `bitcoin_network = "testnet4"`, `boot_network_id = "testnet4-beta"`, and bootstrap from `https://test.gridpool.net`.
+- Activated Blake2b mainnet nodes bootstrap from `https://blake.gridpool.net` unless explicitly overridden. The first public seed uses an empty bootstrap list.
+- Blake2b Testnet4 nodes should use `docker/boot_portal_config.testnet4.sample.json`, set `bitcoin_network = "testnet4"`, `boot_network_id = "gridpool-blake2b-testnet4-v1"`, and bootstrap from `https://testnet4.blake.gridpool.net` once that seed is available.
 - Health probes are exposed at `/health/live` and `/health/ready`.
 - The default DATUM primary coinbase tag is `Grid Pool`; set `coinbase_tag` to another string, or `""` for unbranded blocks.
 - Back up the Docker `./data` directory before machine moves, package upgrades, or host rebuilds. It contains live config, server identity keys, pool state, and history.

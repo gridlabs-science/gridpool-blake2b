@@ -1,9 +1,9 @@
 # Constrained Blake2b VPS deployment
 
 This directory defines the one-chain-at-a-time Testnet4 and activated-mainnet
-profiles for the 6-vCPU, 12-GB RAM, 100-GB VPS. RPC, ZMQ, HTTP, GridPool peer,
-and UDP remain private. Stop Testnet4 services before starting the separately
-rooted mainnet node.
+profiles for the 6-vCPU, 12-GB RAM, 100-GB VPS. Bitcoin RPC and ZMQ remain
+private. Stop Testnet4 services before starting the separately rooted mainnet
+node.
 
 ## Activated mainnet phase
 
@@ -24,6 +24,15 @@ becomes usable. Keep at least 15 GiB free throughout that validation.
 Do not enable mainnet GridPool or mining ingress until
 `check-knots-mainnet.sh` reports the exact RC4 subversion, the activation hash,
 a synced tip, and the attached GridPool profile attests successfully.
+
+`boot_portal_config.mainnet.blake2b.json` is the staged configuration for the
+first public Blake GridPool seed. Its `bootstrap_peers` list is deliberately
+empty: later nodes use `https://blake.gridpool.net`, while the first seed never
+contacts the legacy SHA-256 GridPool network. Before starting GridPool, place a
+mainnet payout address in an untracked local override, generate and back up the
+seed identity, and complete the attached-node attestation. Publish only HTTP(S)
+through a TLS reverse proxy, DATUM TCP 3008, and Stratum TCP 3333. Keep port
+5000, RPC, ZMQ, and the currently disabled GridPool UDP relay private.
 
 ## Pinned node source
 

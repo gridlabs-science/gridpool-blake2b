@@ -4,9 +4,9 @@ set -euo pipefail
 SCRIPT_NAME="$(basename "$0")"
 
 GRID_HOME="${GRID_HOME:-/opt/grid-pool}"
-GRID_BOOT_REPO_URL="${GRID_BOOT_REPO_URL:-https://github.com/gridlabs-science/boot-protocol.git}"
-GRID_BOOT_REPO_REF="${GRID_BOOT_REPO_REF:-main}"
-GRID_BOOT_IMAGE="${GRID_BOOT_IMAGE:-ghcr.io/gridlabs-science/boot-protocol:latest}"
+GRID_BOOT_REPO_URL="${GRID_BOOT_REPO_URL:-https://github.com/gridlabs-science/gridpool-blake2b.git}"
+GRID_BOOT_REPO_REF="${GRID_BOOT_REPO_REF:-develop}"
+GRID_BOOT_IMAGE="${GRID_BOOT_IMAGE:-ghcr.io/gridlabs-science/gridpool-blake2b:sha-01255d6}"
 GRID_BOOT_LOCAL_BUILD="${GRID_BOOT_LOCAL_BUILD:-0}"
 GRID_DATUM_REPO_URL="${GRID_DATUM_REPO_URL:-https://github.com/OCEAN-xyz/datum_gateway.git}"
 GRID_DATUM_REPO_REF="${GRID_DATUM_REPO_REF:-master}"
@@ -17,8 +17,8 @@ GRID_BOOT_NETWORK_ID_WAS_SET="${GRID_BOOT_NETWORK_ID+x}"
 GRID_FOUNDATION_PAYOUT_ADDRESS="${GRID_FOUNDATION_PAYOUT_ADDRESS:-bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3}"
 GRID_POOL_PAYOUT_ADDRESS="${GRID_POOL_PAYOUT_ADDRESS:-$GRID_FOUNDATION_PAYOUT_ADDRESS}"
 GRID_POOL_COINBASE_TAG="${GRID_POOL_COINBASE_TAG:-Grid Pool}"
-GRID_BOOT_BOOTSTRAP_PEERS="${GRID_BOOT_BOOTSTRAP_PEERS:-https://main.gridpool.net}"
-GRID_BOOT_NETWORK_ID="${GRID_BOOT_NETWORK_ID:-mainnet-beta}"
+GRID_BOOT_BOOTSTRAP_PEERS="${GRID_BOOT_BOOTSTRAP_PEERS:-https://blake.gridpool.net}"
+GRID_BOOT_NETWORK_ID="${GRID_BOOT_NETWORK_ID:-gridpool-blake2b-mainnet-v1}"
 GRID_BOOT_NODE_MODE="${GRID_BOOT_NODE_MODE:-sovereign}"
 BITCOIN_NETWORK="${BITCOIN_NETWORK:-mainnet}"
 GRID_BOOT_STATE_FILE="${GRID_BOOT_STATE_FILE:-pool_state.json}"
@@ -492,10 +492,10 @@ confirm_inputs() {
         test|testnet|testnet3|testnet4)
             BITCOIN_NETWORK="testnet4"
             if [[ -z "$GRID_BOOT_NETWORK_ID_WAS_SET" ]]; then
-                GRID_BOOT_NETWORK_ID="testnet4-beta"
+                GRID_BOOT_NETWORK_ID="gridpool-blake2b-testnet4-v1"
             fi
             if [[ -z "$GRID_BOOT_BOOTSTRAP_PEERS_WAS_SET" ]]; then
-                GRID_BOOT_BOOTSTRAP_PEERS="https://test.gridpool.net"
+                GRID_BOOT_BOOTSTRAP_PEERS="https://testnet4.blake.gridpool.net"
             fi
             if [[ "$GRID_BOOT_STATE_FILE" == "pool_state.json" ]]; then
                 GRID_BOOT_STATE_FILE="pool_state.testnet4.json"
@@ -1082,17 +1082,23 @@ install_boot() {
                 datum_public_port: $datumPublicPort,
                 node_mode: $nodeMode,
                 bitcoin_network: $bitcoinNetwork,
+                chain_profile_id: (if $bitcoinNetwork == "mainnet" then "knots-blake2b-mainnet-rc4-activated" else "knots-rc3-afbe91c-testnet4-v1" end),
                 boot_network_id: $networkId,
+                boot_protocol_version: 23,
                 enable_peer_sync: true,
                 bootstrap_peers: $peers,
                 enable_admin_api: false,
                 enable_peer_persistent_sessions: true,
-                enable_peer_udp_fast_relay: true,
-                peer_udp_bind_port: 5001,
-                peer_udp_port: 5001,
+                enable_peer_udp_fast_relay: false,
+                peer_udp_bind_port: (if $bitcoinNetwork == "mainnet" then 5101 else 5102 end),
+                peer_udp_port: (if $bitcoinNetwork == "mainnet" then 5101 else 5102 end),
                 peer_udp_public_host: "",
                 peer_udp_max_datagram_bytes: 1200,
+                enable_pulse_proofs: false,
+                enable_optimistic_share_relay: false,
                 pool_payout_script: $payout,
+                winners_list_size: 299,
+                grid_labs_support_fee_enabled: false,
                 coinbase_tag: $tag,
                 min_diff: 300
             }' >"$local_config_path"

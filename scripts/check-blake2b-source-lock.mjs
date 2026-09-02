@@ -5,9 +5,18 @@ import { readFileSync } from "node:fs";
 const lockPath = new URL("../config/blake2b-source-lock.json", import.meta.url);
 const testnetConfigPath = new URL("../deploy/blake-vps/knots-testnet4.conf", import.meta.url);
 const mainnetConfigPath = new URL("../deploy/blake-vps/knots-mainnet.conf", import.meta.url);
+const mainnetSeedConfigPath = new URL("../deploy/blake-vps/boot_portal_config.mainnet.blake2b.json", import.meta.url);
+const genericGridPoolConfigPath = new URL("../docker/boot_portal_config.sample.json", import.meta.url);
+const programPath = new URL("../boot_portal/Program.cs", import.meta.url);
+const nodeInstallerPath = new URL("../scripts/install-gridpool-node.sh", import.meta.url);
+const sovereignInstallerPath = new URL("../scripts/install-sovereign-stack.sh", import.meta.url);
 const lock = JSON.parse(readFileSync(lockPath, "utf8"));
 const testnetConfig = readFileSync(testnetConfigPath, "utf8");
 const mainnetConfig = readFileSync(mainnetConfigPath, "utf8");
+const mainnetSeedConfig = JSON.parse(readFileSync(mainnetSeedConfigPath, "utf8"));
+const genericGridPoolConfig = JSON.parse(readFileSync(genericGridPoolConfigPath, "utf8"));
+const seedDefaultSources = [programPath, nodeInstallerPath, sovereignInstallerPath]
+  .map((path) => readFileSync(path, "utf8"));
 
 const fail = (message) => {
   throw new Error(`Blake2b source lock: ${message}`);
@@ -104,6 +113,22 @@ if (!mainnetConfig.includes(`blake2b_headline=${lock.knots.mainnet.activation_he
 }
 if (typeof lock.knots.mainnet.domain_fingerprint !== "string" || !/^[0-9a-f]{64}$/.test(lock.knots.mainnet.domain_fingerprint)) {
   fail("knots.mainnet.domain_fingerprint must be a lowercase 64-character hash");
+}
+requireEqual(mainnetSeedConfig.chain_profile_id, "knots-blake2b-mainnet-rc4-activated", "mainnet seed chain_profile_id");
+requireEqual(mainnetSeedConfig.boot_network_id, "gridpool-blake2b-mainnet-v1", "mainnet seed boot_network_id");
+requireEqual(mainnetSeedConfig.boot_protocol_version, 23, "mainnet seed boot_protocol_version");
+requireEqual(JSON.stringify(mainnetSeedConfig.bootstrap_peers), "[]", "first mainnet seed bootstrap_peers");
+requireEqual(mainnetSeedConfig.public_base_url, "https://blake.gridpool.net", "mainnet seed public_base_url");
+requireEqual(mainnetSeedConfig.enable_peer_udp_fast_relay, false, "mainnet seed UDP relay gate");
+requireEqual(mainnetSeedConfig.enable_pulse_proofs, false, "mainnet seed pulse gate");
+requireEqual(mainnetSeedConfig.grid_labs_support_fee_enabled, false, "mainnet seed fee-free policy");
+requireEqual(genericGridPoolConfig.bootstrap_peers?.[0], "https://blake.gridpool.net", "generic Blake bootstrap seed");
+requireEqual(genericGridPoolConfig.chain_profile_id, "knots-blake2b-mainnet-rc4-activated", "generic Blake chain profile");
+requireEqual(genericGridPoolConfig.boot_network_id, "gridpool-blake2b-mainnet-v1", "generic Blake network ID");
+for (const source of seedDefaultSources) {
+  if (/https:\/\/(?:main|dallas|detroit)\.gridpool\.net/i.test(source)) {
+    fail("runtime and installer defaults must not reference legacy SHA-256 GridPool seeds");
+  }
 }
 
 requireSha(

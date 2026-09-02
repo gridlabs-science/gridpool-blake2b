@@ -55,9 +55,9 @@ public class ServerConfig
 
 public class Program
 {
-    public const string DefaultPublicSeedEndpoint = "https://main.gridpool.net";
+    public const string DefaultPublicSeedEndpoint = "https://blake.gridpool.net";
     public static readonly string[] DefaultPublicSeedEndpoints =
-        ["https://main.gridpool.net", "https://dallas.gridpool.net", "https://detroit.gridpool.net"];
+        [DefaultPublicSeedEndpoint];
     // TODO: I should optionally load this from config, instead of hard-coded like this.
     private static int DatumPort = 3008;  //Defaults to 3008.  Should get set by config file.
     public static ulong BLOCK_REWARD = 312_500_000;  //TODO: Need to detect this from the blockchain, so it gracefully handles the next epoch
@@ -856,7 +856,7 @@ public class Program
             ? "tcp://127.0.0.1:28332"
             : config.BitcoinZmqEndpoint.Trim();
 
-        if (string.Equals(config.BootNetworkId, "mainnet-beta", StringComparison.OrdinalIgnoreCase) &&
+        if (string.Equals(config.BootNetworkId, ChainDomainProfiles.Blake2bMainnetNetworkId, StringComparison.Ordinal) &&
             config.BootstrapPeers.Count == 0)
         {
             config.BootstrapPeers.AddRange(DefaultPublicSeedEndpoints.Where(seed =>

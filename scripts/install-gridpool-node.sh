@@ -2,7 +2,7 @@
 set -euo pipefail
 
 GRID_HOME="${GRID_HOME:-/opt/grid-pool}"
-GRID_BOOT_IMAGE="${GRID_BOOT_IMAGE:-ghcr.io/gridlabs-science/boot-protocol:latest}"
+GRID_BOOT_IMAGE="${GRID_BOOT_IMAGE:-ghcr.io/gridlabs-science/gridpool-blake2b:sha-01255d6}"
 GRID_FOUNDATION_PAYOUT_ADDRESS="${GRID_FOUNDATION_PAYOUT_ADDRESS:-bc1qce93hy5rhg02s6aeu7mfdvxg76x66pqqtrvzs3}"
 GRID_TESTNET_PAYOUT_ADDRESS="${GRID_TESTNET_PAYOUT_ADDRESS:-mxt9bYPtfBdzoTeZcHr23QgL4Un45PVvF5}"
 GRID_POOL_PAYOUT_ADDRESS="${GRID_POOL_PAYOUT_ADDRESS:-}"
@@ -268,14 +268,14 @@ normalize_network_defaults() {
     case "$BITCOIN_NETWORK" in
         mainnet|bitcoin)
             BITCOIN_NETWORK="mainnet"
-            GRID_BOOT_NETWORK_ID="${GRID_BOOT_NETWORK_ID:-mainnet-beta}"
-            GRID_BOOT_BOOTSTRAP_PEERS="${GRID_BOOT_BOOTSTRAP_PEERS:-https://main.gridpool.net}"
+            GRID_BOOT_NETWORK_ID="${GRID_BOOT_NETWORK_ID:-gridpool-blake2b-mainnet-v1}"
+            GRID_BOOT_BOOTSTRAP_PEERS="${GRID_BOOT_BOOTSTRAP_PEERS:-https://blake.gridpool.net}"
             GRID_BOOT_STATE_FILE="${GRID_BOOT_STATE_FILE:-pool_state.json}"
             GRID_POOL_PAYOUT_ADDRESS="${GRID_POOL_PAYOUT_ADDRESS:-$GRID_FOUNDATION_PAYOUT_ADDRESS}"
             ;;
         testnet4)
-            GRID_BOOT_NETWORK_ID="${GRID_BOOT_NETWORK_ID:-testnet4-beta}"
-            GRID_BOOT_BOOTSTRAP_PEERS="${GRID_BOOT_BOOTSTRAP_PEERS:-https://test.gridpool.net}"
+            GRID_BOOT_NETWORK_ID="${GRID_BOOT_NETWORK_ID:-gridpool-blake2b-testnet4-v1}"
+            GRID_BOOT_BOOTSTRAP_PEERS="${GRID_BOOT_BOOTSTRAP_PEERS:-https://testnet4.blake.gridpool.net}"
             GRID_BOOT_STATE_FILE="${GRID_BOOT_STATE_FILE:-pool_state.testnet4.json}"
             GRID_POOL_PAYOUT_ADDRESS="${GRID_POOL_PAYOUT_ADDRESS:-$GRID_TESTNET_PAYOUT_ADDRESS}"
             ;;
@@ -427,17 +427,23 @@ data.update({
     "datum_public_port": int(${BOOT_DATUM_PUBLIC_PORT@Q}),
     "node_mode": "sovereign",
     "bitcoin_network": ${BITCOIN_NETWORK@Q},
+    "chain_profile_id": "knots-blake2b-mainnet-rc4-activated" if ${BITCOIN_NETWORK@Q} == "mainnet" else "knots-rc3-afbe91c-testnet4-v1",
     "boot_network_id": ${GRID_BOOT_NETWORK_ID@Q},
+    "boot_protocol_version": 23,
     "enable_peer_sync": True,
     "bootstrap_peers": json.loads(${peers_json@Q}),
     "enable_admin_api": False,
     "enable_peer_persistent_sessions": True,
-    "enable_peer_udp_fast_relay": True,
-    "peer_udp_bind_port": 5001,
-    "peer_udp_port": 5001,
+    "enable_peer_udp_fast_relay": False,
+    "peer_udp_bind_port": 5101 if ${BITCOIN_NETWORK@Q} == "mainnet" else 5102,
+    "peer_udp_port": 5101 if ${BITCOIN_NETWORK@Q} == "mainnet" else 5102,
     "peer_udp_public_host": "",
     "peer_udp_max_datagram_bytes": 1200,
+    "enable_pulse_proofs": False,
+    "enable_optimistic_share_relay": False,
     "pool_payout_script": ${GRID_POOL_PAYOUT_ADDRESS@Q},
+    "winners_list_size": 299,
+    "grid_labs_support_fee_enabled": False,
     "coinbase_tag": ${GRID_POOL_COINBASE_TAG@Q},
     "min_diff": 300,
     "bitcoin_zmq_endpoint": ${zmq_endpoint@Q},

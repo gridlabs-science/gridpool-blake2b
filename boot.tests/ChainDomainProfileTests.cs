@@ -9,6 +9,19 @@ namespace boot.tests;
 public sealed class ChainDomainProfileTests
 {
     [TestMethod]
+    public void BlakeForkDefaultsOnlyToBlakeMainnetSeed()
+    {
+        Assert.AreEqual("https://blake.gridpool.net", Program.DefaultPublicSeedEndpoint);
+        CollectionAssert.AreEqual(
+            new[] { "https://blake.gridpool.net" },
+            Program.DefaultPublicSeedEndpoints);
+        Assert.IsFalse(Program.DefaultPublicSeedEndpoints.Any(seed =>
+            seed.Contains("main.gridpool.net", StringComparison.OrdinalIgnoreCase) ||
+            seed.Contains("dallas.gridpool.net", StringComparison.OrdinalIgnoreCase) ||
+            seed.Contains("detroit.gridpool.net", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
     public void Testnet4ProfileHasCanonicalOwnerAssignedFingerprint()
     {
         PoolConfig config = CreateTestnet4Config();
