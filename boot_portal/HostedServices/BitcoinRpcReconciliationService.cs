@@ -269,7 +269,7 @@ public sealed class BitcoinRpcReconciliationService : BackgroundService
         }
     }
 
-    private async Task<int> ReconcileTipAsync(
+    internal async Task<int> ReconcileTipAsync(
         long rpcHeight,
         string rpcBestHash,
         CancellationToken cancellationToken)
@@ -277,12 +277,13 @@ public sealed class BitcoinRpcReconciliationService : BackgroundService
         BootNetworkStatusDto local = _stateService.GetNetworkStatus();
         long? localHeight = local.CurrentTipBlockHeight;
         string localHash = local.CurrentTipBlockHash ?? string.Empty;
-        BitcoinRpcRecoveryPlan plan = BitcoinRpcRecoveryPlanner.Build(
-            localHeight,
-            localHash,
-            rpcHeight,
-            rpcBestHash);
-        if (plan.Reorganization && plan.Heights.Count == 0)
+        if (!localHeight.HasValue || string.IsNullOrWhiteSpace(localHash))
+        {
+            await ObserveRpcBlockAsync(rpcHeight, rpcBestHash, cancellationToken);
+            return 0;
+        }
+
+        if (localHeight.Value > rpcHeight)
         {
             _health.RecordRpcTipMismatch(
                 $"Bitcoin RPC active height {rpcHeight} is behind GridPool observed height {localHeight}; waiting for the replacement chain before resuming mining.",
@@ -290,17 +291,63 @@ public sealed class BitcoinRpcReconciliationService : BackgroundService
             return 0;
         }
 
+        if (localHeight.Value == rpcHeight && BitcoinHashes.AreEquivalent(localHash, rpcBestHash))
+        {
+            return 0;
+        }
+
+        string rpcHashAtLocalHeight = localHeight.Value == rpcHeight
+            ? rpcBestHash
+            : await _rpcClient.GetBlockHashAsync(localHeight.Value, cancellationToken);
+        long replayFromHeight = localHeight.Value + 1;
+        if (!BitcoinHashes.AreEquivalent(localHash, rpcHashAtLocalHeight))
+        {
+            long? earliest = _stateService.GetEarliestJournaledActiveBlockHeight();
+            long? ancestorHeight = null;
+            string ancestorHash = string.Empty;
+            if (earliest.HasValue)
+            {
+                for (long height = localHeight.Value - 1; height >= earliest.Value; height--)
+                {
+                    string? journaledHash = _stateService.GetJournaledActiveBlockHash(height);
+                    if (string.IsNullOrWhiteSpace(journaledHash))
+                    {
+                        continue;
+                    }
+
+                    string rpcHash = await _rpcClient.GetBlockHashAsync(height, cancellationToken);
+                    if (BitcoinHashes.AreEquivalent(journaledHash, rpcHash))
+                    {
+                        ancestorHeight = height;
+                        ancestorHash = rpcHash;
+                        break;
+                    }
+                }
+            }
+
+            if (!ancestorHeight.HasValue ||
+                !await _stateService.RollbackChainToAsync(
+                    ancestorHash,
+                    ancestorHeight.Value,
+                    "rpc-common-ancestor"))
+            {
+                _health.RecordRpcTipMismatch(
+                    $"Bitcoin RPC active chain diverges below the retained GridPool transition journal; mining remains paused for operator recovery.",
+                    DateTime.UtcNow);
+                return 0;
+            }
+
+            replayFromHeight = ancestorHeight.Value + 1;
+        }
+
         int recovered = 0;
-        foreach (long height in plan.Heights)
+        for (long height = replayFromHeight; height <= rpcHeight; height++)
         {
             string hash = height == rpcHeight
                 ? rpcBestHash
                 : await _rpcClient.GetBlockHashAsync(height, cancellationToken);
             await ObserveRpcBlockAsync(height, hash, cancellationToken);
-            if (!plan.EstablishesBaseline)
-            {
-                recovered++;
-            }
+            recovered++;
         }
 
         return recovered;

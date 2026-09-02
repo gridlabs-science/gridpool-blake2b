@@ -99,6 +99,7 @@ public class BootProtocolStateService
     private const int MaxRecentNetworkEvents = 20000;
     private const int MaxRecentPeerRelayObservations = 10000;
     private const int MaxRecentCandidateBundles = 8;
+    private const int MaxBoundaryTransitionJournalEntries = 12;
     private const int MinLocalDatumMinerDisplaySamples = 8;
     private const int MinLocalHashrateObservationSeconds = 300;
 
@@ -3703,6 +3704,15 @@ public class BootProtocolStateService
                 };
             }
 
+            if (!manual && !string.IsNullOrWhiteSpace(effectiveBlockHash))
+            {
+                RecordBoundaryTransitionNoLock(
+                    effectiveBlockHash,
+                    effectiveBlockHeight,
+                    NormalizeCanonicalBlockHash(confirmedParentBlockHash) ?? previousTipBlockHash,
+                    DateTime.UtcNow);
+            }
+
             if (!manual && effectiveBlockHeight.HasValue)
             {
                 _state.TrustedLocalTipBlockHash = effectiveBlockHash;
@@ -3744,6 +3754,14 @@ public class BootProtocolStateService
                     : ClonePayouts(paidContext.WinnersList);
 
                 ApplyPaidSnapshotRemovalNoLock(source, effectiveBlockHash, effectiveBlockHeight, nowUtc, paidSnapshotId);
+                BootBoundaryTransitionJournalEntry? paymentTransition = _state.BoundaryTransitionJournal
+                    .FirstOrDefault(entry => effectiveBlockHeight.HasValue &&
+                                             entry.BlockHeight == effectiveBlockHeight.Value &&
+                                             BitcoinHashes.AreEquivalent(entry.BlockHash, effectiveBlockHash));
+                if (paymentTransition != null)
+                {
+                    paymentTransition.GridPoolPaymentApplied = true;
+                }
                 _state.CurrentTipBlockHash = effectiveBlockHash;
                 _state.CurrentTipBlockHeight = effectiveBlockHeight;
                 string? paidParentBlockHash = NormalizeCanonicalBlockHash(confirmedParentBlockHash) ?? previousTipBlockHash;
@@ -4053,7 +4071,10 @@ public class BootProtocolStateService
                 !BitcoinHashes.AreEquivalent(normalizedBlockHash, _state.CurrentTipBlockHash);
             if (oneBlockReorg)
             {
-                RestorePredecessorForRemovedBoundaryNoLock(source, normalizedBlockHash, effectiveBlockHeight!.Value);
+                if (!TryRollbackBeforeHeightNoLock(effectiveBlockHeight!.Value, source, normalizedBlockHash))
+                {
+                    RestorePredecessorForRemovedBoundaryNoLock(source, normalizedBlockHash, effectiveBlockHeight.Value);
+                }
             }
 
             shouldRotateTestRound = ShouldTriggerTestingRoundResetNoLock(normalizedBlockHash);
@@ -4098,6 +4119,12 @@ public class BootProtocolStateService
                 _state.ProvisionalTip = null;
                 _provisionalTipGeneration++;
             }
+
+            RecordBoundaryTransitionNoLock(
+                normalizedBlockHash,
+                effectiveBlockHeight,
+                _state.CurrentTipBlockHash,
+                DateTime.UtcNow);
 
             _state.CurrentTipBlockHash = normalizedBlockHash;
             _state.CurrentTipBlockHeight = effectiveBlockHeight;
@@ -4159,6 +4186,97 @@ public class BootProtocolStateService
         }
 
         return status;
+    }
+
+    public string? GetJournaledActiveBlockHash(long height)
+    {
+        lock (_sync)
+        {
+            if (_state.CurrentTipBlockHeight == height)
+            {
+                return _state.CurrentTipBlockHash;
+            }
+
+            BootBoundaryTransitionJournalEntry? applied = _state.BoundaryTransitionJournal
+                .FirstOrDefault(entry => entry.BlockHeight == height);
+            if (applied != null)
+            {
+                return applied.BlockHash;
+            }
+
+            BootBoundaryTransitionJournalEntry? child = _state.BoundaryTransitionJournal
+                .FirstOrDefault(entry => entry.Before.CurrentTipBlockHeight == height);
+            return child?.Before.CurrentTipBlockHash;
+        }
+    }
+
+    public long? GetEarliestJournaledActiveBlockHeight()
+    {
+        lock (_sync)
+        {
+            IEnumerable<long> heights = _state.BoundaryTransitionJournal
+                .SelectMany(entry => entry.Before.CurrentTipBlockHeight.HasValue
+                    ? new[] { entry.BlockHeight, entry.Before.CurrentTipBlockHeight.Value }
+                    : new[] { entry.BlockHeight });
+            return heights.Any() ? heights.Min() : _state.CurrentTipBlockHeight;
+        }
+    }
+
+    public async Task<bool> RollbackChainToAsync(
+        string ancestorBlockHash,
+        long ancestorBlockHeight,
+        string source)
+    {
+        List<PayoutInfo> winners;
+        List<PayoutInfo> onDeck;
+        lock (_sync)
+        {
+            string? normalizedAncestor = NormalizeCanonicalBlockHash(ancestorBlockHash);
+            if (string.IsNullOrWhiteSpace(normalizedAncestor))
+            {
+                return false;
+            }
+
+            if (_state.CurrentTipBlockHeight == ancestorBlockHeight &&
+                BitcoinHashes.AreEquivalent(_state.CurrentTipBlockHash, normalizedAncestor))
+            {
+                return true;
+            }
+
+            BootBoundaryTransitionJournalEntry? firstRemoved = _state.BoundaryTransitionJournal
+                .Where(entry => entry.BlockHeight > ancestorBlockHeight)
+                .OrderBy(entry => entry.BlockHeight)
+                .FirstOrDefault(entry =>
+                    entry.Before.CurrentTipBlockHeight == ancestorBlockHeight &&
+                    BitcoinHashes.AreEquivalent(entry.Before.CurrentTipBlockHash, normalizedAncestor));
+            if (firstRemoved == null)
+            {
+                return false;
+            }
+
+            RestoreBoundaryCheckpointNoLock(firstRemoved.Before);
+            _state.BoundaryTransitionJournal = _state.BoundaryTransitionJournal
+                .Where(entry => entry.BlockHeight <= ancestorBlockHeight)
+                .Select(CloneBoundaryTransitionJournalEntry)
+                .ToList();
+            RecordNetworkEventNoLock(
+                "chain-reorganization-rollback",
+                source,
+                $"Rolled back to active-chain ancestor {normalizedAncestor} at height {ancestorBlockHeight}; replacement blocks will be replayed in height order.",
+                normalizedAncestor,
+                ancestorBlockHeight);
+            RequestDeferredSaveNoLock();
+            RequestDeferredHistorySaveNoLock();
+            winners = ClonePayouts(_state.WinnersList);
+            onDeck = ClonePayouts(_state.OnDeckList);
+        }
+
+        await _hubContext.Clients.All.SendAsync("UpdateWinners", winners);
+        await _hubContext.Clients.All.SendAsync("UpdateOnDeck", onDeck);
+        await _hubContext.Clients.All.SendAsync("UpdateRoundHistory", GetRoundHistory());
+        await _hubContext.Clients.All.SendAsync("UpdateNetworkState", GetPublicNetworkStatus());
+        await NotifyWinnersListChangedAsync($"chain-reorg-rollback:{source}");
+        return true;
     }
 
     private static bool IsLocalBitcoinActiveChainSource(string source)
@@ -5665,6 +5783,9 @@ public class BootProtocolStateService
             Peers = _state.Peers.Select(ClonePeer).ToList(),
             KnownDatumPayoutAddresses = new Dictionary<string, string>(_state.KnownDatumPayoutAddresses, StringComparer.Ordinal),
             BestShare = CloneBestShare(_state.BestShare),
+            BoundaryTransitionJournal = _state.BoundaryTransitionJournal
+                .Select(CloneBoundaryTransitionJournalEntry)
+                .ToList(),
             RecentAcceptedShares = [],
             RecentRejectedShareDiagnostics = [],
             RecentCoinbaserDiagnostics = [],
@@ -5767,6 +5888,15 @@ public class BootProtocolStateService
             _state.SnapshotContexts ??= [];
             _state.SnapshotFamilies ??= [];
             _state.ReconciliationCounters ??= new BootSnapshotReconciliationCounters();
+            _state.BoundaryTransitionJournal ??= [];
+            _state.BoundaryTransitionJournal = _state.BoundaryTransitionJournal
+                .Where(entry => entry.BlockHeight >= 0 &&
+                                !string.IsNullOrWhiteSpace(NormalizeCanonicalBlockHash(entry.BlockHash)) &&
+                                entry.Before != null)
+                .OrderBy(entry => entry.BlockHeight)
+                .TakeLast(MaxBoundaryTransitionJournalEntries)
+                .Select(CloneBoundaryTransitionJournalEntry)
+                .ToList();
             EnsureGenesisRoundStartNoLock(DateTime.UtcNow);
             NormalizeNetworkSensitivePayoutValuesNoLock();
             NormalizeArchivedBundlesNoLock();
@@ -6127,6 +6257,145 @@ public class BootProtocolStateService
             $"Deactivated snapshot family {removedFamily.FamilyId} after boundary {removedFamily.BoundaryBlockHash} left the active chain.",
             replacementBlockHash,
             replacementBlockHeight);
+    }
+
+    private void RecordBoundaryTransitionNoLock(
+        string blockHash,
+        long? blockHeight,
+        string? parentBlockHash,
+        DateTime appliedAtUtc)
+    {
+        if (GetActiveConsensusVersionNoLock() < BootProtocolVersions.ConsensusVersion ||
+            !blockHeight.HasValue ||
+            string.IsNullOrWhiteSpace(blockHash))
+        {
+            return;
+        }
+
+        _state.BoundaryTransitionJournal ??= [];
+        BootBoundaryTransitionJournalEntry? existing = _state.BoundaryTransitionJournal
+            .FirstOrDefault(entry => entry.BlockHeight == blockHeight.Value &&
+                                     BitcoinHashes.AreEquivalent(entry.BlockHash, blockHash));
+        if (existing != null)
+        {
+            return;
+        }
+
+        _state.BoundaryTransitionJournal.RemoveAll(entry => entry.BlockHeight >= blockHeight.Value);
+        _state.BoundaryTransitionJournal.Add(new BootBoundaryTransitionJournalEntry
+        {
+            BlockHash = blockHash,
+            BlockHeight = blockHeight.Value,
+            ParentBlockHash = NormalizeCanonicalBlockHash(parentBlockHash) ?? string.Empty,
+            AppliedAtUtc = appliedAtUtc,
+            Before = CaptureBoundaryCheckpointNoLock()
+        });
+        _state.BoundaryTransitionJournal = _state.BoundaryTransitionJournal
+            .OrderBy(entry => entry.BlockHeight)
+            .TakeLast(MaxBoundaryTransitionJournalEntries)
+            .Select(CloneBoundaryTransitionJournalEntry)
+            .ToList();
+    }
+
+    private bool TryRollbackBeforeHeightNoLock(long removedHeight, string source, string replacementBlockHash)
+    {
+        BootBoundaryTransitionJournalEntry? removed = _state.BoundaryTransitionJournal
+            .FirstOrDefault(entry => entry.BlockHeight == removedHeight &&
+                                     BitcoinHashes.AreEquivalent(entry.BlockHash, _state.CurrentTipBlockHash));
+        if (removed == null)
+        {
+            return false;
+        }
+
+        RestoreBoundaryCheckpointNoLock(removed.Before);
+        _state.BoundaryTransitionJournal = _state.BoundaryTransitionJournal
+            .Where(entry => entry.BlockHeight < removedHeight)
+            .Select(CloneBoundaryTransitionJournalEntry)
+            .ToList();
+        RecordNetworkEventNoLock(
+            "chain-reorganization-rollback",
+            source,
+            $"Restored the complete pre-boundary state before replacing block {removed.BlockHash} at height {removedHeight}.",
+            replacementBlockHash,
+            removedHeight);
+        return true;
+    }
+
+    private BootBoundaryTransitionCheckpoint CaptureBoundaryCheckpointNoLock() => new()
+    {
+        CurrentStateId = _state.CurrentStateId,
+        CandidateStateId = _state.CandidateStateId,
+        CurrentRoundNumber = _state.CurrentRoundNumber,
+        CurrentTipBlockHash = _state.CurrentTipBlockHash,
+        CurrentTipBlockHeight = _state.CurrentTipBlockHeight,
+        TrustedLocalTipBlockHash = _state.TrustedLocalTipBlockHash,
+        TrustedLocalTipBlockHeight = _state.TrustedLocalTipBlockHeight,
+        CurrentTipCompactTarget = _state.CurrentTipCompactTarget,
+        ProvisionalTip = CloneProvisionalTip(_state.ProvisionalTip),
+        LastTestingTriggerBlockHash = _state.LastTestingTriggerBlockHash,
+        LastTestingTriggerBlockHeight = _state.LastTestingTriggerBlockHeight,
+        LastGridPoolBlockHash = _state.LastGridPoolBlockHash,
+        LastGridPoolBlockHeight = _state.LastGridPoolBlockHeight,
+        LastGridPoolBlockUtc = _state.LastGridPoolBlockUtc,
+        LastGridPoolBlockMinerAddress = _state.LastGridPoolBlockMinerAddress,
+        LastGridPoolBlockDifficulty = _state.LastGridPoolBlockDifficulty,
+        ActiveSnapshotId = _state.ActiveSnapshotId,
+        LastPaidSnapshotId = _state.LastPaidSnapshotId,
+        ActiveSnapshotProofIds = _state.ActiveSnapshotProofIds.ToList(),
+        LastPaidSnapshotProofIds = _state.LastPaidSnapshotProofIds.ToList(),
+        SupportFeeEnabled = _state.SupportFeeEnabled,
+        PayoutVariant = _state.PayoutVariant,
+        SnapshotContexts = _state.SnapshotContexts.Select(CloneSnapshotContext).ToList(),
+        SnapshotFamilies = _state.SnapshotFamilies.Select(CloneSnapshotFamily).ToList(),
+        ReconciliationCounters = CloneReconciliationCounters(_state.ReconciliationCounters),
+        AcceptedParentBlockHashes = _state.AcceptedParentBlockHashes.ToList(),
+        LastRotationUtc = _state.LastRotationUtc,
+        GenesisRoundStartedUtc = _state.GenesisRoundStartedUtc,
+        WinnersList = ClonePayouts(_state.WinnersList),
+        OnDeckList = ClonePayouts(_state.OnDeckList),
+        OnDeckProofs = _state.OnDeckProofs.Select(CloneProof).ToList(),
+        ArchivedStateBundles = _state.ArchivedStateBundles.Select(CloneBundle).ToList(),
+        BestShare = CloneBestShare(_state.BestShare)
+    };
+
+    private void RestoreBoundaryCheckpointNoLock(BootBoundaryTransitionCheckpoint checkpoint)
+    {
+        _state.CurrentStateId = checkpoint.CurrentStateId;
+        _state.CandidateStateId = checkpoint.CandidateStateId;
+        _state.CurrentRoundNumber = checkpoint.CurrentRoundNumber;
+        _state.CurrentTipBlockHash = checkpoint.CurrentTipBlockHash;
+        _state.CurrentTipBlockHeight = checkpoint.CurrentTipBlockHeight;
+        _state.TrustedLocalTipBlockHash = checkpoint.TrustedLocalTipBlockHash;
+        _state.TrustedLocalTipBlockHeight = checkpoint.TrustedLocalTipBlockHeight;
+        _state.CurrentTipCompactTarget = checkpoint.CurrentTipCompactTarget;
+        _state.ProvisionalTip = CloneProvisionalTip(checkpoint.ProvisionalTip);
+        _state.LastTestingTriggerBlockHash = checkpoint.LastTestingTriggerBlockHash;
+        _state.LastTestingTriggerBlockHeight = checkpoint.LastTestingTriggerBlockHeight;
+        _state.LastGridPoolBlockHash = checkpoint.LastGridPoolBlockHash;
+        _state.LastGridPoolBlockHeight = checkpoint.LastGridPoolBlockHeight;
+        _state.LastGridPoolBlockUtc = checkpoint.LastGridPoolBlockUtc;
+        _state.LastGridPoolBlockMinerAddress = checkpoint.LastGridPoolBlockMinerAddress;
+        _state.LastGridPoolBlockDifficulty = checkpoint.LastGridPoolBlockDifficulty;
+        _state.ActiveSnapshotId = checkpoint.ActiveSnapshotId;
+        _state.LastPaidSnapshotId = checkpoint.LastPaidSnapshotId;
+        _state.ActiveSnapshotProofIds = checkpoint.ActiveSnapshotProofIds.ToList();
+        _state.LastPaidSnapshotProofIds = checkpoint.LastPaidSnapshotProofIds.ToList();
+        _state.SupportFeeEnabled = checkpoint.SupportFeeEnabled;
+        _state.PayoutVariant = checkpoint.PayoutVariant;
+        _state.SnapshotContexts = checkpoint.SnapshotContexts.Select(CloneSnapshotContext).ToList();
+        _state.SnapshotFamilies = checkpoint.SnapshotFamilies.Select(CloneSnapshotFamily).ToList();
+        _state.ReconciliationCounters = CloneReconciliationCounters(checkpoint.ReconciliationCounters);
+        _state.AcceptedParentBlockHashes = checkpoint.AcceptedParentBlockHashes.ToList();
+        _state.LastRotationUtc = checkpoint.LastRotationUtc;
+        _state.GenesisRoundStartedUtc = checkpoint.GenesisRoundStartedUtc;
+        _state.WinnersList = ClonePayouts(checkpoint.WinnersList);
+        _state.OnDeckList = ClonePayouts(checkpoint.OnDeckList);
+        _state.OnDeckProofs = checkpoint.OnDeckProofs.Select(CloneProof).ToList();
+        _state.ArchivedStateBundles = checkpoint.ArchivedStateBundles.Select(CloneBundle).ToList();
+        _state.BestShare = CloneBestShare(checkpoint.BestShare);
+        _preparedSv2CoinbasePlan = null;
+        _recentCandidateBundles.Clear();
+        CacheCurrentCandidateBundleNoLock();
     }
 
     private void EnsureActiveSnapshotNoLock(DateTime nowUtc)
@@ -11910,6 +12179,55 @@ public class BootProtocolStateService
             ExpectedDifficultyValidated = provisional.ExpectedDifficultyValidated
         };
     }
+
+    private static BootBoundaryTransitionJournalEntry CloneBoundaryTransitionJournalEntry(
+        BootBoundaryTransitionJournalEntry entry) => new()
+    {
+        BlockHash = entry.BlockHash,
+        BlockHeight = entry.BlockHeight,
+        ParentBlockHash = entry.ParentBlockHash,
+        AppliedAtUtc = entry.AppliedAtUtc,
+        GridPoolPaymentApplied = entry.GridPoolPaymentApplied,
+        Before = CloneBoundaryCheckpoint(entry.Before)
+    };
+
+    private static BootBoundaryTransitionCheckpoint CloneBoundaryCheckpoint(
+        BootBoundaryTransitionCheckpoint checkpoint) => new()
+    {
+        CurrentStateId = checkpoint.CurrentStateId,
+        CandidateStateId = checkpoint.CandidateStateId,
+        CurrentRoundNumber = checkpoint.CurrentRoundNumber,
+        CurrentTipBlockHash = checkpoint.CurrentTipBlockHash,
+        CurrentTipBlockHeight = checkpoint.CurrentTipBlockHeight,
+        TrustedLocalTipBlockHash = checkpoint.TrustedLocalTipBlockHash,
+        TrustedLocalTipBlockHeight = checkpoint.TrustedLocalTipBlockHeight,
+        CurrentTipCompactTarget = checkpoint.CurrentTipCompactTarget,
+        ProvisionalTip = CloneProvisionalTip(checkpoint.ProvisionalTip),
+        LastTestingTriggerBlockHash = checkpoint.LastTestingTriggerBlockHash,
+        LastTestingTriggerBlockHeight = checkpoint.LastTestingTriggerBlockHeight,
+        LastGridPoolBlockHash = checkpoint.LastGridPoolBlockHash,
+        LastGridPoolBlockHeight = checkpoint.LastGridPoolBlockHeight,
+        LastGridPoolBlockUtc = checkpoint.LastGridPoolBlockUtc,
+        LastGridPoolBlockMinerAddress = checkpoint.LastGridPoolBlockMinerAddress,
+        LastGridPoolBlockDifficulty = checkpoint.LastGridPoolBlockDifficulty,
+        ActiveSnapshotId = checkpoint.ActiveSnapshotId,
+        LastPaidSnapshotId = checkpoint.LastPaidSnapshotId,
+        ActiveSnapshotProofIds = (checkpoint.ActiveSnapshotProofIds ?? []).ToList(),
+        LastPaidSnapshotProofIds = (checkpoint.LastPaidSnapshotProofIds ?? []).ToList(),
+        SupportFeeEnabled = checkpoint.SupportFeeEnabled,
+        PayoutVariant = checkpoint.PayoutVariant,
+        SnapshotContexts = (checkpoint.SnapshotContexts ?? []).Select(CloneSnapshotContext).ToList(),
+        SnapshotFamilies = (checkpoint.SnapshotFamilies ?? []).Select(CloneSnapshotFamily).ToList(),
+        ReconciliationCounters = CloneReconciliationCounters(checkpoint.ReconciliationCounters),
+        AcceptedParentBlockHashes = (checkpoint.AcceptedParentBlockHashes ?? []).ToList(),
+        LastRotationUtc = checkpoint.LastRotationUtc,
+        GenesisRoundStartedUtc = checkpoint.GenesisRoundStartedUtc,
+        WinnersList = ClonePayouts(checkpoint.WinnersList),
+        OnDeckList = ClonePayouts(checkpoint.OnDeckList),
+        OnDeckProofs = (checkpoint.OnDeckProofs ?? []).Select(CloneProof).ToList(),
+        ArchivedStateBundles = (checkpoint.ArchivedStateBundles ?? []).Select(CloneBundle).ToList(),
+        BestShare = CloneBestShare(checkpoint.BestShare)
+    };
 
     private static string NormalizeSearchTerm(string? value)
     {
