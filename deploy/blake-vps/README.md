@@ -44,6 +44,9 @@ Blake2b DATUM gateway to this seed and Knots, but binds compatibility Stratum to
 `127.0.0.1:3333`. Its difficulty-one setting is strictly for controlled CPU
 share flow during the private soak. Replace it with the production floor and
 complete payout-session isolation before any public Stratum listener is used.
+The companion `gridpool-blake2b-mainnet-soak-monitor.service` records a
+12-hour API/notification/session sample locally on the VPS so monitoring does
+not compete with the miner over an SSH forwarding connection.
 
 `boot_portal_config.mainnet.blake2b.json` is the staged configuration for the
 first public Blake GridPool seed. Its `bootstrap_peers` list is deliberately
