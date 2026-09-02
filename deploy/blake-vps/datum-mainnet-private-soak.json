@@ -1,0 +1,43 @@
+{
+  "bitcoind": {
+    "rpccookiefile": "/var/lib/gridpool-blake2b/mainnet/.cookie",
+    "rpcurl": "http://127.0.0.1:8332",
+    "work_update_seconds": 5,
+    "notify_fallback": true
+  },
+  "stratum": {
+    "listen_addr": "127.0.0.1",
+    "listen_port": 3333,
+    "fingerprint_miners": true,
+    "allow_unsafe_coinbase_override": false,
+    "coinbase_selection_mode": "force",
+    "coinbase_selection": "yuge",
+    "vardiff_min": 1
+  },
+  "mining": {
+    "pool_address": "bc1qchlyrly5nd6a5fvq46lp8vgs9mf52g4njdwmny",
+    "coinbase_tag_primary": "GridPool Blake2b Mainnet",
+    "coinbase_tag_secondary": "DATUM",
+    "coinbase_unique_id": 4243,
+    "pow_algorithm": "blake2b",
+    "allow_hasher_time_rolling": true
+  },
+  "api": {
+    "listen_port": 0,
+    "modify_conf": false
+  },
+  "logger": {
+    "log_to_console": true,
+    "log_to_file": false,
+    "log_level_console": 2
+  },
+  "datum": {
+    "pool_host": "127.0.0.1",
+    "pool_port": 3008,
+    "pool_pubkey": "a14988a25e9e5ad92ff7692a97ec96e711474292d778ab6ceebd00a954841f8e7663764f14eaeb1ad04e5885b14d3aed65a4330bbae82183a82b44556fbb4727",
+    "pool_pass_workers": true,
+    "pool_pass_full_users": true,
+    "pooled_mining_only": true,
+    "protocol_global_timeout": 30
+  }
+}

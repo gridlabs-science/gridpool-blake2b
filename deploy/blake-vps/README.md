@@ -34,6 +34,17 @@ service refuses to start unless its image is supplied by immutable digest in
 attached-node chain-profile attestation and verifies that both published ports
 remain loopback-only.
 
+UFW permits Knots RPC and its single hashblock/rawblock publishers only from
+`172.31.0.0/24` on the dedicated bridge. Do not add duplicate loopback ZMQ
+publishers: notification health deliberately treats duplicate topic publishers
+as degraded.
+
+`gridpool-blake2b-datum-mainnet-private-soak.service` connects the reviewed
+Blake2b DATUM gateway to this seed and Knots, but binds compatibility Stratum to
+`127.0.0.1:3333`. Its difficulty-one setting is strictly for controlled CPU
+share flow during the private soak. Replace it with the production floor and
+complete payout-session isolation before any public Stratum listener is used.
+
 `boot_portal_config.mainnet.blake2b.json` is the staged configuration for the
 first public Blake GridPool seed. Its `bootstrap_peers` list is deliberately
 empty: later nodes use `https://blake.gridpool.net`, while the first seed never

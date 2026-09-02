@@ -1,0 +1,22 @@
+[Unit]
+Description=GridLabs Blake2b DATUM Gateway (mainnet private soak)
+After=network-online.target gridpool-blake2b-knots-mainnet.service gridpool-blake2b-mainnet-private-soak.service
+Wants=network-online.target
+Requires=gridpool-blake2b-knots-mainnet.service gridpool-blake2b-mainnet-private-soak.service
+
+[Service]
+Type=simple
+User=bitcoin
+Group=bitcoin
+WorkingDirectory=/opt/gridpool-blake2b/src/datum-gateway
+ExecStart=/opt/gridpool-blake2b/src/datum-gateway/build/datum_gateway --config=/etc/gridpool-blake2b/datum-mainnet-private-soak.json
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/gridpool-blake2b/src/datum-gateway /var/lib/gridpool-blake2b/mainnet/.cookie /etc/gridpool-blake2b/datum-mainnet-private-soak.json
+
+[Install]
+WantedBy=multi-user.target
