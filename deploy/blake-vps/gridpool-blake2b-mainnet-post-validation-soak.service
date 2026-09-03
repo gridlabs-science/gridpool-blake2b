@@ -1,0 +1,26 @@
+[Unit]
+Description=Wait for Blake2b mainnet full validation, then run a private soak
+After=network-online.target gridpool-blake2b-knots-mainnet.service gridpool-blake2b-mainnet-private-soak.service gridpool-blake2b-datum-mainnet-private-soak.service
+Wants=network-online.target
+Requires=gridpool-blake2b-knots-mainnet.service gridpool-blake2b-mainnet-private-soak.service gridpool-blake2b-datum-mainnet-private-soak.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/gridpool-blake2b/mainnet-private-soak
+Environment=BOOT_G2_MAIN_URL=http://127.0.0.1:5000
+Environment=BOOT_G2_PEER_URL=
+Environment=BOOT_G2_INTERVAL_SECONDS=5
+Environment=BOOT_G2_LOG_DIR=/opt/gridpool-blake2b/mainnet-private-soak/soak-logs
+ExecStart=/opt/gridpool-blake2b/mainnet-private-soak/wait-for-mainnet-validation-and-soak.sh
+Restart=on-failure
+RestartSec=60
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/opt/gridpool-blake2b/mainnet-private-soak/soak-logs
+
+[Install]
+WantedBy=multi-user.target

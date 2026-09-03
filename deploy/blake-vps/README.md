@@ -48,6 +48,14 @@ The companion `gridpool-blake2b-mainnet-soak-monitor.service` records a
 12-hour API/notification/session sample locally on the VPS so monitoring does
 not compete with the miner over an SSH forwarding connection.
 
+When that soak overlaps AssumeUTXO background validation, install and enable
+`gridpool-blake2b-mainnet-post-validation-soak.service`. It waits until
+`getchainstates` reports one fully validated chainstate, then runs a fresh
+12-hour soak at
+`/opt/gridpool-blake2b/mainnet-private-soak/soak-logs/post-validation-soak.json`.
+This separates persistent DATUM/GridPool faults from transient RPC stalls caused
+by validating and flushing the historical chainstate on a constrained host.
+
 `boot_portal_config.mainnet.blake2b.json` is the staged configuration for the
 first public Blake GridPool seed. Its `bootstrap_peers` list is deliberately
 empty: later nodes use `https://blake.gridpool.net`, while the first seed never
