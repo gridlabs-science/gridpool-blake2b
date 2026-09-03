@@ -55,6 +55,8 @@ When that soak overlaps AssumeUTXO background validation, install and enable
 `/opt/gridpool-blake2b/mainnet-private-soak/soak-logs/post-validation-soak.json`.
 This separates persistent DATUM/GridPool faults from transient RPC stalls caused
 by validating and flushing the historical chainstate on a constrained host.
+The first-run evidence and gate decision are recorded in
+[`docs/blake2b-mainnet-private-soak-2026-09-02.md`](../../docs/blake2b-mainnet-private-soak-2026-09-02.md).
 
 `boot_portal_config.mainnet.blake2b.json` is the staged configuration for the
 first public Blake GridPool seed. Its `bootstrap_peers` list is deliberately
