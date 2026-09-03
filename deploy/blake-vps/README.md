@@ -34,6 +34,11 @@ service refuses to start unless its image is supplied by immutable digest in
 attached-node chain-profile attestation and verifies that both published ports
 remain loopback-only.
 
+`sync-mainnet-rpc-cookie.sh` refreshes the container-readable cookie before
+every GridPool start. Knots replaces its cookie when it restarts, so a copied
+cookie must not be treated as permanent; otherwise GridPool remains correctly
+fail-closed with HTTP 401 after a node restart.
+
 UFW permits Knots RPC and its single hashblock/rawblock publishers only from
 `172.31.0.0/24` on the dedicated bridge. Do not add duplicate loopback ZMQ
 publishers: notification health deliberately treats duplicate topic publishers

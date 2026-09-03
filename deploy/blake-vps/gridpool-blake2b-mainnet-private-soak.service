@@ -10,6 +10,7 @@ RemainAfterExit=true
 WorkingDirectory=/opt/gridpool-blake2b/mainnet-private-soak
 EnvironmentFile=/etc/gridpool-blake2b/gridpool-mainnet-image.env
 ExecStartPre=/usr/bin/docker network inspect gridpool-blake2b-mainnet-private-soak
+ExecStartPre=/opt/gridpool-blake2b/mainnet-private-soak/sync-mainnet-rpc-cookie.sh
 ExecStart=/usr/bin/docker compose -f docker-compose.yml up -d --remove-orphans
 ExecStartPost=/opt/gridpool-blake2b/mainnet-private-soak/check-private-soak.sh
 ExecStop=/usr/bin/docker compose -f docker-compose.yml down
