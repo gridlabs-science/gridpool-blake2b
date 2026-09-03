@@ -334,9 +334,19 @@ async function fetchJson(baseUrl, path, params = {}, timeoutMs = 4000) {
 async function fetchOptionalJson(baseUrl, path, params = {}, timeoutMs = 4000) {
     try {
         return await fetchJson(baseUrl, path, params, timeoutMs);
-    } catch {
-        return { events: [] };
+    } catch (error) {
+        return {
+            events: [],
+            _diagnosticUnavailable: true,
+            _diagnosticError: String(error?.message || error)
+        };
     }
+}
+
+function diagnosticStatus(payload) {
+    return payload?._diagnosticUnavailable
+        ? { available: false, error: payload._diagnosticError }
+        : { available: true, error: null };
 }
 
 function startInterval(state, type, timestampMs) {
@@ -474,13 +484,13 @@ async function fetchAnalysis(baseUrl, durationSeconds, requestTimeoutMs = 4000) 
     const window = apiWindowForTelemetry(durationSeconds);
     const [summary, rejectsSeries, eventsSeries, datumResponsesSeries, datumSessionsSeries, datumProtocolSeries] = await Promise.all([
         fetchJson(baseUrl, "/api/network/summary", {}, requestTimeoutMs),
-        fetchJson(baseUrl, "/api/network/share-diagnostics", {
+        fetchOptionalJson(baseUrl, "/api/network/share-diagnostics", {
             window,
             source: "datum",
             accepted: false,
             limit: 5000
         }, requestTimeoutMs),
-        fetchJson(baseUrl, "/api/network/events", {
+        fetchOptionalJson(baseUrl, "/api/network/events", {
             window,
             limit: 5000
         }, requestTimeoutMs),
@@ -507,6 +517,13 @@ async function fetchAnalysis(baseUrl, durationSeconds, requestTimeoutMs = 4000) 
 
     return {
         summary,
+        diagnosticAvailability: {
+            shareDiagnostics: diagnosticStatus(rejectsSeries),
+            events: diagnosticStatus(eventsSeries),
+            datumResponses: diagnosticStatus(datumResponsesSeries),
+            datumSessions: diagnosticStatus(datumSessionsSeries),
+            datumProtocol: diagnosticStatus(datumProtocolSeries)
+        },
         rejectCount: rejects.length,
         rejectReasons: countBy(rejects, reject => reject.rejectionCategory || reject.rejectionReason),
         datumResponses: summarizeDatumResponses(datumResponses),
@@ -637,7 +654,15 @@ function buildVerdict(report) {
         if (report.peerAnalysis.lateRejects.wrongParentAfter60sOutside10sChainTipWindow > 0) lateRejectFailures.push("peer wrong parent >60s outside chain-tip window");
         if (report.peerAnalysis.lateRejects.fallbackAfter60s > 0) lateRejectFailures.push("peer fallback >60s");
     }
-    verdict.g2_1 = lateRejectFailures.length === 0 ? "pass-ish" : `attention: ${lateRejectFailures.join(", ")}`;
+    const requiredRejectDiagnosticsAvailable =
+        report.mainAnalysis.diagnosticAvailability.shareDiagnostics.available &&
+        report.mainAnalysis.diagnosticAvailability.events.available &&
+        (!report.peerAnalysis || (
+            report.peerAnalysis.diagnosticAvailability.shareDiagnostics.available &&
+            report.peerAnalysis.diagnosticAvailability.events.available));
+    verdict.g2_1 = !requiredRejectDiagnosticsAvailable
+        ? "not-evaluated: private reject/event diagnostics unavailable"
+        : (lateRejectFailures.length === 0 ? "pass-ish" : `attention: ${lateRejectFailures.join(", ")}`);
 
     const longestCandidateDivergenceMs = report.divergence.candidate.longestMs;
     const tipRegressionFailures = [];
