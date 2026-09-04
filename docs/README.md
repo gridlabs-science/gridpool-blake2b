@@ -46,6 +46,7 @@ documentation.
 
 ## Operators
 
+- [Blake2b DATUM Public Beta](blake2b-datum-public-beta.md)
 - [Node Bootstrap And Critical Configuration](node-bootstrap-and-critical-config.md)
 - [Bitcoin Node Connectivity](bitcoin-node-connectivity.md)
 - [Public Bitcoin Notification Rollout](bitcoin-notification-public-rollout.md)
