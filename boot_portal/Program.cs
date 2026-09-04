@@ -1758,10 +1758,12 @@ public class ClientHandler
 
         if (rejectKind == TemplateRejectKind.SoloFallback)
         {
-            // DATUM in prefer mode can legitimately spend a short window on local fallback work
-            // after a reconnect or coinbaser timeout. Re-sending blocknotify here just creates
-            // a refresh loop that looks like repeated "new block" events in the DATUM log.
+            // Stock DATUM can briefly mine a local single-recipient fallback after a
+            // reconnect or coinbaser timeout. Reject it, then ask for coordinated work.
+            // The request is rate-limited so repeated shares from the same fallback job
+            // cannot create a block-notification refresh storm.
             ResetStaleTemplateTracking();
+            await RequestUncoordinatedTemplateRefreshIfDueAsync();
             return false;
         }
 
@@ -2583,6 +2585,12 @@ public class ClientHandler
             responseSendDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
             totalStopwatch.Stop();
             _stateService.RecordDatumSessionShareOutcome(_sessionId, accepted: false, affectedOnDeck: false, startedUtc);
+            _stateService.RecordRejectedDatumTelemetryShare(
+                powSubmit.Address,
+                powSubmit.Username,
+                rejectionReason,
+                difficulty: 0,
+                timestampUtc: startedUtc);
             RecordDatumShareResponseTelemetry(
                 powSubmit,
                 accepted: false,

@@ -1112,6 +1112,30 @@ public class BootProtocolStateService
         return result;
     }
 
+    public void RecordRejectedDatumTelemetryShare(
+        string minerAddress,
+        string username,
+        string rejectionReason,
+        double difficulty = 0,
+        DateTime? timestampUtc = null)
+    {
+        DateTime effectiveTimestampUtc = timestampUtc ?? DateTime.UtcNow;
+        lock (_sync)
+        {
+            string normalizedMinerAddress = BitcoinScript.NormalizeAddress(minerAddress);
+            RecordShareDiagnosticNoLock(
+                "datum",
+                normalizedMinerAddress,
+                string.IsNullOrWhiteSpace(username) ? normalizedMinerAddress : username,
+                accepted: false,
+                affectedOnDeck: false,
+                rejectionReason,
+                difficulty,
+                effectiveTimestampUtc);
+            RequestDeferredHistorySaveNoLock();
+        }
+    }
+
     public void CompleteDatumSession(
         string sessionId,
         string closeDisposition,

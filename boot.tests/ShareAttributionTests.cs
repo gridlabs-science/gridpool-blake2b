@@ -2127,6 +2127,27 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public void RejectedDatumTelemetryRecordsReasonWithoutMutatingWorkSet()
+    {
+        using var harness = TestHarness.Create();
+        BootNetworkStatusDto before = harness.StateService.GetNetworkStatus();
+
+        harness.StateService.RecordRejectedDatumTelemetryShare(
+            AlternateAddress,
+            $"{AlternateAddress}.worker",
+            "Uncoordinated DATUM coinbaser fallback",
+            timestampUtc: DateTime.UtcNow);
+
+        BootNetworkStatusDto after = harness.StateService.GetNetworkStatus();
+        Assert.AreEqual(before.WorkSetCount, after.WorkSetCount);
+        Assert.AreEqual(before.CandidateStateId, after.CandidateStateId);
+        Assert.AreEqual(1, after.LocalDatumDiagnostics.TotalSubmissions);
+        Assert.AreEqual(1, after.LocalDatumDiagnostics.RejectedCount);
+        Assert.AreEqual("Uncoordinated DATUM coinbaser fallback", after.LocalDatumDiagnostics.LastRejectionReason);
+        Assert.AreEqual(1, after.LocalDatumDiagnostics.RejectionReasons.Sum(item => item.Count));
+    }
+
+    [TestMethod]
     public void LocalMiningTelemetryReportsSourcesAndDeduplicatesRetriedWindows()
     {
         using var harness = TestHarness.Create();
