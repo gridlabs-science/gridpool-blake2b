@@ -31,13 +31,16 @@ expected_image="${GRIDPOOL_BOOT_IMAGE:?GRIDPOOL_BOOT_IMAGE is required}"
 actual_image="$(docker inspect --format '{{.Config.Image}}' "$container")"
 [[ "$actual_image" == "$expected_image" ]]
 
-for port in 5000 3008; do
-    ss -lntH "sport = :$port" | awk '{print $4}' | grep -Eq '^127\.0\.0\.1:'
-    if ss -lntH "sport = :$port" | awk '{print $4}' | grep -Evq '^127\.0\.0\.1:'; then
-        echo "port $port is not loopback-only" >&2
-        exit 1
-    fi
-done
+ss -lntH "sport = :5000" | awk '{print $4}' | grep -Eq '^127\.0\.0\.1:'
+if ss -lntH "sport = :5000" | awk '{print $4}' | grep -Evq '^127\.0\.0\.1:'; then
+    echo "port 5000 is not loopback-only" >&2
+    exit 1
+fi
+
+if ! ss -lntH "sport = :3008" | awk '{print $4}' | grep -Eq '^(0\.0\.0\.0|\*|\[::\]):3008$'; then
+    echo "public DATUM beta port 3008 is not listening on a wildcard address" >&2
+    exit 1
+fi
 
 jq '{
   nodeId,

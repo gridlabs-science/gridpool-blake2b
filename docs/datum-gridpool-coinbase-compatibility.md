@@ -1,6 +1,6 @@
 # DATUM Coinbase Size Compatibility For GridPool
 
-Status: research note for G5.5 launch readiness.
+Status: public-beta compatibility requirement.
 
 GridPool's 300-slot beta requires every mining template to contain the full
 GridPool payout output set. DATUM Gateway can serve different coinbase variants
@@ -69,6 +69,14 @@ For existing DATUM builds, the safest available guidance is:
 
 This is not enough for a polished Umbrel/Start9 launch because operators cannot
 force deterministic GridPool-safe behavior from DATUM config alone.
+
+For the September 2026 public beta, the direct DATUM endpoint therefore accepts
+standard DATUM wire-protocol connections but does not claim universal firmware
+compatibility. The GridPool DATUM build with forced `yuge` mode is the supported
+configuration. Unmodified gateways are experimental and require downstream
+firmware that selects DATUM's 16-KB class; strict server validation rejects
+truncated, fallback, and mismatched templates without adding them to GridPool
+state.
 
 ## DATUM PR Status
 

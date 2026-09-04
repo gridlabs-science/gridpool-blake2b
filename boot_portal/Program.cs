@@ -2877,8 +2877,62 @@ public class ClientHandler
                 submittedTemplateDecision.Value.SlotZeroAddress,
                 _poolConfig.BitcoinNetwork))
         {
-            throw new InvalidOperationException(
-                "DATUM coinbase slot 0 does not match its job-bound scheduler decision.");
+            const string rejectionReason =
+                "DATUM coinbase slot 0 does not match its job-bound scheduler decision";
+            buildDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+            RecordPowSubmitProtocolOutcome(
+                powSubmit,
+                accepted: false,
+                affectedOnDeck: false,
+                rejectionReason: rejectionReason,
+                difficulty: 0,
+                prevBlockHash: powSubmit.PrevBlockHash == null ? null : BitcoinHashes.ToDisplayHashHex(powSubmit.PrevBlockHash),
+                nonceOnlySubmit: nonceOnlySubmit,
+                usedCachedJob: usedCachedJob,
+                cachedJobAgeMs: cachedJobAgeMs,
+                detail: "Share coinbase did not honor its retained scheduler decision; rejected without state mutation.");
+            stageStopwatch.Restart();
+            await SendShareResponseAsync(powSubmit, accepted: false);
+            responseSendDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+            totalStopwatch.Stop();
+            _stateService.RecordDatumSessionShareOutcome(_sessionId, accepted: false, affectedOnDeck: false, startedUtc);
+            _stateService.RecordRejectedDatumTelemetryShare(
+                powSubmit.Address,
+                powSubmit.Username,
+                rejectionReason,
+                difficulty: 0,
+                timestampUtc: startedUtc);
+            RecordDatumShareResponseTelemetry(
+                powSubmit,
+                accepted: false,
+                affectedOnDeck: false,
+                rejectionReason: rejectionReason,
+                difficulty: 0,
+                prevBlockHash: powSubmit.PrevBlockHash == null ? null : BitcoinHashes.ToDisplayHashHex(powSubmit.PrevBlockHash),
+                nonceOnlySubmit: nonceOnlySubmit,
+                usedCachedJob: usedCachedJob,
+                cachedJobAgeMs: cachedJobAgeMs,
+                payloadBytes: payload.Length,
+                coinbaseBytes: coinbaseTx.Length,
+                coinb1Bytes: Coinb1.Length,
+                coinb2Bytes: Coinb2.Length,
+                parseDurationMs: parseDurationMs,
+                buildDurationMs: buildDurationMs,
+                validationDurationMs: validationDurationMs,
+                snapshotReadDurationMs: 0,
+                snapshotReadLockWaitDurationMs: 0,
+                snapshotReadLockBodyDurationMs: 0,
+                shareCoreValidationDurationMs: 0,
+                stateMutationDurationMs: 0,
+                stateMutationLockWaitDurationMs: 0,
+                stateMutationLockBodyDurationMs: 0,
+                staleHandlingDurationMs: staleHandlingDurationMs,
+                responseSendDurationMs: responseSendDurationMs,
+                totalDurationMs: totalStopwatch.Elapsed.TotalMilliseconds,
+                startedUtc: startedUtc,
+                responseSequence: responseSequence);
+            await RequestUncoordinatedTemplateRefreshIfDueAsync();
+            return;
         }
 
         if (powSubmit.QuickDiff && !powSubmit.IsBlake2b)

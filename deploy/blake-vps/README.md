@@ -25,14 +25,15 @@ Do not enable mainnet GridPool or mining ingress until
 `check-knots-mainnet.sh` reports the exact RC4 subversion, the activation hash,
 a synced tip, and the attached GridPool profile attests successfully.
 
-The first GridPool run uses `docker-compose.mainnet-private-soak.yml`. Both the
-HTTP API and DATUM listener are published on host loopback only. The dedicated
+The first GridPool run uses `docker-compose.mainnet-private-soak.yml`. The HTTP
+API remains on host loopback; the public-beta DATUM listener is published on
+TCP 3008. The dedicated
 `172.31.0.0/24` bridge is the only path to Knots RPC and ZMQ, and the container
 runs read-only with no Linux capabilities and explicit CPU/memory limits. The
 service refuses to start unless its image is supplied by immutable digest in
 `/etc/gridpool-blake2b/gridpool-mainnet-image.env`; its post-start check requires
-attached-node chain-profile attestation and verifies that both published ports
-remain loopback-only.
+attached-node chain-profile attestation, a loopback-only HTTP API, and the
+intentional public DATUM bind.
 
 `sync-mainnet-rpc-cookie.sh` refreshes the container-readable cookie before
 every GridPool start. Knots replaces its cookie when it restarts, so a copied
@@ -104,12 +105,25 @@ contacts the legacy SHA-256 GridPool network. Before starting GridPool, place a
 mainnet payout address in an untracked local override, generate and back up the
 seed identity, and complete the attached-node attestation. Publish HTTP(S)
 through the TLS reverse proxy in `nginx-blake.gridpool.net.conf`. DATUM TCP
-3008 is a separate gated listener. Stratum TCP 3333 may be published only as
+3008 is the experimental public-beta listener at
+`datum.blake.gridpool.net:3008`. It retains the 5% scheduled support-template
+policy. External gateway operators must use a full/YUGE coinbase class: the
+GridPool DATUM build can force it, while an unmodified DATUM gateway is usable
+only when its downstream firmware independently fingerprints into the 16-KB
+YUGE class. Smaller or fallback coinbases are rejected and never enter the Work
+Set. Stratum TCP 3333 may be published only as
 the explicitly no-rewards firmware compatibility service described above;
 never advertise it as a payout-multiplexing pool. Keep port 5000, the DATUM
 dashboard on 7152, RPC, ZMQ, and the currently disabled GridPool UDP relay
 private. The DATUM and Stratum DNS names designate mining transports and must
 not proxy an operator dashboard.
+
+Emergency DATUM beta stop:
+
+```bash
+sudo ufw delete allow 3008/tcp
+sudo systemctl stop gridpool-blake2b-mainnet-private-soak.service
+```
 
 ## Pinned node source
 
