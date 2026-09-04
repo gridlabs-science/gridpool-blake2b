@@ -6,7 +6,7 @@
     "notify_fallback": true
   },
   "stratum": {
-    "listen_addr": "127.0.0.1",
+    "listen_addr": "0.0.0.0",
     "listen_port": 3333,
     "fingerprint_miners": true,
     "allow_unsafe_coinbase_override": false,

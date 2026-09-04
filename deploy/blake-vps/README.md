@@ -45,12 +45,26 @@ publishers: notification health deliberately treats duplicate topic publishers
 as degraded.
 
 `gridpool-blake2b-datum-mainnet-private-soak.service` connects the reviewed
-Blake2b DATUM gateway to this seed and Knots, but binds compatibility Stratum to
-`127.0.0.1:3333`. The public form of this listener is a firmware compatibility
-test service, not a mining pool: every upstream template is locked to
+Blake2b DATUM gateway to this seed and Knots and publishes compatibility
+Stratum on TCP 3333. This listener is a firmware compatibility test service,
+not a mining pool: every upstream template is locked to
 `bc1qchlyrly5nd6a5fvq46lp8vgs9mf52g4njdwmny`, downstream usernames are not
 forwarded upstream, users receive no rewards, and devices should not remain
 connected after a short test. Its production difficulty floor is 256.
+
+Emergency stop:
+
+```bash
+sudo ufw delete allow 3333/tcp
+sudo systemctl stop gridpool-blake2b-datum-mainnet-private-soak.service
+```
+
+Restore only after checking the locked payout configuration:
+
+```bash
+sudo systemctl start gridpool-blake2b-datum-mainnet-private-soak.service
+sudo ufw allow 3333/tcp comment 'Blake2b firmware compatibility Stratum; no rewards'
+```
 The companion `gridpool-blake2b-mainnet-soak-monitor.service` records a
 12-hour API/notification/session sample locally on the VPS so monitoring does
 not compete with the miner over an SSH forwarding connection.
