@@ -46,9 +46,11 @@ as degraded.
 
 `gridpool-blake2b-datum-mainnet-private-soak.service` connects the reviewed
 Blake2b DATUM gateway to this seed and Knots, but binds compatibility Stratum to
-`127.0.0.1:3333`. Its difficulty-one setting is strictly for controlled CPU
-share flow during the private soak. Replace it with the production floor and
-complete payout-session isolation before any public Stratum listener is used.
+`127.0.0.1:3333`. The public form of this listener is a firmware compatibility
+test service, not a mining pool: every upstream template is locked to
+`bc1qchlyrly5nd6a5fvq46lp8vgs9mf52g4njdwmny`, downstream usernames are not
+forwarded upstream, users receive no rewards, and devices should not remain
+connected after a short test. Its production difficulty floor is 256.
 The companion `gridpool-blake2b-mainnet-soak-monitor.service` records a
 12-hour API/notification/session sample locally on the VPS so monitoring does
 not compete with the miner over an SSH forwarding connection.
@@ -88,8 +90,9 @@ contacts the legacy SHA-256 GridPool network. Before starting GridPool, place a
 mainnet payout address in an untracked local override, generate and back up the
 seed identity, and complete the attached-node attestation. Publish HTTP(S)
 through the TLS reverse proxy in `nginx-blake.gridpool.net.conf`. DATUM TCP
-3008 is a separate gated listener. Do not publish Stratum TCP 3333 until
-job-bound per-miner payout attribution exists. Keep port 5000, the DATUM
+3008 is a separate gated listener. Stratum TCP 3333 may be published only as
+the explicitly no-rewards firmware compatibility service described above;
+never advertise it as a payout-multiplexing pool. Keep port 5000, the DATUM
 dashboard on 7152, RPC, ZMQ, and the currently disabled GridPool UDP relay
 private. The DATUM and Stratum DNS names designate mining transports and must
 not proxy an operator dashboard.

@@ -36,8 +36,8 @@
     "pool_host": "127.0.0.1",
     "pool_port": 3018,
     "pool_pubkey": "a14988a25e9e5ad92ff7692a97ec96e711474292d778ab6ceebd00a954841f8e7663764f14eaeb1ad04e5885b14d3aed65a4330bbae82183a82b44556fbb4727",
-    "pool_pass_workers": true,
-    "pool_pass_full_users": true,
+    "pool_pass_workers": false,
+    "pool_pass_full_users": false,
     "pooled_mining_only": true,
     "protocol_global_timeout": 30
   }

@@ -475,6 +475,7 @@ public sealed class BootDatumListenerPolicyDto
     public string PolicyId { get; set; } = string.Empty;
     public int Port { get; set; }
     public int SupportTemplateBasisPoints { get; set; }
+    public bool RequireCoordinatedCoinbaser { get; set; }
     public string SupportAddress { get; set; } = string.Empty;
 }
 

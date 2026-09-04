@@ -16,14 +16,16 @@
       "port": 3008,
       "policy_id": "public-datum-v1",
       "support_template_basis_points": 500,
+      "require_coordinated_coinbaser": true,
       "support_address": "bc1qchlyrly5nd6a5fvq46lp8vgs9mf52g4njdwmny",
       "scheduler_key_path": "/data/datum-public-scheduler.key"
     },
     {
       "bind_address": "0.0.0.0",
       "port": 3018,
-      "policy_id": "hosted-stratum-v1",
-      "support_template_basis_points": 5000,
+      "policy_id": "firmware-compatibility-no-rewards-v1",
+      "support_template_basis_points": 10000,
+      "require_coordinated_coinbaser": true,
       "support_address": "bc1qchlyrly5nd6a5fvq46lp8vgs9mf52g4njdwmny",
       "scheduler_key_path": "/data/datum-hosted-scheduler.key"
     }

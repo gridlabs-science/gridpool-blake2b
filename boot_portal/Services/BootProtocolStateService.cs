@@ -7191,6 +7191,7 @@ public class BootProtocolStateService
                 PolicyId = listener.PolicyId,
                 Port = listener.Port,
                 SupportTemplateBasisPoints = listener.SupportTemplateBasisPoints,
+                RequireCoordinatedCoinbaser = listener.RequireCoordinatedCoinbaser,
                 SupportAddress = listener.SupportAddress
             }).ToList(),
             ConfigWarnings = configWarnings,

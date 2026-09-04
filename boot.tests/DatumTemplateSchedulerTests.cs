@@ -85,4 +85,20 @@ public sealed class DatumTemplateSchedulerTests
             BitcoinScript.AddressToScriptPubKey(PayoutAddress, BitcoinScript.Mainnet),
             ClientHandler.ResolveClientConfigurePayoutScript(config, PayoutAddress));
     }
+
+    [TestMethod]
+    public void CoordinatedCoinbaserRequirementIsIndependentOfTemplateFee()
+    {
+        var policy = new DatumListenerPolicy
+        {
+            PolicyId = "fee-free",
+            SupportTemplateBasisPoints = 0,
+            RequireCoordinatedCoinbaser = true
+        };
+
+        Assert.IsFalse(DatumTemplateScheduler.AcceptsSubmission(policy, null));
+
+        policy.RequireCoordinatedCoinbaser = false;
+        Assert.IsTrue(DatumTemplateScheduler.AcceptsSubmission(policy, null));
+    }
 }

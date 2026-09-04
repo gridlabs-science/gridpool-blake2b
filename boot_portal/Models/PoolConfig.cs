@@ -466,6 +466,9 @@ public sealed class DatumListenerPolicy
     [JsonPropertyName("support_template_basis_points")]
     public int SupportTemplateBasisPoints { get; set; }
 
+    [JsonPropertyName("require_coordinated_coinbaser")]
+    public bool RequireCoordinatedCoinbaser { get; set; } = true;
+
     [JsonPropertyName("support_address")]
     public string SupportAddress { get; set; } = string.Empty;
 

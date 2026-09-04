@@ -2548,9 +2548,9 @@ public class ClientHandler
             submittedTemplateDecision = _jobTemplateDecisions[powSubmit.JobId];
         }
 
-        if (_listenerPolicy.SupportTemplateBasisPoints > 0 && submittedTemplateDecision == null)
+        if (!DatumTemplateScheduler.AcceptsSubmission(_listenerPolicy, submittedTemplateDecision))
         {
-            throw new InvalidOperationException("DATUM share did not identify a job-bound slot-0 scheduler decision.");
+            throw new InvalidOperationException("DATUM share did not identify a required job-bound coinbaser decision.");
         }
 
         powSubmit.Address = submittedTemplateDecision?.SlotZeroAddress ?? _clientPayoutAddress;

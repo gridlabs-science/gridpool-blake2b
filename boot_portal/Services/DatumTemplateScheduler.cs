@@ -15,6 +15,11 @@ public readonly record struct DatumTemplateDecision(
 
 public static class DatumTemplateScheduler
 {
+    public static bool AcceptsSubmission(
+        DatumListenerPolicy policy,
+        DatumTemplateDecision? decision) =>
+        !policy.RequireCoordinatedCoinbaser || decision != null;
+
     public static bool CoinbasePaysScheduledSlotZero(
         ReadOnlySpan<byte> coinbaseTransaction,
         string scheduledAddress,

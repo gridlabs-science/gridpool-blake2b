@@ -39,7 +39,7 @@ headline `8-30 NYPost Deride And Conquer`.
   - DATUM base `e894b8ac29ae06bf6e3b14dafd21f72dcd65fb84`.
   - Built image/binary digests.
 - Make `develop` the default branch, require CI, and publish no `latest` image or GitHub release. Deploy only immutable commit/image digests.
-- Fork DATUM from the community Blake2b branch. Port the existing force-coinbase/fingerprinting work commit-by-commit after compatibility review; submit generic force-YUGE and fail-fast improvements upstream, but keep GridPool-specific fee routing and payout-session multiplexing in the GridLabs fork.
+- Fork DATUM from the community Blake2b branch. Port the existing force-coinbase/fingerprinting work commit-by-commit after compatibility review and submit generic force-YUGE and fail-fast improvements upstream. The hosted SV1 firmware-test service is deliberately single-payout: it is locked to the operator address and offers no user rewards. Direct DATUM clients retain job-bound slot-zero scheduling.
 
 ## Protocol and Mining Implementation
 
@@ -126,7 +126,7 @@ HTTP hosts may use a reverse proxy; DATUM, SV1, chain P2P, and UDP records must 
     at least 15GB disk headroom with alerts at 20GB and 15GB;
   - static IPv4 is required; IPv6 remains optional until OVH routing is configured;
   - provider firewall/DDoS controls and Ubuntu 24.04 remain required.
-- Expose only HTTPS, chain P2P, the documented DATUM/SV1 ports, and the two GridPool UDP ports. Keep RPC, ZMQ, DATUM administration, telemetry collectors, the internal 50% listener, and regtest reachable only through loopback or Tailscale.
+- Expose only HTTPS, chain P2P, the documented DATUM/SV1 ports, and the two GridPool UDP ports. Keep RPC, ZMQ, DATUM administration, telemetry collectors, internal DATUM upstream listeners, and regtest reachable only through loopback or Tailscale.
 - Add systemd/Docker health checks, disk and chain-tip alerts, peer/session counts, rejected-share reasons, scheduler distributions, restart monitoring, sanitized firmware telemetry, and one-command mining-port kill switches.
 - Back up only identities, scheduler/master seeds, support-address configuration, and deployment manifests; chain and disposable lab data are rebuildable.
 
@@ -134,7 +134,7 @@ HTTP hosts may use a reverse proxy; DATUM, SV1, chain P2P, and UDP records must 
 
 1. **August 25–26:** create repositories, commit the existing seam, add source locks and CI.
 2. **August 26–28:** finish Blake header/work/domain support and enforce the fee-free payout profile.
-3. **August 28–29:** implement stock DATUM compatibility, dual listener policies, forced YUGE, and per-payout SV1 multiplexing.
+3. **August 28–29:** implement stock DATUM compatibility, dual listener policies, forced YUGE, and a single-payout, no-rewards SV1 firmware-test gateway.
 4. **August 29–30:** run full regtest activation, payment, reorg, fee-scheduler, and firmware scenarios.
 5. **August 27–31:** provision the constrained VPS, source-build and sync RC3
    Testnet4, expose testnet endpoints only after validation, and complete the
@@ -152,8 +152,9 @@ HTTP hosts may use a reverse proxy; DATUM, SV1, chain P2P, and UDP records must 
 - Prove transaction/Merkle/address/GridPool identity hashes remain unchanged.
 - Reject copied SHA state, mixed profiles, wrong network/genesis, old UDP messages, malformed DATUM extensions, and attacker-selected easy `nBits`.
 - Verify fee-free coinbases contain slot 0 plus 299 shared outputs with no protocol support slot.
-- Verify deterministic 5% and 50% scheduler vectors, restart persistence, correct slot-0 attribution, and unchanged winner payouts.
-- Run multi-miner SV1 tests with distinct payout addresses, session expiry/caps, reconnects, and simultaneous support/miner templates.
+- Verify the deterministic 5% direct-DATUM scheduler and 100% operator-address hosted-SV1 policy, restart persistence, correct slot-0 attribution, and unchanged winner payouts.
+- Run multi-miner SV1 firmware tests with arbitrary usernames, reconnects, and simultaneous clients; prove every upstream template remains locked to the operator address and clearly advertise zero expected user rewards.
+- Reject every uncoordinated DATUM fallback submission independently of fee percentage, including empty-bootstrap and same-script output-aggregation edge cases.
 - Verify known-incompatible firmware fails fast, unknown firmware receives YUGE work, and truncated coinbases are rejected with actionable diagnostics.
 - Exercise share-first and notification-first block events, paid-once lineage, sibling union, bounded 897-proof reserve, one/two-block reorgs, and three-node convergence.
 - On testnet4, verify signed tag `v29.4.1.knots20260508rc3`, peeled commit
