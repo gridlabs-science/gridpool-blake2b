@@ -4,6 +4,13 @@ Status: primary working checklist before packaging GridPool for broad one-click 
 
 This checklist is intentionally stricter than "public beta works on my machine." Umbrel and Start9 users will expect upgrade stability, clear failure modes, and a node that can run unattended without needing frequent manual git pulls.
 
+Blake2b packaging does not use the SHA-256 project's native-SV2 path. Its
+supported appliance topology is Knots RC4 plus a Blake2b-compatible DATUM
+gateway connected to the sovereign GridPool node. Native-SV2 items inherited
+from the SHA-256 checklist are not Blake2b release gates. Sovereign appliance
+listeners are fee-free; the deterministic 5% schedule applies only to the Grid
+Labs public DATUM service.
+
 The immediate execution order is maintained in
 [next-week-development-roadmap.md](next-week-development-roadmap.md). That plan
 does not weaken the gates below.
@@ -19,10 +26,10 @@ does not weaken the gates below.
 - [ ] Umbrel and StartOS sideload packages complete install, upgrade, restart,
   backup, and recovery canaries on real appliances.
 - [ ] Public docs and UI match V2.2 snapshot-family reconciliation and current operational reality. Core technical docs are updated; the full UI audit remains open.
-- [x] Initial miner-transport support policy is explicit: native SV2 is the
-  only promised production path; Stratum V1 firmware, rental services, and
-  DATUM remain experimental/unsupported unless a specific version is listed as
-  tested.
+- [x] Initial miner-transport support policy is explicit: Blake2b appliances
+  use a separately installed compatible DATUM gateway with full/YUGE coinbase
+  support. Firmware remains version-specific and must not truncate GridPool
+  outputs.
 - [x] Monitoring catches the failure classes already seen in public beta.
 - [ ] Security/privacy review is complete: no secret logging, private nodes do
   not leak endpoints/IPs, and unauthenticated UI/API fields are intentionally
@@ -162,15 +169,15 @@ Completion criteria:
 
 - No unexplained payout mismatch bursts for 7 days.
 - No unexplained state divergence lasting more than 10 minutes.
-- Native SV2 job delivery, slot-0 attribution, accepted-share flow, durable
-  retry, restart recovery, and local block submission are exercised without
-  unexplained failure.
+- Blake2b DATUM job delivery, slot-0 attribution, accepted-share flow, restart
+  recovery, and local block submission are exercised without unexplained
+  failure.
 - Any experimental DATUM/SV1/CKPool observations are labeled by exact adapter
   and version and are not treated as launch support guarantees.
 - External tester can upgrade from a previous beta release without wiping state.
 - No Stratum V1 firmware or rental provider is recommended publicly without an
   exact full-coinbase test result; lack of matrix coverage does not block an
-  SV2-only package launch.
+  explicitly labeled package preview.
 
 Current evidence:
 
@@ -237,7 +244,8 @@ Long-term censorship-resistance posture:
   withheld block bodies, rollback, missed headers, retarget boundaries, and the
   exact old-parent cutoff. V2.2 MSR does not activate from a peer header.
 - [ ] Evaluate optional 1-3 second header-only empty-block mining as a separate, disabled-by-default experiment. Account for invalid-parent risk, lost fees, the 2015 BIP66/SPV-mining failure, and whether FIBRE makes the feature unnecessary.
-- [ ] Add advanced, disabled-by-default optimistic peer-header mining for GridPool-controlled SV2/direct-template adapters.
+- [ ] Add advanced, disabled-by-default optimistic peer-header mining only if a
+  future Blake2b direct-template adapter requires it.
 - [ ] Decide whether UDP hole punching is necessary for beta performance after 7-day latency data review.
 - [ ] Separately decide the censorship-resistance roadmap priority for UDP hole punching even if beta performance is acceptable.
 - [ ] Add NAT traversal status fields: none/manual/pcp/nat-pmp/upnp/failed, observed external UDP endpoint, and mapping stability.
@@ -298,14 +306,13 @@ Goal: make installation boring and reversible.
   immutable reference-node image digest.
 - [x] Create the Umbrel package wrapper in `gridpool-umbrel`; sideload and soak
   it on Detroit remains open.
-- [x] Create the StartOS package wrapper in `gridpool-startos`; sideload and
-  soak it on the local DC node remains open.
-- [x] Add a standard Bitcoin JSON-RPC template provider to the SRI-derived
-  native SV2 pool. Core 31 operators may prefer IPC, while Bitcoin Knots, older
-  Core, Docker, Umbrel, and StartOS use `getblocktemplate`/`submitblock` without
-  bundling a second Bitcoin node.
-- [x] Package native SV2 as the default and only promised miner-facing
-  transport. DATUM and raw SV1 remain disabled in both appliance wrappers.
+- [x] Create the StartOS package wrapper in `gridpool-blake2b-startos`; its
+  `v0.2.0-preview.1` x86_64 and aarch64 builds are complete, while physical
+  sideload and soak testing remains open.
+- [x] Keep the Blake2b appliance wrapper independent of SHA-256 native SV2.
+- [x] Expose a fee-free sovereign DATUM upstream interface for a separately
+  installed Blake2b-compatible DATUM gateway; do not bundle a second Bitcoin
+  node or mining gateway.
 - [x] Provide Docker image tags for stable beta releases.
 - [x] Provide sample config for mainnet beta Docker/manual installs.
 - [x] Provide separate sample config for testnet4 beta installs.
@@ -326,8 +333,9 @@ Completion criteria:
 - Fresh install accepts a payout address, uses the platform Bitcoin node, keeps
   private diagnostics behind platform authentication, and clearly reports
   outbound-only versus publicly reachable peer status.
-- A mining-enabled package shows correct native SV2 connection information and
-  fails visibly if its Bitcoin template-provider dependency is unavailable.
+- A mining-enabled package shows its DATUM upstream endpoint and public key and
+  fails visibly if its Knots RC4 dependency is unavailable or fails chain
+  attestation.
 - Upgrade preserves node identity and state.
 - Package logs are visible in the platform UI or documented shell path.
 
@@ -337,41 +345,40 @@ Current evidence:
 - Testnet4 sample config exists at `docker/boot_portal_config.testnet4.sample.json`.
 - GitHub Actions publishes branch, tag, SHA, and `latest` images to GHCR; `develop` is available for staging once that branch exists.
 - Main documented node defaults are `5000` WebUI/API and `5001/udp` peer fast
-  relay. Port `3008` remains available for experimental DATUM deployments but
-  is not part of the initial appliance support promise.
+  relay. The StartOS package exports the sovereign DATUM upstream on TCP 3008;
+  its Web UI remains behind StartOS authentication.
 - Raspberry Pi/full-stack installer docs and both appliance wrapper sources now
   exist; neither appliance package is release-ready until its sideload canary
   and upgrade/backup tests pass.
-- `gridpool-sv2-pool` RPC mode passed unit tests, the wider SRI miner-workspace
-  compile, and a live Core 31 mainnet template/tip-transition smoke test.
-- The StartOS package passes TypeScript checking and JavaScript bundling. Final
-  `.s9pk` packing and sideload testing require a reachable StartOS build target.
+- The StartOS package passes TypeScript checking, JavaScript bundling, immutable
+  image verification, dependency auditing, and local x86_64/aarch64 `.s9pk`
+  packing. Physical Start9 install, restart, upgrade, and restore testing is
+  still required before a stable marketplace release.
 - The Umbrel wrapper passes structural/template checks. Its first-run shell
   configuration is acceptable for sideload testing but must become an in-app
   payout-address setup screen before official app-store submission.
 
-## G5.5: Miner Firmware, Rental, And Stratum V2 Compatibility
+## G5.5: Miner Firmware, Rental, And DATUM Compatibility
 
-Goal: launch with one narrow miner path that avoids the 300-output coinbase
-limit, while preserving honest experimental data about other transports.
+Goal: launch with the Blake2b DATUM path while preserving honest compatibility
+data about firmware coinbase limits.
 
 Launch support decision:
 
-- Native SV2 firmware connected to `gridpool-sv2-pool` is the only explicitly
-  supported production miner path for the initial appliance beta.
+- A separately installed Blake2b-compatible DATUM gateway using full/YUGE
+  coinbases is the supported appliance path.
 - Stratum V1 firmware and hashrate rentals are untested and not guaranteed.
   The compatibility matrix remains a community research project, not a launch
   gate and not a claim of broad support.
-- DATUM support is deprecated for the initial appliance beta. The server and
-  lab tooling remain available for research, but DATUM is not enabled or
-  advertised by default until upstream offers deterministic forced coinbase
-  selection and the complete path passes sustained testing.
+- Sovereign GridPool exposes a fee-free DATUM upstream interface. The gateway
+  remains a separate package and must support Blake2b plus deterministic
+  full/YUGE coinbase selection.
 - GridPool consensus still requires the full payout set. No adapter may
   truncate, reorder, or silently replace outputs to accommodate firmware.
 
 - [x] Build a repeatable community firmware compatibility matrix shell for the 300-slot beta team.
-- [ ] Continue community testing of uncondensed 300-output coinbases, but do
-  not block the native-SV2 launch on matrix breadth.
+- [ ] Continue community testing of uncondensed 300-output coinbases; only exact
+  tested firmware versions should be recommended.
 - [ ] Test specific SV1 firmware and rental paths before recommending that
   exact version/provider; all untested rows remain explicitly unsupported.
 - [x] Publish a public compatibility table with `works`, `fails`, `untested`, `suspected works`, `suspected fails`, and `requires alternate firmware` states.
@@ -381,33 +388,26 @@ Launch support decision:
 - [x] Propose or track a DATUM operating mode that can force or require a large coinbase class for GridPool-compatible templates.
 - [x] Stand up the testnet full-coinbase compatibility endpoint with `coinbase_uncondensed_outputs_enabled: true`, separate state or network ID, and public `/compat` telemetry.
 - [x] Expose DATUM Stratum V1 on `stratum.test.gridpool.net:3334` for first-pass firmware and rental-provider testing.
-- [x] Complete the Stratum V2/GridPool integration review in [stratum-v2-gridpool-evaluation.md](stratum-v2-gridpool-evaluation.md).
-- [x] Decide whether Stratum V2 standard-channel/header-only mining is the preferred long-term path for avoiding ASIC coinbase-size constraints.
-- [x] Add GridPool node-side SV2 work-selection API and smoke test. See [stratum-v2-gridpool-integration-plan.md](stratum-v2-gridpool-integration-plan.md) and `GET /api/mining/sv2-work-selection`.
-- [x] Prove a native SV2 path can submit accepted shares into GridPool on
-  mainnet beta with a Bitaxe-class miner.
-- [x] Replace the overbuilt JDC/JDS experiment with a maintained SRI Pool fork that talks directly to Bitcoin Core and the local GridPool node.
-- [x] Support per-channel slot-0 attribution, a global fallback payout address, batched vardiff telemetry, pulse/reserve proofs, and durable proof retry in the fork.
-- [ ] Run a sustained native-SV2 miner soak against the new `gridpool-sv2-pool` fork and verify slot-0 attribution plus block submission end to end.
-- [ ] Replace temporary SV2 beta keys/config with production-managed keys before broad public advertising.
-- [ ] Document public SV2 endpoint operation, monitoring, restart behavior, and upgrade process.
-- [ ] Validate at least one named native-SV2 ASIC firmware/version through job
+- [ ] Run a sustained packaged Blake2b DATUM miner soak and verify slot-0
+  attribution plus block submission end to end.
+- [ ] Document packaged DATUM operation, monitoring, restart behavior, and
+  upgrade process.
+- [ ] Validate at least one named Blake2b ASIC firmware/version through job
   delivery, accepted shares, restart, snapshot transition, and slot-0
   attribution; support claims apply only to tested firmware versions.
-- [ ] Remove DATUM connection instructions from the default Umbrel/StartOS
-  onboarding flow and label manual DATUM/SV1 docs experimental.
-- [ ] Update `gridpool.net` connection guidance so native SV2 is the supported
-  appliance path and DATUM/SV1/rentals are clearly experimental.
+- [x] Keep DATUM gateway installation separate from the GridPool StartOS
+  package and publish the upstream endpoint/key workflow.
+- [ ] Update `gridpool.net` connection guidance so full/YUGE Blake2b DATUM is
+  the appliance path and arbitrary firmware/rentals remain experimental.
 
 Completion criteria:
 
-- The package and website identify native SV2 as the supported path and do not
-  imply that ordinary SV1, rentals, or DATUM are guaranteed.
+- The package and website identify full-coinbase Blake2b DATUM as the supported
+  appliance path and do not imply that arbitrary firmware or rentals work.
 - A miner can check the community matrix before experimenting and distinguish
   exact tested evidence from unsupported or suspected behavior.
-- A native-SV2 ASIC can mine through a packaged node without receiving the
-  large coinbase transaction, while slot-0 attribution and local block
-  submission remain correct.
+- A compatible Blake2b ASIC can mine through its DATUM gateway while preserving
+  the full payout transaction, slot-0 attribution, and local block submission.
 
 Current evidence:
 
@@ -417,10 +417,10 @@ Current evidence:
 - Existing DATUM `stratum.fingerprint_miners` does not solve this. Unknown miners default to a smaller Antminer-compatible coinbase class, and disabling fingerprinting makes that worse. A full 300-unique-address GridPool list likely requires DATUM's 16 KB `YUGE` class or an equivalent Stratum V2/header-only path.
 - A DATUM PR now exists for `coinbase_selection_mode = "force"` plus known-incompatible client disconnects before oversized work is served.
 - The first recommended lab endpoint shape is `test.gridpool.net/compat`, `datum.test.gridpool.net:3009` for DATUM gateways, and `stratum.test.gridpool.net:3334` for raw Stratum V1 ASICs, backed by testnet uncondensed output mode.
-- Native SV2 is now the preferred long-term path for firmware that cannot safely parse large SV1/DATUM coinbases. The maintained implementation is the `gridpool-sv2-pool` fork: SV2 miners connect directly to the fork, which uses Bitcoin Core IPC and authenticated local GridPool APIs without JDC/JDS.
 - The DATUM PR has not been adopted upstream, so current DATUM behavior cannot
-  be made deterministic from stock configuration. This is the reason for
-  deprecating, rather than deleting, the integration for the initial package.
+  be made deterministic from stock configuration. The separately installed
+  gateway must therefore include the Blake2b and forced-YUGE changes or use a
+  proven YUGE-selecting firmware path.
 
 ## G5.6: Mining Gateway Integrations
 
@@ -608,10 +608,10 @@ Before Umbrel/Start9 launch, answer yes to all:
 - [ ] Can a fresh install sync without handholding?
 - [ ] Can a nontechnical user recover from restart/power loss?
 - [ ] Are public docs accurate enough that users will not connect unsupported firmware and blame the protocol?
-- [ ] Does at least one explicitly named native-SV2 ASIC firmware/version pass
+- [ ] Does at least one explicitly named Blake2b ASIC firmware/version pass
   the package soak end to end?
-- [ ] Are SV1 firmware, rentals, and DATUM clearly labeled
-  experimental/unsupported rather than implied to be launch-compatible?
+- [ ] Are exact supported Blake2b DATUM/firmware versions documented, with
+  untested SV1 firmware and rentals clearly labeled experimental/unsupported?
 - [ ] Has the security/privacy review closed secret logging and private-node
   disclosure issues?
 - [x] Have at least two external operators run nodes successfully?
