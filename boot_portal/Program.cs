@@ -957,6 +957,7 @@ public class ClientHandler
     private int _consecutivePayoutMismatchRejections = 0;
     private DateTime? _staleTemplateSeriesStartedUtc = null;
     private DateTime _lastStaleTemplateRefreshUtc = DateTime.MinValue;
+    private DateTime _lastUncoordinatedTemplateRefreshUtc = DateTime.MinValue;
     private DateTime _lastForcedStaleTemplateDisconnectUtc = DateTime.MinValue;
     private DateTime _lastStaleTemplateWarningUtc = DateTime.MinValue;
     private bool _sessionPayoutAddressLocked = false;
@@ -1644,6 +1645,19 @@ public class ClientHandler
             "datum",
             $"Requested DATUM template refresh for session {RemoteEndpointLabel}. reason={reason}; lockedPayoutAddress={_clientPayoutAddress}.");
         return true;
+    }
+
+    private async Task RequestUncoordinatedTemplateRefreshIfDueAsync()
+    {
+        DateTime nowUtc = DateTime.UtcNow;
+        int refreshIntervalSeconds = Math.Clamp(_poolConfig.StaleDatumRefreshIntervalSeconds, 2, 300);
+        if ((nowUtc - _lastUncoordinatedTemplateRefreshUtc).TotalSeconds < refreshIntervalSeconds)
+        {
+            return;
+        }
+
+        _lastUncoordinatedTemplateRefreshUtc = nowUtc;
+        await RequestBlockTemplateRefreshAsync("uncoordinated-coinbaser");
     }
 
     private void StartDatumKeepaliveLoop()
@@ -2548,12 +2562,59 @@ public class ClientHandler
             submittedTemplateDecision = _jobTemplateDecisions[powSubmit.JobId];
         }
 
+        powSubmit.Address = submittedTemplateDecision?.SlotZeroAddress ?? _clientPayoutAddress;
+
         if (!DatumTemplateScheduler.AcceptsSubmission(_listenerPolicy, submittedTemplateDecision))
         {
-            throw new InvalidOperationException("DATUM share did not identify a required job-bound coinbaser decision.");
+            const string rejectionReason = "Uncoordinated DATUM coinbaser fallback";
+            RecordPowSubmitProtocolOutcome(
+                powSubmit,
+                accepted: false,
+                affectedOnDeck: false,
+                rejectionReason: rejectionReason,
+                difficulty: 0,
+                prevBlockHash: powSubmit.PrevBlockHash == null ? null : BitcoinHashes.ToDisplayHashHex(powSubmit.PrevBlockHash),
+                nonceOnlySubmit: nonceOnlySubmit,
+                usedCachedJob: false,
+                cachedJobAgeMs: null,
+                detail: "Share did not identify a required job-bound coinbaser decision; rejected without state mutation.");
+            stageStopwatch.Restart();
+            await SendShareResponseAsync(powSubmit, accepted: false);
+            responseSendDurationMs = stageStopwatch.Elapsed.TotalMilliseconds;
+            totalStopwatch.Stop();
+            _stateService.RecordDatumSessionShareOutcome(_sessionId, accepted: false, affectedOnDeck: false, startedUtc);
+            RecordDatumShareResponseTelemetry(
+                powSubmit,
+                accepted: false,
+                affectedOnDeck: false,
+                rejectionReason: rejectionReason,
+                difficulty: 0,
+                prevBlockHash: powSubmit.PrevBlockHash == null ? null : BitcoinHashes.ToDisplayHashHex(powSubmit.PrevBlockHash),
+                nonceOnlySubmit: nonceOnlySubmit,
+                usedCachedJob: false,
+                cachedJobAgeMs: null,
+                payloadBytes: payload.Length,
+                coinbaseBytes: 0,
+                coinb1Bytes: 0,
+                coinb2Bytes: 0,
+                parseDurationMs: parseDurationMs,
+                buildDurationMs: buildDurationMs,
+                validationDurationMs: validationDurationMs,
+                snapshotReadDurationMs: 0,
+                snapshotReadLockWaitDurationMs: 0,
+                snapshotReadLockBodyDurationMs: 0,
+                shareCoreValidationDurationMs: 0,
+                stateMutationDurationMs: 0,
+                stateMutationLockWaitDurationMs: 0,
+                stateMutationLockBodyDurationMs: 0,
+                staleHandlingDurationMs: staleHandlingDurationMs,
+                responseSendDurationMs: responseSendDurationMs,
+                totalDurationMs: totalStopwatch.Elapsed.TotalMilliseconds,
+                startedUtc: startedUtc,
+                responseSequence: responseSequence);
+            await RequestUncoordinatedTemplateRefreshIfDueAsync();
+            return;
         }
-
-        powSubmit.Address = submittedTemplateDecision?.SlotZeroAddress ?? _clientPayoutAddress;
 
         if (powSubmit.PrevBlockHash == null)  //This is just a nonce update, does not include complete header info
         {
