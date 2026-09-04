@@ -45,6 +45,11 @@ UFW permits Knots RPC and its single hashblock/rawblock publishers only from
 publishers: notification health deliberately treats duplicate topic publishers
 as degraded.
 
+`gridpool-blake2b-knots-mainnet-health.timer` runs the RC4 identity, activation
+checkpoint, sync, peer, and free-disk checks every five minutes. The older
+`gridpool-blake2b-knots-health.timer` is Testnet4-only and must remain disabled
+while this one-chain VPS is operating mainnet.
+
 `gridpool-blake2b-datum-mainnet-private-soak.service` connects the reviewed
 Blake2b DATUM gateway to this seed and Knots and publishes compatibility
 Stratum on TCP 3333. This listener is a firmware compatibility test service,
