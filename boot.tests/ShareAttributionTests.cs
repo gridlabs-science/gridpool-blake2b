@@ -2538,6 +2538,7 @@ public sealed class ShareAttributionTests
         Assert.IsTrue(response.CoinbasePlanBuildDurationMs >= 0);
         Assert.IsTrue(response.CoinbasePlanPreparedUtc > DateTime.UnixEpoch);
         Assert.AreEqual("coinbase-only", response.Mode);
+        Assert.AreEqual(Math.Max(1d, harness.Config.MinDiff), response.MinimumAcceptedDifficulty);
         Assert.AreEqual(Math.Max(1d, harness.Config.PulseMinDifficulty), response.MinimumPulseDifficulty);
         Assert.AreEqual(harness.Config.BootNetworkId, response.NetworkId);
         Assert.AreEqual(harness.Config.BitcoinNetwork, response.BitcoinNetwork);
@@ -2892,6 +2893,22 @@ public sealed class ShareAttributionTests
         Assert.IsTrue(advice["RequiresStrictlyGreaterThanFloor"]!.GetValue<bool>());
         Assert.AreEqual(acceptedDifficulty, advice["CurrentOnDeckFloorDifficulty"]!.GetValue<double>(), acceptedDifficulty * 0.0000001);
         Assert.IsTrue(advice["MinimumDifficultyToEnterOnDeck"]!.GetValue<double>() > acceptedDifficulty);
+    }
+
+    [TestMethod]
+    public void MiningAdviceUsesConfiguredShareFloorWhenReserveHasCapacity()
+    {
+        using var harness = TestHarness.Create(sharedWinnerSlotCount: 1, workSetReserveMultiplier: 2);
+        harness.Config.MinDiff = 4096;
+
+        Sv2WorkSelectionDto workSelection = harness.StateService.GetSv2WorkSelectionResponse();
+        MiningShareAdviceDto advice = harness.StateService.GetShareAdviceResponse();
+
+        Assert.AreEqual(4096d, workSelection.MinimumAcceptedDifficulty);
+        Assert.AreEqual(4096d, workSelection.MinimumDifficultyToEnterReserve);
+        Assert.AreEqual(4096d, advice.MinimumAcceptedDifficulty);
+        Assert.AreEqual(4096d, advice.MinimumDifficultyToEnterOnDeck);
+        StringAssert.Contains(advice.SubmitRule, "at least 4.10k");
     }
 
     [TestMethod]

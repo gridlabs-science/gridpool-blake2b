@@ -2522,8 +2522,13 @@ public class ClientHandler
         {
             submittedTemplateDecision = coinbaserDecision;
         }
-        else if (_listenerPolicy.SupportTemplateBasisPoints == 0 && powSubmit.JobId < _jobTemplateDecisions.Length)
+        else if (powSubmit.PrevBlockHash == null && powSubmit.JobId < _jobTemplateDecisions.Length)
         {
+            // Stock DATUM sends coinbaser_id with the first complete submission for a
+            // job, then omits it on nonce-only submissions. The cached job decision is
+            // the protocol-defined correlation for those follow-up shares. Never use
+            // this fallback for a complete submission: a recycled job ID without its
+            // coinbaser ID is ambiguous and must fail closed under a fee policy.
             submittedTemplateDecision = _jobTemplateDecisions[powSubmit.JobId];
         }
 

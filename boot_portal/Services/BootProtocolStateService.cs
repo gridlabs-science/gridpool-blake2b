@@ -365,7 +365,9 @@ public class BootProtocolStateService
         lock (_sync)
         {
             PreparedSv2CoinbasePlan preparedPlan = GetOrBuildSv2CoinbasePlanNoLock();
-            double minimumDifficultyToEnter = GetWorkSetAdmissionDifficultyNoLock();
+            double minimumDifficultyToEnter = Math.Max(
+                Math.Max(1d, _poolConfig.MinDiff),
+                GetWorkSetAdmissionDifficultyNoLock());
 
             string planMaterial = string.Join('|',
                 "gridpool-mining-plan-v1",
@@ -414,7 +416,7 @@ public class BootProtocolStateService
                 CoinbasePlanBuildCount = _sv2CoinbasePlanBuildCount,
                 CoinbasePlanCacheHitCount = _sv2CoinbasePlanCacheHitCount,
                 LastSnapshotTransitionDurationMs = _lastSnapshotTransitionDurationMs,
-                MinimumAcceptedDifficulty = 1d,
+                MinimumAcceptedDifficulty = Math.Max(1d, _poolConfig.MinDiff),
                 MinimumPulseDifficulty = Math.Max(1d, _poolConfig.PulseMinDifficulty),
                 MinimumDifficultyToEnterReserve = minimumDifficultyToEnter,
                 MinimumDifficultyToEnterReserveDisplay = ClientHandler.FormatDifficulty(minimumDifficultyToEnter),
@@ -448,14 +450,15 @@ public class BootProtocolStateService
             int openSlots = Math.Max(0, _poolConfig.WorkSetReserveLimit - _state.OnDeckProofs.Count);
             bool onDeckIsFull = openSlots == 0;
             bool requiresStrictlyGreaterThanFloor = onDeckIsFull && workSetFloorDifficulty.HasValue;
+            double minimumAcceptedDifficulty = Math.Max(1d, _poolConfig.MinDiff);
             double minimumDifficultyToEnter = requiresStrictlyGreaterThanFloor
-                ? Math.Max(1d, Math.BitIncrement(workSetFloorDifficulty!.Value))
-                : 1d;
+                ? Math.Max(minimumAcceptedDifficulty, Math.BitIncrement(workSetFloorDifficulty!.Value))
+                : minimumAcceptedDifficulty;
             double minimumPulseDifficulty = Math.Max(1d, _poolConfig.PulseMinDifficulty);
             double minimumOptimisticRelayDifficulty = Math.Max(minimumDifficultyToEnter, _poolConfig.MinOptimisticRelayDifficulty);
             string submitRule = requiresStrictlyGreaterThanFloor
-                ? $"Submit only shares with computed difficulty greater than {ClientHandler.FormatDifficulty(workSetFloorDifficulty!.Value)}."
-                : "Submit any share with computed difficulty at least 1; open work-set reserve slots remain.";
+                ? $"Submit only shares with computed difficulty at least {ClientHandler.FormatDifficulty(minimumAcceptedDifficulty)} and greater than {ClientHandler.FormatDifficulty(workSetFloorDifficulty!.Value)}."
+                : $"Submit any share with computed difficulty at least {ClientHandler.FormatDifficulty(minimumAcceptedDifficulty)}; open work-set reserve slots remain.";
 
             return new MiningShareAdviceDto
             {
@@ -475,7 +478,7 @@ public class BootProtocolStateService
                 OnDeckCount = _state.OnDeckList.Count,
                 OpenOnDeckSlots = openSlots,
                 OnDeckIsFull = onDeckIsFull,
-                MinimumAcceptedDifficulty = 1d,
+                MinimumAcceptedDifficulty = minimumAcceptedDifficulty,
                 CurrentWorkSetFloorDifficulty = workSetFloorDifficulty,
                 CurrentWorkSetFloorDifficultyDisplay = workSetFloorDifficulty.HasValue ? ClientHandler.FormatDifficulty(workSetFloorDifficulty.Value) : "--",
                 CurrentOnDeckFloorDifficulty = floorDifficulty,
