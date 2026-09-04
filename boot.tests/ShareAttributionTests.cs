@@ -2577,6 +2577,21 @@ public sealed class ShareAttributionTests
     }
 
     [TestMethod]
+    public void DatumSchedulerChecksActualCoinbaseSlotZeroScript()
+    {
+        byte[] coinbase = Convert.FromHexString(SampleCoinbaseHex);
+
+        Assert.IsTrue(DatumTemplateScheduler.CoinbasePaysScheduledSlotZero(
+            coinbase,
+            SampleSlotZeroAddress,
+            BitcoinScript.Mainnet));
+        Assert.IsFalse(DatumTemplateScheduler.CoinbasePaysScheduledSlotZero(
+            coinbase,
+            AlternateAddress,
+            BitcoinScript.Mainnet));
+    }
+
+    [TestMethod]
     public async Task SupportFeePaymentRemovesOnlyActuallyPaidSharedProofsAsync()
     {
         BootShareProof[] seedProofs =

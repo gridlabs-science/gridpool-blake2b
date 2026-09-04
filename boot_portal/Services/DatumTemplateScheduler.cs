@@ -15,6 +15,21 @@ public readonly record struct DatumTemplateDecision(
 
 public static class DatumTemplateScheduler
 {
+    public static bool CoinbasePaysScheduledSlotZero(
+        ReadOnlySpan<byte> coinbaseTransaction,
+        string scheduledAddress,
+        string bitcoinNetwork)
+    {
+        List<BitcoinTransactionOutput> outputs = BitcoinTransactionParser.ParseOutputs(coinbaseTransaction.ToArray());
+        if (outputs.Count == 0)
+        {
+            return false;
+        }
+
+        byte[] scheduledScript = BitcoinScript.AddressToScriptPubKey(scheduledAddress, bitcoinNetwork);
+        return outputs[0].ScriptPubKey.AsSpan().SequenceEqual(scheduledScript);
+    }
+
     public static DatumTemplateDecision Decide(
         DatumListenerPolicy policy,
         ReadOnlySpan<byte> schedulerKey,

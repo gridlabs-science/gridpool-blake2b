@@ -2786,6 +2786,16 @@ public class ClientHandler
         byte[] coinbaseExtranonce = powSubmit.IsBlake2b ? new byte[12] : powSubmit.Extranonce;
         byte[] coinbaseTx = Coinb1.Concat(coinbaseExtranonce).Concat(Coinb2).ToArray();
 
+        if (submittedTemplateDecision.HasValue &&
+            !DatumTemplateScheduler.CoinbasePaysScheduledSlotZero(
+                coinbaseTx,
+                submittedTemplateDecision.Value.SlotZeroAddress,
+                _poolConfig.BitcoinNetwork))
+        {
+            throw new InvalidOperationException(
+                "DATUM coinbase slot 0 does not match its job-bound scheduler decision.");
+        }
+
         if (powSubmit.QuickDiff && !powSubmit.IsBlake2b)
         {
             //Console.WriteLine("   using quickdiff");
