@@ -1,5 +1,6 @@
 using boot_portal.Models;
 using boot_portal.Services;
+using boot_portal.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace boot.tests;
@@ -66,5 +67,22 @@ public sealed class DatumTemplateSchedulerTests
 
         Assert.ThrowsException<InvalidOperationException>(() => DatumTemplateScheduler.Decide(
             policy, new byte[31], "fingerprint-v1", "client-a", PayoutAddress, Parent, 0));
+    }
+
+    [TestMethod]
+    public void AuthenticatedSessionPayoutOverridesDatumFallbackScript()
+    {
+        var config = new PoolConfig
+        {
+            BitcoinNetwork = "mainnet",
+            PoolPayoutScript = SupportAddress
+        };
+
+        CollectionAssert.AreEqual(
+            BitcoinScript.AddressToScriptPubKey(SupportAddress, BitcoinScript.Mainnet),
+            ClientHandler.ResolveClientConfigurePayoutScript(config, null));
+        CollectionAssert.AreEqual(
+            BitcoinScript.AddressToScriptPubKey(PayoutAddress, BitcoinScript.Mainnet),
+            ClientHandler.ResolveClientConfigurePayoutScript(config, PayoutAddress));
     }
 }

@@ -2121,11 +2121,13 @@ public class ClientHandler
         //Console.WriteLine($"📦 Signed payload (corrected): {BitConverter.ToString(signedPayload)}");
         await SendEncryptedMessageAsync(0x02, signedPayload, true, false, true, messageLabel: "handshake-response");
         //Console.WriteLine($"[SEND] Handshake Response (0x02), length " + signedPayload.Length);
-        await SendClientConfigureAsync(_poolConfig);          // Send 0x99 client configure message
+        await SendClientConfigureAsync(
+            _poolConfig,
+            _sessionPayoutAddressLocked ? _clientPayoutAddress : null); // Send 0x99 client configure message
         StartDatumKeepaliveLoop();
     }
 
-    private async Task SendClientConfigureAsync(PoolConfig config)
+    private async Task SendClientConfigureAsync(PoolConfig config, string? sessionPayoutAddress = null)
     {
         // Construct payload
         var payload = new List<byte>();
@@ -2137,7 +2139,7 @@ public class ClientHandler
         payload.Add(0x01);
 
         // Pool payout script
-        byte[] poolScriptBytes = ResolvePoolPayoutScriptBytes(config.PoolPayoutScript, config.BitcoinNetwork);
+        byte[] poolScriptBytes = ResolveClientConfigurePayoutScript(config, sessionPayoutAddress);
         if (poolScriptBytes.Length > 255)
         {
             Console.WriteLine($"⚠️ Pool payout script too long ({poolScriptBytes.Length} bytes), truncating to 255");
@@ -2391,6 +2393,15 @@ public class ClientHandler
         return Encoding.UTF8.GetBytes(value);
     }
 
+    public static byte[] ResolveClientConfigurePayoutScript(PoolConfig config, string? sessionPayoutAddress)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        string configuredValue = string.IsNullOrWhiteSpace(sessionPayoutAddress)
+            ? config.PoolPayoutScript
+            : sessionPayoutAddress;
+        return ResolvePoolPayoutScriptBytes(configuredValue, config.BitcoinNetwork);
+    }
+
     private static bool IsHexString(string value)
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length % 2 != 0)
@@ -2499,6 +2510,11 @@ public class ClientHandler
                 $"Locked DATUM session {_client.Client.RemoteEndPoint} to payout address {_clientPayoutAddress}.");
             Console.WriteLine(
                 $"🔒 Locked DATUM session {_client.Client.RemoteEndPoint} to payout address {_clientPayoutAddress}.");
+            // This is a standard DATUM client-configuration update. Stock gateways
+            // use its payout script for fallback coinbases when no coordinated
+            // coinbaser result is available, so it must follow the authenticated
+            // session payout before fresh work is requested.
+            await SendClientConfigureAsync(_poolConfig, _clientPayoutAddress);
             await RequestBlockTemplateRefreshAsync("payout-lock");
         }
         else if (_sessionPayoutAddressLocked &&
