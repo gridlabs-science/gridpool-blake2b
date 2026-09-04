@@ -340,6 +340,7 @@ public class BootNetworkStatusDto
     public string DatumPublicHost { get; set; } = string.Empty;
     public int DatumPublicPort { get; set; }
     public int DatumListenPort { get; set; }
+    public List<BootDatumListenerPolicyDto> DatumListenerPolicies { get; set; } = [];
     public List<string> ConfigWarnings { get; set; } = [];
     public DateTime ServiceStartedUtc { get; set; }
     public int ActiveDatumSessionCount { get; set; }
@@ -467,6 +468,14 @@ public class BootNetworkStatusDto
     public int SnapshotFamilyMemberCount { get; set; }
     public int SnapshotFamilyUnionProofCount { get; set; }
     public BootSnapshotReconciliationCounters ReconciliationCounters { get; set; } = new();
+}
+
+public sealed class BootDatumListenerPolicyDto
+{
+    public string PolicyId { get; set; } = string.Empty;
+    public int Port { get; set; }
+    public int SupportTemplateBasisPoints { get; set; }
+    public string SupportAddress { get; set; } = string.Empty;
 }
 
 public class BootAcceptedShareTelemetry

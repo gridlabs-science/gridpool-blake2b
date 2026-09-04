@@ -53,6 +53,24 @@ The companion `gridpool-blake2b-mainnet-soak-monitor.service` records a
 12-hour API/notification/session sample locally on the VPS so monitoring does
 not compete with the miner over an SSH forwarding connection.
 
+The specialized DATUM dashboard is deliberately loopback-only on
+`127.0.0.1:7152`, with configuration changes disabled. Operators can view it
+without publishing the dashboard by opening an SSH tunnel:
+
+```bash
+ssh -N -L 7152:127.0.0.1:7152 gridpool-blake-vps
+```
+
+Then open `http://127.0.0.1:7152/` locally. Never permit TCP 7152 through the
+host or provider firewall.
+
+`gridpool-blake2b-datum-mainnet-stock-compat.service` is a temporary,
+loopback-only interoperability probe. It builds and runs the reviewed upstream
+DATUM revision `2fea7e51286d3821c19dc1c240b8caa92bd92532` in a separate Git worktree,
+shares the already-synced Knots RPC interface, and listens for a test miner on
+`127.0.0.1:3335`. It must never replace the production gateway or expose its
+Stratum listener publicly.
+
 When that soak overlaps AssumeUTXO background validation, install and enable
 `gridpool-blake2b-mainnet-post-validation-soak.service`. It waits until
 `getchainstates` reports one fully validated chainstate, then runs a fresh
@@ -68,9 +86,13 @@ first public Blake GridPool seed. Its `bootstrap_peers` list is deliberately
 empty: later nodes use `https://blake.gridpool.net`, while the first seed never
 contacts the legacy SHA-256 GridPool network. Before starting GridPool, place a
 mainnet payout address in an untracked local override, generate and back up the
-seed identity, and complete the attached-node attestation. Publish only HTTP(S)
-through a TLS reverse proxy, DATUM TCP 3008, and Stratum TCP 3333. Keep port
-5000, RPC, ZMQ, and the currently disabled GridPool UDP relay private.
+seed identity, and complete the attached-node attestation. Publish HTTP(S)
+through the TLS reverse proxy in `nginx-blake.gridpool.net.conf`. DATUM TCP
+3008 is a separate gated listener. Do not publish Stratum TCP 3333 until
+job-bound per-miner payout attribution exists. Keep port 5000, the DATUM
+dashboard on 7152, RPC, ZMQ, and the currently disabled GridPool UDP relay
+private. The DATUM and Stratum DNS names designate mining transports and must
+not proxy an operator dashboard.
 
 ## Pinned node source
 

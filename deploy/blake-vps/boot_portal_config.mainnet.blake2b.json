@@ -10,6 +10,24 @@
   "bitcoin_zmq_endpoint": "tcp://host.docker.internal:28332",
   "bitcoin_zmq_rawblock_endpoint": "tcp://host.docker.internal:28333",
   "Datum_Port": 3008,
+  "datum_listeners": [
+    {
+      "bind_address": "0.0.0.0",
+      "port": 3008,
+      "policy_id": "public-datum-v1",
+      "support_template_basis_points": 500,
+      "support_address": "bc1qchlyrly5nd6a5fvq46lp8vgs9mf52g4njdwmny",
+      "scheduler_key_path": "/data/datum-public-scheduler.key"
+    },
+    {
+      "bind_address": "0.0.0.0",
+      "port": 3018,
+      "policy_id": "hosted-stratum-v1",
+      "support_template_basis_points": 5000,
+      "support_address": "bc1qchlyrly5nd6a5fvq46lp8vgs9mf52g4njdwmny",
+      "scheduler_key_path": "/data/datum-hosted-scheduler.key"
+    }
+  ],
   "WebUI_Port_http": 5000,
   "WebUI_Port_https": 0,
   "enable_web_ui": true,
@@ -32,7 +50,7 @@
   "peer_udp_public_host": "",
   "pool_payout_script": "bc1qchlyrly5nd6a5fvq46lp8vgs9mf52g4njdwmny",
   "winners_list_size": 299,
-  "min_diff": 1,
+  "min_diff": 4096,
   "grid_labs_support_fee_enabled": false,
   "coinbase_tag": "GridPool Blake2b Mainnet",
   "coinbase_uncondensed_outputs_enabled": true,

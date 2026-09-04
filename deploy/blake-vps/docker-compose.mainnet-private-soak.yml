@@ -21,6 +21,7 @@ services:
     ports:
       - "127.0.0.1:5000:5000"
       - "127.0.0.1:3008:3008"
+      - "127.0.0.1:3018:3018"
     volumes:
       - ./boot_portal_config.mainnet.blake2b.json:/config/boot_portal_config.json:ro
       - ./data:/data

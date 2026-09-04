@@ -200,6 +200,48 @@ public static class PoolConfigValidator
         }
 
         ValidateRequiredPort(errors, config.DatumPort, "Datum_Port");
+        config.DatumListeners ??= [];
+        var listenerKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var policyIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (DatumListenerPolicy listener in config.DatumListeners)
+        {
+            ValidateRequiredPort(errors, listener.Port, "datum_listeners.port");
+            if (!IPAddress.TryParse(listener.BindAddress, out _))
+            {
+                errors.Add($"datum listener '{listener.PolicyId}' bind_address must be an IP address");
+            }
+
+            string listenerKey = $"{listener.BindAddress}:{listener.Port}";
+            if (!listenerKeys.Add(listenerKey))
+            {
+                errors.Add($"duplicate DATUM listener {listenerKey}");
+            }
+
+            if (string.IsNullOrWhiteSpace(listener.PolicyId) || !policyIds.Add(listener.PolicyId))
+            {
+                errors.Add("datum listener policy_id values must be non-empty and unique");
+            }
+
+            if (listener.SupportTemplateBasisPoints is < 0 or > 10_000)
+            {
+                errors.Add($"datum listener '{listener.PolicyId}' support_template_basis_points must be between 0 and 10000");
+            }
+            else if (listener.SupportTemplateBasisPoints > 0)
+            {
+                if (!ChainDomainProfiles.IsBlake2b(config.ChainProfileId))
+                {
+                    errors.Add("hosted DATUM slot-0 template fees are defined only for Blake2b profiles");
+                }
+                if (!BitcoinScript.TryAddressToScriptPubKey(listener.SupportAddress, config.BitcoinNetwork, out _))
+                {
+                    errors.Add($"datum listener '{listener.PolicyId}' support_address is invalid for {config.BitcoinNetwork}");
+                }
+                if (string.IsNullOrWhiteSpace(listener.SchedulerKeyPath))
+                {
+                    errors.Add($"datum listener '{listener.PolicyId}' scheduler_key_path is required when template fees are enabled");
+                }
+            }
+        }
         ValidateNonNegativePort(errors, config.DatumPublicPort, "datum_public_port");
         ValidateNonNegativePort(errors, config.WebUiPortHttp, "WebUI_Port_http");
         ValidateNonNegativePort(errors, config.WebUiPortHttps, "WebUI_Port_https");

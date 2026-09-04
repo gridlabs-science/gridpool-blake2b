@@ -71,6 +71,7 @@ public class BootProtocolStateService
     private readonly Dictionary<string, LocalDatumAddressHashrateTracker> _localDatumHashrateByAddress = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, LocalMiningSourceGauge> _localMiningSourceGauges = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _lastLocalDatumHashrateRollupByAddress = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DatumSequenceRange> _datumSequenceRanges = new(StringComparer.Ordinal);
     private readonly List<BootStateBundle> _recentCandidateBundles = [];
     private readonly Dictionary<string, Queue<DateTime>> _recentPulseByPeer = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Queue<DateTime>> _recentPulseByAddress = new(StringComparer.OrdinalIgnoreCase);
@@ -104,6 +105,12 @@ public class BootProtocolStateService
     private const int MinLocalHashrateObservationSeconds = 300;
 
     private PoolState _state = new();
+
+    private sealed class DatumSequenceRange
+    {
+        public long Next { get; set; }
+        public long ExclusiveEnd { get; set; }
+    }
 
     private sealed record PeerRelayFirstArrival(DateTime TimestampUtc, string Transport);
     private sealed record SnapshotValidationResult(BootShareValidationResult Validation, string SnapshotId);
@@ -1312,6 +1319,36 @@ public class BootProtocolStateService
 
             _state.KnownDatumPayoutAddresses[clientIdentity] = normalizedAddress;
             RequestDeferredSaveNoLock();
+        }
+    }
+
+    public long ReserveDatumTemplateSequence(string policyId, string clientIdentity)
+    {
+        if (string.IsNullOrWhiteSpace(policyId) || string.IsNullOrWhiteSpace(clientIdentity))
+        {
+            throw new ArgumentException("A DATUM listener policy and authenticated client identity are required.");
+        }
+
+        const long reservationSize = 1024;
+        string key = $"{policyId.Trim()}\0{clientIdentity.Trim().ToLowerInvariant()}";
+        lock (_sync)
+        {
+            if (!_datumSequenceRanges.TryGetValue(key, out DatumSequenceRange? range) || range.Next >= range.ExclusiveEnd)
+            {
+                long persistedEnd = _state.DatumTemplateSequenceHighWatermarks.TryGetValue(key, out long value)
+                    ? Math.Max(0, value)
+                    : 0;
+                long nextEnd = checked(persistedEnd + reservationSize);
+                _state.DatumTemplateSequenceHighWatermarks[key] = nextEnd;
+                range = new DatumSequenceRange { Next = persistedEnd, ExclusiveEnd = nextEnd };
+                _datumSequenceRanges[key] = range;
+
+                // Persist the range before serving any decision from it. A crash
+                // can skip unused values, but cannot replay an issued value.
+                WriteStateFileSnapshot(CaptureCoreStateSnapshotNoLock(), "datum-template-sequence-reservation");
+            }
+
+            return range.Next++;
         }
     }
 
@@ -3842,6 +3879,7 @@ public class BootProtocolStateService
         {
             List<BootPeerStatus> peers = _state.Peers.Select(ClonePeer).ToList();
             Dictionary<string, string> knownDatumPayouts = new(_state.KnownDatumPayoutAddresses, StringComparer.Ordinal);
+            Dictionary<string, long> datumSequenceHighWatermarks = new(_state.DatumTemplateSequenceHighWatermarks, StringComparer.Ordinal);
             BestShareRecord bestShare = CloneBestShare(_state.BestShare);
             string? currentTipBlockHash = _state.CurrentTipBlockHash;
             long? currentTipBlockHeight = _state.CurrentTipBlockHeight;
@@ -3851,6 +3889,7 @@ public class BootProtocolStateService
             InitializeDefaultsNoLock();
             _state.Peers = peers;
             _state.KnownDatumPayoutAddresses = knownDatumPayouts;
+            _state.DatumTemplateSequenceHighWatermarks = datumSequenceHighWatermarks;
             _state.BestShare = bestShare;
             _state.CurrentTipBlockHash = currentTipBlockHash;
             _state.CurrentTipBlockHeight = currentTipBlockHeight;
@@ -5782,6 +5821,7 @@ public class BootProtocolStateService
             OnDeckProofs = _state.OnDeckProofs.Select(CloneProof).ToList(),
             Peers = _state.Peers.Select(ClonePeer).ToList(),
             KnownDatumPayoutAddresses = new Dictionary<string, string>(_state.KnownDatumPayoutAddresses, StringComparer.Ordinal),
+            DatumTemplateSequenceHighWatermarks = new Dictionary<string, long>(_state.DatumTemplateSequenceHighWatermarks, StringComparer.Ordinal),
             BestShare = CloneBestShare(_state.BestShare),
             BoundaryTransitionJournal = _state.BoundaryTransitionJournal
                 .Select(CloneBoundaryTransitionJournalEntry)
@@ -5873,6 +5913,7 @@ public class BootProtocolStateService
             _state.LastTestingTriggerBlockHash = NormalizeCanonicalBlockHash(_state.LastTestingTriggerBlockHash);
             _state.LastGridPoolBlockHash = NormalizeCanonicalBlockHash(_state.LastGridPoolBlockHash);
             _state.KnownDatumPayoutAddresses ??= [];
+            _state.DatumTemplateSequenceHighWatermarks ??= [];
             _state.RecentAcceptedShares ??= [];
             _state.RecentRejectedShareDiagnostics ??= [];
             _state.RecentCoinbaserDiagnostics ??= [];
@@ -7142,6 +7183,13 @@ public class BootProtocolStateService
             DatumPublicHost = _poolConfig.DatumPublicHost?.Trim() ?? string.Empty,
             DatumPublicPort = _poolConfig.DatumPublicPort,
             DatumListenPort = _poolConfig.DatumPort,
+            DatumListenerPolicies = _poolConfig.DatumListeners.Select(listener => new BootDatumListenerPolicyDto
+            {
+                PolicyId = listener.PolicyId,
+                Port = listener.Port,
+                SupportTemplateBasisPoints = listener.SupportTemplateBasisPoints,
+                SupportAddress = listener.SupportAddress
+            }).ToList(),
             ConfigWarnings = configWarnings,
             ServiceStartedUtc = _serviceStartedUtc,
             ActiveDatumSessionCount = _activeDatumSessions.Count,

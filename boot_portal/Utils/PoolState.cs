@@ -47,6 +47,7 @@ public class PoolState
     public List<BootBoundaryTransitionJournalEntry> BoundaryTransitionJournal { get; set; } = [];
     public List<BootPeerStatus> Peers { get; set; } = [];
     public Dictionary<string, string> KnownDatumPayoutAddresses { get; set; } = [];
+    public Dictionary<string, long> DatumTemplateSequenceHighWatermarks { get; set; } = [];
     public BestShareRecord BestShare { get; set; } = new();
 }
 

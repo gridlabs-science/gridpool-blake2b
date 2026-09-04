@@ -16,6 +16,8 @@ public class DatumServer : BackgroundService
     private readonly PoolConfig _poolConfig;
     private readonly BootProtocolStateService _stateService;
     private readonly ILogger<DatumServer> _logger;
+    private readonly DatumListenerPolicy _policy;
+    private readonly byte[] _schedulerKey;
     private readonly ConcurrentDictionary<int, (TcpClient Client, ClientHandler Handler)> _activeClients = new();
     private int _nextClientId;
 
@@ -35,7 +37,8 @@ public class DatumServer : BackgroundService
         PoolConfig poolConfig,
         BootProtocolStateService stateService,
         IHubContext<PoolStatsHub> hubContext,
-        ILogger<DatumServer> logger)
+        ILogger<DatumServer> logger,
+        DatumListenerPolicy? policy = null)
     {
         _listener = new TcpListener(address, port);
         _serverKey = serverKey;
@@ -43,8 +46,20 @@ public class DatumServer : BackgroundService
         _poolConfig = poolConfig;
         _stateService = stateService;
         _logger = logger;
+        _policy = policy ?? new DatumListenerPolicy
+        {
+            BindAddress = address.ToString(),
+            Port = port,
+            PolicyId = "legacy-sovereign"
+        };
+        _schedulerKey = _policy.SupportTemplateBasisPoints > 0
+            ? File.ReadAllBytes(_policy.SchedulerKeyPath)
+            : [];
         StateService = stateService;
-        PoolPort = port;
+        if (PoolPort == 0 || _policy.PolicyId.Contains("public", StringComparison.OrdinalIgnoreCase))
+        {
+            PoolPort = port;
+        }
         _stateService.WinnersListChanged += HandleWinnersListChangedAsync;
         _stateService.WorkTemplatesInvalidated += HandleWorkTemplatesInvalidatedAsync;
 
@@ -65,13 +80,24 @@ public class DatumServer : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _listener.Start();
-        _logger.LogInformation("\ud83d\ude80 DATUM Prime Server started. Key: {KeyShort}...", ServerPubKeyHex.Substring(0, 16));
+        _logger.LogInformation(
+            "\ud83d\ude80 DATUM Prime Server started on policy {PolicyId}. Key: {KeyShort}...",
+            _policy.PolicyId,
+            ServerPubKeyHex.Substring(0, 16));
         
         while (!stoppingToken.IsCancellationRequested)
         {
             var client = await _listener.AcceptTcpClientAsync(stoppingToken);
             int clientId = Interlocked.Increment(ref _nextClientId);
-            var clientHandler = new ClientHandler(client, _serverKey, _serverXKey, _poolConfig, _stateService, stoppingToken);
+            var clientHandler = new ClientHandler(
+                client,
+                _serverKey,
+                _serverXKey,
+                _poolConfig,
+                _stateService,
+                stoppingToken,
+                _policy,
+                _schedulerKey);
             _activeClients[clientId] = (client, clientHandler);
             _ = Task.Run(async () =>
             {

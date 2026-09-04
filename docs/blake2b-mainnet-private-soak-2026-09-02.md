@@ -72,3 +72,23 @@ runs another 12-hour private soak. Its output is written to:
 Public listener policy, payout-session isolation, a production difficulty
 floor, an off-host seed-identity backup, and the post-validation soak remain
 separate launch gates.
+
+## Post-validation result
+
+The follow-up soak completed at `2026-09-03T22:47:58Z`, after AssumeUTXO
+background validation had finished. It collected 8,611 samples over 12 hours.
+The final rolling window contained 250 accepted DATUM submissions and zero
+rejections; the Work Set contained 468 proofs. Both `hashblock` and `rawblock`
+reported zero sequence gaps and zero duplicates. Four missed-block observations
+were recovered by attached-node reconciliation, as designed.
+
+The deployed image did not expose the private share/session/protocol diagnostic
+routes, so verdicts requiring those routes remain explicitly not evaluated.
+This is not a failure of the public API or mining path, but those richer gates
+must not be represented as passed.
+
+After the soak, the reviewed upstream DATUM revision
+`2fea7e51286d3821c19dc1c240b8caa92bd92532` was built in an isolated VPS
+worktree and connected to the same Knots RC4 node. Its encrypted handshake,
+coinbaser requests, Blake2b jobs, and two real difficulty-3.756 share
+submissions completed successfully with no GridPool rejection.

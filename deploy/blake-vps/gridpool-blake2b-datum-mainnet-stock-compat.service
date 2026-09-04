@@ -1,0 +1,22 @@
+[Unit]
+Description=Upstream Blake2b DATUM compatibility probe (mainnet, private)
+After=network-online.target gridpool-blake2b-knots-mainnet.service gridpool-blake2b-mainnet-private-soak.service
+Wants=network-online.target
+Requires=gridpool-blake2b-knots-mainnet.service gridpool-blake2b-mainnet-private-soak.service
+
+[Service]
+Type=simple
+User=bitcoin
+Group=bitcoin
+WorkingDirectory=/opt/gridpool-blake2b/src/datum-gateway-stock-2fea7e5
+ExecStart=/opt/gridpool-blake2b/src/datum-gateway-stock-2fea7e5/build/datum_gateway --config=/etc/gridpool-blake2b/datum-mainnet-stock-compat.json
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/gridpool-blake2b/src/datum-gateway-stock-2fea7e5 /var/lib/gridpool-blake2b/mainnet/.cookie /etc/gridpool-blake2b/datum-mainnet-stock-compat.json
+
+[Install]
+WantedBy=multi-user.target

@@ -436,21 +436,37 @@ public class Program
                         $"Unknown bitcoin_notification_mode '{notificationMode}'. Expected 'attached-node' or 'external-fallback'.");
                 }
 
-                builder.Services.AddHostedService<DatumServer>(serviceProvider =>
+                List<DatumListenerPolicy> datumListeners = _poolConfig.DatumListeners.Count > 0
+                    ? _poolConfig.DatumListeners
+                    :
+                    [
+                        new DatumListenerPolicy
+                        {
+                            BindAddress = "0.0.0.0",
+                            Port = DatumPort,
+                            PolicyId = "legacy-sovereign"
+                        }
+                    ];
+                foreach (DatumListenerPolicy configuredPolicy in datumListeners)
                 {
-                    var logger = serviceProvider.GetRequiredService<ILogger<DatumServer>>();
-                    var hubContext = serviceProvider.GetRequiredService<IHubContext<PoolStatsHub>>();
-                    var stateService = serviceProvider.GetRequiredService<BootProtocolStateService>();
-                    return new DatumServer(
-                        IPAddress.Any,
-                        DatumPort,
-                        ed25519Key,
-                        x25519Key,
-                        _poolConfig,
-                        stateService,
-                        hubContext,
-                        logger);
-                });
+                    DatumListenerPolicy listenerPolicy = configuredPolicy;
+                    builder.Services.AddSingleton<IHostedService>(serviceProvider =>
+                    {
+                        var logger = serviceProvider.GetRequiredService<ILogger<DatumServer>>();
+                        var hubContext = serviceProvider.GetRequiredService<IHubContext<PoolStatsHub>>();
+                        var stateService = serviceProvider.GetRequiredService<BootProtocolStateService>();
+                        return new DatumServer(
+                            IPAddress.Parse(listenerPolicy.BindAddress),
+                            listenerPolicy.Port,
+                            ed25519Key,
+                            x25519Key,
+                            _poolConfig,
+                            stateService,
+                            hubContext,
+                            logger,
+                            listenerPolicy);
+                    });
+                }
                 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<BootPeerSessionManager>());
                 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<BootPeerUdpRelayService>());
                 builder.Services.AddHostedService<BootPeerSyncService>();
@@ -834,6 +850,15 @@ public class Program
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        config.DatumListeners ??= [];
+        foreach (DatumListenerPolicy listener in config.DatumListeners)
+        {
+            listener.BindAddress = string.IsNullOrWhiteSpace(listener.BindAddress) ? "0.0.0.0" : listener.BindAddress.Trim();
+            listener.PolicyId = listener.PolicyId?.Trim() ?? string.Empty;
+            listener.SupportAddress = BitcoinScript.NormalizeAddress(listener.SupportAddress);
+            listener.SchedulerKeyPath = listener.SchedulerKeyPath?.Trim() ?? string.Empty;
+        }
+
         config.TrustedForwardedProxyRanges ??= [];
         config.TrustedForwardedProxyRanges = config.TrustedForwardedProxyRanges
             .Where(range => !string.IsNullOrWhiteSpace(range))
@@ -922,6 +947,10 @@ public class ClientHandler
     private readonly DateTime?[] _jobCacheUpdatedUtc = new DateTime?[8];
     private readonly string?[] _jobPayoutSnapshotIds = new string?[8];
     private readonly Dictionary<byte, string> _coinbaserSnapshotIds = new();
+    private readonly Dictionary<byte, DatumTemplateDecision> _coinbaserTemplateDecisions = new();
+    private readonly DatumTemplateDecision?[] _jobTemplateDecisions = new DatumTemplateDecision?[8];
+    private readonly DatumListenerPolicy _listenerPolicy;
+    private readonly byte[] _schedulerKey;
     private string _clientPayoutAddress = "";
     private string _clientIdentityKey = "";
     private string _clientEncryptIdentityKey = "";
@@ -959,7 +988,9 @@ public class ClientHandler
         Key serverLongTermXKey,
         PoolConfig poolConfig,
         BootProtocolStateService stateService,
-        CancellationToken st)
+        CancellationToken st,
+        DatumListenerPolicy? listenerPolicy = null,
+        byte[]? schedulerKey = null)
     {
         _client = client;
         _stream = client.GetStream();
@@ -970,6 +1001,12 @@ public class ClientHandler
         _poolConfig = poolConfig;
         _chainDomainFingerprint = ResolveTrustedLocalChainDomainFingerprint(poolConfig);
         _stateService = stateService;
+        _listenerPolicy = listenerPolicy ?? new DatumListenerPolicy
+        {
+            Port = poolConfig.DatumPort,
+            PolicyId = "legacy-sovereign"
+        };
+        _schedulerKey = schedulerKey?.ToArray() ?? [];
         _clientPayoutAddress = BootProtocolStateService.GetGenesisFoundationAddress(_poolConfig.BitcoinNetwork);
         _stoppingToken = st;
         _sessionStartedUtc = DateTime.UtcNow;
@@ -2037,11 +2074,14 @@ public class ClientHandler
             _stateService.GetKnownDatumPayoutAddress(_clientEncryptIdentityKey);
         if (!string.IsNullOrWhiteSpace(rememberedPayoutAddress))
         {
+            _clientPayoutAddress = BitcoinScript.NormalizeAddress(rememberedPayoutAddress);
+            _sessionPayoutAddressLocked = true;
+            _stateService.RecordDatumSessionPayoutLock(_sessionId, _clientPayoutAddress);
             string signingKeyPreview = _clientIdentityKey.Length >= 8
                 ? _clientIdentityKey[..8]
                 : _clientIdentityKey;
             Console.WriteLine(
-                $"🔁 Known DATUM client payout address {rememberedPayoutAddress} for client {signingKeyPreview}... starting this session on the temporary 256 Foundation slot-0 address until the first share locks the payout address.");
+                $"🔁 Restored authenticated DATUM payout address {_clientPayoutAddress} for client {signingKeyPreview}...");
         }
 
         //Initialize a new ed25519 key for signing the session messages with
@@ -2204,6 +2244,19 @@ public class ClientHandler
             stageStopwatch.Restart();
             coinbaserResponseId = NextCoinbaserResponseId();
             RememberCoinbaserSnapshotId(coinbaserResponseId, activeSnapshotId);
+            BootNetworkStatusDto networkStatus = _stateService.GetNetworkStatus();
+            long templateSequence = _stateService.ReserveDatumTemplateSequence(
+                _listenerPolicy.PolicyId,
+                _clientIdentityKey);
+            DatumTemplateDecision templateDecision = DatumTemplateScheduler.Decide(
+                _listenerPolicy,
+                _schedulerKey,
+                _chainDomainFingerprint,
+                _clientIdentityKey,
+                _clientPayoutAddress,
+                networkStatus.CurrentTipBlockHash ?? string.Empty,
+                templateSequence);
+            _coinbaserTemplateDecisions[coinbaserResponseId] = templateDecision;
             fetchResponse = new CoinbaserFetchResponseMessage();
             fetchResponse.CoinbaserId = coinbaserResponseId;
             foreach (var payout in winnersList)
@@ -2220,7 +2273,7 @@ public class ClientHandler
             var myPayout = new PayoutInfo
             {
                 Value = mySats,
-                Address = _clientPayoutAddress
+                Address = templateDecision.SlotZeroAddress
             };
             fetchResponse.Payouts = new List<PayoutInfo>(coinbaseOutputs);
             fetchResponse.Payouts.Insert(0, myPayout);
@@ -2247,9 +2300,9 @@ public class ClientHandler
             stopwatch.Stop();
 
             bool usingTemporarySlotZero = string.Equals(
-                BitcoinScript.NormalizeAddress(_clientPayoutAddress),
+                BitcoinScript.NormalizeAddress(templateDecision.SlotZeroAddress),
                 BitcoinScript.NormalizeAddress(BootProtocolStateService.GetGenesisFoundationAddress(_poolConfig.BitcoinNetwork)),
-                StringComparison.OrdinalIgnoreCase);
+                StringComparison.OrdinalIgnoreCase) && !_sessionPayoutAddressLocked;
             string clientIdentityPreview = !string.IsNullOrWhiteSpace(_clientIdentityKey)
                 ? (_clientIdentityKey.Length > 8 ? _clientIdentityKey[..8] : _clientIdentityKey)
                 : string.Empty;
@@ -2263,7 +2316,7 @@ public class ClientHandler
                 fetchRequest.RewardValue,
                 teamPayoutTotal,
                 mySats,
-                _clientPayoutAddress,
+                templateDecision.SlotZeroAddress,
                 usingTemporarySlotZero,
                 winnersList.Count,
                 fetchResponse.Payouts.Count,
@@ -2446,6 +2499,7 @@ public class ClientHandler
                 $"Locked DATUM session {_client.Client.RemoteEndPoint} to payout address {_clientPayoutAddress}.");
             Console.WriteLine(
                 $"🔒 Locked DATUM session {_client.Client.RemoteEndPoint} to payout address {_clientPayoutAddress}.");
+            await RequestBlockTemplateRefreshAsync("payout-lock");
         }
         else if (_sessionPayoutAddressLocked &&
                  IsValidAddress(submittedAddress) &&
@@ -2462,7 +2516,23 @@ public class ClientHandler
                 $"⚠️ {warningMessage}");
         }
 
-        powSubmit.Address = _clientPayoutAddress;
+        DatumTemplateDecision? submittedTemplateDecision = null;
+        if (powSubmit.CoinbaserId.HasValue &&
+            _coinbaserTemplateDecisions.TryGetValue(powSubmit.CoinbaserId.Value, out DatumTemplateDecision coinbaserDecision))
+        {
+            submittedTemplateDecision = coinbaserDecision;
+        }
+        else if (_listenerPolicy.SupportTemplateBasisPoints == 0 && powSubmit.JobId < _jobTemplateDecisions.Length)
+        {
+            submittedTemplateDecision = _jobTemplateDecisions[powSubmit.JobId];
+        }
+
+        if (_listenerPolicy.SupportTemplateBasisPoints > 0 && submittedTemplateDecision == null)
+        {
+            throw new InvalidOperationException("DATUM share did not identify a job-bound slot-0 scheduler decision.");
+        }
+
+        powSubmit.Address = submittedTemplateDecision?.SlotZeroAddress ?? _clientPayoutAddress;
 
         if (powSubmit.PrevBlockHash == null)  //This is just a nonce update, does not include complete header info
         {
@@ -2574,6 +2644,7 @@ public class ClientHandler
             _jobCache[powSubmit.JobId] = powSubmit;  //New job, with complete header info.  
             _jobCacheUpdatedUtc[powSubmit.JobId] = startedUtc;
             _jobPayoutSnapshotIds[powSubmit.JobId] = powSubmit.PayoutSnapshotId;
+            _jobTemplateDecisions[powSubmit.JobId] = submittedTemplateDecision;
         }
         //TODO: Technically, there is the very edge case that a miner could reuse old coinbase info with a new job and merkle branches.  This case isn't handled right now.
 

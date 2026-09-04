@@ -1,5 +1,6 @@
 using System.Text;
 using boot_portal.Models;
+using boot_portal.Services;
 using boot_portal.Utils;
 
 namespace boot.tests;
@@ -409,5 +410,51 @@ public sealed class PoolConfigValidatorTests
 
         Assert.IsTrue(errors.Any(error =>
             error.Contains("public_operator_diagnostics_enabled", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
+    public void BlakeHostedListenerRequiresValidUniquePolicyAndSchedulerConfiguration()
+    {
+        var config = new PoolConfig
+        {
+            BitcoinNetwork = BitcoinScript.Mainnet,
+            ChainProfileId = ChainDomainProfiles.Blake2bMainnetProfileId,
+            BootNetworkId = ChainDomainProfiles.Blake2bMainnetNetworkId,
+            BootProtocolVersion = BootProtocolVersions.BlakeConsensusVersion,
+            WinnersListSize = 299,
+            GridLabsSupportFeeEnabled = false,
+            EnablePeerUdpFastRelay = false,
+            EnablePulseProofs = false,
+            EnableOptimisticShareRelay = false,
+            DatumListeners =
+            [
+                new DatumListenerPolicy
+                {
+                    BindAddress = "0.0.0.0",
+                    Port = 3008,
+                    PolicyId = "public-datum",
+                    SupportTemplateBasisPoints = 500,
+                    SupportAddress = BootProtocolStateService.GridLabsSupportAddress,
+                    SchedulerKeyPath = "/data/datum-public-scheduler.key"
+                },
+                new DatumListenerPolicy
+                {
+                    BindAddress = "0.0.0.0",
+                    Port = 3018,
+                    PolicyId = "hosted-stratum",
+                    SupportTemplateBasisPoints = 5_000,
+                    SupportAddress = BootProtocolStateService.GridLabsSupportAddress,
+                    SchedulerKeyPath = "/data/datum-hosted-scheduler.key"
+                }
+            ]
+        };
+
+        CollectionAssert.AreEqual(Array.Empty<string>(), PoolConfigValidator.Validate(config));
+
+        config.DatumListeners[1].PolicyId = "public-datum";
+        config.DatumListeners[1].SchedulerKeyPath = string.Empty;
+        List<string> errors = PoolConfigValidator.Validate(config);
+        Assert.IsTrue(errors.Any(error => error.Contains("unique", StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(errors.Any(error => error.Contains("scheduler_key_path", StringComparison.OrdinalIgnoreCase)));
     }
 }

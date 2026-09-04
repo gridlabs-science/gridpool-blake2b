@@ -107,6 +107,9 @@ public class PoolConfig
     [JsonPropertyName("Datum_Port")]
     public int DatumPort { get; set; } = 3008;
 
+    [JsonPropertyName("datum_listeners")]
+    public List<DatumListenerPolicy> DatumListeners { get; set; } = [];
+
     [JsonPropertyName("WebUI_Port_http")]
     public int WebUiPortHttp { get; set; } = 5000;
 
@@ -447,4 +450,25 @@ public class PoolConfig
     public bool TestingRoundResetEnabled =>
         string.Equals(TestingRoundResetMode, "block_hash_low_nibble", StringComparison.OrdinalIgnoreCase) &&
         TestingRoundResetLowNibbleThreshold > 0;
+}
+
+public sealed class DatumListenerPolicy
+{
+    [JsonPropertyName("bind_address")]
+    public string BindAddress { get; set; } = "0.0.0.0";
+
+    [JsonPropertyName("port")]
+    public int Port { get; set; }
+
+    [JsonPropertyName("policy_id")]
+    public string PolicyId { get; set; } = "sovereign";
+
+    [JsonPropertyName("support_template_basis_points")]
+    public int SupportTemplateBasisPoints { get; set; }
+
+    [JsonPropertyName("support_address")]
+    public string SupportAddress { get; set; } = string.Empty;
+
+    [JsonPropertyName("scheduler_key_path")]
+    public string SchedulerKeyPath { get; set; } = string.Empty;
 }
